@@ -192,6 +192,49 @@ class AutoMessages {
     }
   }
 
+  /** Build a dynamic PvP status string based on current time, or empty if disabled */
+  _pvpScheduleText() {
+    if (!config.enablePvpScheduler) return '';
+    const startMin = !isNaN(config.pvpStartMinutes) ? config.pvpStartMinutes : config.pvpStartHour * 60;
+    const endMin   = !isNaN(config.pvpEndMinutes) ? config.pvpEndMinutes : config.pvpEndHour * 60;
+    if (isNaN(startMin) || isNaN(endMin)) return '';
+
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+    // Get current time in the configured timezone
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-GB', {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: config.pvpTimezone,
+    });
+    const [h, m] = timeStr.split(':').map(Number);
+    const nowMin = h * 60 + m;
+
+    // Check if currently inside PvP window
+    let insidePvp;
+    if (startMin < endMin) {
+      insidePvp = nowMin >= startMin && nowMin < endMin;
+    } else {
+      insidePvp = nowMin >= startMin || nowMin < endMin;
+    }
+
+    if (insidePvp) {
+      // Calculate time remaining in PvP window
+      let minsLeft = endMin > nowMin ? endMin - nowMin : (1440 - nowMin) + endMin;
+      const hours = Math.floor(minsLeft / 60);
+      const mins = minsLeft % 60;
+      const timeLeft = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      return ` PvP is enabled for ${timeLeft} (until ${fmt(endMin)} ${config.pvpTimezone}).`;
+    } else {
+      // Calculate time until PvP starts
+      let minsUntil = startMin > nowMin ? startMin - nowMin : (1440 - nowMin) + startMin;
+      const hours = Math.floor(minsUntil / 60);
+      const mins = minsUntil % 60;
+      const timeUntil = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      return ` PvP starts in ${timeUntil} (${fmt(startMin)}–${fmt(endMin)} ${config.pvpTimezone}).`;
+    }
+  }
+
   /** Send a welcome message for a new player */
   async _sendWelcome(player) {
     try {
@@ -202,13 +245,14 @@ class AutoMessages {
 
       // Build the welcome message based on history
       const pt = playtime.getPlaytime(id);
+      const pvpInfo = this._pvpScheduleText();
       let msg;
 
       if (pt && pt.isReturning) {
         const since = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
-        msg = `Welcome back, ${name}! Your total playtime since ${since} is ${pt.totalFormatted}. Type !admin in chat if you need help. Discord: ${this.discordLink}`;
+        msg = `Welcome back, ${name}! Your total playtime since ${since} is ${pt.totalFormatted}.${pvpInfo} Type !admin in chat if you need help. Discord: ${this.discordLink}`;
       } else {
-        msg = `Welcome to the server, ${name}! Type !admin in chat if you need help from an admin. Join our Discord: ${this.discordLink}`;
+        msg = `Welcome to the server, ${name}!${pvpInfo} Type !admin in chat if you need help from an admin. Join our Discord: ${this.discordLink}`;
       }
 
       await sendAdminMessage(msg);

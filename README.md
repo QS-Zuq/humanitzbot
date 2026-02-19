@@ -18,7 +18,7 @@ A comprehensive Discord bot for HumanitZ dedicated servers. Connects via RCON fo
 - **Player Statistics** — Per-player stats from save file parsing (kills, vitals, inventory, recipes) merged with log data (deaths, damage, builds). Includes clan stats from in-game clan groups
 - **Bidirectional Chat** — Discord ↔ in-game chat bridge with `!admin` alerts
 - **Activity Logging** — Deaths, damage, building, looting, raids, connects/disconnects posted to daily threads via SFTP log parsing
-- **PvP Scheduler** — Automatic PvP on/off at scheduled hours with countdown warnings and server restart via SFTP
+- **PvP Scheduler** — Automatic PvP on/off at scheduled times (HH:MM format) with minute-precision countdowns, server restart via SFTP, dynamic PvP info in welcome messages, and optional server name update with PvP schedule
 - **Auto-Messages** — Welcome messages for new/returning players, periodic Discord link broadcasts
 - **Bot Lifecycle** — Online/offline notification embeds in admin channel with active modules and uptime
 - **Slash Commands** — `/server`, `/players`, `/playtime`, `/playerstats`, `/rcon`

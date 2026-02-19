@@ -1,18 +1,20 @@
 /**
- * PvP Scheduler — toggles PvP on/off at configured real-world hours.
+ * PvP Scheduler — toggles PvP on/off at configured real-world times.
  *
  * Flow:
  *   1. Every minute, check if current time is inside or outside the PvP window.
- *   2. When the state needs to change, start a countdown (10, 5, 3, 2, 1 min warnings).
+ *   2. When within the restart-delay window, start a countdown (10, 5, 3, 2, 1 min warnings).
  *   3. At 0: download GameServerSettings.ini via SFTP → toggle PVP=0/1 → upload → restart.
  *
  * Config (.env):
  *   ENABLE_PVP_SCHEDULER=false         # off by default
- *   PVP_START_HOUR=18                  # PvP turns ON at 18:00
- *   PVP_END_HOUR=22                    # PvP turns OFF at 22:00
+ *   PVP_START_TIME=18:00               # PvP turns ON  (HH:MM, e.g. 22:30)
+ *   PVP_END_TIME=22:00                 # PvP turns OFF (HH:MM, e.g. 23:30)
  *   PVP_TIMEZONE=UTC                   # IANA timezone (e.g. UTC, America/New_York, Europe/London)
  *   PVP_RESTART_DELAY=10               # minutes of warning before restart (default 10)
  *   FTP_SETTINGS_PATH=/HumanitZServer/GameServerSettings.ini
+ *
+ *   Legacy: PVP_START_HOUR / PVP_END_HOUR (whole hours) still work as fallback.
  */
 
 const { EmbedBuilder } = require('discord.js');
@@ -31,20 +33,27 @@ class PvpScheduler {
     this._transitioning = false;
     this._currentPvp = null; // true = PvP ON, false = PvP OFF, null = unknown
     this._adminChannel = null;
+    this._originalServerName = null; // cached base server name (before PvP suffix)
   }
 
   async start() {
-    if (isNaN(config.pvpStartHour) || isNaN(config.pvpEndHour)) {
-      console.log('[PVP] PVP_START_HOUR or PVP_END_HOUR not configured, scheduler idle');
+    // Resolve start/end as total minutes from midnight.
+    // Prefer PVP_START_TIME / PVP_END_TIME (HH:MM), fall back to legacy PVP_START_HOUR / PVP_END_HOUR.
+    this._pvpStart = !isNaN(config.pvpStartMinutes) ? config.pvpStartMinutes : config.pvpStartHour * 60;
+    this._pvpEnd   = !isNaN(config.pvpEndMinutes) ? config.pvpEndMinutes : config.pvpEndHour * 60;
+
+    if (isNaN(this._pvpStart) || isNaN(this._pvpEnd)) {
+      console.log('[PVP] PVP start/end time not configured, scheduler idle');
       return;
     }
-    if (config.pvpStartHour === config.pvpEndHour) {
-      console.error('[PVP] PVP_START_HOUR and PVP_END_HOUR are the same — scheduler disabled to prevent 24/7 PvP');
+    if (this._pvpStart === this._pvpEnd) {
+      console.error('[PVP] PVP start and end times are the same — scheduler disabled');
       return;
     }
 
-    console.log(`[PVP] Scheduler active: PvP ${config.pvpStartHour}:00–${config.pvpEndHour}:00 (${config.pvpTimezone})`);
-    console.log(`[PVP] Restart delay: ${config.pvpRestartDelay} minutes`);
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    console.log(`[PVP] Scheduler active: PvP ${fmt(this._pvpStart)}–${fmt(this._pvpEnd)} (${config.pvpTimezone})`);
+    console.log(`[PVP] Restart delay: ${config.pvpRestartDelay} minutes (warnings start before scheduled time)`);
 
     // Resolve admin channel for announcements
     if (config.adminChannelId) {
@@ -93,9 +102,9 @@ class PvpScheduler {
   }
 
   /**
-   * Get the current hour in the configured timezone.
+   * Get the current hour and minute in the configured timezone.
    */
-  _getCurrentHour() {
+  _getCurrentTime() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-GB', {
       hour: '2-digit',
@@ -103,32 +112,57 @@ class PvpScheduler {
       hour12: false,
       timeZone: config.pvpTimezone,
     });
-    return parseInt(timeStr.split(':')[0], 10);
+    const [h, m] = timeStr.split(':').map(Number);
+    return { hour: h, minute: m, totalMinutes: h * 60 + m };
   }
 
   /**
-   * Check if the current time is within the PvP window.
+   * Check if a given totalMinutes value falls inside the PvP window.
    */
-  _shouldBePvp() {
-    const hour = this._getCurrentHour();
-    const start = config.pvpStartHour;
-    const end = config.pvpEndHour;
+  _isInsidePvpWindow(totalMinutes) {
+    const start = this._pvpStart;
+    const end = this._pvpEnd;
 
     // Handle overnight windows (e.g. 22:00–06:00)
     if (start < end) {
-      return hour >= start && hour < end;
+      return totalMinutes >= start && totalMinutes < end;
     } else {
-      return hour >= start || hour < end;
+      return totalMinutes >= start || totalMinutes < end;
     }
   }
 
   /**
+   * Calculate minutes until the next PvP state transition.
+   * Returns { minutesUntil, targetPvp } where targetPvp is the state after the transition.
+   */
+  _minutesUntilNextTransition() {
+    const { totalMinutes } = this._getCurrentTime();
+    const start = this._pvpStart; // PvP turns ON
+    const end = this._pvpEnd;     // PvP turns OFF
+    const insidePvp = this._isInsidePvpWindow(totalMinutes);
+
+    let minutesUntil;
+    let targetPvp;
+
+    if (insidePvp) {
+      // Currently inside PvP window — next transition is PvP OFF at end hour
+      targetPvp = false;
+      minutesUntil = end > totalMinutes ? end - totalMinutes : (1440 - totalMinutes) + end;
+    } else {
+      // Currently outside PvP window — next transition is PvP ON at start hour
+      targetPvp = true;
+      minutesUntil = start > totalMinutes ? start - totalMinutes : (1440 - totalMinutes) + start;
+    }
+
+    return { minutesUntil, targetPvp };
+  }
+
+  /**
    * Main tick — runs every 60 seconds.
+   * Starts the countdown early enough that the restart happens at the scheduled time.
    */
   _tick() {
     if (this._transitioning) return; // countdown already in progress
-
-    const shouldBePvp = this._shouldBePvp();
 
     // If state is unknown, retry reading from server
     if (this._currentPvp === null) {
@@ -136,24 +170,29 @@ class PvpScheduler {
       return;
     }
 
-    // No change needed
-    if (shouldBePvp === this._currentPvp) return;
+    const { minutesUntil, targetPvp } = this._minutesUntilNextTransition();
+    const delay = config.pvpRestartDelay;
 
-    // State change needed — start countdown
-    const targetLabel = shouldBePvp ? 'ON' : 'OFF';
-    console.log(`[PVP] PvP needs to turn ${targetLabel} — starting ${config.pvpRestartDelay}-minute countdown`);
-    this._startCountdown(shouldBePvp);
+    // Skip if the server is already in the target state (e.g. after a manual toggle)
+    if (targetPvp === this._currentPvp) return;
+
+    // Start countdown when we're within the restart-delay window
+    if (minutesUntil <= delay) {
+      const targetLabel = targetPvp ? 'ON' : 'OFF';
+      console.log(`[PVP] PvP turning ${targetLabel} in ${minutesUntil} minutes — starting countdown`);
+      this._startCountdown(targetPvp, minutesUntil);
+    }
   }
 
   /**
    * Start the countdown sequence before restart.
    */
-  _startCountdown(targetPvp) {
+  _startCountdown(targetPvp, minutesUntilToggle) {
     this._transitioning = true;
     const targetLabel = targetPvp ? 'ON' : 'OFF';
-    const delay = config.pvpRestartDelay;
+    const delay = minutesUntilToggle !== undefined ? minutesUntilToggle : config.pvpRestartDelay;
 
-    // Build warning schedule: which warnings fit within the delay
+    // Build warning schedule: which standard warnings fit within the remaining time
     const warnings = WARNINGS.filter(m => m <= delay);
     if (warnings.length === 0 || warnings[0] < delay) {
       warnings.unshift(delay);
@@ -218,7 +257,12 @@ class PvpScheduler {
         this._transitioning = false;
         return;
       }
-      const updated = content.replace(/^(PVP\s*=\s*)\d/m, `$1${targetValue}`);
+      let updated = content.replace(/^(PVP\s*=\s*)\d/m, `$1${targetValue}`);
+
+      // Optionally update the ServerName with PvP schedule info
+      if (config.pvpUpdateServerName) {
+        updated = this._updateServerName(updated, targetPvp);
+      }
 
       if (updated === content) {
         console.log(`[PVP] Settings file already has PVP=${targetValue}, skipping upload`);
@@ -281,6 +325,50 @@ class PvpScheduler {
         console.error('[PVP] Failed to post to Discord:', err.message);
       }
     }
+  }
+
+  // ── Server-name helpers ─────────────────────────────────────
+
+  /** Format the PvP time range as "HH:MM-HH:MM (timezone)" */
+  _formatPvpTimeRange() {
+    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    return `${fmt(this._pvpStart)}-${fmt(this._pvpEnd)} ${config.pvpTimezone}`;
+  }
+
+  /**
+   * Update the ServerName= line in the ini content.
+   * When PvP is ON:  append " - PVP Enabled HH:MM-HH:MM (tz)"
+   * When PvP is OFF: restore the original name (strip PvP suffix)
+   */
+  _updateServerName(content, pvpOn) {
+    const nameMatch = content.match(/^ServerName\s*=\s*"?(.+?)"?\s*$/m);
+    if (!nameMatch) {
+      console.error('[PVP] Could not find ServerName= line in settings file');
+      return content;
+    }
+
+    const currentName = nameMatch[1];
+
+    // Cache the original (suffix-free) server name on first encounter
+    if (!this._originalServerName) {
+      // Strip any existing PvP suffix so we always have the clean base name
+      this._originalServerName = currentName.replace(/\s*-\s*PVP Enabled\s+\d{2}:\d{2}-\d{2}:\d{2}\s+\S+/, '').trim();
+      console.log(`[PVP] Cached original server name: ${this._originalServerName}`);
+    }
+
+    let newName;
+    if (pvpOn) {
+      newName = `${this._originalServerName} - PVP Enabled ${this._formatPvpTimeRange()}`;
+    } else {
+      newName = this._originalServerName;
+    }
+
+    const updatedContent = content.replace(
+      /^(ServerName\s*=\s*)"?.*?"?\s*$/m,
+      `$1"${newName}"`
+    );
+    console.log(`[PVP] ServerName → ${newName}`);
+    return updatedContent;
   }
 
   /**

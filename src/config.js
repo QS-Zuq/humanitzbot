@@ -7,6 +7,17 @@ function envBool(key, defaultValue) {
   return val === 'true';
 }
 
+/** Parse a time string like "18", "18:00", or "18:30" into total minutes from midnight */
+function envTime(key) {
+  const val = process.env[key];
+  if (val === undefined || val === '') return NaN;
+  const parts = val.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+  if (isNaN(h) || isNaN(m)) return NaN;
+  return h * 60 + m;
+}
+
 const config = {
   // Discord
   discordToken: process.env.DISCORD_TOKEN,
@@ -62,10 +73,14 @@ const config = {
 
   // PvP scheduler
   enablePvpScheduler: envBool('ENABLE_PVP_SCHEDULER', false),
+  pvpStartMinutes: envTime('PVP_START_TIME'),   // total minutes from midnight (supports "HH" or "HH:MM")
+  pvpEndMinutes: envTime('PVP_END_TIME'),       // total minutes from midnight (supports "HH" or "HH:MM")
+  // Legacy fallback: PVP_START_HOUR / PVP_END_HOUR still work (whole hours only)
   pvpStartHour: process.env.PVP_START_HOUR !== undefined ? parseInt(process.env.PVP_START_HOUR, 10) : NaN,
   pvpEndHour: process.env.PVP_END_HOUR !== undefined ? parseInt(process.env.PVP_END_HOUR, 10) : NaN,
   pvpTimezone: process.env.PVP_TIMEZONE || 'UTC',
   pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY, 10) || 10,
+  pvpUpdateServerName: envBool('PVP_UPDATE_SERVER_NAME', false),
   ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
 
   // Feature toggles — log watcher sub-features
