@@ -153,7 +153,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Start player-stats channel (save-file parsing with full stats embed)
   if (config.enablePlayerStats) {
-    playerStatsChannel = new PlayerStatsChannel(readyClient);
+    playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher);
     await playerStatsChannel.start();
   } else {
     console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');

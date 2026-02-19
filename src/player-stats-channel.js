@@ -20,8 +20,9 @@ const KILL_FILE = path.join(DATA_DIR, 'kill-tracker.json');
  */
 
 class PlayerStatsChannel {
-  constructor(client) {
+  constructor(client, logWatcher) {
     this.client = client;
+    this._logWatcher = logWatcher || null; // for posting kill feed to activity thread
     this.channel = null;
     this.statusMessage = null; // the single embed we keep editing
     this.saveInterval = null;
@@ -107,8 +108,8 @@ class PlayerStatsChannel {
       this._lastSaveUpdate = new Date();
       console.log(`[PLAYER STATS CH] Parsed save: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
 
-      // Accumulate lifetime kill stats (detect death resets)
-      this._accumulateKills();
+      // Accumulate lifetime stats across deaths (kills + survival)
+      this._accumulateStats();
 
       // Parse clan data (separate small file)
       try {
@@ -156,19 +157,25 @@ class PlayerStatsChannel {
     }
   }
 
-  // ── Kill Tracker (lifetime accumulation across deaths) ─────
+  // ── Lifetime Stat Tracker (accumulates across deaths) ─────
 
   static KILL_KEYS = ['zeeksKilled', 'headshots', 'meleeKills', 'gunKills', 'blastKills', 'fistKills', 'takedownKills', 'vehicleKills'];
+  static SURVIVAL_KEYS = ['daysSurvived', 'bites', 'timesBitten', 'affliction', 'caughtFish', 'caughtPike'];
 
   _loadKillData() {
     try {
       if (fs.existsSync(KILL_FILE)) {
         this._killData = JSON.parse(fs.readFileSync(KILL_FILE, 'utf8'));
         const count = Object.keys(this._killData.players).length;
-        console.log(`[KILL TRACKER] Loaded ${count} player(s) from kill-tracker.json`);
+        console.log(`[STAT TRACKER] Loaded ${count} player(s) from kill-tracker.json`);
+        // Migrate old records: add survival fields if missing
+        for (const record of Object.values(this._killData.players)) {
+          if (!record.survivalCumulative) record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+          if (!record.survivalSnapshot) record.survivalSnapshot = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+        }
       }
     } catch (err) {
-      console.error('[KILL TRACKER] Failed to load, starting fresh:', err.message);
+      console.error('[STAT TRACKER] Failed to load, starting fresh:', err.message);
       this._killData = { players: {} };
     }
   }
@@ -180,16 +187,19 @@ class PlayerStatsChannel {
       fs.writeFileSync(KILL_FILE, JSON.stringify(this._killData, null, 2), 'utf8');
       this._killDirty = false;
     } catch (err) {
-      console.error('[KILL TRACKER] Failed to save:', err.message);
+      console.error('[STAT TRACKER] Failed to save:', err.message);
     }
   }
 
-  /** Make a zero-valued kill snapshot */
-  static _emptyKills() {
+  /** Make a zero-valued object for the given key set */
+  static _emptyObj(keys) {
     const obj = {};
-    for (const k of PlayerStatsChannel.KILL_KEYS) obj[k] = 0;
+    for (const k of keys) obj[k] = 0;
     return obj;
   }
+
+  /** Legacy alias */
+  static _emptyKills() { return PlayerStatsChannel._emptyObj(PlayerStatsChannel.KILL_KEYS); }
 
   /** Extract current kill values from save data */
   static _snapshotKills(save) {
@@ -198,42 +208,160 @@ class PlayerStatsChannel {
     return obj;
   }
 
+  /** Extract current survival values from save data */
+  static _snapshotSurvival(save) {
+    const obj = {};
+    for (const k of PlayerStatsChannel.SURVIVAL_KEYS) obj[k] = save[k] || 0;
+    return obj;
+  }
+
   /**
    * On each save poll, compare current save kills to last snapshot.
    * If current < last for the main kill stat (zeeksKilled), the player died
    * and the game reset their stats — bank the last snapshot into cumulative.
    */
-  _accumulateKills() {
+  _accumulateStats() {
+    const killDeltas = [];    // per-player kill deltas for the kill feed
+    const survivalDeltas = []; // per-player survival deltas for the survival feed
+
     for (const [id, save] of this._saveData) {
-      const current = PlayerStatsChannel._snapshotKills(save);
+      const currentKills = PlayerStatsChannel._snapshotKills(save);
+      const currentSurvival = PlayerStatsChannel._snapshotSurvival(save);
 
       if (!this._killData.players[id]) {
-        // First time seeing this player — initialise
+        // First time seeing this player — initialise both trackers
         this._killData.players[id] = {
           cumulative: PlayerStatsChannel._emptyKills(),
-          lastSnapshot: current,
+          lastSnapshot: currentKills,
+          survivalCumulative: PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS),
+          survivalSnapshot: currentSurvival,
         };
         this._killDirty = true;
         continue;
       }
 
       const record = this._killData.players[id];
-      const last = record.lastSnapshot;
+      const lastKills = record.lastSnapshot;
+      const lastSurvival = record.survivalSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+      const playerName = save.playerName || playtime.getPlaytime(id)?.name || id;
 
       // Detect death reset: main kill count dropped
-      if (current.zeeksKilled < last.zeeksKilled) {
-        // Bank the last snapshot into cumulative
+      const deathReset = currentKills.zeeksKilled < lastKills.zeeksKilled;
+      if (deathReset) {
+        // Bank the last kill snapshot into cumulative
         for (const k of PlayerStatsChannel.KILL_KEYS) {
-          record.cumulative[k] += last[k];
+          record.cumulative[k] += lastKills[k];
         }
-        console.log(`[KILL TRACKER] ${id}: death detected — banked ${last.zeeksKilled} kills (all-time: ${record.cumulative.zeeksKilled + current.zeeksKilled})`);
+        // Bank the last survival snapshot into cumulative
+        if (!record.survivalCumulative) record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+        for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
+          record.survivalCumulative[k] += lastSurvival[k];
+        }
+        console.log(`[STAT TRACKER] ${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`);
+        // After a death reset, deltas are meaningless — skip
+        record.lastSnapshot = currentKills;
+        record.survivalSnapshot = currentSurvival;
+        this._killDirty = true;
+        continue;
       }
 
-      record.lastSnapshot = current;
+      // Compute kill deltas since last poll
+      const killDelta = {};
+      let hasKills = false;
+      for (const k of PlayerStatsChannel.KILL_KEYS) {
+        const diff = currentKills[k] - lastKills[k];
+        if (diff > 0) { killDelta[k] = diff; hasKills = true; }
+      }
+      if (hasKills) {
+        killDeltas.push({ steamId: id, name: playerName, delta: killDelta });
+      }
+
+      // Compute survival deltas since last poll
+      const survDelta = {};
+      let hasSurv = false;
+      for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
+        const diff = currentSurvival[k] - lastSurvival[k];
+        if (diff > 0) { survDelta[k] = diff; hasSurv = true; }
+      }
+      if (hasSurv) {
+        survivalDeltas.push({ steamId: id, name: playerName, delta: survDelta });
+      }
+
+      record.lastSnapshot = currentKills;
+      record.survivalSnapshot = currentSurvival;
       this._killDirty = true;
     }
 
     this._saveKillData();
+
+    // Post kill feed to activity thread if enabled
+    if (killDeltas.length > 0 && config.enableKillFeed && this._logWatcher) {
+      this._postKillFeed(killDeltas);
+    }
+    // Post survival feed to activity thread if enabled
+    if (survivalDeltas.length > 0 && config.enableKillFeed && this._logWatcher) {
+      this._postSurvivalFeed(survivalDeltas);
+    }
+  }
+
+  /**
+   * Post a batched kill feed embed to the log watcher's daily activity thread.
+   * Groups all player kill deltas from this save poll into a single embed.
+   */
+  async _postKillFeed(deltas) {
+    const lines = deltas.map(({ name, delta }) => {
+      const total = delta.zeeksKilled || 0;
+      const parts = [];
+      if (delta.headshots)     parts.push(`${delta.headshots} headshot${delta.headshots > 1 ? 's' : ''}`);
+      if (delta.meleeKills)    parts.push(`${delta.meleeKills} melee`);
+      if (delta.gunKills)      parts.push(`${delta.gunKills} gun`);
+      if (delta.blastKills)    parts.push(`${delta.blastKills} blast`);
+      if (delta.fistKills)     parts.push(`${delta.fistKills} fist`);
+      if (delta.takedownKills) parts.push(`${delta.takedownKills} takedown`);
+      if (delta.vehicleKills)  parts.push(`${delta.vehicleKills} vehicle`);
+      const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+      return `**${name}** killed **${total} zeek${total !== 1 ? 's' : ''}**${detail}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🧟 Kill Activity' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x1abc9c)
+      .setTimestamp();
+
+    try {
+      await this._logWatcher._sendToThread(embed);
+    } catch (err) {
+      console.error('[KILL FEED] Failed to post to activity thread:', err.message);
+    }
+  }
+
+  /**
+   * Post a batched survival feed embed to the log watcher's daily activity thread.
+   */
+  async _postSurvivalFeed(deltas) {
+    const lines = deltas.map(({ name, delta }) => {
+      const parts = [];
+      if (delta.daysSurvived)  parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
+      if (delta.caughtFish)    parts.push(`${delta.caughtFish} fish caught`);
+      if (delta.caughtPike)    parts.push(`${delta.caughtPike} pike caught`);
+      if (delta.bites)         parts.push(`${delta.bites} bite${delta.bites > 1 ? 's' : ''}`);
+      if (delta.timesBitten)   parts.push(`bitten ${delta.timesBitten}×`);
+      if (delta.affliction)    parts.push(`${delta.affliction} affliction${delta.affliction > 1 ? 's' : ''}`);
+      return `**${name}** — ${parts.join(', ')}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🏕️ Survival Activity' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x2ecc71)
+      .setTimestamp();
+
+    try {
+      await this._logWatcher._sendToThread(embed);
+    } catch (err) {
+      console.error('[SURVIVAL FEED] Failed to post to activity thread:', err.message);
+    }
   }
 
   /**
@@ -253,6 +381,29 @@ class PlayerStatsChannel {
     }
     if (save) {
       for (const k of PlayerStatsChannel.KILL_KEYS) {
+        allTime[k] += (save[k] || 0);
+      }
+    }
+    return allTime;
+  }
+
+  /**
+   * Get all-time survival stats for a player (cumulative + current life).
+   * Returns null if no data.
+   */
+  getAllTimeSurvival(steamId) {
+    const record = this._killData.players[steamId];
+    const save = this._saveData.get(steamId);
+    if (!record && !save) return null;
+
+    const allTime = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+    if (record?.survivalCumulative) {
+      for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
+        allTime[k] += record.survivalCumulative[k];
+      }
+    }
+    if (save) {
+      for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
         allTime[k] += (save[k] || 0);
       }
     }
@@ -288,9 +439,15 @@ class PlayerStatsChannel {
 
     const playerCount = roster.size;
 
+    // Combined set of all known player IDs (save file + kill tracker)
+    const allTrackedIds = new Set([
+      ...this._saveData.keys(),
+      ...Object.keys(this._killData.players || {}),
+    ]);
+
     // ── Kill Leaderboard (all-time) ──
-    if (this._saveData.size > 0) {
-      const killers = [...this._saveData.keys()]
+    if (allTrackedIds.size > 0) {
+      const killers = [...allTrackedIds]
         .map(id => {
           const at = this.getAllTimeKills(id);
           return { id, name: roster.get(id)?.name || id, kills: at?.zeeksKilled || 0 };
@@ -316,8 +473,9 @@ class PlayerStatsChannel {
       }
 
       // Server totals (all-time)
-      let totalKills = 0, totalHS = 0, totalMelee = 0, totalGun = 0, totalDays = 0;
-      for (const id of this._saveData.keys()) {
+      let totalKills = 0, totalHS = 0, totalMelee = 0, totalGun = 0;
+      let totalDays = 0, totalFish = 0, totalBites = 0;
+      for (const id of allTrackedIds) {
         const at = this.getAllTimeKills(id);
         if (at) {
           totalKills += at.zeeksKilled;
@@ -325,7 +483,12 @@ class PlayerStatsChannel {
           totalMelee += at.meleeKills;
           totalGun += at.gunKills;
         }
-        totalDays += this._saveData.get(id).daysSurvived;
+        const atSurv = this.getAllTimeSurvival(id);
+        if (atSurv) {
+          totalDays += atSurv.daysSurvived;
+          totalFish += atSurv.caughtFish + atSurv.caughtPike;
+          totalBites += atSurv.bites;
+        }
       }
       const killParts = [
         `Total Kills: **${totalKills}**`,
@@ -333,8 +496,13 @@ class PlayerStatsChannel {
         `Melee: **${totalMelee}**`,
       ];
       if (totalGun > 0) killParts.push(`Gun: **${totalGun}**`);
-      killParts.push(`Days Survived: **${totalDays}**`);
-      embed.addFields({ name: `Kill Stats (${this._saveData.size} players)`, value: killParts.join('\n') });
+      embed.addFields({ name: `Kill Stats (${allTrackedIds.size} players)`, value: killParts.join('\n') });
+
+      // Survival server totals
+      const survParts = [`Days Survived: **${totalDays}**`];
+      if (totalFish > 0) survParts.push(`Fish Caught: **${totalFish}**`);
+      if (totalBites > 0) survParts.push(`Bites: **${totalBites}**`);
+      embed.addFields({ name: 'Survival Stats (All Time)', value: survParts.join('\n') });
     }
 
     // ── Top Playtime ──
@@ -367,10 +535,13 @@ class PlayerStatsChannel {
       embed.addFields({ name: 'Log Activity', value: parts.join('\n') });
     }
 
-    // ── Survival Leaderboard (from save) ──
-    if (this._saveData.size > 0) {
-      const survivors = [...this._saveData.entries()]
-        .map(([id, s]) => ({ id, name: roster.get(id)?.name || id, days: s.daysSurvived }))
+    // ── Survival Leaderboard (all-time from tracker) ──
+    if (allTrackedIds.size > 0) {
+      const survivors = [...allTrackedIds]
+        .map(id => {
+          const atSurv = this.getAllTimeSurvival(id);
+          return { id, name: roster.get(id)?.name || id, days: atSurv?.daysSurvived || 0 };
+        })
         .filter(e => e.days > 0)
         .sort((a, b) => b.days - a.days);
 
@@ -380,7 +551,68 @@ class PlayerStatsChannel {
           const medal = medals[i] || `\`${i + 1}.\``;
           return `${medal} **${e.name}** — ${e.days} days`;
         });
-        embed.addFields({ name: 'Longest Survivors', value: lines.join('\n') });
+        embed.addFields({ name: 'Longest Survivors (All Time)', value: lines.join('\n') });
+      }
+
+      // ── Most Afflicted (all-time) ──
+      const afflicted = [...allTrackedIds]
+        .map(id => {
+          const atSurv = this.getAllTimeSurvival(id);
+          return { id, name: roster.get(id)?.name || id, affliction: atSurv?.affliction || 0 };
+        })
+        .filter(e => e.affliction > 0)
+        .sort((a, b) => b.affliction - a.affliction);
+
+      if (afflicted.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = afflicted.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.affliction} afflictions`;
+        });
+        embed.addFields({ name: 'Most Afflicted (All Time)', value: lines.join('\n') });
+      }
+
+      // ── Top Fishers (all-time) ──
+      const fishers = [...allTrackedIds]
+        .map(id => {
+          const atSurv = this.getAllTimeSurvival(id);
+          const fish = (atSurv?.caughtFish || 0) + (atSurv?.caughtPike || 0);
+          return { id, name: roster.get(id)?.name || id, fish, pike: atSurv?.caughtPike || 0 };
+        })
+        .filter(e => e.fish > 0)
+        .sort((a, b) => b.fish - a.fish);
+
+      if (fishers.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = fishers.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          const pikeNote = e.pike > 0 ? ` (${e.pike} pike)` : '';
+          return `${medal} **${e.name}** — ${e.fish} caught${pikeNote}`;
+        });
+        embed.addFields({ name: 'Top Fishers (All Time)', value: lines.join('\n') });
+      } else {
+        embed.addFields({ name: 'Top Fishers (All Time)', value: '*No fish caught yet*' });
+      }
+
+      // ── Most Bitten (all-time) ──
+      const bitten = [...allTrackedIds]
+        .map(id => {
+          const atSurv = this.getAllTimeSurvival(id);
+          return { id, name: roster.get(id)?.name || id, bites: atSurv?.bites || 0, timesBitten: atSurv?.timesBitten || 0 };
+        })
+        .filter(e => e.bites > 0)
+        .sort((a, b) => b.bites - a.bites);
+
+      if (bitten.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = bitten.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          const detail = e.timesBitten > 0 ? ` (${e.timesBitten}× bitten)` : '';
+          return `${medal} **${e.name}** — ${e.bites} bites${detail}`;
+        });
+        embed.addFields({ name: 'Most Bitten (All Time)', value: lines.join('\n') });
+      } else {
+        embed.addFields({ name: 'Most Bitten (All Time)', value: '*No bites recorded yet*' });
       }
     }
 
@@ -409,12 +641,12 @@ class PlayerStatsChannel {
     // Add from player-stats
     for (const p of playerStats.getAllPlayers()) {
       const at = this.getAllTimeKills(p.id);
-      const save = this._saveData.get(p.id);
+      const atSurv = this.getAllTimeSurvival(p.id);
       merged.set(p.id, {
         name: p.name,
-        kills: at?.zeeksKilled || save?.zeeksKilled || 0,
+        kills: at?.zeeksKilled || 0,
         deaths: p.deaths,
-        days: save?.daysSurvived || 0,
+        days: atSurv?.daysSurvived || 0,
       });
     }
 
@@ -422,12 +654,12 @@ class PlayerStatsChannel {
     for (const p of playtime.getLeaderboard()) {
       if (!merged.has(p.id)) {
         const at = this.getAllTimeKills(p.id);
-        const save = this._saveData.get(p.id);
+        const atSurv = this.getAllTimeSurvival(p.id);
         merged.set(p.id, {
           name: p.name,
-          kills: at?.zeeksKilled || save?.zeeksKilled || 0,
+          kills: at?.zeeksKilled || 0,
           deaths: 0,
-          days: save?.daysSurvived || 0,
+          days: atSurv?.daysSurvived || 0,
         });
       }
     }
@@ -436,11 +668,12 @@ class PlayerStatsChannel {
     for (const [id, save] of this._saveData) {
       if (!merged.has(id)) {
         const at = this.getAllTimeKills(id);
+        const atSurv = this.getAllTimeSurvival(id);
         merged.set(id, {
           name: id, // no name available
           kills: at?.zeeksKilled || save.zeeksKilled,
           deaths: 0,
-          days: save.daysSurvived,
+          days: atSurv?.daysSurvived || save.daysSurvived,
         });
       }
     }
@@ -477,9 +710,9 @@ class PlayerStatsChannel {
       let totalKills = 0, totalDays = 0;
       for (const m of clan.members) {
         const at = this.getAllTimeKills(m.steamId);
-        const save = this._saveData.get(m.steamId);
-        totalKills += at?.zeeksKilled || save?.zeeksKilled || 0;
-        if (save) totalDays += save.daysSurvived;
+        const atSurv = this.getAllTimeSurvival(m.steamId);
+        totalKills += at?.zeeksKilled || 0;
+        totalDays += atSurv?.daysSurvived || 0;
       }
       return {
         label: clan.name.substring(0, 100),
@@ -519,23 +752,32 @@ class PlayerStatsChannel {
 
     for (const m of clan.members) {
       const at = this.getAllTimeKills(m.steamId);
-      const save = this._saveData.get(m.steamId);
+      const atSurv = this.getAllTimeSurvival(m.steamId);
       if (at) {
         membersWithSave++;
         totalKills += at.zeeksKilled;
         totalHS += at.headshots;
         totalMelee += at.meleeKills;
         totalGun += at.gunKills;
-      } else if (save) {
-        membersWithSave++;
-        totalKills += save.zeeksKilled;
-        totalHS += save.headshots;
-        totalMelee += save.meleeKills;
-        totalGun += save.gunKills;
+      } else {
+        const save = this._saveData.get(m.steamId);
+        if (save) {
+          membersWithSave++;
+          totalKills += save.zeeksKilled;
+          totalHS += save.headshots;
+          totalMelee += save.meleeKills;
+          totalGun += save.gunKills;
+        }
       }
-      if (save) {
-        totalDays += save.daysSurvived;
-        totalBites += save.bites;
+      if (atSurv) {
+        totalDays += atSurv.daysSurvived;
+        totalBites += atSurv.bites;
+      } else {
+        const save = this._saveData.get(m.steamId);
+        if (save) {
+          totalDays += save.daysSurvived;
+          totalBites += save.bites;
+        }
       }
     }
 
@@ -608,7 +850,9 @@ class PlayerStatsChannel {
       const parts = [];
       const kills = at?.zeeksKilled || save?.zeeksKilled || 0;
       if (kills > 0) parts.push(`${kills} kills`);
-      if (save && save.daysSurvived > 0) parts.push(`${save.daysSurvived}d`);
+      const atSurv = this.getAllTimeSurvival(m.steamId);
+      const days = atSurv?.daysSurvived || save?.daysSurvived || 0;
+      if (days > 0) parts.push(`${days}d`);
       if (log && log.deaths > 0) parts.push(`${log.deaths} deaths`);
       if (pt) parts.push(pt.totalFormatted);
 
@@ -695,7 +939,7 @@ class PlayerStatsChannel {
       embed.addFields({ name: 'Kills (All Time)', value: atLines.length > 0 ? atLines.join('\n') : 'Tracking started — accumulates across deaths' });
     }
 
-    // ── Survival Stats ──
+    // ── Survival Stats (This Life) ──
     const survivalParts = [];
     if (saveData) {
       if (saveData.daysSurvived > 0) survivalParts.push(`Days Survived: **${saveData.daysSurvived}**`);
@@ -709,7 +953,23 @@ class PlayerStatsChannel {
       survivalParts.push(`Deaths: **${logData.deaths}**`);
     }
     if (survivalParts.length > 0) {
-      embed.addFields({ name: 'Survival', value: survivalParts.join('\n') });
+      embed.addFields({ name: 'Survival (This Life)', value: survivalParts.join('\n') });
+    }
+
+    // ── Survival Stats (All Time) ──
+    if (saveData) {
+      const atSurv = this.getAllTimeSurvival(steamId);
+      if (atSurv) {
+        const atParts = [];
+        if (atSurv.daysSurvived > 0) atParts.push(`Days Survived: **${atSurv.daysSurvived}**`);
+        if (atSurv.bites > 0) atParts.push(`Bites: **${atSurv.bites}**`);
+        if (atSurv.timesBitten > 0) atParts.push(`Times Bitten: **${atSurv.timesBitten}**`);
+        if (atSurv.affliction > 0) atParts.push(`Affliction: **${atSurv.affliction}**`);
+        if (atSurv.caughtFish > 0) atParts.push(`Fish Caught: **${atSurv.caughtFish}**`);
+        if (atSurv.caughtPike > 0) atParts.push(`Pike Caught: **${atSurv.caughtPike}**`);
+        if (logData) atParts.push(`Deaths: **${logData.deaths}**`);
+        embed.addFields({ name: 'Survival (All Time)', value: atParts.length > 0 ? atParts.join('\n') : 'Tracking started — accumulates across deaths' });
+      }
     }
 
     // ── Vitals (from save snapshot) ──

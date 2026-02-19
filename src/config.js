@@ -60,6 +60,9 @@ const config = {
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
   enablePlaytime: envBool('ENABLE_PLAYTIME', true),
 
+  // Feature toggles — log watcher sub-features
+  enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
+
   // Feature toggles — auto-message sub-features (all on by default)
   enableAutoMsgLink: envBool('ENABLE_AUTO_MSG_LINK', true),
   enableAutoMsgPromo: envBool('ENABLE_AUTO_MSG_PROMO', true),
