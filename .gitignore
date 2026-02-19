@@ -1,0 +1,8 @@
+node_modules/
+.env
+data/
+*.7z
+*.sav
+*.log
+*.txt
+parse-*.js

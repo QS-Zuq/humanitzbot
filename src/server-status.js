@@ -1,0 +1,212 @@
+const { EmbedBuilder } = require('discord.js');
+const config = require('./config');
+const { getServerInfo, getPlayerList } = require('./server-info');
+const playtime = require('./playtime-tracker');
+const playerStats = require('./player-stats');
+
+/**
+ * ServerStatus — posts and continuously edits a single embed in a
+ * "Server Status" text channel every 30 seconds with live server info.
+ *
+ * Unlike voice-channel renames, message edits are not aggressively
+ * rate-limited, so this gives near-real-time updates.
+ */
+
+/**
+ * Format a time string so minutes are always zero-padded to 2 digits.
+ */
+function _formatTime(timeStr) {
+  if (!timeStr) return null;
+  const match = timeStr.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (match) {
+    return `${match[1]}:${match[2].padStart(2, '0')}`;
+  }
+  return timeStr;
+}
+
+class ServerStatus {
+  constructor(client) {
+    this.client = client;
+    this.channel = null;
+    this.statusMessage = null; // the single embed we keep editing
+    this.interval = null;
+    this.updateIntervalMs = parseInt(config.serverStatusInterval, 10) || 30000; // 30s default
+  }
+
+  /**
+   * Start: fetch the channel, post an initial embed, then loop edits.
+   */
+  async start() {
+    console.log('[SERVER STATUS] Module starting...');
+    console.log(`[SERVER STATUS] Channel ID from config: "${config.serverStatusChannelId}"`);
+    try {
+      if (!config.serverStatusChannelId) {
+        console.log('[SERVER STATUS] No SERVER_STATUS_CHANNEL_ID set, skipping.');
+        return;
+      }
+
+      console.log(`[SERVER STATUS] Fetching channel ${config.serverStatusChannelId}...`);
+      this.channel = await this.client.channels.fetch(config.serverStatusChannelId);
+      if (!this.channel) {
+        console.error('[SERVER STATUS] Channel not found! Check SERVER_STATUS_CHANNEL_ID.');
+        return;
+      }
+
+      console.log(`[SERVER STATUS] Posting live status in #${this.channel.name} (every ${this.updateIntervalMs / 1000}s)`);
+
+      // Delete previous bot messages to keep the channel clean
+      await this._cleanOldMessages();
+
+      // Post the initial embed
+      const embed = this._buildEmbed(null, null);
+      this.statusMessage = await this.channel.send({ embeds: [embed] });
+
+      // First real update
+      await this._update();
+
+      // Start the loop
+      this.interval = setInterval(() => this._update(), this.updateIntervalMs);
+    } catch (err) {
+      console.error('[SERVER STATUS] Failed to start:', err.message);
+      console.error('[SERVER STATUS] Full error:', err);
+    }
+  }
+
+  /**
+   * Stop the update loop.
+   */
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+
+  /** @private - delete old bot messages in the channel so we start fresh */
+  async _cleanOldMessages() {
+    try {
+      const messages = await this.channel.messages.fetch({ limit: 20 });
+      const botMessages = messages.filter(m => m.author.id === this.client.user.id);
+      console.log(`[SERVER STATUS] Cleaning ${botMessages.size} old bot message(s)`);
+      for (const [, msg] of botMessages) {
+        try { await msg.delete(); } catch (_) {}
+      }
+    } catch (err) {
+      console.log('[SERVER STATUS] Could not clean old messages:', err.message);
+    }
+  }
+
+  /** @private - fetch server data and edit the embed */
+  async _update() {
+    try {
+      const [info, playerList] = await Promise.all([
+        getServerInfo(),
+        getPlayerList(),
+      ]);
+
+      const embed = this._buildEmbed(info, playerList);
+
+      if (this.statusMessage) {
+        await this.statusMessage.edit({ embeds: [embed] });
+      }
+    } catch (err) {
+      if (!err.message.includes('RCON not connected')) {
+        console.error('[SERVER STATUS] Update error:', err.message);
+      }
+    }
+  }
+
+  /** @private - build the status embed from server info */
+  _buildEmbed(info, playerList) {
+    const embed = new EmbedBuilder()
+      .setTitle('HumanitZ Server Status')
+      .setColor(0x2ecc71)
+      .setTimestamp()
+      .setFooter({ text: 'Last updated' });
+
+    if (!info || !playerList) {
+      embed.setDescription('Fetching server data...');
+      return embed;
+    }
+
+    // Server name as description
+    if (info.name) {
+      embed.setDescription(`**${info.name}**`);
+    }
+
+    // ── World Info (inline pair) ──
+    let playerCount = '--';
+    if (info.players != null) {
+      playerCount = info.maxPlayers
+        ? `${info.players} / ${info.maxPlayers}`
+        : `${info.players}`;
+    } else {
+      playerCount = `${playerList.count}`;
+    }
+
+    const time = _formatTime(info.time) || '--';
+    const season = info.season || '--';
+    const weather = info.weather || '--';
+
+    embed.addFields(
+      { name: 'Players Online', value: playerCount, inline: true },
+      { name: 'Time', value: time, inline: true },
+      { name: 'Season / Weather', value: `${season} · ${weather}`, inline: true },
+    );
+
+    // ── Online Players ──
+    if (playerList.players && playerList.players.length > 0) {
+      const names = playerList.players.map(p => p.name).join(', ');
+      embed.addFields({ name: 'Online Now', value: names.substring(0, 1024) });
+    } else {
+      embed.addFields({ name: 'Online Now', value: '*No players online*' });
+    }
+
+    // ── Top 3 Playtime ──
+    const leaderboard = playtime.getLeaderboard();
+    if (leaderboard.length > 0) {
+      const medals = ['🥇', '🥈', '🥉'];
+      const top3 = leaderboard.slice(0, 3).map((entry, i) => {
+        return `${medals[i]} **${entry.name}** — ${entry.totalFormatted}`;
+      });
+      embed.addFields({ name: 'Top Playtime', value: top3.join('\n') });
+    }
+
+    // ── Player Activity Stats ──
+    const allTracked = playerStats.getAllPlayers();
+    if (allTracked.length > 0) {
+      const totalDeaths = allTracked.reduce((s, p) => s + p.deaths, 0);
+      const totalBuilds = allTracked.reduce((s, p) => s + p.builds, 0);
+      const totalLoots = allTracked.reduce((s, p) => s + p.containersLooted, 0);
+      const parts = [
+        `Deaths: **${totalDeaths}**`,
+        `Builds: **${totalBuilds}**`,
+        `Looted: **${totalLoots}**`,
+      ];
+      if (config.showRaidStats) {
+        const totalRaids = allTracked.reduce((s, p) => s + p.raidsOut, 0);
+        parts.push(`Raids: **${totalRaids}**`);
+      }
+      embed.addFields({ name: `Activity (${allTracked.length} players)`, value: parts.join('  ·  ') });
+    }
+
+    // ── Server Statistics ──
+    const peaks = playtime.getPeaks();
+    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB');
+    const peakDate = peaks.allTimePeakDate
+      ? ` (${new Date(peaks.allTimePeakDate).toLocaleDateString('en-GB')})`
+      : '';
+
+    embed.addFields(
+      { name: "Today's Peak", value: `${peaks.todayPeak}`, inline: true },
+      { name: 'All-Time Peak', value: `${peaks.allTimePeak}${peakDate}`, inline: true },
+      { name: 'Unique Today / Total', value: `${peaks.uniqueToday} / ${peaks.totalUniquePlayers}`, inline: true },
+    );
+
+    embed.setFooter({ text: `Tracking since ${trackingSince} · Last updated` });
+
+    return embed;
+  }
+}
+
+module.exports = ServerStatus;

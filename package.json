@@ -1,0 +1,19 @@
+{
+  "name": "humanitz-discord-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for HumanitZ game server - player stats, server stats, and chat relay",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy-commands": "node src/deploy-commands.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "ssh2-sftp-client": "^11.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,212 @@
+const config = require('./config');
+const { sendAdminMessage, getPlayerList } = require('./server-info');
+const playtime = require('./playtime-tracker');
+
+/**
+ * AutoMessages — periodically broadcasts messages to in-game chat
+ * via the `admin` RCON command, and sends a welcome message when
+ * a new player joins the server.
+ *
+ * Messages:
+ *   1. Discord link — every 10 minutes
+ *   2. Longer promo — every 15 minutes
+ *   3. Welcome — on player join (broadcast mentioning the new player)
+ */
+class AutoMessages {
+  constructor() {
+    this.discordLink = config.discordInviteLink;
+
+    // Intervals (configurable via .env, defaults in ms)
+    this.linkInterval = config.autoMsgLinkInterval;   // 10 min
+    this.promoInterval = config.autoMsgPromoInterval;  // 15 min
+    this.joinCheckInterval = config.autoMsgJoinCheckInterval; // 10 sec
+
+    this._linkTimer = null;
+    this._promoTimer = null;
+    this._joinTimer = null;
+
+    // Track currently online players (for join/leave detection)
+    this._onlinePlayers = new Set();
+    this._initialised = false;
+
+    // Anti-spam: timestamp of last welcome message sent
+    this._lastWelcomeTime = 0;
+    this._welcomeCooldownMs = 300000; // 5 minutes
+  }
+
+  /**
+   * Start all auto-message timers.
+   */
+  async start() {
+    console.log('[AUTO-MSG] Starting auto-messages...');
+
+    // Seed the known player list so we don't welcome everyone already online
+    await this._seedPlayers();
+
+    // Periodic Discord link broadcast
+    this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
+
+    // Periodic promo message broadcast
+    this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
+
+    // Player join detection
+    this._joinTimer = setInterval(() => this._checkForNewPlayers(), this.joinCheckInterval);
+
+    console.log(`[AUTO-MSG] Discord link every ${this.linkInterval / 60000} min`);
+    console.log(`[AUTO-MSG] Promo message every ${this.promoInterval / 60000} min`);
+    console.log(`[AUTO-MSG] Join detection every ${this.joinCheckInterval / 1000}s`);
+  }
+
+  /**
+   * Stop all timers.
+   */
+  stop() {
+    if (this._linkTimer) clearInterval(this._linkTimer);
+    if (this._promoTimer) clearInterval(this._promoTimer);
+    if (this._joinTimer) clearInterval(this._joinTimer);
+    this._linkTimer = null;
+    this._promoTimer = null;
+    this._joinTimer = null;
+    console.log('[AUTO-MSG] Stopped.');
+  }
+
+  // ── Private methods ────────────────────────────────────────
+
+  /** Seed the online-player set with whoever is already online */
+  async _seedPlayers() {
+    try {
+      const list = await getPlayerList();
+      if (list.players && list.players.length > 0) {
+        for (const p of list.players) {
+          const hasSteamId = p.steamId && p.steamId !== 'N/A';
+          const id = hasSteamId ? p.steamId : p.name;
+          this._onlinePlayers.add(id);
+
+          // Only track playtime for players with a real SteamID
+          // (name-only keys create ghost entries)
+          if (hasSteamId) {
+            playtime.playerJoin(id, p.name || 'Unknown');
+          }
+        }
+      }
+      this._initialised = true;
+      console.log(`[AUTO-MSG] Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
+    } catch (err) {
+      console.error('[AUTO-MSG] Failed to seed players:', err.message);
+      this._initialised = true; // continue anyway
+    }
+  }
+
+  /** Broadcast the short Discord link message */
+  async _sendDiscordLink() {
+    if (!this.discordLink) return;
+    // Skip if a player joined recently (avoid spamming new players)
+    if (Date.now() - this._lastWelcomeTime < this._welcomeCooldownMs) {
+      console.log('[AUTO-MSG] Skipping Discord link — recent welcome sent');
+      return;
+    }
+    try {
+      await sendAdminMessage(`Join our Discord! ${this.discordLink}`);
+      console.log('[AUTO-MSG] Sent Discord link to game chat');
+    } catch (err) {
+      console.error('[AUTO-MSG] Failed to send Discord link:', err.message);
+    }
+  }
+
+  /** Broadcast the longer promo message */
+  async _sendPromoMessage() {
+    // Skip if a player joined recently (avoid spamming new players)
+    if (Date.now() - this._lastWelcomeTime < this._welcomeCooldownMs) {
+      console.log('[AUTO-MSG] Skipping promo message — recent welcome sent');
+      return;
+    }
+    try {
+      const msg = `Have any issues, suggestions or just want to keep in contact with other players? Join our Discord: ${this.discordLink}`;
+      await sendAdminMessage(msg);
+      console.log('[AUTO-MSG] Sent promo message to game chat');
+    } catch (err) {
+      console.error('[AUTO-MSG] Failed to send promo message:', err.message);
+    }
+  }
+
+  /** Check the player list for joins (including rejoins) and welcome them */
+  async _checkForNewPlayers() {
+    if (!this._initialised) return;
+
+    try {
+      const list = await getPlayerList();
+      const currentOnline = new Set();
+      const newJoiners = [];
+
+      if (list.players && list.players.length > 0) {
+        for (const p of list.players) {
+          const hasSteamId = p.steamId && p.steamId !== 'N/A';
+          const id = hasSteamId ? p.steamId : p.name;
+          currentOnline.add(id);
+
+          // Player is joining if they weren't in the previous online set
+          // This catches first-time joins AND rejoins after leaving
+          if (!this._onlinePlayers.has(id)) {
+            console.log(`[AUTO-MSG] Player joined: ${p.name} (${id})`);
+            newJoiners.push(p);
+          }
+        }
+      }
+
+      // Log state for debugging
+      if (list.players && list.players.length > 0) {
+        console.log(`[AUTO-MSG] Online: ${currentOnline.size}, Previous: ${this._onlinePlayers.size}, Joined: ${newJoiners.length}`);
+      }
+
+      // Detect players who left (were in previous set but not current)
+      // (playtime tracking is handled by log-watcher via PlayerConnectedLog.txt)
+
+      // Replace the online set — players who left are removed, so if they
+      // rejoin later they'll be detected as new again
+      this._onlinePlayers = currentOnline;
+
+      // Record peak player count and unique players for today (SteamID only)
+      const steamOnly = [...currentOnline].filter(id => /^\d{17}$/.test(id));
+      playtime.recordPlayerCount(steamOnly.length);
+      for (const id of steamOnly) {
+        playtime.recordUniqueToday(id);
+      }
+
+      // Welcome joiners
+      for (const player of newJoiners) {
+        await this._sendWelcome(player);
+      }
+    } catch (_) {
+      // Silently ignore — server might be restarting
+    }
+  }
+
+  /** Send a welcome message for a new player */
+  async _sendWelcome(player) {
+    try {
+      const name = player.name || 'Survivor';
+      const id = (player.steamId && player.steamId !== 'N/A') ? player.steamId : player.name;
+
+      // Playtime session tracking is handled by log-watcher
+
+      // Build the welcome message based on history
+      const pt = playtime.getPlaytime(id);
+      let msg;
+
+      if (pt && pt.isReturning) {
+        const since = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+        msg = `Welcome back, ${name}! Your total playtime since ${since} is ${pt.totalFormatted}. Join our Discord: ${this.discordLink}`;
+      } else {
+        msg = `Welcome to the server, ${name}! Join our Discord for updates, help & to connect with other players: ${this.discordLink}`;
+      }
+
+      await sendAdminMessage(msg);
+      this._lastWelcomeTime = Date.now();
+      console.log(`[AUTO-MSG] Sent welcome for ${name} (returning: ${pt ? pt.isReturning : false}, playtime: ${pt ? pt.totalFormatted : '0m'})`);
+    } catch (err) {
+      console.error(`[AUTO-MSG] Failed to send welcome:`, err.message);
+    }
+  }
+}
+
+module.exports = AutoMessages;
