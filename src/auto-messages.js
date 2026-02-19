@@ -44,17 +44,28 @@ class AutoMessages {
     await this._seedPlayers();
 
     // Periodic Discord link broadcast
-    this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
+    if (config.enableAutoMsgLink) {
+      this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
+      console.log(`[AUTO-MSG] Discord link every ${this.linkInterval / 60000} min`);
+    } else {
+      console.log('[AUTO-MSG] Discord link broadcast disabled');
+    }
 
     // Periodic promo message broadcast
-    this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
+    if (config.enableAutoMsgPromo) {
+      this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
+      console.log(`[AUTO-MSG] Promo message every ${this.promoInterval / 60000} min`);
+    } else {
+      console.log('[AUTO-MSG] Promo message disabled');
+    }
 
     // Player join detection
-    this._joinTimer = setInterval(() => this._checkForNewPlayers(), this.joinCheckInterval);
-
-    console.log(`[AUTO-MSG] Discord link every ${this.linkInterval / 60000} min`);
-    console.log(`[AUTO-MSG] Promo message every ${this.promoInterval / 60000} min`);
-    console.log(`[AUTO-MSG] Join detection every ${this.joinCheckInterval / 1000}s`);
+    if (config.enableAutoMsgWelcome) {
+      this._joinTimer = setInterval(() => this._checkForNewPlayers(), this.joinCheckInterval);
+      console.log(`[AUTO-MSG] Join detection every ${this.joinCheckInterval / 1000}s`);
+    } else {
+      console.log('[AUTO-MSG] Welcome messages disabled');
+    }
   }
 
   /**

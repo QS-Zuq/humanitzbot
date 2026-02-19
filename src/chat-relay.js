@@ -42,6 +42,10 @@ class ChatRelay {
     try {
       // ── Admin channel (home for threads + outbound bridge) ──
       const chatId = config.chatChannelId || config.adminChannelId;
+      if (!chatId) {
+        console.log('[CHAT] No ADMIN_CHANNEL_ID or CHAT_CHANNEL_ID configured, skipping chat relay.');
+        return;
+      }
       this.adminChannel = await this.client.channels.fetch(chatId);
       if (!this.adminChannel) {
         console.error('[CHAT] Chat channel not found! Check ADMIN_CHANNEL_ID / CHAT_CHANNEL_ID.');

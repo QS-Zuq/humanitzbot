@@ -51,7 +51,21 @@ const config = {
   // Player-stats channel
   playerStatsChannelId: process.env.PLAYER_STATS_CHANNEL_ID || '',
 
-  // Feature toggles (set to 'true'/'false' in .env to override)
+  // Feature toggles — major modules (all on by default)
+  enableStatusChannels: envBool('ENABLE_STATUS_CHANNELS', true),
+  enableServerStatus: envBool('ENABLE_SERVER_STATUS', true),
+  enableChatRelay: envBool('ENABLE_CHAT_RELAY', true),
+  enableAutoMessages: envBool('ENABLE_AUTO_MESSAGES', true),
+  enableLogWatcher: envBool('ENABLE_LOG_WATCHER', true),
+  enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
+  enablePlaytime: envBool('ENABLE_PLAYTIME', true),
+
+  // Feature toggles — auto-message sub-features (all on by default)
+  enableAutoMsgLink: envBool('ENABLE_AUTO_MSG_LINK', true),
+  enableAutoMsgPromo: envBool('ENABLE_AUTO_MSG_PROMO', true),
+  enableAutoMsgWelcome: envBool('ENABLE_AUTO_MSG_WELCOME', true),
+
+  // Feature toggles — player stats embed sections
   showRaidStats: envBool('SHOW_RAID_STATS', false),       // default: off (PVE)
   showVitals: envBool('SHOW_VITALS', true),               // default: on
   showStatusEffects: envBool('SHOW_STATUS_EFFECTS', true), // default: on
@@ -61,8 +75,8 @@ const config = {
   showConnections: envBool('SHOW_CONNECTIONS', true),      // default: on
 };
 
-// Validate required values
-const required = ['discordToken', 'clientId', 'guildId', 'adminChannelId', 'rconHost', 'rconPassword'];
+// Validate required values (only core Discord + RCON needed)
+const required = ['discordToken', 'clientId', 'guildId', 'rconHost', 'rconPassword'];
 for (const key of required) {
   if (!config[key] || config[key].startsWith('your_')) {
     console.error(`[CONFIG] Missing or placeholder value for: ${key}`);

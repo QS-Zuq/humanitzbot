@@ -60,6 +60,10 @@ class LogWatcher {
     }
 
     const channelId = config.logChannelId || config.adminChannelId;
+    if (!channelId) {
+      console.log('[LOG WATCHER] No LOG_CHANNEL_ID or ADMIN_CHANNEL_ID configured, skipping log watcher.');
+      return;
+    }
     try {
       this.logChannel = await this.client.channels.fetch(channelId);
       if (!this.logChannel) {

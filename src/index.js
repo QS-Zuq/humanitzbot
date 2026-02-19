@@ -104,34 +104,60 @@ client.once(Events.ClientReady, async (readyClient) => {
   await rcon.connect();
 
   // Initialize playtime tracker (must be before AutoMessages)
-  playtime.init();
+  if (config.enablePlaytime) {
+    playtime.init();
+  }
 
   // Initialize player stats tracker (must be before LogWatcher)
   playerStats.init();
 
   // Start status channels (voice channel dashboard at top of server)
-  statusChannels = new StatusChannels(readyClient);
-  await statusChannels.start();
+  if (config.enableStatusChannels) {
+    statusChannels = new StatusChannels(readyClient);
+    await statusChannels.start();
+  } else {
+    console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
+  }
 
   // Start live server status text channel
-  serverStatus = new ServerStatus(readyClient);
-  await serverStatus.start();
+  if (config.enableServerStatus) {
+    serverStatus = new ServerStatus(readyClient);
+    await serverStatus.start();
+  } else {
+    console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
+  }
 
   // Start admin chat bridge
-  chatRelay = new ChatRelay(readyClient);
-  await chatRelay.start();
+  if (config.enableChatRelay) {
+    chatRelay = new ChatRelay(readyClient);
+    await chatRelay.start();
+  } else {
+    console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
+  }
 
   // Start auto-messages (periodic broadcasts + join welcome)
-  autoMessages = new AutoMessages();
-  await autoMessages.start();
+  if (config.enableAutoMessages) {
+    autoMessages = new AutoMessages();
+    await autoMessages.start();
+  } else {
+    console.log('[BOT] Auto-messages disabled via ENABLE_AUTO_MESSAGES=false');
+  }
 
   // Start log watcher (FTP-based game server log parsing)
-  logWatcher = new LogWatcher(readyClient);
-  await logWatcher.start();
+  if (config.enableLogWatcher) {
+    logWatcher = new LogWatcher(readyClient);
+    await logWatcher.start();
+  } else {
+    console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
+  }
 
   // Start player-stats channel (save-file parsing with full stats embed)
-  playerStatsChannel = new PlayerStatsChannel(readyClient);
-  await playerStatsChannel.start();
+  if (config.enablePlayerStats) {
+    playerStatsChannel = new PlayerStatsChannel(readyClient);
+    await playerStatsChannel.start();
+  } else {
+    console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
+  }
 
   console.log('[BOT] Ready!');
 });
