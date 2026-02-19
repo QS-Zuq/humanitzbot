@@ -195,9 +195,9 @@ class AutoMessages {
 
       if (pt && pt.isReturning) {
         const since = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
-        msg = `Welcome back, ${name}! Your total playtime since ${since} is ${pt.totalFormatted}. Join our Discord: ${this.discordLink}`;
+        msg = `Welcome back, ${name}! Your total playtime since ${since} is ${pt.totalFormatted}. Type !admin in chat if you need help. Discord: ${this.discordLink}`;
       } else {
-        msg = `Welcome to the server, ${name}! Join our Discord for updates, help & to connect with other players: ${this.discordLink}`;
+        msg = `Welcome to the server, ${name}! Type !admin in chat if you need help from an admin. Join our Discord: ${this.discordLink}`;
       }
 
       await sendAdminMessage(msg);
