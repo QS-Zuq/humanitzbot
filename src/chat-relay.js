@@ -302,13 +302,15 @@ class ChatRelay {
     return null;
   }
 
-  /** Sanitize text to prevent @mention abuse */
+  /** Sanitize text to prevent @mention abuse and markdown injection */
   _sanitize(text) {
     return text
       .replace(/@everyone/g, '@\u200beveryone')
       .replace(/@here/g, '@\u200bhere')
       .replace(/<@!?(\d+)>/g, '@user')
-      .replace(/<@&(\d+)>/g, '@role');
+      .replace(/<@&(\d+)>/g, '@role')
+      // Escape Discord markdown characters to prevent formatting injection
+      .replace(/([*_~`|\\])/g, '\\$1');
   }
 
   // ── Outbound: Discord → [Admin] in-game ────────────────────
@@ -319,7 +321,11 @@ class ChatRelay {
     if (!message.content || message.content.trim() === '') return;
 
     try {
-      const text = message.content.trim();
+      let text = message.content.trim();
+      // Limit message length to prevent oversized RCON commands
+      if (text.length > 500) {
+        text = text.substring(0, 500);
+      }
       await rcon.send(`admin ${text}`);
       await message.react('✅');
     } catch (err) {

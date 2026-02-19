@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const playtime = require('../playtime-tracker');
 
 module.exports = {
@@ -38,7 +38,7 @@ module.exports = {
           .addFields(
             { name: 'Total Playtime', value: match.totalFormatted, inline: true },
             { name: 'Sessions', value: `${match.sessions}`, inline: true },
-            { name: 'Steam ID', value: `\`${match.id}\``, inline: false },
+            { name: 'Steam ID', value: interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ? `\`${match.id}\`` : `\`${match.id.slice(0, 8)}···\``, inline: false },
           )
           .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB')}` })
           .setTimestamp();

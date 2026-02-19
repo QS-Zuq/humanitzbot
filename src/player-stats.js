@@ -53,10 +53,13 @@ class PlayerStats {
     this._saveTimer = null;
     this._dirty = false;
     this._idMap = null; // Map<lowerName, steamId> from PlayerIDMapped.txt
+    this._nameIndex = new Map(); // lowerName → id for O(1) lookups
   }
 
   init() {
+    if (this._data) return; // already initialised
     this._load();
+    this._buildNameIndex();
     this._saveTimer = setInterval(() => this._autoSave(), SAVE_INTERVAL);
     const count = Object.keys(this._data.players).length;
     console.log(`[PLAYER STATS] Loaded ${count} player(s) from database`);
@@ -66,6 +69,11 @@ class PlayerStats {
     this._save();
     if (this._saveTimer) clearInterval(this._saveTimer);
     console.log('[PLAYER STATS] Saved and stopped.');
+  }
+
+  /** Ensure data is loaded (lazy init guard) */
+  _ensureInit() {
+    if (!this._data) this.init();
   }
 
   /**
@@ -103,6 +111,7 @@ class PlayerStats {
    * @param {Date} [timestamp] - log timestamp (falls back to now)
    */
   recordDeath(playerName, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreateByName(playerName);
     record.deaths++;
     record.lastEvent = (timestamp || new Date()).toISOString();
@@ -244,6 +253,7 @@ class PlayerStats {
    * @returns {object|null}
    */
   getStats(steamId) {
+    this._ensureInit();
     const record = this._data.players[steamId];
     if (!record) return null;
     return { id: steamId, ...record };
@@ -255,22 +265,20 @@ class PlayerStats {
    * @returns {object|null}
    */
   getStatsByName(name) {
+    this._ensureInit();
     const lower = name.toLowerCase();
-    // Search by current name (exact)
-    for (const [id, record] of Object.entries(this._data.players)) {
-      if (record.name.toLowerCase() === lower) return { id, ...record };
+
+    // O(1) exact match via name index (covers current + historical names)
+    const exactId = this._nameIndex.get(lower);
+    if (exactId && this._data.players[exactId]) {
+      return { id: exactId, ...this._data.players[exactId] };
     }
-    // Search by name history (exact)
-    for (const [id, record] of Object.entries(this._data.players)) {
-      if (record.nameHistory && record.nameHistory.some(h => h.name.toLowerCase() === lower)) {
-        return { id, ...record };
-      }
-    }
-    // Search by current name (partial)
+
+    // Fallback: partial match by current name
     for (const [id, record] of Object.entries(this._data.players)) {
       if (record.name.toLowerCase().includes(lower)) return { id, ...record };
     }
-    // Search by name history (partial)
+    // Fallback: partial match by name history
     for (const [id, record] of Object.entries(this._data.players)) {
       if (record.nameHistory && record.nameHistory.some(h => h.name.toLowerCase().includes(lower))) {
         return { id, ...record };
@@ -284,6 +292,7 @@ class PlayerStats {
    * @returns {Array<{ id, name, deaths, builds, raidsOut, raidsIn, ... }>}
    */
   getAllPlayers() {
+    this._ensureInit();
     const entries = [];
     for (const [id, record] of Object.entries(this._data.players)) {
       entries.push({ id, ...record });
@@ -302,6 +311,7 @@ class PlayerStats {
   _getOrCreate(steamId, name) {
     if (!this._data.players[steamId]) {
       this._data.players[steamId] = this._newRecord(name);
+      this._nameIndex.set(name.toLowerCase(), steamId);
 
       // Check if there's an orphaned name: record to merge in
       const nameLower = name.toLowerCase();
@@ -327,6 +337,7 @@ class PlayerStats {
       }
       // Update to current name
       record.name = name;
+      this._nameIndex.set(name.toLowerCase(), steamId);
     }
     return this._data.players[steamId];
   }
@@ -351,19 +362,18 @@ class PlayerStats {
       }
     }
 
-    // 1. Search existing stats records by current name
-    for (const [id, record] of Object.entries(this._data.players)) {
-      if (record.name.toLowerCase() === nameLower) {
-        // If we found a name: key but there's also a SteamID record, merge now
-        if (id.startsWith('name:')) {
-          const steamId = this._resolveNameToSteamId(nameLower);
-          if (steamId && this._data.players[steamId]) {
-            this._mergeInto(steamId, id);
-            return this._data.players[steamId];
-          }
+    // 1. O(1) lookup via name index
+    const indexedId = this._nameIndex.get(nameLower);
+    if (indexedId && this._data.players[indexedId]) {
+      const record = this._data.players[indexedId];
+      if (indexedId.startsWith('name:')) {
+        const steamId = this._resolveNameToSteamId(nameLower);
+        if (steamId && this._data.players[steamId]) {
+          this._mergeInto(steamId, indexedId);
+          return this._data.players[steamId];
         }
-        return record;
       }
+      return record;
     }
 
     // 2. Search name history (old names) across all records
@@ -384,6 +394,7 @@ class PlayerStats {
     if (!this._data.players[`name:${name}`]) {
       this._data.players[`name:${name}`] = this._newRecord(name);
     }
+    this._nameIndex.set(nameLower, `name:${name}`);
     return this._data.players[`name:${name}`];
   }
 
@@ -448,6 +459,22 @@ class PlayerStats {
     delete this._data.players[nameKey];
     this._dirty = true;
     console.log(`[PLAYER STATS] Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
+  }
+
+  /** Build the name→ID index from all player records. */
+  _buildNameIndex() {
+    this._nameIndex = new Map();
+    for (const [id, record] of Object.entries(this._data.players)) {
+      this._nameIndex.set(record.name.toLowerCase(), id);
+      if (record.nameHistory) {
+        for (const h of record.nameHistory) {
+          // Don't overwrite current-name entries with historical ones
+          if (!this._nameIndex.has(h.name.toLowerCase())) {
+            this._nameIndex.set(h.name.toLowerCase(), id);
+          }
+        }
+      }
+    }
   }
 
   _newRecord(name) {
@@ -538,7 +565,10 @@ class PlayerStats {
   _save() {
     try {
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(DATA_FILE, JSON.stringify(this._data, null, 2), 'utf8');
+      // Atomic write: write to temp file then rename
+      const tmpFile = DATA_FILE + '.tmp';
+      fs.writeFileSync(tmpFile, JSON.stringify(this._data, null, 2), 'utf8');
+      fs.renameSync(tmpFile, DATA_FILE);
       this._dirty = false;
     } catch (err) {
       console.error('[PLAYER STATS] Failed to save:', err.message);

@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection, Events, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -11,6 +11,7 @@ const LogWatcher = require('./log-watcher');
 const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 const PlayerStatsChannel = require('./player-stats-channel');
+const PvpScheduler = require('./pvp-scheduler');
 
 // ── Create Discord client ───────────────────────────────────
 const client = new Client({
@@ -80,6 +81,9 @@ let serverStatus;
 let autoMessages;
 let logWatcher;
 let playerStatsChannel;
+let pvpScheduler;
+let adminChannel; // cached for online/offline notifications
+const startedAt = new Date();
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`[BOT] Logged in as ${readyClient.user.tag}`);
@@ -159,16 +163,75 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
   }
 
+  // Start PvP scheduler (SFTP-based PvP toggling on a schedule)
+  if (config.enablePvpScheduler) {
+    pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+    await pvpScheduler.start();
+  } else {
+    console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
+  }
+
+  // ── Post online notification to admin channel ──
+  try {
+    if (config.adminChannelId) {
+      adminChannel = await readyClient.channels.fetch(config.adminChannelId);
+      if (adminChannel) {
+        const modules = [
+          config.enableStatusChannels && 'Status Channels',
+          config.enableServerStatus   && 'Server Status',
+          config.enableChatRelay      && 'Chat Relay',
+          config.enableAutoMessages   && 'Auto-Messages',
+          config.enableLogWatcher     && 'Log Watcher',
+          config.enablePlayerStats    && 'Player Stats',
+          config.enablePlaytime       && 'Playtime',
+          config.enablePvpScheduler   && 'PvP Scheduler',
+        ].filter(Boolean);
+
+        const embed = new EmbedBuilder()
+          .setTitle('🟢 Bot Online')
+          .setDescription('All systems operational.')
+          .addFields(
+            { name: 'Modules', value: modules.join(', ') || 'None', inline: false },
+          )
+          .setColor(0x2ecc71)
+          .setTimestamp();
+        await adminChannel.send({ embeds: [embed] });
+      }
+    }
+  } catch (err) {
+    console.error('[BOT] Failed to post online notification:', err.message);
+  }
+
   console.log('[BOT] Ready!');
 });
 
 // ── Graceful shutdown ───────────────────────────────────────
-async function shutdown() {
+async function shutdown(reason = 'Manual shutdown') {
   console.log('\n[BOT] Shutting down...');
+
+  // Post offline notification to admin channel before tearing down
+  try {
+    if (adminChannel) {
+      const uptime = _formatUptime(Date.now() - startedAt.getTime());
+      const embed = new EmbedBuilder()
+        .setTitle('🔴 Bot Offline')
+        .setDescription(reason)
+        .addFields(
+          { name: 'Uptime', value: uptime, inline: true },
+        )
+        .setColor(0xe74c3c)
+        .setTimestamp();
+      await adminChannel.send({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('[BOT] Failed to post offline notification:', err.message);
+  }
+
   if (chatRelay) chatRelay.stop();
   if (statusChannels) statusChannels.stop();
   if (serverStatus) serverStatus.stop();
   if (autoMessages) autoMessages.stop();
+  if (pvpScheduler) pvpScheduler.stop();
   if (logWatcher) logWatcher.stop();
   if (playerStatsChannel) playerStatsChannel.stop();
   playerStats.stop();
@@ -178,8 +241,28 @@ async function shutdown() {
   process.exit(0);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+function _formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  parts.push(`${mins}m`);
+  return parts.join(' ');
+}
+
+process.on('SIGINT', () => shutdown('SIGINT received'));
+process.on('SIGTERM', () => shutdown('SIGTERM received'));
+process.on('uncaughtException', (err) => {
+  console.error('[BOT] Uncaught exception:', err);
+  shutdown(`Uncaught exception: ${err.message}`).catch(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[BOT] Unhandled rejection:', reason);
+  // Log but don't crash — unhandled rejections are often recoverable
+});
 
 // ── Login ───────────────────────────────────────────────────
 client.login(config.discordToken);

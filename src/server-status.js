@@ -107,7 +107,21 @@ class ServerStatus {
       const embed = this._buildEmbed(info, playerList);
 
       if (this.statusMessage) {
-        await this.statusMessage.edit({ embeds: [embed] });
+        try {
+          await this.statusMessage.edit({ embeds: [embed] });
+        } catch (editErr) {
+          // Message was deleted — re-create it
+          if (editErr.code === 10008 || editErr.message?.includes('Unknown Message')) {
+            console.log('[SERVER STATUS] Status message was deleted, re-creating...');
+            try {
+              this.statusMessage = await this.channel.send({ embeds: [embed] });
+            } catch (createErr) {
+              console.error('[SERVER STATUS] Failed to re-create message:', createErr.message);
+            }
+          } else {
+            throw editErr;
+          }
+        }
       }
     } catch (err) {
       if (!err.message.includes('RCON not connected')) {

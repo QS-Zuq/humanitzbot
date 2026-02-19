@@ -330,7 +330,7 @@ class PlayerStatsChannel {
       .setTimestamp();
 
     try {
-      await this._logWatcher._sendToThread(embed);
+      await this._logWatcher.sendToThread(embed);
     } catch (err) {
       console.error('[KILL FEED] Failed to post to activity thread:', err.message);
     }
@@ -358,7 +358,7 @@ class PlayerStatsChannel {
       .setTimestamp();
 
     try {
-      await this._logWatcher._sendToThread(embed);
+      await this._logWatcher.sendToThread(embed);
     } catch (err) {
       console.error('[SURVIVAL FEED] Failed to post to activity thread:', err.message);
     }

@@ -60,6 +60,14 @@ const config = {
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
   enablePlaytime: envBool('ENABLE_PLAYTIME', true),
 
+  // PvP scheduler
+  enablePvpScheduler: envBool('ENABLE_PVP_SCHEDULER', false),
+  pvpStartHour: process.env.PVP_START_HOUR !== undefined ? parseInt(process.env.PVP_START_HOUR, 10) : NaN,
+  pvpEndHour: process.env.PVP_END_HOUR !== undefined ? parseInt(process.env.PVP_END_HOUR, 10) : NaN,
+  pvpTimezone: process.env.PVP_TIMEZONE || 'UTC',
+  pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY, 10) || 10,
+  ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
+
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
 

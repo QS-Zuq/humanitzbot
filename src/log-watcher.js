@@ -394,6 +394,14 @@ class LogWatcher {
   }
 
   /**
+   * Public API: send an embed to today's daily thread.
+   * Used by external modules (player-stats-channel, pvp-scheduler).
+   */
+  sendToThread(embed) {
+    return this._sendToThread(embed);
+  }
+
+  /**
    * Helper: send an embed to today's daily thread.
    */
   async _sendToThread(embed) {

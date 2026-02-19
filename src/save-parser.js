@@ -32,7 +32,7 @@ function createReader(buf) {
   }
   function readF32() { const v = buf.readFloatLE(offset); offset += 4; return v; }
   function readF64() { const v = buf.readDoubleLE(offset); offset += 8; return v; }
-  function readGuid() { const g = buf.slice(offset, offset + 16); offset += 16; return g.toString('hex'); }
+  function readGuid() { const g = buf.subarray(offset, offset + 16); offset += 16; return g.toString('hex'); }
   function readBool() { return readU8() !== 0; }
 
   function readFString() {

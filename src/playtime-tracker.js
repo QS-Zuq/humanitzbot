@@ -37,6 +37,7 @@ class PlaytimeTracker {
    * Load data from disk (or create fresh).
    */
   init() {
+    if (this._data) return; // already initialised
     this._load();
     this._cleanGhostEntries();
     // Periodic save so we don't lose data on crash
@@ -68,8 +69,16 @@ class PlaytimeTracker {
   playerJoin(id, name) {
     // Only accept SteamID keys — reject name-based keys
     if (!/^\d{17}$/.test(id)) return;
+    this._ensureInit();
 
     const now = Date.now();
+
+    // If already in an active session, flush accumulated time (don't lose it)
+    const existingSession = this._activeSessions.get(id);
+    if (existingSession) {
+      this._addPlaytime(id, now - existingSession);
+    }
+
     this._activeSessions.set(id, now);
 
     // Ensure player record exists
@@ -87,7 +96,10 @@ class PlaytimeTracker {
     // Update name (in case it changed) and login time
     this._data.players[id].name = name;
     this._data.players[id].lastLogin = new Date(now).toISOString();
-    this._data.players[id].sessions += 1;
+    // Only increment session count for genuinely new sessions (not duplicate joins)
+    if (!existingSession) {
+      this._data.players[id].sessions += 1;
+    }
     this._dirty = true;
 
     console.log(`[PLAYTIME] ${name} (${id}) session started`);
@@ -110,12 +122,18 @@ class PlaytimeTracker {
     }
   }
 
+  /** Ensure data is loaded (lazy init guard) */
+  _ensureInit() {
+    if (!this._data) this.init();
+  }
+
   /**
    * Get a player's total playtime (including current active session).
    * @param {string} id - SteamID or player name
    * @returns {{ name, totalMs, totalFormatted, sessions, isReturning, firstSeen } | null}
    */
   getPlaytime(id) {
+    this._ensureInit();
     const record = this._data.players[id];
     if (!record) return null;
 
@@ -151,6 +169,7 @@ class PlaytimeTracker {
    * @returns {Array<{ id, name, totalMs, totalFormatted, sessions }>}
    */
   getLeaderboard() {
+    this._ensureInit();
     const entries = [];
     for (const [id, record] of Object.entries(this._data.players)) {
       let totalMs = record.totalMs;
@@ -173,6 +192,7 @@ class PlaytimeTracker {
    * Get the tracking start date string.
    */
   getTrackingSince() {
+    this._ensureInit();
     return this._data.trackingSince;
   }
 
@@ -182,6 +202,7 @@ class PlaytimeTracker {
    * @param {number} count
    */
   recordPlayerCount(count) {
+    this._ensureInit();
     this._currentOnlineCount = count;
 
     // Ensure peaks object exists (migration for old data)
@@ -221,6 +242,7 @@ class PlaytimeTracker {
    * @param {string} id
    */
   recordUniqueToday(id) {
+    this._ensureInit();
     if (!this._data.peaks) return;
     const today = new Date().toISOString().split('T')[0];
     if (this._data.peaks.todayDate !== today) {
@@ -239,6 +261,7 @@ class PlaytimeTracker {
    * @returns {{ allTimePeak, allTimePeakDate, todayPeak, uniqueToday, totalUniquePlayers }}
    */
   getPeaks() {
+    this._ensureInit();
     const peaks = this._data.peaks || {};
     return {
       allTimePeak: peaks.allTimePeak || 0,
@@ -351,7 +374,10 @@ class PlaytimeTracker {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(DATA_FILE, JSON.stringify(this._data, null, 2), 'utf8');
+      // Atomic write: write to temp file then rename
+      const tmpFile = DATA_FILE + '.tmp';
+      fs.writeFileSync(tmpFile, JSON.stringify(this._data, null, 2), 'utf8');
+      fs.renameSync(tmpFile, DATA_FILE);
       this._dirty = false;
       return true;
     } catch (err) {
@@ -361,33 +387,41 @@ class PlaytimeTracker {
   }
 
   _autoSave() {
-    // Also flush active sessions' running time into records
-    const now = Date.now();
-    const sessionDeltas = new Map();
-    for (const [id, loginTime] of this._activeSessions) {
-      sessionDeltas.set(id, now - loginTime);
-      this._addPlaytime(id, now - loginTime);
+    // If no active sessions, just save if dirty
+    if (this._activeSessions.size === 0) {
+      if (this._dirty) this._save();
+      return;
     }
 
-    if (this._dirty) {
-      const saved = this._save();
-      if (saved !== false) {
-        // Only reset session starts if save succeeded
-        for (const [id] of sessionDeltas) {
-          this._activeSessions.set(id, now);
-        }
-      } else {
-        // Rollback: subtract the deltas we just added so they aren't double-counted
-        for (const [id, delta] of sessionDeltas) {
-          if (this._data.players[id]) {
-            this._data.players[id].totalMs -= delta;
-          }
-        }
+    // Flush active sessions' running time into records
+    const now = Date.now();
+    const sessionDeltas = new Map();
+    const oldLastSeen = new Map();
+    for (const [id, loginTime] of this._activeSessions) {
+      const delta = now - loginTime;
+      sessionDeltas.set(id, delta);
+      if (this._data.players[id]) {
+        oldLastSeen.set(id, this._data.players[id].lastSeen);
+      }
+      this._addPlaytime(id, delta);
+    }
+
+    const saved = this._save();
+    if (saved !== false) {
+      // Save succeeded — reset session starts so time isn't double-counted
+      for (const [id] of sessionDeltas) {
+        this._activeSessions.set(id, now);
       }
     } else {
-      // No dirty data to save, but still reset session starts
-      for (const [id] of this._activeSessions) {
-        this._activeSessions.set(id, now);
+      // Save failed — rollback totalMs and lastSeen
+      for (const [id, delta] of sessionDeltas) {
+        if (this._data.players[id]) {
+          this._data.players[id].totalMs -= delta;
+          const prevSeen = oldLastSeen.get(id);
+          if (prevSeen !== undefined) {
+            this._data.players[id].lastSeen = prevSeen;
+          }
+        }
       }
     }
   }

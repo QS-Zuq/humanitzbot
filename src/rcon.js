@@ -23,7 +23,7 @@ class RconManager {
     this._responseBuffer = Buffer.alloc(0);
     this._commandCallback = null; // only one command at a time
     this._authCallback = null;
-    this._busy = false; // serialize commands
+    this._commandQueue = Promise.resolve(); // serialize commands via promise chain
   }
 
   /**
@@ -94,26 +94,25 @@ class RconManager {
    * Commands are serialized — only one at a time.
    */
   async send(command) {
-    // Wait for any in-flight command to finish
-    while (this._busy) {
-      await new Promise(r => setTimeout(r, 100));
-    }
+    // Serialize commands via promise chain (no busy-wait polling)
+    return new Promise((resolve, reject) => {
+      this._commandQueue = this._commandQueue.then(async () => {
+        try {
+          if (!this.connected || !this.authenticated) {
+            await this.connect();
+          }
 
-    this._busy = true;
+          if (!this.connected || !this.authenticated) {
+            throw new Error('RCON not connected');
+          }
 
-    try {
-      if (!this.connected || !this.authenticated) {
-        await this.connect();
-      }
-
-      if (!this.connected || !this.authenticated) {
-        throw new Error('RCON not connected');
-      }
-
-      return await this._sendCommand(command);
-    } finally {
-      this._busy = false;
-    }
+          const result = await this._sendCommand(command);
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
   }
 
   _sendCommand(command) {
@@ -175,6 +174,14 @@ class RconManager {
     const cached = this.cache.get(command);
     if (cached && Date.now() - cached.timestamp < ttl) {
       return cached.data;
+    }
+
+    // Evict stale cache entries to prevent unbounded growth
+    if (this.cache.size > 50) {
+      const now = Date.now();
+      for (const [key, entry] of this.cache) {
+        if (now - entry.timestamp > ttl * 2) this.cache.delete(key);
+      }
     }
 
     const data = await this.send(command);
@@ -267,7 +274,7 @@ class RconManager {
   _cleanup() {
     this.connected = false;
     this.authenticated = false;
-    this._busy = false;
+    this._commandQueue = Promise.resolve();
     this._commandCallback = null;
     this._authCallback = null;
     if (this.socket) {

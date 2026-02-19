@@ -1,6 +1,11 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const rcon = require('../rcon');
 
+// Commands that could disrupt the server — blocked from Discord execution
+const BLOCKED_COMMANDS = new Set([
+  'shutdown', 'quit', 'exit', 'restartnow', 'quickrestart',
+]);
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('rcon')
@@ -17,6 +22,15 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     const command = interaction.options.getString('command');
+
+    // Block destructive commands
+    const cmdWord = command.trim().toLowerCase().split(/\s+/)[0];
+    if (BLOCKED_COMMANDS.has(cmdWord)) {
+      await interaction.editReply({
+        content: `\u274C The command \`${cmdWord}\` is blocked for safety. Use the server panel to perform this action.`,
+      });
+      return;
+    }
 
     try {
       const response = await rcon.send(command);
