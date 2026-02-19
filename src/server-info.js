@@ -20,8 +20,9 @@ const rcon = require('./rcon');
  *   RestartNow        - Restart immediately
  *   CancelRestart     - Cancel a pending restart
  *   shutdown          - Shut down immediately
+ *   fetchchat         - Fetch recent in-game chat messages
  *
- * NOTE: There is NO getchat or playerinfo command in HumanitZ RCON.
+ * NOTE: There is NO playerinfo command in HumanitZ RCON.
  */
 
 const COMMANDS = {

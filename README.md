@@ -2,6 +2,14 @@
 
 A comprehensive Discord bot for HumanitZ dedicated servers. Connects via RCON for live server data, SFTP for log parsing and save file analysis, and provides a full dashboard experience with player stats, clan tracking, bidirectional chat, and more.
 
+## See It Live
+
+| | |
+|---|---|
+| **Server** | `[EU] Howyagarn Newbies - PVE - Low Zombies / Long Seasons` |
+| **Direct Connect** | `66.248.194.203:9098` |
+| **Discord** | [Discord.gg/Dp2M2CaQhj](https://discord.gg/Dp2M2CaQhj) |
+
 > **[Full documentation available on the Wiki →](../../wiki)**
 
 ## Features

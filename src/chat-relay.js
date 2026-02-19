@@ -41,9 +41,10 @@ class ChatRelay {
   async start() {
     try {
       // ── Admin channel (home for threads + outbound bridge) ──
-      this.adminChannel = await this.client.channels.fetch(config.adminChannelId);
+      const chatId = config.chatChannelId || config.adminChannelId;
+      this.adminChannel = await this.client.channels.fetch(chatId);
       if (!this.adminChannel) {
-        console.error('[CHAT] Admin channel not found! Check ADMIN_CHANNEL_ID.');
+        console.error('[CHAT] Chat channel not found! Check ADMIN_CHANNEL_ID / CHAT_CHANNEL_ID.');
         return;
       }
 
@@ -310,7 +311,7 @@ class ChatRelay {
 
   async _onMessage(message) {
     if (message.author.bot) return;
-    if (message.channelId !== config.adminChannelId) return;
+    if (message.channelId !== this.adminChannel.id) return;
     if (!message.content || message.content.trim() === '') return;
 
     try {

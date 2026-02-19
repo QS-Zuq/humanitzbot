@@ -8,8 +8,8 @@ const playtime = require('./playtime-tracker');
  * a new player joins the server.
  *
  * Messages:
- *   1. Discord link — every 10 minutes
- *   2. Longer promo — every 15 minutes
+ *   1. Discord link — every 30 minutes
+ *   2. Longer promo — every 45 minutes
  *   3. Welcome — on player join (broadcast mentioning the new player)
  */
 class AutoMessages {
@@ -17,8 +17,8 @@ class AutoMessages {
     this.discordLink = config.discordInviteLink;
 
     // Intervals (configurable via .env, defaults in ms)
-    this.linkInterval = config.autoMsgLinkInterval;   // 10 min
-    this.promoInterval = config.autoMsgPromoInterval;  // 15 min
+    this.linkInterval = config.autoMsgLinkInterval;   // 30 min
+    this.promoInterval = config.autoMsgPromoInterval;  // 45 min
     this.joinCheckInterval = config.autoMsgJoinCheckInterval; // 10 sec
 
     this._linkTimer = null;

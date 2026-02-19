@@ -687,7 +687,7 @@ class LogWatcher {
 
     // Record stats
     playerStats.recordRaid(attacker, attackerSteamId, ownerSteamId, destroyed, timestamp);
-    this._dayCounts.raids++;
+    this._dayCounts.raidHits++;
 
     // Batch raid events to reduce spam — group by attacker|owner pair
     const key = `${attackerSteamId}|${ownerSteamId}`;

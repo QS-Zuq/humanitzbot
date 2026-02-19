@@ -5,7 +5,7 @@ const path = require('path');
 const config = require('./config');
 const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
-const { parseSave, parseClanData, PERK_MAP } = require('./save-parser');
+const { parseSave, parseClanData } = require('./save-parser');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const KILL_FILE = path.join(DATA_DIR, 'kill-tracker.json');
@@ -713,7 +713,7 @@ class PlayerStatsChannel {
     }
 
     // ── Vitals (from save snapshot) ──
-    if (saveData) {
+    if (config.showVitals && saveData) {
       const bar = (val) => {
         const pct = Math.max(0, Math.min(100, val));
         const filled = Math.round(pct / 10);
@@ -728,8 +728,10 @@ class PlayerStatsChannel {
         `Battery   ${bar(saveData.battery)}`,
       ];
       embed.addFields({ name: 'Vitals', value: '```\n' + vitals.join('\n') + '\n```' });
+    }
 
-      // Status effects
+    // ── Status Effects ──
+    if (config.showStatusEffects && saveData) {
       const statuses = [];
       if (saveData.playerStates?.length > 0) {
         for (const s of saveData.playerStates) {
@@ -799,7 +801,7 @@ class PlayerStatsChannel {
     }
 
     // ── Inventory (from save) ──
-    if (saveData) {
+    if (config.showInventory && saveData) {
       const allItems = [
         ...saveData.inventory.map(i => ({ ...i, slot: 'inv' })),
         ...saveData.quickSlots.map(i => ({ ...i, slot: 'quick' })),
@@ -818,7 +820,7 @@ class PlayerStatsChannel {
     }
 
     // ── Recipes (from save) ──
-    if (saveData) {
+    if (config.showRecipes && saveData) {
       const recipeParts = [];
       if (saveData.craftingRecipes.length > 0) {
         recipeParts.push(`Crafting: ${saveData.craftingRecipes.map(_cleanItemName).join(', ')}`);
@@ -832,12 +834,12 @@ class PlayerStatsChannel {
     }
 
     // ── Lore (from save) ──
-    if (saveData && saveData.lore.length > 0) {
+    if (config.showLore && saveData && saveData.lore.length > 0) {
       embed.addFields({ name: 'Lore', value: `${saveData.lore.length} entries`, inline: true });
     }
 
     // ── Connections (from logs) ──
-    if (logData) {
+    if (config.showConnections && logData) {
       const connParts = [];
       if (logData.connects > 0) connParts.push(`Connects: **${logData.connects}**`);
       if (logData.disconnects > 0) connParts.push(`Disconnects: **${logData.disconnects}**`);

@@ -1,5 +1,12 @@
 require('dotenv').config();
 
+/** Read a boolean from .env with an explicit default */
+function envBool(key, defaultValue) {
+  const val = process.env[key];
+  if (val === undefined || val === '') return defaultValue;
+  return val === 'true';
+}
+
 const config = {
   // Discord
   discordToken: process.env.DISCORD_TOKEN,
@@ -44,8 +51,14 @@ const config = {
   // Player-stats channel
   playerStatsChannelId: process.env.PLAYER_STATS_CHANNEL_ID || '',
 
-  // Feature toggles
-  showRaidStats: process.env.SHOW_RAID_STATS === 'true',  // false by default (PVE)
+  // Feature toggles (set to 'true'/'false' in .env to override)
+  showRaidStats: envBool('SHOW_RAID_STATS', false),       // default: off (PVE)
+  showVitals: envBool('SHOW_VITALS', true),               // default: on
+  showStatusEffects: envBool('SHOW_STATUS_EFFECTS', true), // default: on
+  showInventory: envBool('SHOW_INVENTORY', true),          // default: on
+  showRecipes: envBool('SHOW_RECIPES', true),              // default: on
+  showLore: envBool('SHOW_LORE', true),                    // default: on
+  showConnections: envBool('SHOW_CONNECTIONS', true),      // default: on
 };
 
 // Validate required values

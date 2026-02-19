@@ -85,12 +85,14 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   }
 
   // ── Connections ──
-  const connParts = [];
-  if (stats.connects !== undefined) connParts.push(`Connects: **${stats.connects}**`);
-  if (stats.disconnects !== undefined) connParts.push(`Disconnects: **${stats.disconnects}**`);
-  if (stats.adminAccess !== undefined && stats.adminAccess > 0) connParts.push(`Admin Logins: **${stats.adminAccess}**`);
-  if (connParts.length > 0) {
-    embed.addFields({ name: 'Connections', value: connParts.join('\n') });
+  if (config.showConnections) {
+    const connParts = [];
+    if (stats.connects !== undefined) connParts.push(`Connects: **${stats.connects}**`);
+    if (stats.disconnects !== undefined) connParts.push(`Disconnects: **${stats.disconnects}**`);
+    if (stats.adminAccess !== undefined && stats.adminAccess > 0) connParts.push(`Admin Logins: **${stats.adminAccess}**`);
+    if (connParts.length > 0) {
+      embed.addFields({ name: 'Connections', value: connParts.join('\n') });
+    }
   }
 
   // ── Anti-Cheat Flags (admin only) ──
