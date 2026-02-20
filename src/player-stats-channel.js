@@ -35,6 +35,56 @@ class PlayerStatsChannel {
     this._killDirty = false;
   }
 
+  // ── Cross-validated player resolver ─────────────────────────
+
+  /**
+   * Resolve a player's data from all available sources, cross-validate
+   * overlapping fields, and return a unified record with the best value.
+   *
+   * Overlapping fields and resolution strategy:
+   *   name       — playtime vs stats; most-recent-event wins
+   *   lastActive — max(playtime.lastSeen, stats.lastEvent)
+   *   firstSeen  — playtime only (sole source)
+   *   sessions   — playtime.sessions vs stats.connects; both exposed
+   *
+   * @param {string} steamId
+   * @returns {{ name, firstSeen, lastActive, playtime, log, save }}
+   */
+  _resolvePlayer(steamId) {
+    const pt  = playtime.getPlaytime(steamId);
+    const log = playerStats.getStats(steamId);
+    const save = this._saveData.get(steamId);
+
+    // ── Name resolution: most-recent-event wins ──
+    let name = steamId;
+    const ptName  = pt?.name;
+    const logName = log?.name;
+
+    if (ptName && logName) {
+      if (ptName !== logName) {
+        // Compare timestamps — whichever source was updated more recently wins
+        const ptTime  = pt.lastSeen  ? new Date(pt.lastSeen).getTime()  : 0;
+        const logTime = log.lastEvent ? new Date(log.lastEvent).getTime() : 0;
+        name = ptTime >= logTime ? ptName : logName;
+      } else {
+        name = ptName; // they agree
+      }
+    } else {
+      name = ptName || logName || playerStats.getNameForId(steamId) || steamId;
+    }
+
+    // ── Last active: max of both timestamps ──
+    const ptLastSeen  = pt?.lastSeen  ? new Date(pt.lastSeen).getTime()  : 0;
+    const logLastEvent = log?.lastEvent ? new Date(log.lastEvent).getTime() : 0;
+    const lastActiveMs = Math.max(ptLastSeen, logLastEvent);
+    const lastActive = lastActiveMs > 0 ? new Date(lastActiveMs).toISOString() : null;
+
+    // ── First seen (playtime only) ──
+    const firstSeen = pt?.firstSeen || null;
+
+    return { name, firstSeen, lastActive, playtime: pt, log, save };
+  }
+
   async start() {
     if (!config.playerStatsChannelId) {
       console.log('[PLAYER STATS CH] No PLAYER_STATS_CHANNEL_ID set, skipping.');
@@ -248,7 +298,7 @@ class PlayerStatsChannel {
       const record = this._killData.players[id];
       const lastKills = record.lastSnapshot;
       const lastSurvival = record.survivalSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
-      const playerName = playtime.getPlaytime(id)?.name || playerStats.getNameForId(id);
+      const playerName = this._resolvePlayer(id).name;
 
       // ExtendedStats values are already lifetime cumulative — skip death detection
       if (save.hasExtendedStats) {
@@ -453,28 +503,20 @@ class PlayerStatsChannel {
     const allLog = playerStats.getAllPlayers();
     const allPlaytime = playtime.getLeaderboard();
 
-    // Build merged roster
+    // Build merged roster — use _resolvePlayer() for consistent name + timestamp resolution
     const roster = new Map();
-    for (const p of allLog) {
-      roster.set(p.id, { name: p.name, log: p });
-    }
-    for (const p of allPlaytime) {
-      if (!roster.has(p.id)) roster.set(p.id, { name: p.name });
-      else roster.get(p.id).name = p.name; // playtime name is usually most current
-    }
-    for (const [id, save] of this._saveData) {
-      if (!roster.has(id)) {
-        // Resolve name from all available sources instead of falling back to raw SteamID
-        const resolvedName = playerStats.getNameForId(id);
-        roster.set(id, { name: resolvedName });
-      }
-      const entry = roster.get(id);
-      entry.save = save;
-      // If the entry name is still a raw SteamID, try to resolve it
-      if (/^\d{17}$/.test(entry.name)) {
-        const resolvedName = playerStats.getNameForId(id);
-        if (resolvedName !== id) entry.name = resolvedName;
-      }
+    const allIds = new Set([
+      ...allLog.map(p => p.id),
+      ...allPlaytime.map(p => p.id),
+      ...this._saveData.keys(),
+    ]);
+    for (const id of allIds) {
+      const resolved = this._resolvePlayer(id);
+      roster.set(id, {
+        name: resolved.name,
+        log: resolved.log,
+        save: resolved.save,
+      });
     }
 
     const playerCount = roster.size;
@@ -632,45 +674,36 @@ class PlayerStatsChannel {
   _buildPlayerRow() {
     const merged = new Map();
 
-    // Add from player-stats
+    // Add from player-stats (use resolver for consistent names)
     for (const p of playerStats.getAllPlayers()) {
+      const resolved = this._resolvePlayer(p.id);
       const at = this.getAllTimeKills(p.id);
       const atSurv = this.getAllTimeSurvival(p.id);
       merged.set(p.id, {
-        name: p.name,
+        name: resolved.name,
         kills: at?.zeeksKilled || 0,
         deaths: p.deaths,
         days: atSurv?.daysSurvived || 0,
       });
     }
 
-    // Add from playtime
-    for (const p of playtime.getLeaderboard()) {
-      if (!merged.has(p.id)) {
-        const at = this.getAllTimeKills(p.id);
-        const atSurv = this.getAllTimeSurvival(p.id);
-        merged.set(p.id, {
-          name: p.name,
-          kills: at?.zeeksKilled || 0,
-          deaths: 0,
-          days: atSurv?.daysSurvived || 0,
-        });
-      }
-    }
-
-    // Add from save data (catch players only in save)
-    for (const [id, save] of this._saveData) {
-      if (!merged.has(id)) {
-        const at = this.getAllTimeKills(id);
-        const atSurv = this.getAllTimeSurvival(id);
-        const resolvedName = playerStats.getNameForId(id);
-        merged.set(id, {
-          name: resolvedName,
-          kills: at?.zeeksKilled || save.zeeksKilled,
-          deaths: 0,
-          days: atSurv?.daysSurvived || save.daysSurvived,
-        });
-      }
+    // Add from playtime + save data (catch players not in player-stats)
+    const extraIds = new Set([
+      ...playtime.getLeaderboard().map(p => p.id),
+      ...this._saveData.keys(),
+    ]);
+    for (const id of extraIds) {
+      if (merged.has(id)) continue;
+      const resolved = this._resolvePlayer(id);
+      const at = this.getAllTimeKills(id);
+      const atSurv = this.getAllTimeSurvival(id);
+      const save = this._saveData.get(id);
+      merged.set(id, {
+        name: resolved.name,
+        kills: at?.zeeksKilled || save?.zeeksKilled || 0,
+        deaths: resolved.log?.deaths || 0,
+        days: atSurv?.daysSurvived || save?.daysSurvived || 0,
+      });
     }
 
     if (merged.size === 0) return [];
@@ -862,13 +895,13 @@ class PlayerStatsChannel {
    * Merges log stats + save data + playtime into one comprehensive view.
    */
   buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
-    const logData = playerStats.getStats(steamId);
-    const saveData = this._saveData.get(steamId);
-    const pt = playtime.getPlaytime(steamId);
+    const resolved = this._resolvePlayer(steamId);
+    const logData = resolved.log;
+    const saveData = resolved.save;
+    const pt = resolved.playtime;
 
-    const name = logData?.name || pt?.name || steamId;
     const embed = new EmbedBuilder()
-      .setTitle(name)
+      .setTitle(resolved.name)
       .setColor(0x9b59b6)
       .setTimestamp();
 
@@ -883,6 +916,10 @@ class PlayerStatsChannel {
     if (pt) {
       charParts.push(`Playtime: ${pt.totalFormatted}`);
       charParts.push(`Sessions: ${pt.sessions}`);
+    }
+    if (resolved.firstSeen) {
+      const fs = new Date(resolved.firstSeen);
+      charParts.push(`First Seen: ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`);
     }
     if (charParts.length > 0) {
       embed.addFields({ name: 'Character', value: charParts.join('  ·  ') });
@@ -1100,9 +1137,9 @@ class PlayerStatsChannel {
       }
     }
 
-    // ── Last Activity ──
-    if (logData?.lastEvent) {
-      const lastDate = new Date(logData.lastEvent);
+    // ── Last Activity (reconciled from playtime + stats) ──
+    if (resolved.lastActive) {
+      const lastDate = new Date(resolved.lastActive);
       const dateStr = `${lastDate.toLocaleDateString('en-GB')} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
       embed.addFields({ name: 'Last Active', value: dateStr, inline: true });
     }

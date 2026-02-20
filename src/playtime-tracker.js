@@ -134,7 +134,7 @@ class PlaytimeTracker {
   /**
    * Get a player's total playtime (including current active session).
    * @param {string} id - SteamID or player name
-   * @returns {{ name, totalMs, totalFormatted, sessions, isReturning, firstSeen } | null}
+   * @returns {{ name, totalMs, totalFormatted, sessions, isReturning, firstSeen, lastSeen, lastLogin } | null}
    */
   getPlaytime(id) {
     this._ensureInit();
@@ -156,6 +156,8 @@ class PlaytimeTracker {
       sessions: record.sessions,
       isReturning: record.sessions > 1 || record.totalMs > 0,
       firstSeen: record.firstSeen,
+      lastSeen: record.lastSeen,
+      lastLogin: record.lastLogin,
     };
   }
 

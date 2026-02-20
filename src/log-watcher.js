@@ -1,4 +1,4 @@
-const { EmbedBuilder, ChannelType } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const fs = require('fs');
 const path = require('path');
@@ -534,24 +534,24 @@ class LogWatcher {
       console.warn('[LOG WATCHER] Could not search for threads:', err.message);
     }
 
-    // Create a new thread
+    // Create a new thread (from a starter message so it appears inline in the channel)
     try {
-      this._dailyThread = await this.logChannel.threads.create({
+      const starterMsg = await this.logChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`📋 Activity Log — ${dateLabel}`)
+            .setDescription('All server events for today are logged in this thread.')
+            .setColor(0x3498db)
+            .setTimestamp(),
+        ],
+      });
+      this._dailyThread = await starterMsg.startThread({
         name: threadName,
         autoArchiveDuration: 1440, // keep alive 24h
-        type: ChannelType.PublicThread,
         reason: 'Daily activity log thread',
       });
       this._dailyDate = today;
       console.log(`[LOG WATCHER] Created daily thread: ${threadName}`);
-
-      // Post a header in the thread
-      const header = new EmbedBuilder()
-        .setTitle(`📋 Activity Log — ${dateLabel}`)
-        .setDescription('All server events for today are logged below.')
-        .setColor(0x3498db)
-        .setTimestamp();
-      await this._dailyThread.send({ embeds: [header] }).catch(() => {});
     } catch (err) {
       console.error('[LOG WATCHER] Failed to create daily thread:', err.message);
       // Fallback — use the main channel directly
