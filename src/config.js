@@ -1,13 +1,11 @@
 require('dotenv').config();
 
-/** Read a boolean from .env with an explicit default */
 function envBool(key, defaultValue) {
   const val = process.env[key];
   if (val === undefined || val === '') return defaultValue;
   return val === 'true';
 }
 
-/** Parse a time string like "18", "18:00", or "18:30" into total minutes from midnight */
 function envTime(key) {
   const val = process.env[key];
   if (val === undefined || val === '') return NaN;
@@ -75,6 +73,11 @@ const config = {
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
   enablePlaytime: envBool('ENABLE_PLAYTIME', true),
 
+  // Thread mode — when true (default), chat/activity go into daily threads.
+  // When false, messages post directly to the channel.
+  useChatThreads: envBool('USE_CHAT_THREADS', true),
+  useActivityThreads: envBool('USE_ACTIVITY_THREADS', true),
+
   // PvP scheduler
   enablePvpScheduler: envBool('ENABLE_PVP_SCHEDULER', false),
   pvpStartMinutes: envTime('PVP_START_TIME'),   // total minutes from midnight (supports "HH" or "HH:MM")
@@ -124,10 +127,6 @@ for (const key of required) {
 // ── Timezone-aware date helpers ─────────────────────────────
 // All daily thread boundaries, summaries, and displayed times use BOT_TIMEZONE.
 
-/**
- * Get today's date string ('YYYY-MM-DD') in the configured BOT_TIMEZONE.
- * Falls back to UTC if the timezone is invalid.
- */
 config.getToday = function () {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -143,10 +142,6 @@ config.getToday = function () {
   }
 };
 
-/**
- * Get a human-readable date label (e.g. '20 Feb 2026') in the configured BOT_TIMEZONE.
- * @param {Date} [date] — defaults to now
- */
 config.getDateLabel = function (date) {
   try {
     return (date || new Date()).toLocaleDateString('en-GB', {
@@ -160,10 +155,6 @@ config.getDateLabel = function (date) {
   }
 };
 
-/**
- * Format a Date into a short readable time string in the configured BOT_TIMEZONE.
- * e.g. 'Feb 20, 02:48 AM'
- */
 config.formatTime = function (date) {
   try {
     return date.toLocaleString('en-US', {

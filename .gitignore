@@ -4,5 +4,7 @@ data/
 *.7z
 *.sav
 *.log
-*.txt
+
+# Development / extraction utility scripts & cached data
+tools/
 GameServerSettings.ini

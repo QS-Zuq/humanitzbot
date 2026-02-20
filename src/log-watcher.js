@@ -9,13 +9,6 @@ const playerStats = require('./player-stats');
 const OFFSETS_PATH = path.join(__dirname, '..', 'data', 'log-offsets.json');
 const PVP_KILLS_PATH = path.join(__dirname, '..', 'data', 'pvp-kills.json');
 
-/**
- * LogWatcher — connects to the game server via SFTP, polls HMZLog.log
- * and PlayerConnectedLog.txt for new entries, parses all events, records
- * stats, and posts them to a Discord channel.
- *
- * Uses SFTP partial download (read from offset) to only fetch new bytes.
- */
 class LogWatcher {
   constructor(client) {
     this.client = client;
@@ -66,7 +59,6 @@ class LogWatcher {
 
   // ── PvP Kill Tracking ──────────────────────────────────────
 
-  /** Load persisted PvP kill history from disk */
   _loadPvpKills() {
     try {
       if (fs.existsSync(PVP_KILLS_PATH)) {
@@ -82,7 +74,6 @@ class LogWatcher {
     }
   }
 
-  /** Save PvP kill history to disk */
   _savePvpKills() {
     if (!this._pvpKillsDirty) return;
     try {
@@ -95,14 +86,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Record PvP damage for kill attribution.
-   * Updates or creates an entry tracking the most recent attacker for this victim.
-   * @param {string} victim - victim player name
-   * @param {string} attacker - attacker player name (raw from log)
-   * @param {number} damage - damage amount
-   * @param {Date} timestamp - log timestamp
-   */
   _recordPvpDamage(victim, attacker, damage, timestamp) {
     const key = victim.toLowerCase();
     const existing = this._pvpDamageTracker.get(key);
@@ -124,13 +107,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Check if a dying player was recently damaged by another player.
-   * Returns the attacker info if within the kill attribution window, or null.
-   * @param {string} victim - victim player name
-   * @param {Date} deathTimestamp - death event timestamp
-   * @returns {{ attacker: string, totalDamage: number }|null}
-   */
   _checkPvpKill(victim, deathTimestamp) {
     const key = victim.toLowerCase();
     const entry = this._pvpDamageTracker.get(key);
@@ -152,10 +128,6 @@ class LogWatcher {
     return null;
   }
 
-  /**
-   * Periodically prune stale entries from the PvP damage tracker.
-   * Called during each poll cycle.
-   */
   _prunePvpTracker() {
     const now = Date.now();
     for (const [key, entry] of this._pvpDamageTracker) {
@@ -165,18 +137,10 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Get the last N PvP kills (for the stats embed).
-   * @param {number} [count=10] - how many kills to return
-   * @returns {Array<{ killer: string, victim: string, timestamp: string }>}
-   */
   getPvpKills(count = 10) {
     return this._pvpKills.slice(-count);
   }
 
-  /**
-   * Start the log watcher.
-   */
   async start() {
     // Validate required FTP config
     if (!config.ftpHost || config.ftpHost.startsWith('PASTE_')) {
@@ -202,7 +166,7 @@ class LogWatcher {
 
     console.log(`[LOG WATCHER] Watching ${config.ftpLogPath} on ${config.ftpHost}:${config.ftpPort}`);
     console.log(`[LOG WATCHER] Watching ${config.ftpConnectLogPath}`);
-    console.log(`[LOG WATCHER] Posting events to #${this.logChannel.name}`);
+    console.log(`[LOG WATCHER] Posting events to ${config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`);
 
     // First poll — just get current file size so we don't replay old history
     await this._initSize();
@@ -226,9 +190,6 @@ class LogWatcher {
     await thread.send({ embeds: [embed] }).catch(() => {});
   }
 
-  /**
-   * Stop the log watcher.
-   */
   stop() {
     if (this.interval) {
       clearInterval(this.interval);
@@ -258,10 +219,6 @@ class LogWatcher {
 
   // ─── INTERNAL ─────────────────────────────────────────────
 
-  /**
-   * Load saved byte offsets from disk so we can catch up on events
-   * that happened while the bot was offline.
-   */
   _loadOffsets() {
     try {
       if (fs.existsSync(OFFSETS_PATH)) {
@@ -277,9 +234,6 @@ class LogWatcher {
     return null;
   }
 
-  /**
-   * Persist current byte offsets so a future restart can catch up.
-   */
   _saveOffsets() {
     try {
       const dir = path.dirname(OFFSETS_PATH);
@@ -294,11 +248,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Get initial file sizes. If we have saved offsets from the last run,
-   * resume from there so we catch up on events that happened while offline.
-   * Otherwise start from the current file size (no replay on first-ever run).
-   */
   async _initSize() {
     const saved = this._loadOffsets();
     const sftp = new SftpClient();
@@ -358,9 +307,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Poll both log files for new bytes in a single SFTP connection.
-   */
   async _poll() {
     const sftp = new SftpClient();
     try {
@@ -414,9 +360,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Generic file poller — checks a single file for new bytes and processes them.
-   */
   async _pollFile(sftp, opts) {
     try {
       const stat = await sftp.stat(opts.path);
@@ -472,10 +415,6 @@ class LogWatcher {
 
   // ─── DAILY THREADS ────────────────────────────────────────
 
-  /**
-   * Proactive midnight rollover — called every 60s to ensure the daily summary
-   * posts promptly at midnight (BOT_TIMEZONE) even if no log events arrive.
-   */
   async _checkDayRollover() {
     if (!this._dailyDate) return; // not initialised yet
     const today = config.getToday();
@@ -485,23 +424,26 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Get or create today's activity thread. If the day has rolled over,
-   * post a summary of the previous day to the main channel first.
-   */
   async _getOrCreateDailyThread() {
     const today = config.getToday(); // timezone-aware 'YYYY-MM-DD'
+
+    // Day rollover — post summary and reset counters (even in no-thread mode)
+    if (this._dailyDate && this._dailyDate !== today) {
+      await this._postDailySummary();
+      this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
+      this._dailyDate = today;
+    }
+
+    // No-thread mode — post straight to the channel
+    if (!config.useActivityThreads) {
+      this._dailyThread = this.logChannel;
+      this._dailyDate = today;
+      return this._dailyThread;
+    }
 
     // Already have today's thread
     if (this._dailyThread && this._dailyDate === today) {
       return this._dailyThread;
-    }
-
-    // Day rollover — summarise the old day
-    if (this._dailyDate && this._dailyDate !== today) {
-      await this._postDailySummary();
-      // Reset counters
-      this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
     }
 
     // Look for an existing thread for today
@@ -567,9 +509,6 @@ class LogWatcher {
     return this._dailyThread;
   }
 
-  /**
-   * Post a summary of the day's activity to the main log channel.
-   */
   async _postDailySummary() {
     const c = this._dayCounts;
     const total = c.connects + c.deaths + c.builds + c.loots + c.raidHits + c.cheat + c.admin;
@@ -580,21 +519,23 @@ class LogWatcher {
       : 'Unknown';
 
     const lines = [];
-    if (c.connects > 0)    lines.push(`📥  **Connections:** ${c.connects}`);
-    if (c.disconnects > 0)  lines.push(`📤  **Disconnections:** ${c.disconnects}`);
-    if (c.deaths > 0)       lines.push(`💀  **Deaths:** ${c.deaths}`);
-    if (c.builds > 0)       lines.push(`🔨  **Items Built:** ${c.builds}`);
-    if (c.damage > 0)       lines.push(`🩸  **Damage Hits:** ${c.damage}`);
-    if (c.loots > 0)        lines.push(`📦  **Containers Looted:** ${c.loots}`);
-    if (c.raidHits > 0)     lines.push(`⚠️  **Raid Hits:** ${c.raidHits}`);
-    if (c.destroyed > 0)    lines.push(`💥  **Structures Destroyed:** ${c.destroyed}`);
-    if (c.admin > 0)        lines.push(`🔑  **Admin Access:** ${c.admin}`);
-    if (c.cheat > 0)        lines.push(`🚨  **Anti-Cheat Flags:** ${c.cheat}`);
-    if (c.pvpKills > 0)     lines.push(`⚔️  **PvP Kills:** ${c.pvpKills}`);
+    if (c.connects > 0)    lines.push(['Connections', c.connects]);
+    if (c.disconnects > 0) lines.push(['Disconnections', c.disconnects]);
+    if (c.deaths > 0)      lines.push(['Deaths', c.deaths]);
+    if (c.builds > 0)      lines.push(['Items Built', c.builds]);
+    if (c.damage > 0)      lines.push(['Damage Hits', c.damage]);
+    if (c.loots > 0)       lines.push(['Containers Looted', c.loots]);
+    if (c.raidHits > 0)    lines.push(['Raid Hits', c.raidHits]);
+    if (c.destroyed > 0)   lines.push(['Structures Destroyed', c.destroyed]);
+    if (c.admin > 0)       lines.push(['Admin Access', c.admin]);
+    if (c.cheat > 0)       lines.push(['Anti-Cheat Flags', c.cheat]);
+    if (c.pvpKills > 0)    lines.push(['PvP Kills', c.pvpKills]);
+
+    const gridLines = lines.map(([label, val]) => `${label.padEnd(22)} ${String(val).padStart(5)}`);
 
     const embed = new EmbedBuilder()
-      .setTitle(`📊 Daily Summary — ${dateLabel}`)
-      .setDescription(lines.join('\n'))
+      .setTitle(`Daily Summary — ${dateLabel}`)
+      .setDescription('```\n' + gridLines.join('\n') + '\n```')
       .setColor(0x3498db)
       .setFooter({ text: `${total} total events` })
       .setTimestamp();
@@ -606,17 +547,10 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Public API: send an embed to today's daily thread.
-   * Used by external modules (player-stats-channel, pvp-scheduler).
-   */
   sendToThread(embed) {
     return this._sendToThread(embed);
   }
 
-  /**
-   * Helper: send an embed to today's daily thread.
-   */
   async _sendToThread(embed) {
     const thread = await this._getOrCreateDailyThread();
     return thread.send({ embeds: [embed] }).catch(err => {
@@ -624,10 +558,6 @@ class LogWatcher {
     });
   }
 
-  /**
-   * Download file contents starting from a byte offset using SFTP.
-   * Uses a read stream with start/end for efficient partial reads.
-   */
   async _downloadFrom(sftpClient, remotePath, startAt, endAt) {
     const bytesToRead = endAt - startAt;
     if (bytesToRead <= 0) return '';
@@ -659,11 +589,6 @@ class LogWatcher {
     });
   }
 
-  /**
-   * Parse a single HMZLog.log line and dispatch to the appropriate handler.
-   * Format: (DD/MM/YYYY HH:MM) EventMessage
-   * Returns true if the line was a recognised event.
-   */
   _processLine(line) {
     // Extract timestamp and message body
     // Format: (13/2/2026 12:35) message here  — also handles :SS seconds, - . separators, and comma in year (2,026)
@@ -811,11 +736,6 @@ class LogWatcher {
     return false;
   }
 
-  /**
-   * Parse a single PlayerConnectedLog.txt line.
-   * Format: Player Connected Name NetID(SteamID_+_...) (DD/MM/YYYY HH:MM)
-   *         Player Disconnected Name NetID(SteamID_+_...) (DD/MM/YYYY HH:MM)
-   */
   _processConnectLine(line) {
     // Flexible: handles optional seconds, - . separators, and comma in year (2,026)
     const connectMatch = line.match(
@@ -866,9 +786,6 @@ class LogWatcher {
 
   // ─── EVENT HANDLERS ───────────────────────────────────────
 
-  /**
-   * Player finished building something.
-   */
   _onBuild(playerName, steamId, itemName, timestamp) {
     // Clean up item name — remove BP_ prefix and trailing IDs
     const cleanItem = this._simplifyBlueprintName(itemName);
@@ -895,9 +812,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Player died.
-   */
   _onDeath(playerName, timestamp) {
     // Record stats
     playerStats.recordDeath(playerName, timestamp);
@@ -951,9 +865,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Player raided another player's building (structure damage by another player).
-   */
   _onRaid(attackerName, attackerSteamId, ownerSteamId, buildingType, destroyed, timestamp) {
     // Clean up attacker name
     const attacker = attackerName.replace(/\s*$/, '');
@@ -991,10 +902,6 @@ class LogWatcher {
 
   // ─── ID MAP ───────────────────────────────────────────────
 
-  /**
-   * Read PlayerIDMapped.txt and feed the name→SteamID map to player-stats.
-   * Format: 76561198000000000_+_|<guid>@PlayerName
-   */
   async _refreshIdMap(sftp) {
     try {
       const buf = await sftp.get(config.ftpIdMapPath);
@@ -1023,10 +930,6 @@ class LogWatcher {
 
   // ─── HELPERS ──────────────────────────────────────────────
 
-  /**
-   * Batch loot events to reduce spam — groups by looter|owner pair.
-   * Flushes after 60 seconds of accumulation.
-   */
   _batchLoot(playerName, steamId, containerType, ownerSteamId, timestamp) {
     // Don't report self-looting
     if (steamId === ownerSteamId) return;
@@ -1053,9 +956,6 @@ class LogWatcher {
     }
   }
 
-  /**
-   * Flush accumulated loot batch to Discord.
-   */
   _flushLootBatch() {
     const entries = Object.values(this._lootBatch);
     if (entries.length === 0) return;
@@ -1077,9 +977,6 @@ class LogWatcher {
     this._sendToThread(embed);
   }
 
-  /**
-   * Flush accumulated build batch to Discord.
-   */
   _flushBuildBatch() {
     const entries = Object.values(this._buildBatch);
     if (entries.length === 0) return;
@@ -1101,9 +998,6 @@ class LogWatcher {
     this._sendToThread(embed);
   }
 
-  /**
-   * Flush accumulated raid batch to Discord.
-   */
   _flushRaidBatch() {
     const entries = Object.values(this._raidBatch);
     if (entries.length === 0) return;
@@ -1131,9 +1025,6 @@ class LogWatcher {
     this._sendToThread(embed);
   }
 
-  /**
-   * Simplify container class names.
-   */
   _simplifyContainerName(rawName) {
     if (rawName.includes('VehicleStorage')) return 'Vehicle Storage';
     if (rawName.includes('CupboardContainer')) return 'Cupboard';
@@ -1143,12 +1034,6 @@ class LogWatcher {
     return rawName.replace(/^(ChildActor_GEN_VARIABLE_|Storage_GEN_VARIABLE_)?BP_/, '').replace(/_C_\w+$/, '').replace(/_C_CAT_\w+$/, '').replace(/_/g, ' ').trim();
   }
 
-  /**
-   * Simplify UE blueprint class names into human‐readable names.
-   * BP_GlassWindow_C_2147481025 → Glass Window
-   * BP_Campfire_C_123 → Campfire
-   * BP_StorageContainer_A_C_2147481025 → Storage Container
-   */
   _simplifyBlueprintName(rawName) {
     return rawName
       .replace(/^BP_/, '')
@@ -1158,9 +1043,6 @@ class LogWatcher {
       .trim();
   }
 
-  /**
-   * Format a Date into a short readable time string.
-   */
   _formatTime(date) {
     return config.formatTime(date);
   }

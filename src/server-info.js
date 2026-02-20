@@ -1,30 +1,5 @@
 const rcon = require('./rcon');
 
-/**
- * HumanitZ RCON command wrappers & response parsers.
- *
- * Official HumanitZ RCON commands (via Bisect Hosting docs):
- *   info              - Prints current world information
- *   Players           - Lists connected players (name/SteamID)
- *   admin [message]   - Send admin chat message
- *   kick [SteamID]    - Kick a player
- *   ban [SteamID]     - Ban a player
- *   unban [SteamID]   - Unban a player
- *   fetchbanned       - List banned SteamIDs
- *   teleport [SteamID]- Teleport player to nearest spawn
- *   unstuck [SteamID] - Unstuck a player
- *   season [name]     - Set the current season
- *   weather [name]    - Set the current weather
- *   restart [minutes] - Restart after X minutes
- *   QuickRestart      - Restart after 1 minute
- *   RestartNow        - Restart immediately
- *   CancelRestart     - Cancel a pending restart
- *   shutdown          - Shut down immediately
- *   fetchchat         - Fetch recent in-game chat messages
- *
- * NOTE: There is NO playerinfo command in HumanitZ RCON.
- */
-
 const COMMANDS = {
   INFO: 'info',
   PLAYERS: 'Players',
@@ -44,27 +19,16 @@ const COMMANDS = {
   SHUTDOWN: 'shutdown',
 };
 
-/**
- * Get server world info (day, season, weather, player count, etc.)
- * Returns parsed object + raw string.
- */
 async function getServerInfo() {
   const raw = await rcon.sendCached(COMMANDS.INFO, 30000);
   return parseServerInfo(raw);
 }
 
-/**
- * Get a list of currently connected players.
- * Returns { count, players: [{ name, steamId }], raw }
- */
 async function getPlayerList() {
   const raw = await rcon.sendCached(COMMANDS.PLAYERS, 15000);
   return parsePlayerList(raw);
 }
 
-/**
- * Send a message to server chat as [Admin].
- */
 async function sendAdminMessage(message) {
   return rcon.send(`${COMMANDS.ADMIN_MSG} ${message}`);
 }

@@ -1,8 +1,3 @@
-/**
- * Deploy slash commands to Discord.
- * Run this once (or whenever you change commands):
- *   npm run deploy-commands
- */
 require('dotenv').config();
 
 const { REST, Routes } = require('discord.js');

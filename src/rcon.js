@@ -1,14 +1,6 @@
 const net = require('net');
 const config = require('./config');
 
-/**
- * Custom RCON client for HumanitZ.
- *
- * HumanitZ's RCON doesn't follow standard Source RCON response conventions.
- * This implementation is very lenient — after authenticating, it sends a command
- * and accepts ANY data that comes back as the response.
- */
-
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
 
@@ -23,12 +15,9 @@ class RconManager {
     this._responseBuffer = Buffer.alloc(0);
     this._commandCallback = null; // only one command at a time
     this._authCallback = null;
-    this._commandQueue = Promise.resolve(); // serialize commands via promise chain
+    this._commandQueue = Promise.resolve();
   }
 
-  /**
-   * Connect and authenticate to the RCON server.
-   */
   async connect() {
     if (this.connected && this.authenticated) return;
 
@@ -89,12 +78,7 @@ class RconManager {
     });
   }
 
-  /**
-   * Send an RCON command and return the response string.
-   * Commands are serialized — only one at a time.
-   */
   async send(command) {
-    // Serialize commands via promise chain (no busy-wait polling)
     return new Promise((resolve, reject) => {
       this._commandQueue = this._commandQueue.then(async () => {
         try {
@@ -165,9 +149,6 @@ class RconManager {
     });
   }
 
-  /**
-   * Send a command with caching.
-   */
   async sendCached(command, ttl = config.statusCacheTtl) {
     const cached = this.cache.get(command);
     if (cached && Date.now() - cached.timestamp < ttl) {
@@ -187,9 +168,6 @@ class RconManager {
     return data;
   }
 
-  /**
-   * Disconnect from the RCON server.
-   */
   async disconnect() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);

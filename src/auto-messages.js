@@ -2,16 +2,6 @@ const config = require('./config');
 const { sendAdminMessage, getPlayerList } = require('./server-info');
 const playtime = require('./playtime-tracker');
 
-/**
- * AutoMessages — periodically broadcasts messages to in-game chat
- * via the `admin` RCON command, and sends a welcome message when
- * a new player joins the server.
- *
- * Messages:
- *   1. Discord link — every 30 minutes
- *   2. Longer promo — every 45 minutes
- *   3. Welcome — on player join (broadcast mentioning the new player)
- */
 class AutoMessages {
   constructor() {
     this.discordLink = config.discordInviteLink;
@@ -31,12 +21,9 @@ class AutoMessages {
 
     // Anti-spam: timestamp of last welcome message sent
     this._lastWelcomeTime = 0;
-    this._welcomeCooldownMs = 300000; // 5 minutes
+    this._welcomeCooldownMs = 300000;
   }
 
-  /**
-   * Start all auto-message timers.
-   */
   async start() {
     console.log('[AUTO-MSG] Starting auto-messages...');
 
@@ -68,9 +55,6 @@ class AutoMessages {
     }
   }
 
-  /**
-   * Stop all timers.
-   */
   stop() {
     if (this._linkTimer) clearInterval(this._linkTimer);
     if (this._promoTimer) clearInterval(this._promoTimer);
@@ -83,7 +67,6 @@ class AutoMessages {
 
   // ── Private methods ────────────────────────────────────────
 
-  /** Seed the online-player set with whoever is already online */
   async _seedPlayers() {
     try {
       const list = await getPlayerList();
@@ -108,7 +91,6 @@ class AutoMessages {
     }
   }
 
-  /** Broadcast the short Discord link message */
   async _sendDiscordLink() {
     if (!this.discordLink) return;
     // Skip if a player joined recently (avoid spamming new players)
@@ -124,7 +106,6 @@ class AutoMessages {
     }
   }
 
-  /** Broadcast the longer promo message */
   async _sendPromoMessage() {
     // Skip if a player joined recently (avoid spamming new players)
     if (Date.now() - this._lastWelcomeTime < this._welcomeCooldownMs) {
@@ -140,7 +121,6 @@ class AutoMessages {
     }
   }
 
-  /** Check the player list for joins (including rejoins) and welcome them */
   async _checkForNewPlayers() {
     if (!this._initialised) return;
 
@@ -187,7 +167,6 @@ class AutoMessages {
     }
   }
 
-  /** Build a dynamic PvP status string based on current time, or empty if disabled */
   _pvpScheduleText() {
     if (!config.enablePvpScheduler) return '';
     const startMin = !isNaN(config.pvpStartMinutes) ? config.pvpStartMinutes : config.pvpStartHour * 60;
@@ -230,7 +209,6 @@ class AutoMessages {
     }
   }
 
-  /** Send a welcome message for a new player */
   async _sendWelcome(player) {
     try {
       const name = player.name || 'Survivor';

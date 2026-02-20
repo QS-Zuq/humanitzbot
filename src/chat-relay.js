@@ -2,20 +2,6 @@ const { Events, EmbedBuilder } = require('discord.js');
 const config = require('./config');
 const rcon = require('./rcon');
 
-/**
- * Bidirectional Chat Bridge:
- *
- * 1. INBOUND  — polls `fetchchat` via RCON every few seconds, parses the
- *               HumanitZ markup format, diffs against previous snapshot,
- *               and relays new player messages / join / leave / death events
- *               into a daily "💬 Chat Log" thread in the admin channel.
- *
- * 2. OUTBOUND — listens for Discord messages in the admin channel and sends
- *               them to the server as [Admin] using the `admin` RCON command.
- *
- * !admin alerts are posted in the daily chat thread (with @here ping).
- */
-
 // ── Chat line parsers ────────────────────────────────────────
 // Player chat:   <PN>PlayerName:</>Message text
 const CHAT_RE = /^<PN>(.+?):<\/>(.+)$/;
@@ -53,9 +39,9 @@ class ChatRelay {
       }
 
       console.log(`[CHAT] Admin bridge: #${this.adminChannel.name} → server`);
-      console.log(`[CHAT] Chat relay:   server → daily thread in #${this.adminChannel.name}`);
+      console.log(`[CHAT] Chat relay:   server → ${config.useChatThreads ? 'daily thread in' : ''} #${this.adminChannel.name}`);
 
-      // Create / find today's chat thread
+      // Create / find today's chat thread (or use channel directly)
       await this._getOrCreateChatThread();
 
       // Listen for outbound admin messages
@@ -80,6 +66,12 @@ class ChatRelay {
   // ── Daily chat thread management ───────────────────────────
 
   async _getOrCreateChatThread() {
+    // No-thread mode — post straight to the channel
+    if (!config.useChatThreads) {
+      this._chatThread = this.adminChannel;
+      return this._chatThread;
+    }
+
     const today = config.getToday(); // timezone-aware 'YYYY-MM-DD'
 
     // Already have today's thread
@@ -181,11 +173,6 @@ class ChatRelay {
     }
   }
 
-  /**
-   * Diff two snapshots — return only lines that are new.
-   * Uses reverse search so that duplicate lines (e.g. same player
-   * saying the same thing) aren't lost.
-   */
   _diff(currentLines) {
     if (this._lastLines.length === 0) {
       // First poll — don't replay the whole buffer
@@ -225,10 +212,6 @@ class ChatRelay {
 
   // ── !admin command detection ────────────────────────────────
 
-  /**
-   * Check if a player is calling for admin help via !admin.
-   * Sends an alert embed to the MAIN admin channel (not the thread).
-   */
   async _checkAdminCall(line) {
     const m = CHAT_RE.exec(line);
     if (!m) return;
@@ -276,10 +259,6 @@ class ChatRelay {
     } catch (_) {}
   }
 
-  /**
-   * Parse a single chat line into a Discord-ready string.
-   * Returns null for lines we don't want to relay.
-   */
   _formatLine(line) {
     // Skip admin message echo
     if (ADMIN_RE.test(line)) return null;
@@ -308,7 +287,6 @@ class ChatRelay {
     return null;
   }
 
-  /** Sanitize text to prevent @mention abuse and markdown injection */
   _sanitize(text) {
     return text
       .replace(/@everyone/g, '@\u200beveryone')
@@ -332,7 +310,8 @@ class ChatRelay {
       if (text.length > 500) {
         text = text.substring(0, 500);
       }
-      await rcon.send(`admin ${text}`);
+      const displayName = message.member?.displayName || message.author.displayName || message.author.username;
+      await rcon.send(`admin [Discord] ${displayName}: ${text}`);
       await message.react('✅');
     } catch (err) {
       console.error('[CHAT] Failed to relay admin message:', err.message);

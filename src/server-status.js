@@ -4,17 +4,6 @@ const { getServerInfo, getPlayerList } = require('./server-info');
 const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 
-/**
- * ServerStatus — posts and continuously edits a single embed in a
- * "Server Status" text channel every 30 seconds with live server info.
- *
- * Unlike voice-channel renames, message edits are not aggressively
- * rate-limited, so this gives near-real-time updates.
- */
-
-/**
- * Format a time string so minutes are always zero-padded to 2 digits.
- */
 function _formatTime(timeStr) {
   if (!timeStr) return null;
   const match = timeStr.match(/^(\d{1,2}):(\d{1,2})$/);
@@ -33,9 +22,6 @@ class ServerStatus {
     this.updateIntervalMs = parseInt(config.serverStatusInterval, 10) || 30000; // 30s default
   }
 
-  /**
-   * Start: fetch the channel, post an initial embed, then loop edits.
-   */
   async start() {
     console.log('[SERVER STATUS] Module starting...');
     console.log(`[SERVER STATUS] Channel ID from config: "${config.serverStatusChannelId}"`);
@@ -72,9 +58,6 @@ class ServerStatus {
     }
   }
 
-  /**
-   * Stop the update loop.
-   */
   stop() {
     if (this.interval) {
       clearInterval(this.interval);
@@ -82,7 +65,6 @@ class ServerStatus {
     }
   }
 
-  /** @private - delete old bot messages in the channel so we start fresh */
   async _cleanOldMessages() {
     try {
       const messages = await this.channel.messages.fetch({ limit: 20 });
@@ -96,7 +78,6 @@ class ServerStatus {
     }
   }
 
-  /** @private - fetch server data and edit the embed */
   async _update() {
     try {
       const [info, playerList] = await Promise.all([
@@ -130,7 +111,6 @@ class ServerStatus {
     }
   }
 
-  /** @private - build the status embed from server info */
   _buildEmbed(info, playerList) {
     const embed = new EmbedBuilder()
       .setTitle('HumanitZ Server Status')

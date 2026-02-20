@@ -1,22 +1,3 @@
-/**
- * PvP Scheduler — toggles PvP on/off at configured real-world times.
- *
- * Flow:
- *   1. Every minute, check if current time is inside or outside the PvP window.
- *   2. When within the restart-delay window, start a countdown (10, 5, 3, 2, 1 min warnings).
- *   3. At 0: download GameServerSettings.ini via SFTP → toggle PVP=0/1 → upload → restart.
- *
- * Config (.env):
- *   ENABLE_PVP_SCHEDULER=false         # off by default
- *   PVP_START_TIME=18:00               # PvP turns ON  (HH:MM, e.g. 22:30)
- *   PVP_END_TIME=22:00                 # PvP turns OFF (HH:MM, e.g. 23:30)
- *   PVP_TIMEZONE=UTC                   # IANA timezone (e.g. UTC, America/New_York, Europe/London)
- *   PVP_RESTART_DELAY=10               # minutes of warning before restart (default 10)
- *   FTP_SETTINGS_PATH=/HumanitZServer/GameServerSettings.ini
- *
- *   Legacy: PVP_START_HOUR / PVP_END_HOUR (whole hours) still work as fallback.
- */
-
 const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const config = require('./config');
@@ -77,9 +58,6 @@ class PvpScheduler {
     this._countdownTimer = null;
   }
 
-  /**
-   * Read the current PVP setting from the server ini file.
-   */
   async _readCurrentState() {
     const sftp = new SftpClient();
     try {
@@ -101,9 +79,6 @@ class PvpScheduler {
     }
   }
 
-  /**
-   * Get the current hour and minute in the configured timezone.
-   */
   _getCurrentTime() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-GB', {
@@ -116,9 +91,6 @@ class PvpScheduler {
     return { hour: h, minute: m, totalMinutes: h * 60 + m };
   }
 
-  /**
-   * Check if a given totalMinutes value falls inside the PvP window.
-   */
   _isInsidePvpWindow(totalMinutes) {
     const start = this._pvpStart;
     const end = this._pvpEnd;
@@ -131,10 +103,6 @@ class PvpScheduler {
     }
   }
 
-  /**
-   * Calculate minutes until the next PvP state transition.
-   * Returns { minutesUntil, targetPvp } where targetPvp is the state after the transition.
-   */
   _minutesUntilNextTransition() {
     const { totalMinutes } = this._getCurrentTime();
     const start = this._pvpStart; // PvP turns ON
@@ -157,10 +125,6 @@ class PvpScheduler {
     return { minutesUntil, targetPvp };
   }
 
-  /**
-   * Main tick — runs every 60 seconds.
-   * Starts the countdown early enough that the restart happens at the scheduled time.
-   */
   _tick() {
     if (this._transitioning) return; // countdown already in progress
 
@@ -184,9 +148,6 @@ class PvpScheduler {
     }
   }
 
-  /**
-   * Start the countdown sequence before restart.
-   */
   _startCountdown(targetPvp, minutesUntilToggle) {
     this._transitioning = true;
     const targetLabel = targetPvp ? 'ON' : 'OFF';
@@ -230,9 +191,6 @@ class PvpScheduler {
     scheduleNext();
   }
 
-  /**
-   * Download ini, toggle PVP, upload, restart server.
-   */
   async _executeToggle(targetPvp) {
     const targetLabel = targetPvp ? 'ON' : 'OFF';
     const targetValue = targetPvp ? '1' : '0';
@@ -313,9 +271,6 @@ class PvpScheduler {
     this._transitioning = false;
   }
 
-  /**
-   * Post an announcement to the daily activity thread (falls back to admin channel).
-   */
   async _announce(message) {
     console.log(`[PVP] ${message}`);
     const embed = new EmbedBuilder()
@@ -342,17 +297,11 @@ class PvpScheduler {
 
   // ── Server-name helpers ─────────────────────────────────────
 
-  /** Format the PvP time range as "HH:MM-HH:MM (timezone)" */
   _formatPvpTimeRange() {
     const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     return `${fmt(this._pvpStart)}-${fmt(this._pvpEnd)} ${config.pvpTimezone}`;
   }
 
-  /**
-   * Update the ServerName= line in the ini content.
-   * When PvP is ON:  append " - PVP Enabled HH:MM-HH:MM (tz)"
-   * When PvP is OFF: restore the original name (strip PvP suffix)
-   */
   _updateServerName(content, pvpOn) {
     // Match ServerName="value" or ServerName=value (greedy inside quotes)
     const nameMatch = content.match(/^ServerName\s*=\s*"([^"]*)"\s*$/m)
@@ -388,9 +337,6 @@ class PvpScheduler {
     return updatedContent;
   }
 
-  /**
-   * Post a PvP state-change embed to the daily activity thread.
-   */
   async _postToActivityLog(targetPvp) {
     if (!this._logWatcher) return;
     const label = targetPvp ? 'ENABLED' : 'DISABLED';

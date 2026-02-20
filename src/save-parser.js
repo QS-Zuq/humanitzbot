@@ -1,20 +1,3 @@
-/**
- * SaveParser — parses a UE4 GVAS save file and extracts per-player stats.
- *
- * Reads the HumanitZ dedicated server save (Save_DedicatedSaveMP.sav),
- * skips world data (builds, containers, transforms), and extracts:
- *   - Kill stats: ZeeksKilled, MeleeKills, GunKills, BlastKills,
- *     FistKills, TakedownKills, VehicleKills, HeadShot
- *   - Survival: DayzSurvived, Affliction
- *   - Vitals: Health, Hunger, Thirst, Stamina, Infection, Battery
- *   - Progress: Recipes, Lore, Professions, StartingPerk
- *   - Misc: Fatigue, InfectionBuildup
- *
- * Usage:
- *   const { parseSave } = require('./save-parser');
- *   const players = parseSave(buffer);  // returns Map<steamId, stats>
- */
-
 /* ── Low-level binary readers ── */
 
 function createReader(buf) {
@@ -74,19 +57,39 @@ const MAP_CAPTURE = new Set(['GameStats', 'FloatData']);
 /* ── ExtendedStats tag path → player field mapping ── */
 const EXTENDED_STAT_MAP = {
   // Kill stats (cumulative / lifetime)
-  'statistics.stat.game.kills.total':         'zeeksKilled',
-  'statistics.stat.game.kills.headshot':       'headshots',
-  'statistics.stat.game.kills.type.melee':     'meleeKills',
-  'statistics.stat.game.kills.type.ranged':    'gunKills',      // game uses "ranged"
-  'statistics.stat.game.kills.type.blast':     'blastKills',
-  'statistics.stat.game.kills.type.unarmed':   'fistKills',     // game uses "unarmed"
-  'statistics.stat.game.kills.type.takedown':  'takedownKills',
-  'statistics.stat.game.kills.type.vehicle':   'vehicleKills',
+  'statistics.stat.game.kills.total':         'lifetimeKills',
+  'statistics.stat.game.kills.headshot':       'lifetimeHeadshots',
+  'statistics.stat.game.kills.type.melee':     'lifetimeMeleeKills',
+  'statistics.stat.game.kills.type.ranged':    'lifetimeGunKills',
+  'statistics.stat.game.kills.type.blast':     'lifetimeBlastKills',
+  'statistics.stat.game.kills.type.unarmed':   'lifetimeFistKills',
+  'statistics.stat.game.kills.type.takedown':  'lifetimeTakedownKills',
+  'statistics.stat.game.kills.type.vehicle':   'lifetimeVehicleKills',
   // Survival / activity
-  'statistics.stat.progress.survivefor3days':        'daysSurvived',
-  // Challenge / progress trackers (stored for reference)
-  'statistics.stat.challenge.KillSomeZombies':      '_challengeKills',
-  'statistics.stat.progress.kill50zombies':          '_progressKills',
+  'statistics.stat.progress.survivefor3days':  'lifetimeDaysSurvived',
+  'statistics.stat.game.bitten':               'timesBitten',
+  'statistics.stat.game.activity.FishCaught':       'fishCaught',
+  'statistics.stat.game.activity.FishCaught.Pike':  'fishCaughtPike',
+  // Challenge / progress trackers
+  'statistics.stat.challenge.KillSomeZombies':      'challengeKillZombies',
+  'statistics.stat.progress.kill50zombies':          'challengeKill50',
+  'statistics.stat.progress.catch20fish':            'challengeCatch20Fish',
+  'statistics.stat.challenge.RegularAngler':         'challengeRegularAngler',
+  'statistics.stat.challenge.KillZombieBear':        'challengeKillZombieBear',
+  'statistics.stat.challenge.9SquaresToChaos':       'challenge9Squares',
+  'statistics.stat.challenge.CraftFirearm':          'challengeCraftFirearm',
+  'statistics.stat.challenge.CraftFurnace':          'challengeCraftFurnace',
+  'statistics.stat.challenge.CraftMeleeBench':       'challengeCraftMeleeBench',
+  'statistics.stat.challenge.CraftMeleeWeapon':      'challengeCraftMeleeWeapon',
+  'statistics.stat.challenge.CraftRainCollector':    'challengeCraftRainCollector',
+  'statistics.stat.challenge.CraftTablesaw':         'challengeCraftTablesaw',
+  'statistics.stat.challenge.CraftTreatment':        'challengeCraftTreatment',
+  'statistics.stat.challenge.CraftWeaponsBench':     'challengeCraftWeaponsBench',
+  'statistics.stat.challenge.CraftWorkbench':        'challengeCraftWorkbench',
+  'statistics.stat.challenge.FindCanineCompanion':   'challengeFindDog',
+  'statistics.stat.challenge.FindCrashedHelicopter': 'challengeFindHeli',
+  'statistics.stat.challenge.LockpickSurvivorSUV':  'challengeLockpickSUV',
+  'statistics.stat.challenge.RepairRadioTower':      'challengeRepairRadio',
 };
 
 /* ── Parse the GVAS header ── */
@@ -348,35 +351,30 @@ function readProperty(r) {
 }
 
 /* ── Perk enum to readable name ── */
+// Verified by extracting DT_Professions DataTable from game pak file
+// (pakchunk0-WindowsNoEditor.pak → /Game/Coredamage/Data/DT_Professions)
+// Enumerators 4-8 and 11 were removed from the game and no longer exist.
 const PERK_MAP = {
-  // NewEnumerator0 = default/unset — intentionally omitted so it stays 'Unknown'
-  'Enum_Professions::NewEnumerator1': 'Athlete',
-  'Enum_Professions::NewEnumerator2': 'Burglar',
-  'Enum_Professions::NewEnumerator3': 'Construction Worker',
-  'Enum_Professions::NewEnumerator4': 'Doctor',
-  'Enum_Professions::NewEnumerator5': 'Electrician',
-  'Enum_Professions::NewEnumerator6': 'Engineer',
-  'Enum_Professions::NewEnumerator7': 'Farmer',
-  'Enum_Professions::NewEnumerator8': 'Fire Fighter',
-  'Enum_Professions::NewEnumerator9': 'Hunter',
-  'Enum_Professions::NewEnumerator10': 'Lumberjack',
-  'Enum_Professions::NewEnumerator11': 'Mechanic',
-  'Enum_Professions::NewEnumerator12': 'Park Ranger',
-  'Enum_Professions::NewEnumerator13': 'Police Officer',
-  'Enum_Professions::NewEnumerator14': 'Survivalist',
-  'Enum_Professions::NewEnumerator15': 'Unemployed',
-  'Enum_Professions::NewEnumerator16': 'Veteran',
-  'Enum_Professions::NewEnumerator17': 'Chef',
+  'Enum_Professions::NewEnumerator0':  'Unemployed',
+  'Enum_Professions::NewEnumerator1':  'Amateur Boxer',
+  'Enum_Professions::NewEnumerator2':  'Farmer',
+  'Enum_Professions::NewEnumerator3':  'Mechanic',
+  'Enum_Professions::NewEnumerator9':  'Car Salesman',
+  'Enum_Professions::NewEnumerator10': 'Outdoorsman',
+  'Enum_Professions::NewEnumerator12': 'Chemist',
+  'Enum_Professions::NewEnumerator13': 'Emergency Medical Technician',
+  'Enum_Professions::NewEnumerator14': 'Military Veteran',
+  'Enum_Professions::NewEnumerator15': 'Thief',
+  'Enum_Professions::NewEnumerator16': 'Fire Fighter',
+  'Enum_Professions::NewEnumerator17': 'Electrical Engineer',
 };
 
-// ByteProperty stores the enum index as a number — same order as above
-// Index 0 = default/unset, intentionally omitted
+// ByteProperty stores the enum index as a number — same mapping as above
 const PERK_INDEX_MAP = {
-  1: 'Athlete', 2: 'Burglar', 3: 'Construction Worker', 4: 'Doctor',
-  5: 'Electrician', 6: 'Engineer', 7: 'Farmer', 8: 'Fire Fighter',
-  9: 'Hunter', 10: 'Lumberjack', 11: 'Mechanic', 12: 'Park Ranger',
-  13: 'Police Officer', 14: 'Survivalist', 15: 'Unemployed',
-  16: 'Veteran', 17: 'Chef',
+  0: 'Unemployed', 1: 'Amateur Boxer', 2: 'Farmer', 3: 'Mechanic',
+  9: 'Car Salesman', 10: 'Outdoorsman', 12: 'Chemist',
+  13: 'Emergency Medical Technician', 14: 'Military Veteran',
+  15: 'Thief', 16: 'Fire Fighter', 17: 'Electrical Engineer',
 };
 
 /* ── Main parse function ── */
@@ -430,6 +428,11 @@ function parseSave(buf) {
         lore: [],
         // Professions
         unlockedProfessions: [],
+        // Skills
+        unlockedSkills: [],
+        // Unique items
+        uniqueLoots: [],
+        craftedUniques: [],
         // Lifetime stats (from ExtendedStats — persist across deaths)
         lifetimeKills: 0,
         lifetimeHeadshots: 0,
@@ -440,17 +443,36 @@ function parseSave(buf) {
         lifetimeTakedownKills: 0,
         lifetimeVehicleKills: 0,
         lifetimeDaysSurvived: 0,
+        // Challenge progress (from ExtendedStats)
+        challengeKillZombies: 0,
+        challengeKill50: 0,
+        challengeCatch20Fish: 0,
+        challengeRegularAngler: 0,
+        challengeKillZombieBear: 0,
+        challenge9Squares: 0,
+        challengeCraftFirearm: 0,
+        challengeCraftFurnace: 0,
+        challengeCraftMeleeBench: 0,
+        challengeCraftMeleeWeapon: 0,
+        challengeCraftRainCollector: 0,
+        challengeCraftTablesaw: 0,
+        challengeCraftTreatment: 0,
+        challengeCraftWeaponsBench: 0,
+        challengeCraftWorkbench: 0,
+        challengeFindDog: 0,
+        challengeFindHeli: 0,
+        challengeLockpickSUV: 0,
+        challengeRepairRadio: 0,
+        // Activity (from ExtendedStats)
+        timesBitten: 0,
+        fishCaught: 0,
+        fishCaughtPike: 0,
         hasExtendedStats: false,
       });
     }
     return players.get(id);
   }
 
-  /**
-   * Pre-scan a flat list of props to find a SteamID and set context BEFORE
-   * processing values. Needed because SteamID appears mid-element in
-   * DropInSaves struct arrays.
-   */
   function prescanSteamId(props) {
     for (const prop of props) {
       if (prop && prop.name === 'SteamID' && typeof prop.value === 'string') {
@@ -499,7 +521,7 @@ function parseSave(buf) {
           }
           if (tagName && currentValue !== null && currentValue > 0) {
             const field = EXTENDED_STAT_MAP[tagName];
-            if (field && !field.startsWith('_')) {
+            if (field) {
               p[field] = Math.round(currentValue);
               p.hasExtendedStats = true;
             }
@@ -536,8 +558,8 @@ function parseSave(buf) {
       }
       if (mapped) {
         p.startingPerk = mapped;
-      } else if (prop.value !== 0 && prop.value !== 'None' && prop.value !== 'Enum_Professions::NewEnumerator0') {
-        // Only log truly unexpected values (not the default/unset "None" or index 0)
+      } else if (prop.value !== 'None' && prop.value !== null && prop.value !== undefined) {
+        // Log truly unexpected/unmapped values
         console.log(`[SAVE PARSER] Unknown StartingPerk for ${currentSteamID}: type=${typeof prop.value} value=${JSON.stringify(prop.value)} enumType=${prop.enumType}`);
       }
     }
@@ -573,6 +595,19 @@ function parseSave(buf) {
     // Professions
     if (n === 'UnlockedProfessionArr' && Array.isArray(prop.value)) p.unlockedProfessions = prop.value;
 
+    // Skills (may appear as UnlockedSkills or UnlockedSkills_18)
+    if ((n === 'UnlockedSkills' || n.startsWith('UnlockedSkills_')) && Array.isArray(prop.value)) {
+      p.unlockedSkills = prop.value.filter(Boolean);
+    }
+
+    // Unique items
+    if ((n === 'UniqueLoots' || n.startsWith('UniqueLoots_')) && Array.isArray(prop.value)) {
+      p.uniqueLoots = prop.value.filter(Boolean);
+    }
+    if ((n === 'CraftedUniques' || n.startsWith('CraftedUniques_')) && Array.isArray(prop.value)) {
+      p.craftedUniques = prop.value.filter(Boolean);
+    }
+
     // Lore
     if (n === 'LoreId' && typeof prop.value === 'string') p.lore.push(prop.value);
 
@@ -580,7 +615,6 @@ function parseSave(buf) {
     if (n === 'PlayerInventory' && Array.isArray(prop.value)) p.inventory = prop.value;
     if (n === 'PlayerEquipment' && Array.isArray(prop.value)) p.equipment = prop.value;
     if (n === 'PlayerQuickSlots' && Array.isArray(prop.value)) p.quickSlots = prop.value;
-
 
   }
 
@@ -642,13 +676,6 @@ const CLAN_RANK_MAP = {
   'E_ClanRank::NewEnumerator4': 'Leader',
 };
 
-/**
- * Parse Save_ClanData.sav and return an array of clans.
- * Each clan: { name, members: [{ name, steamId, rank, canInvite, canKick }] }
- *
- * @param {Buffer} buf - Raw contents of Save_ClanData.sav
- * @returns {Array<{ name: string, members: Array<{ name: string, steamId: string, rank: string, canInvite: boolean, canKick: boolean }> }>}
- */
 function parseClanData(buf) {
   const r = createReader(buf);
   parseHeader(r);

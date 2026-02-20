@@ -93,15 +93,10 @@ let pvpScheduler;
 let adminChannel; // cached for online/offline notifications
 const startedAt = new Date();
 
-/**
- * Module status tracker — records why each module is on, off, or skipped.
- * Status values:  '🟢 Active'  |  '⚫ Disabled'  |  '🟡 Skipped (reason)'
- */
 const moduleStatus = {};
 
 function setStatus(name, status) { moduleStatus[name] = status; }
 
-/** Check that FTP credentials are configured */
 function hasFtp() {
   return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
 }

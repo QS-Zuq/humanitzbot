@@ -2,14 +2,6 @@ const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const config = require('./config');
 const { getPlayerList } = require('./server-info');
 
-/**
- * Status Channels — creates and maintains a single voice channel at the top of
- * the server showing the live player count.
- *
- * This is a locked voice channel (no one can join) used as a quick-glance counter.
- * Detailed stats (time, season, weather) live in the text-channel embed instead.
- */
-
 const STATUS_CHANNELS = [
   { key: 'players', template: '\u{1F465} Players: {value}', fallback: '\u{1F465} Players: --' },
 ];
@@ -26,9 +18,6 @@ class StatusChannels {
     this.updateIntervalMs = Math.max(config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
   }
 
-  /**
-   * Initialize: find/create the category and status channel, then start updating.
-   */
   async start() {
     try {
       this.guild = await this.client.guilds.fetch(config.guildId);
@@ -57,9 +46,6 @@ class StatusChannels {
     }
   }
 
-  /**
-   * Stop the update loop.
-   */
   stop() {
     if (this.interval) {
       clearInterval(this.interval);
@@ -67,7 +53,6 @@ class StatusChannels {
     }
   }
 
-  /** @private - find/create the category at position 0 */
   async _ensureCategory() {
     const existing = this.guild.channels.cache.find(
       c => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAME
@@ -103,7 +88,6 @@ class StatusChannels {
     }
   }
 
-  /** @private - find/create a single status voice channel */
   async _ensureChannel(spec) {
     const prefix = spec.template.split('{value}')[0];
     const existing = this.guild.channels.cache.find(
@@ -136,7 +120,6 @@ class StatusChannels {
     }
   }
 
-  /** @private - fetch player count and update the voice channel name */
   async _update() {
     try {
       const playerList = await getPlayerList();
@@ -171,7 +154,6 @@ class StatusChannels {
     }
   }
 
-  /** @private - ensure bot has manage permissions on a channel */
   async _ensureBotPermissions(channel) {
     try {
       await channel.permissionOverwrites.edit(this.client.user.id, {

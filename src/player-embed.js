@@ -2,10 +2,6 @@ const { EmbedBuilder } = require('discord.js');
 const playtime = require('./playtime-tracker');
 const config = require('./config');
 
-/**
- * Build a detailed embed for a single player's stats.
- * Shared between /playerstats command and the server-status dropdown.
- */
 function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   const embed = new EmbedBuilder()
     .setTitle(stats.name)
@@ -26,12 +22,10 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
     const dateStr = `${lastDate.toLocaleDateString('en-GB')} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
     infoFields.push({ name: 'Last Active', value: dateStr, inline: true });
   }
-  if (infoFields.length > 0) {
-    embed.addFields(...infoFields);
-  }
+  if (infoFields.length > 0) embed.addFields(...infoFields);
+
   if (stats.nameHistory && stats.nameHistory.length > 0) {
-    const oldNames = stats.nameHistory.map(h => h.name).join(', ');
-    embed.addFields({ name: 'Previous Names', value: oldNames });
+    embed.addFields({ name: 'Previous Names', value: stats.nameHistory.map(h => h.name).join(', ') });
   }
 
   // ── Combat Stats ──
@@ -46,35 +40,27 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
 
   if (dmgEntries.length > 0) {
     const dmgSorted = dmgEntries.sort((a, b) => b[1] - a[1]);
-    const dmgLines = dmgSorted.slice(0, 10).map(([src, count]) => {
-      return `${src}: **${count}**`;
-    });
+    const dmgLines = dmgSorted.slice(0, 8).map(([src, count]) => `${src}: **${count}**`);
+    if (dmgEntries.length > 8) dmgLines.push(`_+${dmgEntries.length - 8} more_`);
     embed.addFields({ name: 'Damage Breakdown', value: dmgLines.join('\n') });
   }
 
   // ── Building Stats ──
   const buildEntries = Object.entries(stats.buildItems);
   if (buildEntries.length > 0) {
-    const topBuilds = buildEntries.sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const topBuilds = buildEntries.sort((a, b) => b[1] - a[1]).slice(0, 8);
     const buildLines = topBuilds.map(([item, count]) => `${item}: **${count}**`);
-    const rows = [];
-    for (let i = 0; i < buildLines.length; i += 3) {
-      rows.push(buildLines.slice(i, i + 3).join('  ·  '));
-    }
-    let buildValue = rows.join('\n');
-    if (buildEntries.length > 10) {
-      buildValue += `\n_...and ${buildEntries.length - 10} more types_`;
-    }
-    embed.addFields({ name: `Building (${stats.builds} total)`, value: buildValue });
+    if (buildEntries.length > 8) buildLines.push(`_+${buildEntries.length - 8} more_`);
+    embed.addFields({ name: `Building (${stats.builds} total)`, value: buildLines.join('\n') });
   } else {
-    embed.addFields({ name: 'Building', value: `${stats.builds} total` });
+    embed.addFields({ name: 'Building', value: `${stats.builds} total`, inline: true });
   }
 
-  // ── Raid Stats (hidden on PVE servers unless toggled) ──
+  // ── Raid Stats ──
   if (config.showRaidStats) {
     embed.addFields(
-      { name: 'Structures Attacked', value: `${stats.raidsOut}`, inline: true },
-      { name: 'Structures Destroyed', value: `${stats.destroyedOut}`, inline: true },
+      { name: 'Attacked', value: `${stats.raidsOut}`, inline: true },
+      { name: 'Destroyed', value: `${stats.destroyedOut}`, inline: true },
       { name: 'Your Structures Hit', value: `${stats.raidsIn}`, inline: true },
     );
   }
@@ -87,12 +73,10 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   // ── Connections ──
   if (config.showConnections) {
     const connParts = [];
-    if (stats.connects !== undefined) connParts.push(`Connects: **${stats.connects}**`);
-    if (stats.disconnects !== undefined) connParts.push(`Disconnects: **${stats.disconnects}**`);
-    if (stats.adminAccess !== undefined && stats.adminAccess > 0) connParts.push(`Admin Logins: **${stats.adminAccess}**`);
-    if (connParts.length > 0) {
-      embed.addFields({ name: 'Connections', value: connParts.join('\n') });
-    }
+    if (stats.connects !== undefined) connParts.push(`In: **${stats.connects}**`);
+    if (stats.disconnects !== undefined) connParts.push(`Out: **${stats.disconnects}**`);
+    if (stats.adminAccess !== undefined && stats.adminAccess > 0) connParts.push(`Admin: **${stats.adminAccess}**`);
+    if (connParts.length > 0) embed.addFields({ name: 'Connections', value: connParts.join('  ·  '), inline: true });
   }
 
   // ── Anti-Cheat Flags (admin only) ──
@@ -102,9 +86,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
       const dateStr = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       return `${dateStr} — \`${f.type}\``;
     });
-    if (stats.cheatFlags.length > 5) {
-      flagLines.unshift(`_Showing last 5 of ${stats.cheatFlags.length} flags_`);
-    }
+    if (stats.cheatFlags.length > 5) flagLines.unshift(`_Showing last 5 of ${stats.cheatFlags.length} flags_`);
     embed.addFields({ name: 'Anti-Cheat Flags', value: flagLines.join('\n') });
   }
 

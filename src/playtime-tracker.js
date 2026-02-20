@@ -2,25 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
-/**
- * PlaytimeTracker — persists per-player session and cumulative playtime
- * to a JSON file. Tracks login/logout timestamps and accumulates totals.
- *
- * Data format (playtime.json):
- * {
- *   "trackingSince": "2026-02-18T00:00:00.000Z",
- *   "players": {
- *     "76561198000000000": {
- *       "name": "PlayerName",
- *       "totalMs": 123456,
- *       "sessions": 5,
- *       "lastLogin": "2026-02-18T12:00:00.000Z",
- *       "lastSeen": "2026-02-18T14:30:00.000Z"
- *     }
- *   }
- * }
- */
-
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'playtime.json');
 const SAVE_INTERVAL = 60000; // save to disk every 60s
@@ -34,9 +15,6 @@ class PlaytimeTracker {
     this._currentOnlineCount = 0;
   }
 
-  /**
-   * Load data from disk (or create fresh).
-   */
   init() {
     if (this._data) return; // already initialised
     this._load();
@@ -47,9 +25,6 @@ class PlaytimeTracker {
     console.log(`[PLAYTIME] ${Object.keys(this._data.players).length} player(s) in database`);
   }
 
-  /**
-   * Stop the tracker and save final state.
-   */
   stop() {
     // Close all active sessions before saving
     const now = Date.now();
@@ -62,12 +37,6 @@ class PlaytimeTracker {
     console.log('[PLAYTIME] Saved and stopped.');
   }
 
-  /**
-   * Called when a player joins the server.
-   * @param {string} id - SteamID or player name
-   * @param {string} name - Display name
-   * @param {Date} [timestamp] - Event time (defaults to now; pass actual time for catch-up)
-   */
   playerJoin(id, name, timestamp) {
     // Only accept SteamID keys — reject name-based keys
     if (!/^\d{17}$/.test(id)) return;
@@ -107,11 +76,6 @@ class PlaytimeTracker {
     console.log(`[PLAYTIME] ${name} (${id}) session started`);
   }
 
-  /**
-   * Called when a player leaves the server.
-   * @param {string} id - SteamID or player name
-   * @param {Date} [timestamp] - Event time (defaults to now; pass actual time for catch-up)
-   */
   playerLeave(id, timestamp) {
     const loginTime = this._activeSessions.get(id);
     if (loginTime) {
@@ -126,16 +90,10 @@ class PlaytimeTracker {
     }
   }
 
-  /** Ensure data is loaded (lazy init guard) */
   _ensureInit() {
     if (!this._data) this.init();
   }
 
-  /**
-   * Get a player's total playtime (including current active session).
-   * @param {string} id - SteamID or player name
-   * @returns {{ name, totalMs, totalFormatted, sessions, isReturning, firstSeen, lastSeen, lastLogin } | null}
-   */
   getPlaytime(id) {
     this._ensureInit();
     const record = this._data.players[id];
@@ -161,19 +119,10 @@ class PlaytimeTracker {
     };
   }
 
-  /**
-   * Check if a player has any history.
-   * @param {string} id
-   * @returns {boolean}
-   */
   hasHistory(id) {
     return !!this._data.players[id];
   }
 
-  /**
-   * Get all players sorted by playtime descending.
-   * @returns {Array<{ id, name, totalMs, totalFormatted, sessions }>}
-   */
   getLeaderboard() {
     this._ensureInit();
     const entries = [];
@@ -194,19 +143,11 @@ class PlaytimeTracker {
     return entries;
   }
 
-  /**
-   * Get the tracking start date string.
-   */
   getTrackingSince() {
     this._ensureInit();
     return this._data.trackingSince;
   }
 
-  /**
-   * Update the current online count and record peaks.
-   * Call this whenever the player count is known.
-   * @param {number} count
-   */
   recordPlayerCount(count) {
     this._ensureInit();
     this._currentOnlineCount = count;
@@ -243,10 +184,6 @@ class PlaytimeTracker {
     this._dirty = true;
   }
 
-  /**
-   * Record a unique player for today's stats.
-   * @param {string} id
-   */
   recordUniqueToday(id) {
     this._ensureInit();
     if (!this._data.peaks) return;
@@ -262,10 +199,6 @@ class PlaytimeTracker {
     }
   }
 
-  /**
-   * Get peak statistics.
-   * @returns {{ allTimePeak, allTimePeakDate, todayPeak, uniqueToday, totalUniquePlayers }}
-   */
   getPeaks() {
     this._ensureInit();
     const peaks = this._data.peaks || {};
@@ -280,11 +213,6 @@ class PlaytimeTracker {
 
   // ── Private ────────────────────────────────────────────────
 
-  /**
-   * Remove ghost entries keyed by player name instead of SteamID.
-   * These were created when RCON returned players without a parseable SteamID.
-   * If a matching SteamID entry exists, merge the playtime into it.
-   */
   _cleanGhostEntries() {
     const toDelete = [];
     for (const key of Object.keys(this._data.players)) {

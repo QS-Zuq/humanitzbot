@@ -2,47 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const playtime = require('./playtime-tracker');
 
-/**
- * PlayerStats — master per-player data tracker derived from all server log files.
- *
- * Tracks every actionable event:
- *   - Deaths, builds (with item breakdown)
- *   - Raids in/out, structures destroyed in/out
- *   - Containers looted (others' containers only)
- *   - Damage taken (classified by source: Zombie, Wolf, Bear, Player, etc.)
- *   - Connects / disconnects (session count)
- *   - Admin access grants
- *   - Anti-cheat flags (stack limit, odd behavior, cheat detection)
- *
- * Sources:
- *   - HMZLog.log — deaths, builds, damage, looting, raiding, admin, anti-cheat
- *   - PlayerConnectedLog.txt — connects, disconnects
- *
- * Data format (player-stats.json):
- * {
- *   "players": {
- *     "76561198000000000": {
- *       "name": "PlayerName",
- *       "nameHistory": [{ "name": "OldName", "until": "2026-02-18T..." }],
- *       "deaths": 3,
- *       "builds": 12,
- *       "buildItems": { "Campfire": 2, "Rain Collector": 1 },
- *       "raidsOut": 0,
- *       "raidsIn": 0,
- *       "destroyedOut": 0,
- *       "destroyedIn": 0,
- *       "containersLooted": 0,
- *       "damageTaken": { "Zombie": 5, "Wolf": 2 },
- *       "connects": 34,
- *       "disconnects": 33,
- *       "adminAccess": 2,
- *       "cheatFlags": [ { "type": "Stack limit", "timestamp": "..." } ],
- *       "lastEvent": "2026-02-18T21:44:00.000Z"
- *     }
- *   }
- * }
- */
-
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'player-stats.json');
 const SAVE_INTERVAL = 60000;
@@ -72,16 +31,10 @@ class PlayerStats {
     console.log('[PLAYER STATS] Saved and stopped.');
   }
 
-  /** Ensure data is loaded (lazy init guard) */
   _ensureInit() {
     if (!this._data) this.init();
   }
 
-  /**
-   * Load an authoritative name→SteamID map from parsed PlayerIDMapped.txt.
-   * This is called by LogWatcher on each poll cycle.
-   * @param {Array<{ steamId: string, name: string }>} entries
-   */
   loadIdMap(entries) {
     this._idMap = new Map();
     for (const { steamId, name } of entries) {
@@ -104,10 +57,6 @@ class PlayerStats {
     }
   }
 
-  /**
-   * Seed the ID map from the locally-cached data/PlayerIDMapped.txt.
-   * Called once during init() so names are available before the first poll.
-   */
   _loadLocalIdMap() {
     try {
       const filePath = path.join(__dirname, '..', 'data', 'PlayerIDMapped.txt');
@@ -129,11 +78,6 @@ class PlayerStats {
 
   // ─── Recording methods (called by LogWatcher) ────────────
 
-  /**
-   * Record a player death.
-   * @param {string} playerName
-   * @param {Date} [timestamp] - log timestamp (falls back to now)
-   */
   recordDeath(playerName, timestamp) {
     this._ensureInit();
     const record = this._getOrCreateByName(playerName);
@@ -142,13 +86,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a PvP kill: attacker killed victim.
-   * Increments pvpKills on the killer and pvpDeaths on the victim.
-   * @param {string} killerName
-   * @param {string} victimName
-   * @param {Date} [timestamp]
-   */
   recordPvpKill(killerName, victimName, timestamp) {
     this._ensureInit();
     const ts = (timestamp || new Date()).toISOString();
@@ -166,13 +103,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a building completion.
-   * @param {string} playerName
-   * @param {string} steamId
-   * @param {string} itemName - cleaned item name
-   * @param {Date} [timestamp] - log timestamp (falls back to now)
-   */
   recordBuild(playerName, steamId, itemName, timestamp) {
     this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
@@ -182,14 +112,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a raiding event (attacker damaged/destroyed another player's structure).
-   * @param {string} attackerName
-   * @param {string|null} attackerSteamId
-   * @param {string} ownerSteamId
-   * @param {boolean} destroyed
-   * @param {Date} [timestamp] - log timestamp (falls back to now)
-   */
   recordRaid(attackerName, attackerSteamId, ownerSteamId, destroyed, timestamp) {
     this._ensureInit();
     const ts = (timestamp || new Date()).toISOString();
@@ -210,13 +132,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a container loot event.
-   * @param {string} playerName
-   * @param {string} steamId
-   * @param {string} ownerSteamId
-   * @param {Date} [timestamp] - log timestamp (falls back to now)
-   */
   recordLoot(playerName, steamId, ownerSteamId, timestamp) {
     this._ensureInit();
     // Only count looting others' containers
@@ -227,12 +142,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record damage taken by a player.
-   * @param {string} playerName
-   * @param {string} source - raw damage source (e.g. BP_PawnZombie2_C_123)
-   * @param {Date} [timestamp] - log timestamp (falls back to now)
-   */
   recordDamageTaken(playerName, source, timestamp) {
     this._ensureInit();
     const record = this._getOrCreateByName(playerName);
@@ -242,12 +151,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a player connection.
-   * @param {string} playerName
-   * @param {string} steamId
-   * @param {Date} [timestamp]
-   */
   recordConnect(playerName, steamId, timestamp) {
     this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
@@ -256,12 +159,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record a player disconnection.
-   * @param {string} playerName
-   * @param {string} steamId
-   * @param {Date} [timestamp]
-   */
   recordDisconnect(playerName, steamId, timestamp) {
     this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
@@ -270,11 +167,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record an admin access grant event.
-   * @param {string} playerName
-   * @param {Date} [timestamp]
-   */
   recordAdminAccess(playerName, timestamp) {
     this._ensureInit();
     const record = this._getOrCreateByName(playerName);
@@ -283,13 +175,6 @@ class PlayerStats {
     this._dirty = true;
   }
 
-  /**
-   * Record an anti-cheat flag.
-   * @param {string} playerName
-   * @param {string} steamId
-   * @param {string} type - e.g. "Stack limit", "Odd behavior Drop amount Cheat"
-   * @param {Date} [timestamp]
-   */
   recordCheatFlag(playerName, steamId, type, timestamp) {
     this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
@@ -303,11 +188,6 @@ class PlayerStats {
 
   // ─── Query methods ───────────────────────────────────────
 
-  /**
-   * Get stats for a specific player by steam ID.
-   * @param {string} steamId
-   * @returns {object|null}
-   */
   getStats(steamId) {
     this._ensureInit();
     const record = this._data.players[steamId];
@@ -315,11 +195,6 @@ class PlayerStats {
     return { id: steamId, ...record };
   }
 
-  /**
-   * Get stats for a player by name (partial match).
-   * @param {string} name
-   * @returns {object|null}
-   */
   getStatsByName(name) {
     this._ensureInit();
     const lower = name.toLowerCase();
@@ -343,15 +218,6 @@ class PlayerStats {
     return null;
   }
 
-  /**
-   * Resolve a SteamID to a player name using all available sources:
-   * 1. player-stats database
-   * 2. PlayerIDMapped.txt (reverse lookup)
-   * 3. Playtime tracker
-   * Returns the SteamID itself if no name is found.
-   * @param {string} steamId
-   * @returns {string}
-   */
   getNameForId(steamId) {
     // 1. Known player in stats DB
     const record = this._data?.players?.[steamId];
@@ -372,19 +238,10 @@ class PlayerStats {
     return steamId;
   }
 
-  /**
-   * Get the raw ID map entries (from PlayerIDMapped.txt).
-   * Used by player-stats-channel for name resolution.
-   * @returns {Map<string, string>|null} Map<lowerName, steamId> or null
-   */
   getIdMap() {
     return this._idMap;
   }
 
-  /**
-   * Get all players sorted by total activity (deaths + builds + raids).
-   * @returns {Array<{ id, name, deaths, builds, raidsOut, raidsIn, ... }>}
-   */
   getAllPlayers() {
     this._ensureInit();
     const entries = [];
@@ -440,11 +297,6 @@ class PlayerStats {
     return this._data.players[steamId] || null;
   }
 
-  /**
-   * Find or create a record by name only (for death events that don't include SteamID).
-   * Searches existing records first, cross-references the playtime tracker for SteamID
-   * resolution, and falls back to creating a name-keyed entry.
-   */
   _getOrCreateByName(name) {
     const nameLower = name.toLowerCase();
 
@@ -492,11 +344,6 @@ class PlayerStats {
     return this._data.players[`name:${name}`];
   }
 
-  /**
-   * Resolve a player name to a SteamID by checking the playtime tracker.
-   * @param {string} nameLower - lowercased player name
-   * @returns {string|null} SteamID or null
-   */
   _resolveNameToSteamId(nameLower) {
     try {
       const leaderboard = playtime.getLeaderboard();
@@ -511,11 +358,6 @@ class PlayerStats {
     return null;
   }
 
-  /**
-   * Merge a name-keyed record into a SteamID-keyed record.
-   * @param {string} steamId - target SteamID key
-   * @param {string} nameKey - source name: key to merge and delete
-   */
   _mergeInto(steamId, nameKey) {
     const source = this._data.players[nameKey];
     const target = this._data.players[steamId];
@@ -557,7 +399,6 @@ class PlayerStats {
     console.log(`[PLAYER STATS] Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
   }
 
-  /** Build the name→ID index from all player records. */
   _buildNameIndex() {
     this._nameIndex = new Map();
     for (const [id, record] of Object.entries(this._data.players)) {
@@ -596,12 +437,6 @@ class PlayerStats {
     };
   }
 
-  /**
-   * Classify a raw UE damage source into a human-readable category.
-   * BP_PawnZombie2_C_123 → Zombie
-   * BP_Wolf_C_456 → Wolf
-   * BP_Bear_C_789 → Bear
-   */
   _classifyDamageSource(source) {
     // Specific zombie variants first (before generic Zombie catch-all)
     if (/Dogzombie/i.test(source)) return 'Dog Zombie';

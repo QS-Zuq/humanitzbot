@@ -20,7 +20,7 @@ module.exports = {
     const allPlayers = playerStats.getAllPlayers();
 
     if (allPlayers.length === 0) {
-      await interaction.editReply('📊 No player stats recorded yet. Stats are gathered from the game server log — play for a while and check back!');
+      await interaction.editReply('No player stats recorded yet. Stats are gathered from the game server log — play for a while and check back!');
       return;
     }
 
@@ -85,9 +85,6 @@ module.exports = {
   },
 };
 
-/**
- * Build an overview embed showing a summary of all players.
- */
 function buildOverviewEmbed(allPlayers) {
   const totalDeaths = allPlayers.reduce((s, p) => s + p.deaths, 0);
   const totalBuilds = allPlayers.reduce((s, p) => s + p.builds, 0);
@@ -95,29 +92,28 @@ function buildOverviewEmbed(allPlayers) {
   const totalLoots = allPlayers.reduce((s, p) => s + p.containersLooted, 0);
 
   const embed = new EmbedBuilder()
-    .setTitle('📊 Player Stats')
+    .setTitle('Player Stats')
     .setDescription('Select a player from the dropdown below to view their detailed stats.')
     .setColor(0x3498db)
     .setTimestamp();
 
-  // Server-wide totals
-  const statsLines = [
-    `👥  **Players Tracked:** ${allPlayers.length}`,
-    `💀  **Total Deaths:** ${totalDeaths}`,
-    `🔨  **Total Builds:** ${totalBuilds}`,
-    `⚔️  **Total Raid Hits:** ${totalRaids}`,
-    `📦  **Containers Looted:** ${totalLoots}`,
+  // Server-wide totals as compact code block
+  const grid = [
+    `Players   ${String(allPlayers.length).padStart(6)}    Deaths    ${String(totalDeaths).padStart(6)}`,
+    `Builds    ${String(totalBuilds).padStart(6)}    Looted    ${String(totalLoots).padStart(6)}`,
+    `Raids     ${String(totalRaids).padStart(6)}`,
   ];
-  embed.addFields({ name: '🌍 Server Totals', value: statsLines.join('\n') });
+  embed.addFields({ name: 'Server Totals', value: '```\n' + grid.join('\n') + '\n```' });
 
   // Top 5 most active
   const top5 = allPlayers.slice(0, 5).map((p, i) => {
-    const medal = ['🥇', '🥈', '🥉', '4.', '5.'][i];
+    const medals = ['🥇', '🥈', '🥉'];
+    const medal = medals[i] || `\`${i + 1}.\``;
     const activity = p.deaths + p.builds + p.raidsOut + p.containersLooted;
     return `${medal} **${p.name}** — ${activity} events`;
   });
   if (top5.length > 0) {
-    embed.addFields({ name: '🏆 Most Active', value: top5.join('\n') });
+    embed.addFields({ name: 'Most Active', value: top5.join('\n') });
   }
 
   return embed;
