@@ -661,8 +661,8 @@ class LogWatcher {
    */
   _processLine(line) {
     // Extract timestamp and message body
-    // Format: (13/2/2026 12:35) message here
-    const lineMatch = line.match(/^\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})\)\s+(.+)$/);
+    // Format: (13/2/2026 12:35) message here  — also handles :SS seconds and - . separators
+    const lineMatch = line.match(/^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/);
     if (!lineMatch) return false;
 
     const [, day, month, year, hour, min, body] = lineMatch;
@@ -811,8 +811,9 @@ class LogWatcher {
    *         Player Disconnected Name NetID(SteamID_+_...) (DD/MM/YYYY HH:MM)
    */
   _processConnectLine(line) {
+    // Flexible: handles optional seconds and - . separators
     const connectMatch = line.match(
-      /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})\)/
+      /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/
     );
     if (!connectMatch) return false;
 

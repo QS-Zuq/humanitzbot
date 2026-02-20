@@ -60,6 +60,7 @@ class PlayerStats {
     if (this._data) return; // already initialised
     this._load();
     this._buildNameIndex();
+    this._loadLocalIdMap(); // seed name→SteamID from cached PlayerIDMapped.txt
     this._saveTimer = setInterval(() => this._autoSave(), SAVE_INTERVAL);
     const count = Object.keys(this._data.players).length;
     console.log(`[PLAYER STATS] Loaded ${count} player(s) from database`);
@@ -100,6 +101,29 @@ class PlayerStats {
           this._dirty = true;
         }
       }
+    }
+  }
+
+  /**
+   * Seed the ID map from the locally-cached data/PlayerIDMapped.txt.
+   * Called once during init() so names are available before the first poll.
+   */
+  _loadLocalIdMap() {
+    try {
+      const filePath = path.join(__dirname, '..', 'data', 'PlayerIDMapped.txt');
+      if (!fs.existsSync(filePath)) return;
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const entries = [];
+      for (const line of raw.split(/\r?\n/)) {
+        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
+        if (m) entries.push({ steamId: m[1], name: m[2] });
+      }
+      if (entries.length) {
+        this.loadIdMap(entries);
+        console.log(`[PLAYER STATS] Loaded ${entries.length} name(s) from cached PlayerIDMapped.txt`);
+      }
+    } catch (err) {
+      console.error('[PLAYER STATS] Failed to load cached ID map:', err.message);
     }
   }
 
@@ -309,6 +333,44 @@ class PlayerStats {
       }
     }
     return null;
+  }
+
+  /**
+   * Resolve a SteamID to a player name using all available sources:
+   * 1. player-stats database
+   * 2. PlayerIDMapped.txt (reverse lookup)
+   * 3. Playtime tracker
+   * Returns the SteamID itself if no name is found.
+   * @param {string} steamId
+   * @returns {string}
+   */
+  getNameForId(steamId) {
+    // 1. Known player in stats DB
+    const record = this._data?.players?.[steamId];
+    if (record?.name && !record.name.startsWith('name:') && !/^\d{17}$/.test(record.name)) {
+      return record.name;
+    }
+    // 2. Reverse lookup from ID map
+    if (this._idMap) {
+      for (const [nameLower, id] of this._idMap) {
+        if (id === steamId) return nameLower.charAt(0).toUpperCase() + nameLower.slice(1); // rough title-case
+      }
+    }
+    // 3. Playtime tracker
+    try {
+      const pt = playtime.getPlaytime(steamId);
+      if (pt?.name && !/^\d{17}$/.test(pt.name)) return pt.name;
+    } catch (_) {}
+    return steamId;
+  }
+
+  /**
+   * Get the raw ID map entries (from PlayerIDMapped.txt).
+   * Used by player-stats-channel for name resolution.
+   * @returns {Map<string, string>|null} Map<lowerName, steamId> or null
+   */
+  getIdMap() {
+    return this._idMap;
   }
 
   /**

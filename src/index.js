@@ -40,6 +40,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── Persistent select menu on the player-stats channel ──
   if (interaction.isStringSelectMenu() && interaction.customId === 'playerstats_player_select') {
+    if (!playerStatsChannel) {
+      await interaction.reply({ content: 'Player stats module is currently disabled.', ephemeral: true });
+      return;
+    }
     const selectedId = interaction.values[0];
     const isAdmin = interaction.member?.permissions?.has('Administrator') ?? false;
     const embed = playerStatsChannel.buildFullPlayerEmbed(selectedId, { isAdmin });
@@ -49,6 +53,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── Clan select menu on the player-stats channel ──
   if (interaction.isStringSelectMenu() && interaction.customId === 'playerstats_clan_select') {
+    if (!playerStatsChannel) {
+      await interaction.reply({ content: 'Player stats module is currently disabled.', ephemeral: true });
+      return;
+    }
     const clanName = interaction.values[0].replace(/^clan:/, '');
     const embed = playerStatsChannel.buildClanEmbed(clanName);
     await interaction.reply({ embeds: [embed], ephemeral: true });
@@ -85,6 +93,19 @@ let pvpScheduler;
 let adminChannel; // cached for online/offline notifications
 const startedAt = new Date();
 
+/**
+ * Module status tracker — records why each module is on, off, or skipped.
+ * Status values:  '🟢 Active'  |  '⚫ Disabled'  |  '🟡 Skipped (reason)'
+ */
+const moduleStatus = {};
+
+function setStatus(name, status) { moduleStatus[name] = status; }
+
+/** Check that FTP credentials are configured */
+function hasFtp() {
+  return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
+}
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`[BOT] Logged in as ${readyClient.user.tag}`);
   console.log(`[BOT] Serving guild: ${config.guildId}`);
@@ -115,59 +136,137 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Initialize player stats tracker (must be before LogWatcher)
   playerStats.init();
 
-  // Start status channels (voice channel dashboard at top of server)
+  // ── Start modules with dependency checks ──────────────────
+
+  // Status Channels — voice channel dashboard
   if (config.enableStatusChannels) {
     statusChannels = new StatusChannels(readyClient);
     await statusChannels.start();
+    setStatus('Status Channels', '🟢 Active');
   } else {
+    setStatus('Status Channels', '⚫ Disabled');
     console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
   }
 
-  // Start live server status text channel
+  // Server Status — live embed in a text channel
   if (config.enableServerStatus) {
-    serverStatus = new ServerStatus(readyClient);
-    await serverStatus.start();
+    if (!config.serverStatusChannelId) {
+      setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
+      console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
+    } else {
+      serverStatus = new ServerStatus(readyClient);
+      await serverStatus.start();
+      setStatus('Server Status', '🟢 Active');
+    }
   } else {
+    setStatus('Server Status', '⚫ Disabled');
     console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
   }
 
-  // Start admin chat bridge
+  // Chat Relay — bidirectional chat bridge
   if (config.enableChatRelay) {
-    chatRelay = new ChatRelay(readyClient);
-    await chatRelay.start();
+    if (!config.adminChannelId) {
+      setStatus('Chat Relay', '🟡 Skipped (ADMIN_CHANNEL_ID not set)');
+      console.log('[BOT] Chat relay skipped — ADMIN_CHANNEL_ID not configured');
+    } else {
+      chatRelay = new ChatRelay(readyClient);
+      await chatRelay.start();
+      setStatus('Chat Relay', '🟢 Active');
+    }
   } else {
+    setStatus('Chat Relay', '⚫ Disabled');
     console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
   }
 
-  // Start auto-messages (periodic broadcasts + join welcome)
+  // Auto-Messages — periodic broadcasts + join welcome
   if (config.enableAutoMessages) {
     autoMessages = new AutoMessages();
     await autoMessages.start();
+    setStatus('Auto-Messages', '🟢 Active');
   } else {
+    setStatus('Auto-Messages', '⚫ Disabled');
     console.log('[BOT] Auto-messages disabled via ENABLE_AUTO_MESSAGES=false');
   }
 
-  // Start log watcher (FTP-based game server log parsing)
+  // Log Watcher — SFTP log parsing + daily activity threads
   if (config.enableLogWatcher) {
-    logWatcher = new LogWatcher(readyClient);
-    await logWatcher.start();
+    if (!hasFtp()) {
+      setStatus('Log Watcher', '🟡 Skipped (FTP credentials not set)');
+      console.log('[BOT] Log watcher skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
+    } else if (!config.logChannelId) {
+      setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
+      console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
+    } else {
+      logWatcher = new LogWatcher(readyClient);
+      await logWatcher.start();
+      setStatus('Log Watcher', '🟢 Active');
+    }
   } else {
+    setStatus('Log Watcher', '⚫ Disabled');
     console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
   }
 
-  // Start player-stats channel (save-file parsing with full stats embed)
-  if (config.enablePlayerStats) {
-    playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher);
-    await playerStatsChannel.start();
+  // Kill Feed — sub-feature of Log Watcher
+  if (config.enableKillFeed) {
+    if (!logWatcher) {
+      setStatus('Kill Feed', '🟡 Skipped (requires Log Watcher)');
+    } else {
+      setStatus('Kill Feed', '🟢 Active');
+    }
   } else {
+    setStatus('Kill Feed', '⚫ Disabled');
+  }
+
+  // PvP Kill Feed — sub-feature of Log Watcher
+  if (config.enablePvpKillFeed) {
+    if (!logWatcher) {
+      setStatus('PvP Kill Feed', '🟡 Skipped (requires Log Watcher)');
+    } else {
+      setStatus('PvP Kill Feed', '🟢 Active');
+    }
+  } else {
+    setStatus('PvP Kill Feed', '⚫ Disabled');
+  }
+
+  // Player Stats — save-file parsing with full stats embed
+  if (config.enablePlayerStats) {
+    if (!hasFtp()) {
+      setStatus('Player Stats', '🟡 Skipped (FTP credentials not set)');
+      console.log('[BOT] Player stats skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
+    } else if (!config.playerStatsChannelId) {
+      setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
+      console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
+    } else {
+      playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher);
+      await playerStatsChannel.start();
+      setStatus('Player Stats', '🟢 Active');
+      if (!logWatcher) {
+        setStatus('Player Stats', '🟢 Active (kill/survival feed unavailable — Log Watcher off)');
+      }
+    }
+  } else {
+    setStatus('Player Stats', '⚫ Disabled');
     console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
   }
 
-  // Start PvP scheduler (SFTP-based PvP toggling on a schedule)
+  // PvP Scheduler — SFTP-based PvP toggling on a schedule
   if (config.enablePvpScheduler) {
-    pvpScheduler = new PvpScheduler(readyClient, logWatcher);
-    await pvpScheduler.start();
+    if (!hasFtp()) {
+      setStatus('PvP Scheduler', '🟡 Skipped (FTP credentials not set)');
+      console.log('[BOT] PvP scheduler skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
+    } else if (isNaN(config.pvpStartMinutes) || isNaN(config.pvpEndMinutes)) {
+      setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
+      console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
+    } else {
+      pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+      await pvpScheduler.start();
+      setStatus('PvP Scheduler', '🟢 Active');
+      if (!logWatcher) {
+        setStatus('PvP Scheduler', '🟢 Active (activity log announcements unavailable — Log Watcher off)');
+      }
+    }
   } else {
+    setStatus('PvP Scheduler', '⚫ Disabled');
     console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
   }
 
@@ -176,22 +275,34 @@ client.once(Events.ClientReady, async (readyClient) => {
     if (config.adminChannelId) {
       adminChannel = await readyClient.channels.fetch(config.adminChannelId);
     }
-    const modules = [
-      config.enableStatusChannels && 'Status Channels',
-      config.enableServerStatus   && 'Server Status',
-      config.enableChatRelay      && 'Chat Relay',
-      config.enableAutoMessages   && 'Auto-Messages',
-      config.enableLogWatcher     && 'Log Watcher',
-      config.enablePlayerStats    && 'Player Stats',
-      config.enablePlaytime       && 'Playtime',
-      config.enablePvpScheduler   && 'PvP Scheduler',
-    ].filter(Boolean);
+
+    // Build status lines grouped by state
+    const active   = [];
+    const disabled = [];
+    const skipped  = [];
+    for (const [name, status] of Object.entries(moduleStatus)) {
+      if (status.startsWith('🟢')) active.push(`🟢 ${name}`);
+      else if (status.startsWith('⚫')) disabled.push(`⚫ ${name}`);
+      else if (status.startsWith('🟡')) skipped.push(status.replace('🟡 Skipped', `🟡 ${name} — skipped`));
+    }
+
+    const statusLines = [];
+    if (active.length)   statusLines.push(active.join('\n'));
+    if (disabled.length) statusLines.push(disabled.join('\n'));
+    if (skipped.length)  statusLines.push(skipped.join('\n'));
+
+    const allGood = skipped.length === 0 && disabled.length === 0;
+    const description = allGood
+      ? 'All systems operational.'
+      : skipped.length > 0
+        ? 'Some modules were skipped due to missing configuration.'
+        : 'Running with selected modules.';
 
     const embed = new EmbedBuilder()
       .setTitle('🟢 Bot Online')
-      .setDescription('All systems operational.')
+      .setDescription(description)
       .addFields(
-        { name: 'Modules', value: modules.join(', ') || 'None', inline: false },
+        { name: 'Module Status', value: statusLines.join('\n') || 'None', inline: false },
       )
       .setColor(0x2ecc71)
       .setTimestamp();
@@ -215,11 +326,17 @@ async function shutdown(reason = 'Manual shutdown') {
   // Post offline notification to daily activity thread before tearing down
   try {
     const uptime = _formatUptime(Date.now() - startedAt.getTime());
+
+    // Summarise module state
+    const activeCount  = Object.values(moduleStatus).filter(s => s.startsWith('🟢')).length;
+    const totalCount   = Object.keys(moduleStatus).length;
+
     const embed = new EmbedBuilder()
       .setTitle('🔴 Bot Offline')
       .setDescription(reason)
       .addFields(
         { name: 'Uptime', value: uptime, inline: true },
+        { name: 'Modules', value: `${activeCount}/${totalCount} active`, inline: true },
       )
       .setColor(0xe74c3c)
       .setTimestamp();

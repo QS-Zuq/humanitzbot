@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const config = require('./config');
 
 /**
  * PlaytimeTracker — persists per-player session and cumulative playtime
@@ -214,12 +215,12 @@ class PlaytimeTracker {
         allTimePeak: 0,
         allTimePeakDate: null,
         todayPeak: 0,
-        todayDate: new Date().toISOString().split('T')[0],
+        todayDate: config.getToday(),
         uniqueToday: [],
       };
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = config.getToday();
 
     // Reset daily stats if the date changed
     if (this._data.peaks.todayDate !== today) {
@@ -247,7 +248,7 @@ class PlaytimeTracker {
   recordUniqueToday(id) {
     this._ensureInit();
     if (!this._data.peaks) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = config.getToday();
     if (this._data.peaks.todayDate !== today) {
       this._data.peaks.todayPeak = 0;
       this._data.peaks.todayDate = today;
@@ -375,7 +376,7 @@ class PlaytimeTracker {
         allTimePeak: 0,
         allTimePeakDate: null,
         todayPeak: 0,
-        todayDate: new Date().toISOString().split('T')[0],
+        todayDate: config.getToday(),
         uniqueToday: [],
       },
     };

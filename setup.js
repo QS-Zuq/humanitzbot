@@ -4,13 +4,16 @@
  *
  *
  * Modes:
- *   node setup.js               Full first-run: download logs via SFTP, import all data
- *   node setup.js --find        Explore SFTP directory structure to locate files
+ *   node setup.js               Full first-run: auto-discover paths, download logs via SFTP, import all data
+ *   node setup.js --find        Auto-discover file paths on server & update .env
  *   node setup.js --validate    Download logs via SFTP, compare against existing data
  *   node setup.js --fix         Same as default — download and rebuild all data files
  *   node setup.js --local       Use previously downloaded files in data/ (skip SFTP)
  *
- * Requires a configured .env file with FTP_* settings for SFTP access.
+ * Auto-discovery: On first run, the bot connects via SFTP and searches for
+ * HMZLog.log, PlayerConnectedLog.txt, PlayerIDMapped.txt, and the save file.
+ * Discovered paths are written back to .env so manual path config is not needed.
+ * Only FTP_HOST, FTP_PORT, FTP_USER, FTP_PASSWORD are required.
  */
 
 require('dotenv').config();
@@ -32,9 +35,10 @@ const ftpConfig = {
   username: process.env.FTP_USER,
   password: process.env.FTP_PASSWORD,
 };
-const ftpLogPath = process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log';
-const ftpConnectLogPath = process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt';
-const ftpIdMapPath = process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt';
+let ftpLogPath = process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log';
+let ftpConnectLogPath = process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt';
+let ftpIdMapPath = process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt';
+let ftpSavePath = process.env.FTP_SAVE_PATH || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
 
 // ── CLI Args ──────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -116,69 +120,164 @@ function backupAndSave(filePath, data, label) {
   console.log(`  Saved ${label}`);
 }
 
-// ── SFTP: Explore Directories ─────────────────────────────────
+// ── SFTP: Auto-Discovery ──────────────────────────────────────
 
-async function exploreDirectories() {
-  if (!ftpConfig.host || !ftpConfig.username) {
-    console.error('Missing FTP credentials in .env (FTP_HOST, FTP_USER, FTP_PASSWORD).');
-    process.exit(1);
-  }
+// Target filenames to locate on the server
+const DISCOVERY_TARGETS = {
+  'HMZLog.log':              'FTP_LOG_PATH',
+  'PlayerConnectedLog.txt':  'FTP_CONNECT_LOG_PATH',
+  'PlayerIDMapped.txt':      'FTP_ID_MAP_PATH',
+  'Save_DedicatedSaveMP.sav':'FTP_SAVE_PATH',
+};
 
-  const sftp = new SftpClient();
-  try {
-    await sftp.connect(ftpConfig);
-    console.log('Connected! Listing root directory...\n');
-
-    const root = await sftp.list('/');
-    console.log('/ contents:');
-    for (const item of root) {
-      console.log(`  ${item.type === 'd' ? '[DIR]' : '[FILE]'} ${item.name}${item.type !== 'd' ? ` (${item.size} bytes)` : ''}`);
+/**
+ * Recursively search an SFTP server for the target files.
+ * Returns a Map<filename, remotePath>.
+ */
+async function discoverFiles(sftp, dir, depth, maxDepth, found) {
+  if (depth >= maxDepth) return;
+  let items;
+  try { items = await sftp.list(dir); } catch { return; }
+  for (const item of items) {
+    const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
+    if (item.type === 'd') {
+      // Skip obviously irrelevant directories
+      if (/^(\.|node_modules|__pycache__|Engine)$/i.test(item.name)) continue;
+      await discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
+    } else if (DISCOVERY_TARGETS[item.name] && !found.has(item.name)) {
+      found.set(item.name, fullPath);
+      console.log(`  Found ${item.name} → ${fullPath}`);
     }
-
-    const pathsToTry = [
-      '/HumanitZ', '/humanitz', '/HumanitZServer',
-      '/HumanitZServer/Saved', '/HumanitZServer/Saved/SaveGames',
-      '/Saved', '/Logs', '/home', '/server', '/game',
-    ];
-
-    for (const p of pathsToTry) {
-      try {
-        const items = await sftp.list(p);
-        console.log(`\n${p}/ contents:`);
-        for (const item of items) {
-          console.log(`  ${item.type === 'd' ? '[DIR]' : '[FILE]'} ${item.name}${item.type !== 'd' ? ` (${item.size} bytes)` : ''}`);
-        }
-      } catch (_) {}
-    }
-
-    console.log('\n--- Searching for .log, .txt, .sav files (3 levels deep) ---');
-    await searchFiles(sftp, '/', 0, 3);
-  } catch (err) {
-    console.error('SFTP Error:', err.message);
-  } finally {
-    await sftp.end().catch(() => {});
+    // Early exit if all targets found
+    if (found.size >= Object.keys(DISCOVERY_TARGETS).length) return;
   }
 }
 
-async function searchFiles(sftp, dir, depth, maxDepth) {
-  if (depth >= maxDepth) return;
-  try {
-    const items = await sftp.list(dir);
-    for (const item of items) {
-      const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
-      if (item.type === 'd') {
-        await searchFiles(sftp, fullPath, depth + 1, maxDepth);
-      } else if (/\.(log|txt|sav)$/i.test(item.name)) {
-        console.log(`  ${fullPath} (${(item.size / 1024).toFixed(1)} KB)`);
+/**
+ * Auto-discover file paths on the SFTP server and update .env accordingly.
+ * Returns { ftpLogPath, ftpConnectLogPath, ftpIdMapPath, ftpSavePath }.
+ */
+async function autoDiscoverPaths(sftp) {
+  console.log('\n--- Auto-Discovering File Paths on Server ---\n');
+  const found = new Map();
+
+  // First: try the currently configured paths (fast check)
+  const quickChecks = [
+    { name: 'HMZLog.log',              path: ftpLogPath },
+    { name: 'PlayerConnectedLog.txt',  path: ftpConnectLogPath },
+    { name: 'PlayerIDMapped.txt',      path: ftpIdMapPath },
+    { name: 'Save_DedicatedSaveMP.sav', path: ftpSavePath },
+  ];
+  for (const { name, path: p } of quickChecks) {
+    try {
+      const stat = await sftp.stat(p);
+      if (stat) {
+        found.set(name, p);
+        console.log(`  ✓ ${name} — confirmed at ${p}`);
       }
+    } catch { /* not there, will search */ }
+  }
+
+  // Search for any files we didn't find at the default locations
+  if (found.size < Object.keys(DISCOVERY_TARGETS).length) {
+    const missing = Object.keys(DISCOVERY_TARGETS).filter(n => !found.has(n));
+    console.log(`  Searching for: ${missing.join(', ')}`);
+    await discoverFiles(sftp, '/', 0, 8, found);
+  }
+
+  // Report results
+  const results = {
+    ftpLogPath:        found.get('HMZLog.log')              || ftpLogPath,
+    ftpConnectLogPath: found.get('PlayerConnectedLog.txt')  || ftpConnectLogPath,
+    ftpIdMapPath:      found.get('PlayerIDMapped.txt')      || ftpIdMapPath,
+    ftpSavePath:       found.get('Save_DedicatedSaveMP.sav') || ftpSavePath,
+  };
+
+  const notFound = Object.keys(DISCOVERY_TARGETS).filter(n => !found.has(n));
+  if (notFound.length > 0) {
+    console.log(`\n  ⚠️  Could not locate: ${notFound.join(', ')}`);
+    console.log('  Using default paths for missing files. You can set them manually in .env.');
+  } else {
+    console.log('\n  ✓ All files located!');
+  }
+
+  // Update .env with discovered paths
+  updateEnvFile(results);
+
+  // Apply to runtime variables
+  ftpLogPath = results.ftpLogPath;
+  ftpConnectLogPath = results.ftpConnectLogPath;
+  ftpIdMapPath = results.ftpIdMapPath;
+  ftpSavePath = results.ftpSavePath;
+
+  return results;
+}
+
+/**
+ * Write discovered paths back to the .env file.
+ * Only updates FTP_*_PATH keys that have changed.
+ */
+function updateEnvFile(paths) {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) {
+    console.log('  (No .env file found — skipping auto-update)');
+    return;
+  }
+
+  let envContent = fs.readFileSync(envPath, 'utf8');
+  let updated = 0;
+
+  const mapping = {
+    FTP_LOG_PATH:         paths.ftpLogPath,
+    FTP_CONNECT_LOG_PATH: paths.ftpConnectLogPath,
+    FTP_ID_MAP_PATH:      paths.ftpIdMapPath,
+    FTP_SAVE_PATH:        paths.ftpSavePath,
+  };
+
+  for (const [key, value] of Object.entries(mapping)) {
+    // Check if the key is already set in .env (commented or uncommented)
+    const regex = new RegExp(`^#?\\s*${key}\\s*=.*$`, 'm');
+    if (regex.test(envContent)) {
+      const current = envContent.match(regex)[0];
+      const newLine = `${key}=${value}`;
+      if (current !== newLine) {
+        envContent = envContent.replace(regex, newLine);
+        updated++;
+      }
+    } else {
+      // Key doesn't exist — append it after FTP_PASSWORD
+      const ftpSection = /^#?\s*FTP_PASSWORD\s*=.*$/m;
+      if (ftpSection.test(envContent)) {
+        envContent = envContent.replace(ftpSection, `$&\n${key}=${value}`);
+      } else {
+        envContent += `\n${key}=${value}\n`;
+      }
+      updated++;
     }
-  } catch (_) {}
+  }
+
+  // Also set FIRST_RUN=false after successful discovery
+  const firstRunRegex = /^#?\s*FIRST_RUN\s*=.*$/m;
+  if (firstRunRegex.test(envContent)) {
+    const current = envContent.match(firstRunRegex)[0];
+    if (current !== 'FIRST_RUN=false') {
+      envContent = envContent.replace(firstRunRegex, 'FIRST_RUN=false');
+      updated++;
+    }
+  }
+
+  if (updated > 0) {
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    console.log(`\n  Updated .env (${updated} value${updated > 1 ? 's' : ''} written)`);
+    console.log('  → FIRST_RUN set to false — paths are saved for future starts.');
+  }
 }
 
 // ── SFTP: Download Files ──────────────────────────────────────
 
 /**
  * Download HMZLog.log, PlayerConnectedLog.txt, and PlayerIDMapped.txt via SFTP.
+ * Runs auto-discovery first to locate files if the configured paths are wrong.
  * Returns { hmzLog, connectedLog, idMapRaw } as strings (null if not found).
  */
 async function downloadFiles() {
@@ -195,6 +294,11 @@ async function downloadFiles() {
     await sftp.connect(ftpConfig);
     console.log('Connected!\n');
 
+    // Auto-discover correct paths (verifies defaults, searches if needed, updates .env)
+    await autoDiscoverPaths(sftp);
+
+    console.log('\n--- Downloading Files ---\n');
+
     // HMZLog.log
     try {
       const buf = await sftp.get(ftpLogPath);
@@ -202,7 +306,7 @@ async function downloadFiles() {
       fs.writeFileSync(LOG_CACHE, hmzLog, 'utf8');
       console.log(`  HMZLog.log — ${(hmzLog.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  HMZLog.log — not found: ${err.message}`);
+      console.warn(`  HMZLog.log — not found at ${ftpLogPath}: ${err.message}`);
     }
 
     // PlayerConnectedLog.txt
@@ -212,7 +316,7 @@ async function downloadFiles() {
       fs.writeFileSync(CONNECTED_LOG_CACHE, connectedLog, 'utf8');
       console.log(`  PlayerConnectedLog.txt — ${(connectedLog.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  PlayerConnectedLog.txt — not found: ${err.message}`);
+      console.warn(`  PlayerConnectedLog.txt — not found at ${ftpConnectLogPath}: ${err.message}`);
     }
 
     // PlayerIDMapped.txt
@@ -222,7 +326,7 @@ async function downloadFiles() {
       fs.writeFileSync(ID_MAP_CACHE, idMapRaw, 'utf8');
       console.log(`  PlayerIDMapped.txt — ${(idMapRaw.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  PlayerIDMapped.txt — not found: ${err.message}`);
+      console.warn(`  PlayerIDMapped.txt — not found at ${ftpIdMapPath}: ${err.message}`);
     }
 
     await sftp.end();
@@ -318,11 +422,19 @@ function parseFullLog(content) {
     return result.nameOnly[name];
   }
 
+  // Flexible timestamp: (DD/MM/YYYY HH:MM) or (DD/MM/YYYY HH:MM:SS)
+  // Also handles - and . separators in the date portion
+  const tsRegex = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
+
+  const sampleLines = []; // collect first non-empty lines for diagnostics
+
   for (const rawLine of content.split('\n')) {
     const line = rawLine.replace(/^\uFEFF/, '').trim();
     if (!line) continue;
 
-    const lm = line.match(/^\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})\)\s+(.+)$/);
+    if (sampleLines.length < 5) sampleLines.push(line);
+
+    const lm = line.match(tsRegex);
     if (!lm) { result.counts.skipped++; continue; }
 
     const [, day, month, year, hour, min, body] = lm;
@@ -430,6 +542,7 @@ function parseFullLog(content) {
     }
   }
 
+  result._sampleLines = sampleLines;
   return result;
 }
 
@@ -441,10 +554,11 @@ function parseConnectedLog(content) {
   const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
   const events = [];
 
+  // Flexible: handle optional seconds and alternative date separators
+  const connectRegex = /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/;
+
   for (const line of lines) {
-    const m = line.match(
-      /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})\)/
-    );
+    const m = line.match(connectRegex);
     if (!m) continue;
     const [, action, name, steamId, day, month, year, hour, min] = m;
     const ts = new Date(
@@ -562,11 +676,14 @@ function estimatePlaytimeFromLog(content) {
   const SESSION_BUFFER = 15 * 60 * 1000;
   const playerEvents = {}; // steamId → { name, timestamps }
 
+  // Flexible timestamp: handles optional seconds and alternative date separators
+  const tsRegex2 = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
+
   for (const rawLine of content.split('\n')) {
     const line = rawLine.replace(/^\uFEFF/, '').trim();
     if (!line) continue;
 
-    const lm = line.match(/^\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{1,2})\)\s+(.+)$/);
+    const lm = line.match(tsRegex2);
     if (!lm) continue;
 
     const [, day, month, year, hour, min, body] = lm;
@@ -754,16 +871,35 @@ async function main() {
 
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  // --find mode: just explore SFTP directories
+  // --find mode: auto-discover paths and explore SFTP directories
   if (MODE_FIND) {
-    await exploreDirectories();
+    if (!ftpConfig.host || !ftpConfig.username) {
+      console.error('Missing FTP credentials in .env (FTP_HOST, FTP_USER, FTP_PASSWORD).');
+      process.exit(1);
+    }
+    const sftp = new SftpClient();
+    try {
+      await sftp.connect(ftpConfig);
+      await autoDiscoverPaths(sftp);
+      console.log('\n--- Full Directory Listing ---\n');
+      // Still show the full explore for debugging
+      const root = await sftp.list('/');
+      console.log('/ contents:');
+      for (const item of root) {
+        console.log(`  ${item.type === 'd' ? '[DIR]' : '[FILE]'} ${item.name}${item.type !== 'd' ? ` (${item.size} bytes)` : ''}`);
+      }
+    } catch (err) {
+      console.error('SFTP Error:', err.message);
+    } finally {
+      await sftp.end().catch(() => {});
+    }
     return;
   }
 
   // Step 1: Get files (via SFTP or local cache)
-  console.log('--- Downloading Files ---\n');
   let hmzLog, connectedLog, idMapRaw;
   if (MODE_LOCAL) {
+    console.log('--- Loading Local Files ---\n');
     ({ hmzLog, connectedLog, idMapRaw } = loadLocalFiles());
   } else {
     ({ hmzLog, connectedLog, idMapRaw } = await downloadFiles());
@@ -791,6 +927,12 @@ async function main() {
   console.log(`  Anti-cheat: ${parsed.counts.cheat}`);
   console.log(`  Players:    ${Object.keys(parsed.players).length} (with SteamID)`);
   console.log(`  Name-only:  ${Object.keys(parsed.nameOnly).length}`);
+  if (parsed.totalEvents === 0 && parsed.counts.skipped > 0) {
+    console.log(`\n  ⚠️  No events matched! (${parsed.counts.skipped} lines skipped)`);
+    console.log('  First lines of HMZLog.log:');
+    for (const s of parsed._sampleLines || []) console.log(`    ${s.substring(0, 120)}`);
+    console.log('  If the timestamp format looks different, please report this as a bug.');
+  }
 
   // Step 4: Parse connected log for playtime
   let playtimeResult;

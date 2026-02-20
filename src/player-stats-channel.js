@@ -248,7 +248,7 @@ class PlayerStatsChannel {
       const record = this._killData.players[id];
       const lastKills = record.lastSnapshot;
       const lastSurvival = record.survivalSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
-      const playerName = save.playerName || playtime.getPlaytime(id)?.name || id;
+      const playerName = save.playerName || playtime.getPlaytime(id)?.name || playerStats.getNameForId(id);
 
       // ExtendedStats values are already lifetime cumulative — skip death detection
       if (save.hasExtendedStats) {
@@ -463,9 +463,18 @@ class PlayerStatsChannel {
       else roster.get(p.id).name = p.name; // playtime name is usually most current
     }
     for (const [id, save] of this._saveData) {
-      if (!roster.has(id)) roster.set(id, { name: id });
+      if (!roster.has(id)) {
+        // Resolve name from all available sources instead of falling back to raw SteamID
+        const resolvedName = playerStats.getNameForId(id);
+        roster.set(id, { name: resolvedName });
+      }
       const entry = roster.get(id);
       entry.save = save;
+      // If the entry name is still a raw SteamID, try to resolve it
+      if (/^\d{17}$/.test(entry.name)) {
+        const resolvedName = playerStats.getNameForId(id);
+        if (resolvedName !== id) entry.name = resolvedName;
+      }
     }
 
     const playerCount = roster.size;
@@ -654,8 +663,9 @@ class PlayerStatsChannel {
       if (!merged.has(id)) {
         const at = this.getAllTimeKills(id);
         const atSurv = this.getAllTimeSurvival(id);
+        const resolvedName = playerStats.getNameForId(id);
         merged.set(id, {
-          name: id, // no name available
+          name: resolvedName,
           kills: at?.zeeksKilled || save.zeeksKilled,
           deaths: 0,
           days: atSurv?.daysSurvived || save.daysSurvived,
