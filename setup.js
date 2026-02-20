@@ -20,6 +20,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const SftpClient = require('ssh2-sftp-client');
+const config = require('./src/config');
 
 // ── Constants ─────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
@@ -106,6 +107,8 @@ function newRecord(name) {
     disconnects: 0,
     adminAccess: 0,
     cheatFlags: [],
+    pvpKills: 0,
+    pvpDeaths: 0,
     lastEvent: null,
   };
 }
@@ -639,7 +642,7 @@ function parseConnectedLog(content) {
       allTimePeak: 0,
       allTimePeakDate: null,
       todayPeak: 0,
-      todayDate: new Date().toISOString().split('T')[0],
+      todayDate: config.getToday(),
       uniqueToday: [],
     },
   };
@@ -735,7 +738,7 @@ function estimatePlaytimeFromLog(content) {
       allTimePeak: 0,
       allTimePeakDate: null,
       todayPeak: 0,
-      todayDate: new Date().toISOString().split('T')[0],
+      todayDate: config.getToday(),
       uniqueToday: [],
     },
   };

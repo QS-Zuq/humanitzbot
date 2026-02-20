@@ -307,10 +307,13 @@ client.once(Events.ClientReady, async (readyClient) => {
       .setColor(0x2ecc71)
       .setTimestamp();
 
+    // Post to admin channel so it's immediately visible
+    if (adminChannel) {
+      await adminChannel.send({ embeds: [embed] });
+    }
+    // Also log to the daily activity thread
     if (logWatcher) {
       await logWatcher.sendToThread(embed);
-    } else if (adminChannel) {
-      await adminChannel.send({ embeds: [embed] });
     }
   } catch (err) {
     console.error('[BOT] Failed to post online notification:', err.message);
@@ -341,10 +344,13 @@ async function shutdown(reason = 'Manual shutdown') {
       .setColor(0xe74c3c)
       .setTimestamp();
 
+    // Post to admin channel so it's immediately visible
+    if (adminChannel) {
+      await adminChannel.send({ embeds: [embed] });
+    }
+    // Also log to the daily activity thread
     if (logWatcher) {
       await logWatcher.sendToThread(embed);
-    } else if (adminChannel) {
-      await adminChannel.send({ embeds: [embed] });
     }
   } catch (err) {
     console.error('[BOT] Failed to post offline notification:', err.message);

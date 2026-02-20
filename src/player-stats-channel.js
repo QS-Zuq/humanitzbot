@@ -248,7 +248,7 @@ class PlayerStatsChannel {
       const record = this._killData.players[id];
       const lastKills = record.lastSnapshot;
       const lastSurvival = record.survivalSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
-      const playerName = save.playerName || playtime.getPlaytime(id)?.name || playerStats.getNameForId(id);
+      const playerName = playtime.getPlaytime(id)?.name || playerStats.getNameForId(id);
 
       // ExtendedStats values are already lifetime cumulative — skip death detection
       if (save.hasExtendedStats) {
