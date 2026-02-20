@@ -342,7 +342,18 @@ class PlaytimeTracker {
     try {
       if (fs.existsSync(DATA_FILE)) {
         const raw = fs.readFileSync(DATA_FILE, 'utf8');
-        this._data = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        // Validate: must be an object with a players property
+        if (!parsed || typeof parsed !== 'object' || !parsed.players || typeof parsed.players !== 'object') {
+          console.error('[PLAYTIME] playtime.json is corrupt (missing players object) — creating fresh');
+          // Backup the corrupt file for inspection
+          const corruptBackup = DATA_FILE.replace('.json', `-corrupt-${Date.now()}.json`);
+          fs.copyFileSync(DATA_FILE, corruptBackup);
+          console.log(`[PLAYTIME] Corrupt file backed up to ${path.basename(corruptBackup)}`);
+          this._createFresh();
+          return;
+        }
+        this._data = parsed;
         console.log('[PLAYTIME] Loaded existing data from playtime.json');
       } else {
         this._createFresh();
@@ -369,8 +380,12 @@ class PlaytimeTracker {
     console.log('[PLAYTIME] Created fresh playtime.json');
   }
 
-  _save() {
+  _save(doBackup = false) {
     try {
+      if (!this._data || typeof this._data !== 'object') {
+        console.warn('[PLAYTIME] Not saving: _data is null or invalid');
+        return false;
+      }
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
@@ -379,6 +394,21 @@ class PlaytimeTracker {
       fs.writeFileSync(tmpFile, JSON.stringify(this._data, null, 2), 'utf8');
       fs.renameSync(tmpFile, DATA_FILE);
       this._dirty = false;
+      // Backup logic
+      if (doBackup) {
+        const ts = Date.now();
+        const backupFile = path.join(DATA_DIR, `playtime-backup-${ts}.json`);
+        fs.copyFileSync(DATA_FILE, backupFile);
+        // Prune old backups (keep last 5)
+        const files = fs.readdirSync(DATA_DIR)
+          .filter(f => f.startsWith('playtime-backup-') && f.endsWith('.json'))
+          .map(f => ({ f, t: parseInt(f.split('-')[2]) }))
+          .filter(x => !isNaN(x.t))
+          .sort((a, b) => b.t - a.t);
+        for (let i = 5; i < files.length; ++i) {
+          try { fs.unlinkSync(path.join(DATA_DIR, files[i].f)); } catch {}
+        }
+      }
       return true;
     } catch (err) {
       console.error('[PLAYTIME] Failed to save:', err.message);
@@ -406,7 +436,9 @@ class PlaytimeTracker {
       this._addPlaytime(id, delta);
     }
 
-    const saved = this._save();
+    // Every 15 minutes, do a backup
+    const doBackup = (now % (15 * 60 * 1000)) < SAVE_INTERVAL;
+    const saved = this._save(doBackup);
     if (saved !== false) {
       // Save succeeded — reset session starts so time isn't double-counted
       for (const [id] of sessionDeltas) {

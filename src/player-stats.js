@@ -533,7 +533,18 @@ class PlayerStats {
     try {
       if (fs.existsSync(DATA_FILE)) {
         const raw = fs.readFileSync(DATA_FILE, 'utf8');
-        this._data = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        // Validate: must be an object with a players property
+        if (!parsed || typeof parsed !== 'object' || !parsed.players || typeof parsed.players !== 'object') {
+          console.error('[PLAYER STATS] player-stats.json is corrupt (missing players object) — creating fresh');
+          // Backup the corrupt file for inspection
+          const corruptBackup = DATA_FILE.replace('.json', `-corrupt-${Date.now()}.json`);
+          fs.copyFileSync(DATA_FILE, corruptBackup);
+          console.log(`[PLAYER STATS] Corrupt file backed up to ${path.basename(corruptBackup)}`);
+          this._createFresh();
+          return;
+        }
+        this._data = parsed;
         // Migration: ensure all records have new fields
         for (const record of Object.values(this._data.players)) {
           if (!record.buildItems) record.buildItems = {};
@@ -562,21 +573,45 @@ class PlayerStats {
     console.log('[PLAYER STATS] Created fresh player-stats.json');
   }
 
-  _save() {
+  _save(doBackup = false) {
     try {
+      if (!this._data || typeof this._data !== 'object') {
+        console.warn('[PLAYER STATS] Not saving: _data is null or invalid');
+        return false;
+      }
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
       // Atomic write: write to temp file then rename
       const tmpFile = DATA_FILE + '.tmp';
       fs.writeFileSync(tmpFile, JSON.stringify(this._data, null, 2), 'utf8');
       fs.renameSync(tmpFile, DATA_FILE);
       this._dirty = false;
+      // Backup logic
+      if (doBackup) {
+        const ts = Date.now();
+        const backupFile = path.join(DATA_DIR, `player-stats-backup-${ts}.json`);
+        fs.copyFileSync(DATA_FILE, backupFile);
+        // Prune old backups (keep last 5)
+        const files = fs.readdirSync(DATA_DIR)
+          .filter(f => f.startsWith('player-stats-backup-') && f.endsWith('.json'))
+          .map(f => ({ f, t: parseInt(f.split('-')[3]) }))
+          .filter(x => !isNaN(x.t))
+          .sort((a, b) => b.t - a.t);
+        for (let i = 5; i < files.length; ++i) {
+          try { fs.unlinkSync(path.join(DATA_DIR, files[i].f)); } catch {}
+        }
+      }
+      return true;
     } catch (err) {
       console.error('[PLAYER STATS] Failed to save:', err.message);
+      return false;
     }
   }
 
   _autoSave() {
-    if (this._dirty) this._save();
+    // Every 15 minutes, do a backup
+    const now = Date.now();
+    const doBackup = (now % (15 * 60 * 1000)) < SAVE_INTERVAL;
+    if (this._dirty) this._save(doBackup);
   }
 }
 

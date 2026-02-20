@@ -889,7 +889,12 @@ async function main() {
   console.log(`\n  Start the bot with: npm start`);
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+// Allow import from index.js OR direct execution
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { main };

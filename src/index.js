@@ -265,4 +265,18 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // ── Login ───────────────────────────────────────────────────
-client.login(config.discordToken);
+(async () => {
+  // Run setup/import if FIRST_RUN=true (downloads logs via SFTP and rebuilds data files)
+  if (config.firstRun) {
+    console.log('[BOT] FIRST_RUN=true — running data import before starting bot...');
+    try {
+      const { main: runSetup } = require('../setup');
+      await runSetup();
+      console.log('[BOT] Data import complete. Set FIRST_RUN=false in .env to skip next time.');
+    } catch (err) {
+      console.error('[BOT] Setup failed:', err.message);
+      console.error('[BOT] Continuing with existing/empty data files...');
+    }
+  }
+  client.login(config.discordToken);
+})();

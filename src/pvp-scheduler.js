@@ -341,13 +341,16 @@ class PvpScheduler {
    * When PvP is OFF: restore the original name (strip PvP suffix)
    */
   _updateServerName(content, pvpOn) {
-    const nameMatch = content.match(/^ServerName\s*=\s*"?(.+?)"?\s*$/m);
+    // Match ServerName="value" or ServerName=value (greedy inside quotes)
+    const nameMatch = content.match(/^ServerName\s*=\s*"([^"]*)"\s*$/m)
+                   || content.match(/^ServerName\s*=\s*(.+?)\s*$/m);
     if (!nameMatch) {
       console.error('[PVP] Could not find ServerName= line in settings file');
       return content;
     }
 
     const currentName = nameMatch[1];
+    console.log(`[PVP] Current ServerName: ${currentName}`);
 
     // Cache the original (suffix-free) server name on first encounter
     if (!this._originalServerName) {
@@ -363,9 +366,10 @@ class PvpScheduler {
       newName = this._originalServerName;
     }
 
+    // Replace the entire ServerName line (handles both quoted and unquoted)
     const updatedContent = content.replace(
-      /^(ServerName\s*=\s*)"?.*?"?\s*$/m,
-      `$1"${newName}"`
+      /^ServerName\s*=.*$/m,
+      `ServerName="${newName}"`
     );
     console.log(`[PVP] ServerName → ${newName}`);
     return updatedContent;

@@ -83,6 +83,9 @@ const config = {
   pvpUpdateServerName: envBool('PVP_UPDATE_SERVER_NAME', false),
   ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
 
+  // First-run / data repair
+  firstRun: envBool('FIRST_RUN', false),
+
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
 
