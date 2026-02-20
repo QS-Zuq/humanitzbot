@@ -423,8 +423,8 @@ function parseFullLog(content) {
   }
 
   // Flexible timestamp: (DD/MM/YYYY HH:MM) or (DD/MM/YYYY HH:MM:SS)
-  // Also handles - and . separators in the date portion
-  const tsRegex = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
+  // Also handles - and . separators in the date portion, and comma in year (2,026)
+  const tsRegex = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
 
   const sampleLines = []; // collect first non-empty lines for diagnostics
 
@@ -437,7 +437,8 @@ function parseFullLog(content) {
     const lm = line.match(tsRegex);
     if (!lm) { result.counts.skipped++; continue; }
 
-    const [, day, month, year, hour, min, body] = lm;
+    const [, day, month, rawYear, hour, min, body] = lm;
+    const year = rawYear.replace(',', '');
     const ts = new Date(
       `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}:00Z`
     ).toISOString();
@@ -554,13 +555,14 @@ function parseConnectedLog(content) {
   const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
   const events = [];
 
-  // Flexible: handle optional seconds and alternative date separators
-  const connectRegex = /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/;
+  // Flexible: handle optional seconds, alternative date separators, and comma in year (2,026)
+  const connectRegex = /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/;
 
   for (const line of lines) {
     const m = line.match(connectRegex);
     if (!m) continue;
-    const [, action, name, steamId, day, month, year, hour, min] = m;
+    const [, action, name, steamId, day, month, rawYear, hour, min] = m;
+    const year = rawYear.replace(',', '');
     const ts = new Date(
       `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}:00Z`
     );
@@ -676,8 +678,8 @@ function estimatePlaytimeFromLog(content) {
   const SESSION_BUFFER = 15 * 60 * 1000;
   const playerEvents = {}; // steamId → { name, timestamps }
 
-  // Flexible timestamp: handles optional seconds and alternative date separators
-  const tsRegex2 = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
+  // Flexible timestamp: handles optional seconds, alternative date separators, and comma in year (2,026)
+  const tsRegex2 = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
 
   for (const rawLine of content.split('\n')) {
     const line = rawLine.replace(/^\uFEFF/, '').trim();
@@ -686,7 +688,8 @@ function estimatePlaytimeFromLog(content) {
     const lm = line.match(tsRegex2);
     if (!lm) continue;
 
-    const [, day, month, year, hour, min, body] = lm;
+    const [, day, month, rawYear, hour, min, body] = lm;
+    const year = rawYear.replace(',', '');
     const ts = new Date(
       `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${min.padStart(2, '0')}:00Z`
     );
