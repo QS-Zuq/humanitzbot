@@ -54,7 +54,7 @@ function cleanName(name) {
 /* ── Property names whose Map values we want to capture ── */
 const MAP_CAPTURE = new Set(['GameStats', 'FloatData']);
 
-/* ── ExtendedStats tag path → player field mapping ── */
+/* ── Statistics tag path → player field mapping ── */
 const EXTENDED_STAT_MAP = {
   // Kill stats (cumulative / lifetime)
   'statistics.stat.game.kills.total':         'lifetimeKills',
@@ -433,7 +433,7 @@ function parseSave(buf) {
         // Unique items
         uniqueLoots: [],
         craftedUniques: [],
-        // Lifetime stats (from ExtendedStats — persist across deaths)
+        // Lifetime stats (from Statistics — persist across deaths)
         lifetimeKills: 0,
         lifetimeHeadshots: 0,
         lifetimeMeleeKills: 0,
@@ -443,7 +443,7 @@ function parseSave(buf) {
         lifetimeTakedownKills: 0,
         lifetimeVehicleKills: 0,
         lifetimeDaysSurvived: 0,
-        // Challenge progress (from ExtendedStats)
+        // Challenge progress (from Statistics)
         challengeKillZombies: 0,
         challengeKill50: 0,
         challengeCatch20Fish: 0,
@@ -463,7 +463,7 @@ function parseSave(buf) {
         challengeFindHeli: 0,
         challengeLockpickSUV: 0,
         challengeRepairRadio: 0,
-        // Activity (from ExtendedStats)
+        // Activity (from Statistics)
         timesBitten: 0,
         fishCaught: 0,
         fishCaughtPike: 0,
@@ -498,8 +498,8 @@ function parseSave(buf) {
       for (const child of prop.children) handleProp(child);
     }
     if (Array.isArray(prop.value) && prop.value.length > 0 && Array.isArray(prop.value[0])) {
-      // ── ExtendedStats: pair-wise extraction of TagName + CurrentValue ──
-      if (n === 'ExtendedStats' && currentSteamID) {
+      // ── Statistics: pair-wise extraction of TagName + CurrentValue ──
+      if (n === 'Statistics' && currentSteamID) {
         const p = ensurePlayer(currentSteamID);
         for (const elemProps of prop.value) {
           if (!Array.isArray(elemProps)) continue;
