@@ -349,7 +349,7 @@ function readProperty(r) {
 
 /* ── Perk enum to readable name ── */
 const PERK_MAP = {
-  'Enum_Professions::NewEnumerator0': 'None',
+  // NewEnumerator0 = default/unset — intentionally omitted so it stays 'Unknown'
   'Enum_Professions::NewEnumerator1': 'Athlete',
   'Enum_Professions::NewEnumerator2': 'Burglar',
   'Enum_Professions::NewEnumerator3': 'Construction Worker',
@@ -367,6 +367,16 @@ const PERK_MAP = {
   'Enum_Professions::NewEnumerator15': 'Unemployed',
   'Enum_Professions::NewEnumerator16': 'Veteran',
   'Enum_Professions::NewEnumerator17': 'Chef',
+};
+
+// ByteProperty stores the enum index as a number — same order as above
+// Index 0 = default/unset, intentionally omitted
+const PERK_INDEX_MAP = {
+  1: 'Athlete', 2: 'Burglar', 3: 'Construction Worker', 4: 'Doctor',
+  5: 'Electrician', 6: 'Engineer', 7: 'Farmer', 8: 'Fire Fighter',
+  9: 'Hunter', 10: 'Lumberjack', 11: 'Mechanic', 12: 'Park Ranger',
+  13: 'Police Officer', 14: 'Survivalist', 15: 'Unemployed',
+  16: 'Veteran', 17: 'Chef',
 };
 
 /* ── Main parse function ── */
@@ -516,9 +526,20 @@ function parseSave(buf) {
     if (n === 'CurrentInfection' && typeof prop.value === 'number') p.infection = Math.round(prop.value * 10) / 10;
     if (n === 'PlayerBattery' && typeof prop.value === 'number') p.battery = Math.round(prop.value * 10) / 10;
 
-    // Perk
-    if (n === 'StartingPerk' && typeof prop.value === 'string') {
-      p.startingPerk = PERK_MAP[prop.value] || prop.value;
+    // Perk — may be EnumProperty (string value) or ByteProperty (numeric index)
+    if (n === 'StartingPerk') {
+      let mapped = null;
+      if (typeof prop.value === 'string') {
+        mapped = PERK_MAP[prop.value];
+      } else if (typeof prop.value === 'number') {
+        mapped = PERK_INDEX_MAP[prop.value];
+      }
+      if (mapped) {
+        p.startingPerk = mapped;
+      } else if (prop.value !== 0 && prop.value !== 'None' && prop.value !== 'Enum_Professions::NewEnumerator0') {
+        // Only log truly unexpected values (not the default/unset "None" or index 0)
+        console.log(`[SAVE PARSER] Unknown StartingPerk for ${currentSteamID}: type=${typeof prop.value} value=${JSON.stringify(prop.value)} enumType=${prop.enumType}`);
+      }
     }
 
     // GameStats map (kills!)

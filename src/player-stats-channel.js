@@ -160,7 +160,7 @@ class PlayerStatsChannel {
   // ── Lifetime Stat Tracker (accumulates across deaths) ─────
 
   static KILL_KEYS = ['zeeksKilled', 'headshots', 'meleeKills', 'gunKills', 'blastKills', 'fistKills', 'takedownKills', 'vehicleKills'];
-  static SURVIVAL_KEYS = ['daysSurvived', 'affliction'];
+  static SURVIVAL_KEYS = ['daysSurvived'];
 
   _loadKillData() {
     try {
@@ -356,7 +356,6 @@ class PlayerStatsChannel {
     const lines = deltas.map(({ name, delta }) => {
       const parts = [];
       if (delta.daysSurvived)  parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
-      if (delta.affliction)    parts.push(`${delta.affliction} affliction${delta.affliction > 1 ? 's' : ''}`);
       return `**${name}** — ${parts.join(', ')}`;
     });
 
@@ -425,7 +424,6 @@ class PlayerStatsChannel {
     // ExtendedStats lifetime values (persist across deaths)
     if (save?.hasExtendedStats) {
       allTime.daysSurvived = save.lifetimeDaysSurvived || save.daysSurvived || 0;
-      allTime.affliction   = save.affliction   || 0;
       return allTime;
     }
 
@@ -599,23 +597,6 @@ class PlayerStatsChannel {
         embed.addFields({ name: 'Longest Survivors (All Time)', value: lines.join('\n') });
       }
 
-      // ── Most Afflicted (all-time) ──
-      const afflicted = [...allTrackedIds]
-        .map(id => {
-          const atSurv = this.getAllTimeSurvival(id);
-          return { id, name: roster.get(id)?.name || id, affliction: atSurv?.affliction || 0 };
-        })
-        .filter(e => e.affliction > 0)
-        .sort((a, b) => b.affliction - a.affliction);
-
-      if (afflicted.length > 0) {
-        const medals = ['🥇', '🥈', '🥉'];
-        const lines = afflicted.slice(0, 5).map((e, i) => {
-          const medal = medals[i] || `\`${i + 1}.\``;
-          return `${medal} **${e.name}** — ${e.affliction} afflictions`;
-        });
-        embed.addFields({ name: 'Most Afflicted (All Time)', value: lines.join('\n') });
-      }
 
 
     }
@@ -885,7 +866,7 @@ class PlayerStatsChannel {
     const charParts = [];
     if (saveData) {
       charParts.push(saveData.male ? '♂ Male' : '♀ Female');
-      if (saveData.startingPerk !== 'Unknown' && saveData.startingPerk !== 'None') {
+      if (saveData.startingPerk && saveData.startingPerk !== 'Unknown') {
         charParts.push(`Perk: ${saveData.startingPerk}`);
       }
     }
@@ -943,7 +924,6 @@ class PlayerStatsChannel {
     const survivalParts = [];
     if (saveData) {
       if (saveData.daysSurvived > 0) survivalParts.push(`Days Survived: **${saveData.daysSurvived}**`);
-      if (saveData.affliction > 0) survivalParts.push(`Affliction: **${saveData.affliction}**`);
     }
     if (logData) {
       survivalParts.push(`Deaths: **${logData.deaths}**`);
@@ -968,7 +948,6 @@ class PlayerStatsChannel {
       if (atSurv) {
         const atParts = [];
         if (atSurv.daysSurvived > 0) atParts.push(`Days Survived: **${atSurv.daysSurvived}**`);
-        if (atSurv.affliction > 0) atParts.push(`Affliction: **${atSurv.affliction}**`);
         if (logData) atParts.push(`Deaths: **${logData.deaths}**`);
         embed.addFields({ name: 'Survival (All Time)', value: atParts.length > 0 ? atParts.join('\n') : 'Tracking started — accumulates across deaths' });
       }
