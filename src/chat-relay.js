@@ -80,14 +80,14 @@ class ChatRelay {
   // ── Daily chat thread management ───────────────────────────
 
   async _getOrCreateChatThread() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = config.getToday(); // timezone-aware 'YYYY-MM-DD'
 
     // Already have today's thread
     if (this._chatThread && this._chatThreadDate === today) {
       return this._chatThread;
     }
 
-    const dateLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const dateLabel = config.getDateLabel();
     const threadName = `💬 Chat Log — ${dateLabel}`;
 
     try {

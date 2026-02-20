@@ -551,17 +551,33 @@ class PlayerStatsChannel {
       const totalBuilds = allLog.reduce((s, p) => s + p.builds, 0);
       const totalLoots = allLog.reduce((s, p) => s + p.containersLooted, 0);
       const totalDmg = allLog.reduce((s, p) => s + Object.values(p.damageTaken).reduce((a, b) => a + b, 0), 0);
+      const totalPvpKills = allLog.reduce((s, p) => s + (p.pvpKills || 0), 0);
       const parts = [
         `Deaths: **${totalDeaths}**`,
         `Builds: **${totalBuilds}**`,
         `Looted: **${totalLoots}**`,
         `Hits Taken: **${totalDmg}**`,
       ];
+      if (totalPvpKills > 0) parts.push(`PvP Kills: **${totalPvpKills}**`);
       if (config.showRaidStats) {
         const totalRaids = allLog.reduce((s, p) => s + p.raidsOut, 0);
         parts.push(`Raids: **${totalRaids}**`);
       }
       embed.addFields({ name: 'Log Activity', value: parts.join('\n') });
+    }
+
+    // ── Last 10 PvP Kills ──
+    if (config.showPvpKills && this._logWatcher) {
+      const recentKills = this._logWatcher.getPvpKills(10);
+      if (recentKills.length > 0) {
+        const killLines = recentKills.slice().reverse().map((k, i) => {
+          const ts = new Date(k.timestamp);
+          const timeStr = ts.toLocaleDateString('en-GB', { timeZone: config.botTimezone, day: 'numeric', month: 'short' }) +
+            ' ' + ts.toLocaleTimeString('en-GB', { timeZone: config.botTimezone, hour: '2-digit', minute: '2-digit' });
+          return `\`${i + 1}.\` **${k.killer}** ⚔️ **${k.victim}** — ${timeStr}`;
+        });
+        embed.addFields({ name: 'Last 10 PvP Kills', value: killLines.join('\n') });
+      }
     }
 
     // ── Survival Leaderboard (all-time from tracker) ──
@@ -934,6 +950,16 @@ class PlayerStatsChannel {
     }
     if (survivalParts.length > 0) {
       embed.addFields({ name: 'Survival (This Life)', value: survivalParts.join('\n') });
+    }
+
+    // ── PvP Stats ──
+    if (logData && ((logData.pvpKills || 0) > 0 || (logData.pvpDeaths || 0) > 0)) {
+      const pvpParts = [];
+      if (logData.pvpKills > 0) pvpParts.push(`PvP Kills: **${logData.pvpKills}**`);
+      if (logData.pvpDeaths > 0) pvpParts.push(`PvP Deaths: **${logData.pvpDeaths}**`);
+      const kd = logData.pvpDeaths > 0 ? (logData.pvpKills / logData.pvpDeaths).toFixed(2) : logData.pvpKills > 0 ? '∞' : '0';
+      pvpParts.push(`K/D: **${kd}**`);
+      embed.addFields({ name: '⚔️ PvP', value: pvpParts.join('\n') });
     }
 
     // ── Survival Stats (All Time) ──

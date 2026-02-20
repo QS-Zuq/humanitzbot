@@ -7,6 +7,7 @@ const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 
 const OFFSETS_PATH = path.join(__dirname, '..', 'data', 'log-offsets.json');
+const PVP_KILLS_PATH = path.join(__dirname, '..', 'data', 'pvp-kills.json');
 
 /**
  * LogWatcher — connects to the game server via SFTP, polls HMZLog.log
@@ -44,13 +45,133 @@ class LogWatcher {
     this._raidTimer = null;
 
     // Daily counters for the summary
-    this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0 };
+    this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
 
     // Online player tracking (for peak stats)
     this._onlinePlayers = new Set();
 
     // PlayerIDMapped.txt warning flag
     this._idMapWarned = false;
+
+    // PvP damage tracker: Map<victimNameLower, { attacker, attackerLower, timestamp, totalDamage }>
+    // Used to correlate damage → death for PvP kill attribution
+    this._pvpDamageTracker = new Map();
+
+    // PvP kill log: last N kills for the "Last 10 Kills" display
+    // Persisted to data/pvp-kills.json
+    this._pvpKills = [];
+    this._pvpKillsDirty = false;
+    this._loadPvpKills();
+  }
+
+  // ── PvP Kill Tracking ──────────────────────────────────────
+
+  /** Load persisted PvP kill history from disk */
+  _loadPvpKills() {
+    try {
+      if (fs.existsSync(PVP_KILLS_PATH)) {
+        const raw = JSON.parse(fs.readFileSync(PVP_KILLS_PATH, 'utf8'));
+        if (Array.isArray(raw)) {
+          this._pvpKills = raw;
+          console.log(`[PVP KILLFEED] Loaded ${raw.length} PvP kill(s) from history`);
+        }
+      }
+    } catch (err) {
+      console.warn('[PVP KILLFEED] Could not load pvp-kills.json:', err.message);
+      this._pvpKills = [];
+    }
+  }
+
+  /** Save PvP kill history to disk */
+  _savePvpKills() {
+    if (!this._pvpKillsDirty) return;
+    try {
+      const dir = path.dirname(PVP_KILLS_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(PVP_KILLS_PATH, JSON.stringify(this._pvpKills, null, 2), 'utf8');
+      this._pvpKillsDirty = false;
+    } catch (err) {
+      console.warn('[PVP KILLFEED] Could not save pvp-kills.json:', err.message);
+    }
+  }
+
+  /**
+   * Record PvP damage for kill attribution.
+   * Updates or creates an entry tracking the most recent attacker for this victim.
+   * @param {string} victim - victim player name
+   * @param {string} attacker - attacker player name (raw from log)
+   * @param {number} damage - damage amount
+   * @param {Date} timestamp - log timestamp
+   */
+  _recordPvpDamage(victim, attacker, damage, timestamp) {
+    const key = victim.toLowerCase();
+    const existing = this._pvpDamageTracker.get(key);
+    const ts = timestamp.getTime();
+
+    if (existing && existing.attackerLower === attacker.toLowerCase()) {
+      // Same attacker — accumulate damage
+      existing.totalDamage += damage;
+      existing.timestamp = ts;
+      existing.attacker = attacker; // keep most recent casing
+    } else {
+      // New/different attacker — replace (last-hit attribution)
+      this._pvpDamageTracker.set(key, {
+        attacker,
+        attackerLower: attacker.toLowerCase(),
+        timestamp: ts,
+        totalDamage: damage,
+      });
+    }
+  }
+
+  /**
+   * Check if a dying player was recently damaged by another player.
+   * Returns the attacker info if within the kill attribution window, or null.
+   * @param {string} victim - victim player name
+   * @param {Date} deathTimestamp - death event timestamp
+   * @returns {{ attacker: string, totalDamage: number }|null}
+   */
+  _checkPvpKill(victim, deathTimestamp) {
+    const key = victim.toLowerCase();
+    const entry = this._pvpDamageTracker.get(key);
+    if (!entry) return null;
+
+    const elapsed = deathTimestamp.getTime() - entry.timestamp;
+    // Use configurable window (default 5 min). Since log timestamps are only
+    // minute-precision (HH:MM), we need a generous window.
+    if (elapsed <= config.pvpKillWindow && elapsed >= 0) {
+      // Clean up after attribution
+      this._pvpDamageTracker.delete(key);
+      return { attacker: entry.attacker, totalDamage: entry.totalDamage };
+    }
+
+    // Expired — clean up
+    if (elapsed > config.pvpKillWindow) {
+      this._pvpDamageTracker.delete(key);
+    }
+    return null;
+  }
+
+  /**
+   * Periodically prune stale entries from the PvP damage tracker.
+   * Called during each poll cycle.
+   */
+  _prunePvpTracker() {
+    const now = Date.now();
+    for (const [key, entry] of this._pvpDamageTracker) {
+      if (now - entry.timestamp > config.pvpKillWindow * 2) {
+        this._pvpDamageTracker.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Get the last N PvP kills (for the stats embed).
+   * @param {number} [count=10] - how many kills to return
+   * @returns {Array<{ killer: string, victim: string, timestamp: string }>}
+   */
+  getPvpKills(count = 10) {
+    return this._pvpKills.slice(-count);
   }
 
   /**
@@ -92,6 +213,10 @@ class LogWatcher {
     // Start polling
     this.interval = setInterval(() => this._poll(), config.logPollInterval);
 
+    // Proactive midnight rollover check — ensures the daily summary posts
+    // even if no log events happen around midnight in the configured timezone.
+    this._midnightCheckInterval = setInterval(() => this._checkDayRollover(), 60000);
+
     // Send startup notification
     const thread = await this._getOrCreateDailyThread();
     const embed = new EmbedBuilder()
@@ -109,6 +234,10 @@ class LogWatcher {
       clearInterval(this.interval);
       this.interval = null;
     }
+    if (this._midnightCheckInterval) {
+      clearInterval(this._midnightCheckInterval);
+      this._midnightCheckInterval = null;
+    }
     if (this._lootTimer) {
       clearTimeout(this._lootTimer);
       this._lootTimer = null;
@@ -124,6 +253,7 @@ class LogWatcher {
     this._flushLootBatch();
     this._flushBuildBatch();
     this._flushRaidBatch();
+    this._savePvpKills();
   }
 
   // ─── INTERNAL ─────────────────────────────────────────────
@@ -273,6 +403,10 @@ class LogWatcher {
       // Persist offsets so next restart catches up from here
       this._saveOffsets();
 
+      // Prune stale PvP damage entries + persist kill log
+      this._prunePvpTracker();
+      this._savePvpKills();
+
     } catch (err) {
       console.error('[LOG WATCHER] Poll error:', err.message);
     } finally {
@@ -339,11 +473,24 @@ class LogWatcher {
   // ─── DAILY THREADS ────────────────────────────────────────
 
   /**
+   * Proactive midnight rollover — called every 60s to ensure the daily summary
+   * posts promptly at midnight (BOT_TIMEZONE) even if no log events arrive.
+   */
+  async _checkDayRollover() {
+    if (!this._dailyDate) return; // not initialised yet
+    const today = config.getToday();
+    if (this._dailyDate !== today) {
+      console.log(`[LOG WATCHER] Day rollover detected: ${this._dailyDate} → ${today}`);
+      await this._getOrCreateDailyThread(); // triggers summary + new thread
+    }
+  }
+
+  /**
    * Get or create today's activity thread. If the day has rolled over,
    * post a summary of the previous day to the main channel first.
    */
   async _getOrCreateDailyThread() {
-    const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
+    const today = config.getToday(); // timezone-aware 'YYYY-MM-DD'
 
     // Already have today's thread
     if (this._dailyThread && this._dailyDate === today) {
@@ -354,11 +501,11 @@ class LogWatcher {
     if (this._dailyDate && this._dailyDate !== today) {
       await this._postDailySummary();
       // Reset counters
-      this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0 };
+      this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
     }
 
     // Look for an existing thread for today
-    const dateLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const dateLabel = config.getDateLabel();
     const threadName = `📋 Activity Log — ${dateLabel}`;
 
     try {
@@ -424,7 +571,7 @@ class LogWatcher {
     if (total === 0) return; // nothing happened
 
     const dateLabel = this._dailyDate
-      ? new Date(this._dailyDate + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+      ? config.getDateLabel(new Date(this._dailyDate + 'T12:00:00Z'))
       : 'Unknown';
 
     const lines = [];
@@ -438,6 +585,7 @@ class LogWatcher {
     if (c.destroyed > 0)    lines.push(`💥  **Structures Destroyed:** ${c.destroyed}`);
     if (c.admin > 0)        lines.push(`🔑  **Admin Access:** ${c.admin}`);
     if (c.cheat > 0)        lines.push(`🚨  **Anti-Cheat Flags:** ${c.cheat}`);
+    if (c.pvpKills > 0)     lines.push(`⚔️  **PvP Kills:** ${c.pvpKills}`);
 
     const embed = new EmbedBuilder()
       .setTitle(`📊 Daily Summary — ${dateLabel}`)
@@ -542,10 +690,17 @@ class LogWatcher {
     // Tracked for stats; not posted to Discord individually (too spammy)
     const dmgMatch = body.match(/^(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
     if (dmgMatch) {
+      const dmgVictim = dmgMatch[1].trim();
       const dmgAmount = parseFloat(dmgMatch[2]);
+      const dmgSource = dmgMatch[3].trim();
       if (dmgAmount > 0) {
-        playerStats.recordDamageTaken(dmgMatch[1].trim(), dmgMatch[3].trim(), timestamp);
+        playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
         this._dayCounts.damage++;
+
+        // Track PvP damage for kill attribution (source is a player name if no BP_ prefix)
+        if (config.enablePvpKillFeed && !dmgSource.startsWith('BP_') && !(/Zombie|Wolf|Bear|Deer|Snake|Spider|Human|KaiHuman|Mutant|Runner|Brute|Pudge|Dogzombie|Police|Cop|Military|Hazmat|Camo/i.test(dmgSource))) {
+          this._recordPvpDamage(dmgVictim, dmgSource, dmgAmount, timestamp);
+        }
       }
       return true;
     }
@@ -740,13 +895,52 @@ class LogWatcher {
     playerStats.recordDeath(playerName, timestamp);
     this._dayCounts.deaths++;
 
-    const embed = new EmbedBuilder()
-      .setAuthor({ name: '💀 Player Death' })
-      .setDescription(`**${playerName}** died`)
-      .setColor(0x992d22)
-      .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+    // Check for PvP kill attribution
+    const pvpKill = config.enablePvpKillFeed ? this._checkPvpKill(playerName, timestamp) : null;
 
-    this._sendToThread(embed);
+    if (pvpKill) {
+      // PvP kill confirmed — post killfeed embed
+      this._dayCounts.pvpKills++;
+
+      // Record to persistent kill log
+      const killEntry = {
+        killer: pvpKill.attacker,
+        victim: playerName,
+        damage: pvpKill.totalDamage,
+        timestamp: timestamp.toISOString(),
+      };
+      this._pvpKills.push(killEntry);
+      // Keep last 50 kills in memory (display only shows 10)
+      if (this._pvpKills.length > 50) this._pvpKills = this._pvpKills.slice(-50);
+      this._pvpKillsDirty = true;
+
+      // Record PvP kill/death stats
+      playerStats.recordPvpKill(pvpKill.attacker, playerName, timestamp);
+
+      // Post PvP kill to activity thread
+      const killEmbed = new EmbedBuilder()
+        .setAuthor({ name: '⚔️ PvP Kill' })
+        .setDescription(`**${pvpKill.attacker}** killed **${playerName}**`)
+        .setColor(0xe74c3c)
+        .setFooter({ text: `${pvpKill.totalDamage.toFixed(0)} damage dealt · ${this._formatTime(timestamp)}` });
+      this._sendToThread(killEmbed);
+
+      // Also post the death notification (with kill context)
+      const deathEmbed = new EmbedBuilder()
+        .setAuthor({ name: '💀 Player Death' })
+        .setDescription(`**${playerName}** was killed by **${pvpKill.attacker}**`)
+        .setColor(0x992d22)
+        .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+      this._sendToThread(deathEmbed);
+    } else {
+      // Normal death (PvE/environment/unknown cause)
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '💀 Player Death' })
+        .setDescription(`**${playerName}** died`)
+        .setColor(0x992d22)
+        .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+      this._sendToThread(embed);
+    }
   }
 
   /**
@@ -960,13 +1154,7 @@ class LogWatcher {
    * Format a Date into a short readable time string.
    */
   _formatTime(date) {
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    return config.formatTime(date);
   }
 }
 

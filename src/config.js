@@ -32,6 +32,9 @@ const config = {
   rconPort: parseInt(process.env.RCON_PORT, 10) || 27015,
   rconPassword: process.env.RCON_PASSWORD,
 
+  // Timezone for daily threads / summaries (IANA format, e.g. 'America/New_York', 'US/Eastern')
+  botTimezone: process.env.BOT_TIMEZONE || process.env.PVP_TIMEZONE || 'UTC',
+
   // Behavior
   chatPollInterval: parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000,
   statusCacheTtl: parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000,
@@ -78,7 +81,7 @@ const config = {
   // Legacy fallback: PVP_START_HOUR / PVP_END_HOUR still work (whole hours only)
   pvpStartHour: process.env.PVP_START_HOUR !== undefined ? parseInt(process.env.PVP_START_HOUR, 10) : NaN,
   pvpEndHour: process.env.PVP_END_HOUR !== undefined ? parseInt(process.env.PVP_END_HOUR, 10) : NaN,
-  pvpTimezone: process.env.PVP_TIMEZONE || 'UTC',
+  pvpTimezone: process.env.PVP_TIMEZONE || process.env.BOT_TIMEZONE || 'UTC',
   pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY, 10) || 10,
   pvpUpdateServerName: envBool('PVP_UPDATE_SERVER_NAME', false),
   ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
@@ -88,6 +91,9 @@ const config = {
 
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
+  enablePvpKillFeed: envBool('ENABLE_PVP_KILL_FEED', true), // post PvP kills to activity thread
+  showPvpKills: envBool('SHOW_PVP_KILLS', false),            // show "Last 10 PvP Kills" on server stats embed
+  pvpKillWindow: parseInt(process.env.PVP_KILL_WINDOW, 10) || 60000, // ms window to attribute a kill after damage (default 60s; log timestamps are minute-precision)
 
   // Feature toggles — auto-message sub-features (all on by default)
   enableAutoMsgLink: envBool('ENABLE_AUTO_MSG_LINK', true),
@@ -113,5 +119,65 @@ for (const key of required) {
     process.exit(1);
   }
 }
+
+// ── Timezone-aware date helpers ─────────────────────────────
+// All daily thread boundaries, summaries, and displayed times use BOT_TIMEZONE.
+
+/**
+ * Get today's date string ('YYYY-MM-DD') in the configured BOT_TIMEZONE.
+ * Falls back to UTC if the timezone is invalid.
+ */
+config.getToday = function () {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: config.botTimezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date());
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    const d = parts.find(p => p.type === 'day').value;
+    return `${y}-${m}-${d}`;
+  } catch {
+    return new Date().toISOString().split('T')[0];
+  }
+};
+
+/**
+ * Get a human-readable date label (e.g. '20 Feb 2026') in the configured BOT_TIMEZONE.
+ * @param {Date} [date] — defaults to now
+ */
+config.getDateLabel = function (date) {
+  try {
+    return (date || new Date()).toLocaleDateString('en-GB', {
+      timeZone: config.botTimezone,
+      day: 'numeric', month: 'short', year: 'numeric',
+    });
+  } catch {
+    return (date || new Date()).toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    });
+  }
+};
+
+/**
+ * Format a Date into a short readable time string in the configured BOT_TIMEZONE.
+ * e.g. 'Feb 20, 02:48 AM'
+ */
+config.formatTime = function (date) {
+  try {
+    return date.toLocaleString('en-US', {
+      timeZone: config.botTimezone,
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+  } catch {
+    return date.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+  }
+};
+
+console.log(`[CONFIG] Timezone: ${config.botTimezone}`);
 
 module.exports = config;

@@ -119,6 +119,30 @@ class PlayerStats {
   }
 
   /**
+   * Record a PvP kill: attacker killed victim.
+   * Increments pvpKills on the killer and pvpDeaths on the victim.
+   * @param {string} killerName
+   * @param {string} victimName
+   * @param {Date} [timestamp]
+   */
+  recordPvpKill(killerName, victimName, timestamp) {
+    this._ensureInit();
+    const ts = (timestamp || new Date()).toISOString();
+
+    const killer = this._getOrCreateByName(killerName);
+    if (!killer.pvpKills) killer.pvpKills = 0;
+    killer.pvpKills++;
+    killer.lastEvent = ts;
+
+    const victim = this._getOrCreateByName(victimName);
+    if (!victim.pvpDeaths) victim.pvpDeaths = 0;
+    victim.pvpDeaths++;
+    victim.lastEvent = ts;
+
+    this._dirty = true;
+  }
+
+  /**
    * Record a building completion.
    * @param {string} playerName
    * @param {string} steamId
@@ -440,6 +464,8 @@ class PlayerStats {
     target.connects += source.connects || 0;
     target.disconnects += source.disconnects || 0;
     target.adminAccess += source.adminAccess || 0;
+    target.pvpKills += source.pvpKills || 0;
+    target.pvpDeaths += source.pvpDeaths || 0;
     if (source.cheatFlags && source.cheatFlags.length > 0) {
       target.cheatFlags.push(...source.cheatFlags);
     }
@@ -490,6 +516,8 @@ class PlayerStats {
       destroyedIn: 0,
       containersLooted: 0,
       damageTaken: {},
+      pvpKills: 0,
+      pvpDeaths: 0,
       connects: 0,
       disconnects: 0,
       adminAccess: 0,
@@ -557,6 +585,8 @@ class PlayerStats {
           if (record.adminAccess === undefined) record.adminAccess = 0;
           if (!Array.isArray(record.cheatFlags)) record.cheatFlags = [];
           if (!Array.isArray(record.nameHistory)) record.nameHistory = [];
+          if (record.pvpKills === undefined) record.pvpKills = 0;
+          if (record.pvpDeaths === undefined) record.pvpDeaths = 0;
         }
       } else {
         this._createFresh();
