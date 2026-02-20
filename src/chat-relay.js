@@ -1,4 +1,4 @@
-const { Events, EmbedBuilder, ChannelType } = require('discord.js');
+const { Events, EmbedBuilder } = require('discord.js');
 const config = require('./config');
 const rcon = require('./rcon');
 
@@ -115,23 +115,24 @@ class ChatRelay {
       console.warn('[CHAT] Could not search for threads:', err.message);
     }
 
-    // Create a new thread
+    // Create a new thread (from a starter message so it appears inline in the channel)
     try {
-      this._chatThread = await this.adminChannel.threads.create({
+      const starterMsg = await this.adminChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`💬 Chat Log — ${dateLabel}`)
+            .setDescription('All in-game chat messages for today are logged in this thread.')
+            .setColor(0x3498db)
+            .setTimestamp(),
+        ],
+      });
+      this._chatThread = await starterMsg.startThread({
         name: threadName,
         autoArchiveDuration: 1440,
-        type: ChannelType.PublicThread,
         reason: 'Daily chat log thread',
       });
       this._chatThreadDate = today;
       console.log(`[CHAT] Created daily thread: ${threadName}`);
-
-      const header = new EmbedBuilder()
-        .setTitle(`💬 Chat Log — ${dateLabel}`)
-        .setDescription('All in-game chat messages for today appear below.')
-        .setColor(0x3498db)
-        .setTimestamp();
-      await this._chatThread.send({ embeds: [header] });
     } catch (err) {
       console.error('[CHAT] Failed to create chat thread:', err.message);
     }
