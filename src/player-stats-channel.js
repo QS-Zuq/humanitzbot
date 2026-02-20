@@ -198,7 +198,7 @@ class PlayerStatsChannel {
   async _cleanOldMessages() {
     try {
       const messages = await this.channel.messages.fetch({ limit: 20 });
-      const botMessages = messages.filter(m => m.author.id === this.client.user.id);
+      const botMessages = messages.filter(m => m.author.id === this.client.user.id && !m.hasThread);
       for (const [, msg] of botMessages) {
         try { await msg.delete(); } catch (_) {}
       }
