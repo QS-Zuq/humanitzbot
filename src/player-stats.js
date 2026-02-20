@@ -174,6 +174,7 @@ class PlayerStats {
    * @param {Date} [timestamp] - log timestamp (falls back to now)
    */
   recordBuild(playerName, steamId, itemName, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
     record.builds++;
     record.buildItems[itemName] = (record.buildItems[itemName] || 0) + 1;
@@ -190,6 +191,7 @@ class PlayerStats {
    * @param {Date} [timestamp] - log timestamp (falls back to now)
    */
   recordRaid(attackerName, attackerSteamId, ownerSteamId, destroyed, timestamp) {
+    this._ensureInit();
     const ts = (timestamp || new Date()).toISOString();
     // Attacker stats
     if (attackerSteamId) {
@@ -216,6 +218,7 @@ class PlayerStats {
    * @param {Date} [timestamp] - log timestamp (falls back to now)
    */
   recordLoot(playerName, steamId, ownerSteamId, timestamp) {
+    this._ensureInit();
     // Only count looting others' containers
     if (steamId === ownerSteamId) return;
     const record = this._getOrCreate(steamId, playerName);
@@ -231,6 +234,7 @@ class PlayerStats {
    * @param {Date} [timestamp] - log timestamp (falls back to now)
    */
   recordDamageTaken(playerName, source, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreateByName(playerName);
     const cleanSource = this._classifyDamageSource(source);
     record.damageTaken[cleanSource] = (record.damageTaken[cleanSource] || 0) + 1;
@@ -245,6 +249,7 @@ class PlayerStats {
    * @param {Date} [timestamp]
    */
   recordConnect(playerName, steamId, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
     record.connects++;
     record.lastEvent = (timestamp || new Date()).toISOString();
@@ -258,6 +263,7 @@ class PlayerStats {
    * @param {Date} [timestamp]
    */
   recordDisconnect(playerName, steamId, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
     record.disconnects++;
     record.lastEvent = (timestamp || new Date()).toISOString();
@@ -270,6 +276,7 @@ class PlayerStats {
    * @param {Date} [timestamp]
    */
   recordAdminAccess(playerName, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreateByName(playerName);
     record.adminAccess++;
     record.lastEvent = (timestamp || new Date()).toISOString();
@@ -284,6 +291,7 @@ class PlayerStats {
    * @param {Date} [timestamp]
    */
   recordCheatFlag(playerName, steamId, type, timestamp) {
+    this._ensureInit();
     const record = this._getOrCreate(steamId, playerName);
     record.cheatFlags.push({
       type,

@@ -140,6 +140,9 @@ class ChatRelay {
       }
     } catch (err) {
       console.error('[CHAT] Failed to create chat thread:', err.message);
+      // Fallback — use the main channel directly so messages aren't dropped
+      this._chatThread = this.adminChannel;
+      this._chatThreadDate = today;
     }
 
     return this._chatThread;
