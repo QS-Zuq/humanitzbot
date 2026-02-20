@@ -1,8 +1,12 @@
 const { EmbedBuilder, ChannelType } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
+
+const OFFSETS_PATH = path.join(__dirname, '..', 'data', 'log-offsets.json');
 
 /**
  * LogWatcher — connects to the game server via SFTP, polls HMZLog.log
@@ -125,9 +129,48 @@ class LogWatcher {
   // ─── INTERNAL ─────────────────────────────────────────────
 
   /**
-   * Get initial file size so we start tailing from the end.
+   * Load saved byte offsets from disk so we can catch up on events
+   * that happened while the bot was offline.
+   */
+  _loadOffsets() {
+    try {
+      if (fs.existsSync(OFFSETS_PATH)) {
+        const raw = JSON.parse(fs.readFileSync(OFFSETS_PATH, 'utf8'));
+        return {
+          hmzLogSize: typeof raw.hmzLogSize === 'number' ? raw.hmzLogSize : 0,
+          connectLogSize: typeof raw.connectLogSize === 'number' ? raw.connectLogSize : 0,
+        };
+      }
+    } catch (err) {
+      console.warn('[LOG WATCHER] Could not load saved offsets:', err.message);
+    }
+    return null;
+  }
+
+  /**
+   * Persist current byte offsets so a future restart can catch up.
+   */
+  _saveOffsets() {
+    try {
+      const dir = path.dirname(OFFSETS_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(OFFSETS_PATH, JSON.stringify({
+        hmzLogSize: this.lastSize,
+        connectLogSize: this._connectLastSize,
+        savedAt: new Date().toISOString(),
+      }, null, 2));
+    } catch (err) {
+      console.warn('[LOG WATCHER] Could not save offsets:', err.message);
+    }
+  }
+
+  /**
+   * Get initial file sizes. If we have saved offsets from the last run,
+   * resume from there so we catch up on events that happened while offline.
+   * Otherwise start from the current file size (no replay on first-ever run).
    */
   async _initSize() {
+    const saved = this._loadOffsets();
     const sftp = new SftpClient();
     try {
       await sftp.connect({
@@ -140,9 +183,16 @@ class LogWatcher {
       // HMZLog.log
       try {
         const stat = await sftp.stat(config.ftpLogPath);
-        this.lastSize = stat.size;
-        this.initialised = true;
-        console.log(`[LOG WATCHER] HMZLog size: ${this.lastSize} bytes — tailing from here`);
+        if (saved && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
+          this.lastSize = saved.hmzLogSize;
+          this.initialised = true;
+          const behind = stat.size - saved.hmzLogSize;
+          console.log(`[LOG WATCHER] HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`);
+        } else {
+          this.lastSize = stat.size;
+          this.initialised = true;
+          console.log(`[LOG WATCHER] HMZLog size: ${this.lastSize} bytes — tailing from here`);
+        }
       } catch (err) {
         console.warn('[LOG WATCHER] HMZLog.log not found, will retry:', err.message);
         this.lastSize = 0;
@@ -152,9 +202,16 @@ class LogWatcher {
       // PlayerConnectedLog.txt
       try {
         const stat2 = await sftp.stat(config.ftpConnectLogPath);
-        this._connectLastSize = stat2.size;
-        this._connectInitialised = true;
-        console.log(`[LOG WATCHER] ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
+        if (saved && saved.connectLogSize > 0 && saved.connectLogSize <= stat2.size) {
+          this._connectLastSize = saved.connectLogSize;
+          this._connectInitialised = true;
+          const behind = stat2.size - saved.connectLogSize;
+          console.log(`[LOG WATCHER] ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`);
+        } else {
+          this._connectLastSize = stat2.size;
+          this._connectInitialised = true;
+          console.log(`[LOG WATCHER] ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
+        }
       } catch (err) {
         console.warn('[LOG WATCHER] PlayerConnectedLog.txt not found, will retry:', err.message);
         this._connectLastSize = 0;
@@ -212,6 +269,9 @@ class LogWatcher {
 
       // ── PlayerIDMapped.txt (name→SteamID resolver) ─────
       await this._refreshIdMap(sftp);
+
+      // Persist offsets so next restart catches up from here
+      this._saveOffsets();
 
     } catch (err) {
       console.error('[LOG WATCHER] Poll error:', err.message);
@@ -471,7 +531,7 @@ class LogWatcher {
     // ── Building completed ─────────────────────────────────
     // PlayerName(SteamID) finished building ItemName
     // [ClanTag] PlayerName(SteamID) finished building ItemName
-    const buildMatch = body.match(/^(?:\[.+?\]\s*)?(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
+    const buildMatch = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
     if (buildMatch) {
       this._onBuild(buildMatch[1].trim(), buildMatch[2], buildMatch[3].trim(), timestamp);
       return true;
@@ -480,7 +540,7 @@ class LogWatcher {
     // ── Player damage taken ────────────────────────────────
     // PlayerName took X damage from Source
     // Tracked for stats; not posted to Discord individually (too spammy)
-    const dmgMatch = body.match(/^(?:\[.+?\]\s*)?(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
+    const dmgMatch = body.match(/^(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
     if (dmgMatch) {
       const dmgAmount = parseFloat(dmgMatch[2]);
       if (dmgAmount > 0) {
@@ -492,7 +552,7 @@ class LogWatcher {
 
     // ── Container looted ───────────────────────────────────
     // [ClanTag] PlayerName (SteamID) looted a container (Type) owner by OwnerSteamID
-    const lootMatch = body.match(/^(?:\[.+?\]\s*)?(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\(([^)]+)\)\s*owner by\s*(\d{17})/);
+    const lootMatch = body.match(/^(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\(([^)]+)\)\s*owner by\s*(\d{17})/);
     if (lootMatch) {
       const looterName = lootMatch[1].trim();
       const looterId = lootMatch[2];
@@ -608,7 +668,7 @@ class LogWatcher {
 
     if (action === 'Connected') {
       playerStats.recordConnect(name, steamId, timestamp);
-      playtime.playerJoin(steamId, name);
+      playtime.playerJoin(steamId, name, timestamp);
       this._dayCounts.connects++;
 
       // Track online players for peak stats
@@ -624,7 +684,7 @@ class LogWatcher {
       this._sendToThread(embed);
     } else {
       playerStats.recordDisconnect(name, steamId, timestamp);
-      playtime.playerLeave(steamId);
+      playtime.playerLeave(steamId, timestamp);
       this._dayCounts.disconnects++;
 
       // Update online tracking

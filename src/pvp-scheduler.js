@@ -314,13 +314,26 @@ class PvpScheduler {
   }
 
   /**
-   * Post an announcement to the admin Discord channel.
+   * Post an announcement to the daily activity thread (falls back to admin channel).
    */
   async _announce(message) {
     console.log(`[PVP] ${message}`);
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: 'PvP Scheduler' })
+      .setDescription(message)
+      .setColor(0xf39c12)
+      .setTimestamp();
+    if (this._logWatcher) {
+      try {
+        await this._logWatcher.sendToThread(embed);
+        return;
+      } catch (err) {
+        console.error('[PVP] Failed to post to activity thread:', err.message);
+      }
+    }
     if (this._adminChannel) {
       try {
-        await this._adminChannel.send(`**[PvP Scheduler]** ${message}`);
+        await this._adminChannel.send({ embeds: [embed] });
       } catch (err) {
         console.error('[PVP] Failed to post to Discord:', err.message);
       }

@@ -52,8 +52,7 @@ function formatDuration(ms) {
 }
 
 function cleanName(name) {
-  const stripped = name.replace(/^\[.+?\]\s*/, '').trim();
-  return stripped || name.trim();
+  return name.trim();
 }
 
 function classifyDamageSource(source) {
@@ -347,7 +346,7 @@ function parseFullLog(content) {
     }
 
     // ── Build completed ──
-    m = body.match(/^(?:\[.+?\]\s*)?(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
+    m = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
     if (m) {
       const r = getOrCreate(m[2], m[1].trim());
       const item = simplifyBlueprintName(m[3].trim());
@@ -359,7 +358,7 @@ function parseFullLog(content) {
     }
 
     // ── Damage taken ──
-    m = body.match(/^(?:\[.+?\]\s*)?(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
+    m = body.match(/^(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
     if (m) {
       if (parseFloat(m[2]) > 0) {
         const r = getOrCreateByName(m[1].trim());
@@ -372,7 +371,7 @@ function parseFullLog(content) {
     }
 
     // ── Container looted ──
-    m = body.match(/^(?:\[.+?\]\s*)?(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\([^)]+\)\s*owner by\s*(\d{17})/);
+    m = body.match(/^(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\([^)]+\)\s*owner by\s*(\d{17})/);
     if (m) {
       if (m[2] !== m[3]) {
         const r = getOrCreate(m[2], m[1].trim());
@@ -577,10 +576,10 @@ function estimatePlaytimeFromLog(content) {
 
     let m;
     // Build events
-    m = body.match(/^(?:\[.+?\]\s*)?(.+?)\((\d{17})[^)]*\)\s*finished building/);
+    m = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building/);
     if (m) { addEvt(m[2], m[1].trim(), ts); continue; }
     // Loot events
-    m = body.match(/^(?:\[.+?\]\s*)?(.+?)\s*\((\d{17})[^)]*\)\s*looted a container/);
+    m = body.match(/^(.+?)\s*\((\d{17})[^)]*\)\s*looted a container/);
     if (m) { addEvt(m[2], m[1].trim(), ts); continue; }
     // Raid events (attacker)
     m = body.match(/damaged \([\d.]+\) by (.+?)\((\d{17})[^)]*\)/);

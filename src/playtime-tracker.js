@@ -65,18 +65,19 @@ class PlaytimeTracker {
    * Called when a player joins the server.
    * @param {string} id - SteamID or player name
    * @param {string} name - Display name
+   * @param {Date} [timestamp] - Event time (defaults to now; pass actual time for catch-up)
    */
-  playerJoin(id, name) {
+  playerJoin(id, name, timestamp) {
     // Only accept SteamID keys — reject name-based keys
     if (!/^\d{17}$/.test(id)) return;
     this._ensureInit();
 
-    const now = Date.now();
+    const now = timestamp ? timestamp.getTime() : Date.now();
 
     // If already in an active session, flush accumulated time (don't lose it)
     const existingSession = this._activeSessions.get(id);
     if (existingSession) {
-      this._addPlaytime(id, now - existingSession);
+      this._addPlaytime(id, now - existingSession, timestamp);
     }
 
     this._activeSessions.set(id, now);
@@ -108,12 +109,14 @@ class PlaytimeTracker {
   /**
    * Called when a player leaves the server.
    * @param {string} id - SteamID or player name
+   * @param {Date} [timestamp] - Event time (defaults to now; pass actual time for catch-up)
    */
-  playerLeave(id) {
+  playerLeave(id, timestamp) {
     const loginTime = this._activeSessions.get(id);
     if (loginTime) {
-      const duration = Date.now() - loginTime;
-      this._addPlaytime(id, duration);
+      const now = timestamp ? timestamp.getTime() : Date.now();
+      const duration = now - loginTime;
+      this._addPlaytime(id, duration, timestamp);
       this._activeSessions.delete(id);
 
       const record = this._data.players[id];
@@ -317,10 +320,10 @@ class PlaytimeTracker {
     }
   }
 
-  _addPlaytime(id, durationMs) {
+  _addPlaytime(id, durationMs, timestamp) {
     if (!this._data.players[id]) return;
     this._data.players[id].totalMs += durationMs;
-    this._data.players[id].lastSeen = new Date().toISOString();
+    this._data.players[id].lastSeen = (timestamp || new Date()).toISOString();
     this._dirty = true;
   }
 

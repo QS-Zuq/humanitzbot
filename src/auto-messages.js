@@ -164,11 +164,6 @@ class AutoMessages {
         }
       }
 
-      // Log state for debugging
-      if (list.players && list.players.length > 0) {
-        console.log(`[AUTO-MSG] Online: ${currentOnline.size}, Previous: ${this._onlinePlayers.size}, Joined: ${newJoiners.length}`);
-      }
-
       // Detect players who left (were in previous set but not current)
       // (playtime tracking is handled by log-watcher via PlayerConnectedLog.txt)
 

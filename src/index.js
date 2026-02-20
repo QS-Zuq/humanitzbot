@@ -102,7 +102,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error('[BOT] Failed to register slash commands:', err.message);
   }
 
-  console.log(`successfully finished startup`);
+  console.log('[BOT] Ready!');
 
   // Connect to RCON
   await rcon.connect();
@@ -171,32 +171,35 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
   }
 
-  // ── Post online notification to admin channel ──
+  // ── Post online notification to daily activity thread ──
   try {
     if (config.adminChannelId) {
       adminChannel = await readyClient.channels.fetch(config.adminChannelId);
-      if (adminChannel) {
-        const modules = [
-          config.enableStatusChannels && 'Status Channels',
-          config.enableServerStatus   && 'Server Status',
-          config.enableChatRelay      && 'Chat Relay',
-          config.enableAutoMessages   && 'Auto-Messages',
-          config.enableLogWatcher     && 'Log Watcher',
-          config.enablePlayerStats    && 'Player Stats',
-          config.enablePlaytime       && 'Playtime',
-          config.enablePvpScheduler   && 'PvP Scheduler',
-        ].filter(Boolean);
+    }
+    const modules = [
+      config.enableStatusChannels && 'Status Channels',
+      config.enableServerStatus   && 'Server Status',
+      config.enableChatRelay      && 'Chat Relay',
+      config.enableAutoMessages   && 'Auto-Messages',
+      config.enableLogWatcher     && 'Log Watcher',
+      config.enablePlayerStats    && 'Player Stats',
+      config.enablePlaytime       && 'Playtime',
+      config.enablePvpScheduler   && 'PvP Scheduler',
+    ].filter(Boolean);
 
-        const embed = new EmbedBuilder()
-          .setTitle('🟢 Bot Online')
-          .setDescription('All systems operational.')
-          .addFields(
-            { name: 'Modules', value: modules.join(', ') || 'None', inline: false },
-          )
-          .setColor(0x2ecc71)
-          .setTimestamp();
-        await adminChannel.send({ embeds: [embed] });
-      }
+    const embed = new EmbedBuilder()
+      .setTitle('🟢 Bot Online')
+      .setDescription('All systems operational.')
+      .addFields(
+        { name: 'Modules', value: modules.join(', ') || 'None', inline: false },
+      )
+      .setColor(0x2ecc71)
+      .setTimestamp();
+
+    if (logWatcher) {
+      await logWatcher.sendToThread(embed);
+    } else if (adminChannel) {
+      await adminChannel.send({ embeds: [embed] });
     }
   } catch (err) {
     console.error('[BOT] Failed to post online notification:', err.message);
@@ -209,18 +212,21 @@ client.once(Events.ClientReady, async (readyClient) => {
 async function shutdown(reason = 'Manual shutdown') {
   console.log('\n[BOT] Shutting down...');
 
-  // Post offline notification to admin channel before tearing down
+  // Post offline notification to daily activity thread before tearing down
   try {
-    if (adminChannel) {
-      const uptime = _formatUptime(Date.now() - startedAt.getTime());
-      const embed = new EmbedBuilder()
-        .setTitle('🔴 Bot Offline')
-        .setDescription(reason)
-        .addFields(
-          { name: 'Uptime', value: uptime, inline: true },
-        )
-        .setColor(0xe74c3c)
-        .setTimestamp();
+    const uptime = _formatUptime(Date.now() - startedAt.getTime());
+    const embed = new EmbedBuilder()
+      .setTitle('🔴 Bot Offline')
+      .setDescription(reason)
+      .addFields(
+        { name: 'Uptime', value: uptime, inline: true },
+      )
+      .setColor(0xe74c3c)
+      .setTimestamp();
+
+    if (logWatcher) {
+      await logWatcher.sendToThread(embed);
+    } else if (adminChannel) {
       await adminChannel.send({ embeds: [embed] });
     }
   } catch (err) {
@@ -269,8 +275,16 @@ process.on('unhandledRejection', (reason) => {
   // Run setup/import if FIRST_RUN=true (downloads logs via SFTP and rebuilds data files)
   if (config.firstRun) {
     console.log('[BOT] FIRST_RUN=true — running data import before starting bot...');
+    const setupPath = require('path').join(__dirname, '..', 'setup.js');
     try {
-      const { main: runSetup } = require('../setup');
+      require('fs').accessSync(setupPath);
+    } catch {
+      console.error(`[BOT] setup.js not found at: ${setupPath}`);
+      console.error('[BOT] Upload setup.js to the root of your bot folder (next to package.json).');
+      console.error('[BOT] Continuing with existing data files...');
+    }
+    try {
+      const { main: runSetup } = require(setupPath);
       await runSetup();
       console.log('[BOT] Data import complete. Set FIRST_RUN=false in .env to skip next time.');
     } catch (err) {

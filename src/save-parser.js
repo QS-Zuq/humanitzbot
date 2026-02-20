@@ -5,10 +5,10 @@
  * skips world data (builds, containers, transforms), and extracts:
  *   - Kill stats: ZeeksKilled, MeleeKills, GunKills, BlastKills,
  *     FistKills, TakedownKills, VehicleKills, HeadShot
- *   - Survival: DayzSurvived, Bites, Affliction, TimesBitten
+ *   - Survival: DayzSurvived, Affliction
  *   - Vitals: Health, Hunger, Thirst, Stamina, Infection, Battery
  *   - Progress: Recipes, Lore, Professions, StartingPerk
- *   - Misc: CaughtFish, CaughtPike, Fatigue, InfectionBuildup
+ *   - Misc: Fatigue, InfectionBuildup
  *
  * Usage:
  *   const { parseSave } = require('./save-parser');
@@ -70,6 +70,24 @@ function cleanName(name) {
 
 /* ── Property names whose Map values we want to capture ── */
 const MAP_CAPTURE = new Set(['GameStats', 'FloatData']);
+
+/* ── ExtendedStats tag path → player field mapping ── */
+const EXTENDED_STAT_MAP = {
+  // Kill stats (cumulative / lifetime)
+  'statistics.stat.game.kills.total':         'zeeksKilled',
+  'statistics.stat.game.kills.headshot':       'headshots',
+  'statistics.stat.game.kills.type.melee':     'meleeKills',
+  'statistics.stat.game.kills.type.ranged':    'gunKills',      // game uses "ranged"
+  'statistics.stat.game.kills.type.blast':     'blastKills',
+  'statistics.stat.game.kills.type.unarmed':   'fistKills',     // game uses "unarmed"
+  'statistics.stat.game.kills.type.takedown':  'takedownKills',
+  'statistics.stat.game.kills.type.vehicle':   'vehicleKills',
+  // Survival / activity
+  'statistics.stat.progress.survivefor3days':        'daysSurvived',
+  // Challenge / progress trackers (stored for reference)
+  'statistics.stat.challenge.KillSomeZombies':      '_challengeKills',
+  'statistics.stat.progress.kill50zombies':          '_progressKills',
+};
 
 /* ── Parse the GVAS header ── */
 function parseHeader(r) {
@@ -167,7 +185,12 @@ function readProperty(r) {
         } else if (structType === 'Vector2D') {
           prop.value = { x: r.readF32(), y: r.readF32() };
         } else if (structType === 'GameplayTag') {
-          prop.value = r.readFString();
+          // Parse as generic struct so we can read TagName child
+          prop.value = 'struct';
+          const tagChildren = [];
+          let tagChild;
+          while ((tagChild = readProperty(r)) !== null) tagChildren.push(tagChild);
+          prop.children = tagChildren;
         } else if (structType === 'GameplayTagContainer') {
           const c = r.readU32(); prop.value = [];
           for (let i = 0; i < c; i++) prop.value.push(r.readFString());
@@ -369,11 +392,7 @@ function parseSave(buf) {
         vehicleKills: 0,
         // Survival
         daysSurvived: 0,
-        bites: 0,
         affliction: 0,
-        timesBitten: 0,
-        caughtFish: 0,
-        caughtPike: 0,
         // Vitals (snapshot)
         health: 0,
         hunger: 0,
@@ -401,6 +420,17 @@ function parseSave(buf) {
         lore: [],
         // Professions
         unlockedProfessions: [],
+        // Lifetime stats (from ExtendedStats — persist across deaths)
+        lifetimeKills: 0,
+        lifetimeHeadshots: 0,
+        lifetimeMeleeKills: 0,
+        lifetimeGunKills: 0,
+        lifetimeBlastKills: 0,
+        lifetimeFistKills: 0,
+        lifetimeTakedownKills: 0,
+        lifetimeVehicleKills: 0,
+        lifetimeDaysSurvived: 0,
+        hasExtendedStats: false,
       });
     }
     return players.get(id);
@@ -436,6 +466,36 @@ function parseSave(buf) {
       for (const child of prop.children) handleProp(child);
     }
     if (Array.isArray(prop.value) && prop.value.length > 0 && Array.isArray(prop.value[0])) {
+      // ── ExtendedStats: pair-wise extraction of TagName + CurrentValue ──
+      if (n === 'ExtendedStats' && currentSteamID) {
+        const p = ensurePlayer(currentSteamID);
+        for (const elemProps of prop.value) {
+          if (!Array.isArray(elemProps)) continue;
+          let tagName = null;
+          let currentValue = null;
+          for (const ep of elemProps) {
+            if (ep.name === 'StatisticId' && ep.children) {
+              for (const c of ep.children) {
+                if (c.name === 'TagName' && typeof c.value === 'string') tagName = c.value;
+              }
+            }
+            // Also check: StatisticId might be a GameplayTag with value = tag string directly
+            if (ep.name === 'StatisticId' && typeof ep.value === 'string' && ep.value.startsWith('statistics.')) {
+              tagName = ep.value;
+            }
+            if (ep.name === 'CurrentValue' && typeof ep.value === 'number') {
+              currentValue = ep.value;
+            }
+          }
+          if (tagName && currentValue !== null && currentValue > 0) {
+            const field = EXTENDED_STAT_MAP[tagName];
+            if (field && !field.startsWith('_')) {
+              p[field] = Math.round(currentValue);
+              p.hasExtendedStats = true;
+            }
+          }
+        }
+      }
       for (const elemProps of prop.value) {
         prescanSteamId(elemProps);
         for (const ep of elemProps) handleProp(ep);
@@ -447,7 +507,6 @@ function parseSave(buf) {
 
     // Simple values
     if (n === 'DayzSurvived' && typeof prop.value === 'number') p.daysSurvived = prop.value;
-    if (n === 'Bites' && typeof prop.value === 'number') p.bites = prop.value;
     if (n === 'Affliction' && typeof prop.value === 'number') p.affliction = prop.value;
     if (n === 'Male') p.male = !!prop.value;
     if (n === 'CurrentHealth' && typeof prop.value === 'number') p.health = Math.round(prop.value * 10) / 10;
@@ -473,9 +532,6 @@ function parseSave(buf) {
       if (gs.FistKills !== undefined) p.fistKills = gs.FistKills;
       if (gs.TakedownKills !== undefined) p.takedownKills = gs.TakedownKills;
       if (gs.VehicleKills !== undefined) p.vehicleKills = gs.VehicleKills;
-      if (gs.TimesBitten !== undefined) p.timesBitten = gs.TimesBitten;
-      if (gs.CaughtFish !== undefined) p.caughtFish = gs.CaughtFish;
-      if (gs.CaughtPike !== undefined) p.caughtPike = gs.CaughtPike;
       if (gs.DaysSurvived !== undefined && gs.DaysSurvived > 0) p.daysSurvived = gs.DaysSurvived;
     }
 
@@ -503,6 +559,8 @@ function parseSave(buf) {
     if (n === 'PlayerInventory' && Array.isArray(prop.value)) p.inventory = prop.value;
     if (n === 'PlayerEquipment' && Array.isArray(prop.value)) p.equipment = prop.value;
     if (n === 'PlayerQuickSlots' && Array.isArray(prop.value)) p.quickSlots = prop.value;
+
+
   }
 
   // Read all properties sequentially

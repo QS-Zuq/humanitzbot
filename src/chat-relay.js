@@ -13,7 +13,7 @@ const rcon = require('./rcon');
  * 2. OUTBOUND — listens for Discord messages in the admin channel and sends
  *               them to the server as [Admin] using the `admin` RCON command.
  *
- * !admin alerts are posted directly in the admin channel (not the thread).
+ * !admin alerts are posted in the daily chat thread (with @here ping).
  */
 
 // ── Chat line parsers ────────────────────────────────────────
@@ -67,17 +67,6 @@ class ChatRelay {
       const pollMs = config.chatPollInterval || 10000;
       this._pollTimer = setInterval(() => this._pollChat(), pollMs);
       console.log(`[CHAT] Polling fetchchat every ${pollMs / 1000}s`);
-
-      // Send startup notification to admin channel
-      const embed = new EmbedBuilder()
-        .setDescription(
-          '✅ Bot connected to HumanitZ server.\n' +
-          `📥 Player chat → daily thread in <#${this.adminChannel.id}>\n` +
-          `📤 Admin messages from <#${this.adminChannel.id}> → server`,
-        )
-        .setColor(0x2ecc71)
-        .setTimestamp();
-      await this.adminChannel.send({ embeds: [embed] });
     } catch (err) {
       console.error('[CHAT] Failed to start:', err.message);
     }
@@ -245,7 +234,7 @@ class ChatRelay {
     const reason = adminMatch[1] || 'No reason given';
     console.log(`[CHAT] !admin call from ${name}: ${reason}`);
 
-    // Alert in the admin channel (main channel, not thread)
+    // Alert in the daily chat thread (with @here so admins are notified)
     const embed = new EmbedBuilder()
       .setTitle('🚨 Admin Assistance Requested')
       .setColor(0xe74c3c)
@@ -256,10 +245,18 @@ class ChatRelay {
       .setTimestamp();
 
     try {
-      await this.adminChannel.send({
-        content: '@here',
-        embeds: [embed],
-      });
+      const thread = await this._getOrCreateChatThread();
+      if (thread) {
+        await thread.send({
+          content: '@here',
+          embeds: [embed],
+        });
+      } else {
+        await this.adminChannel.send({
+          content: '@here',
+          embeds: [embed],
+        });
+      }
     } catch (err) {
       console.error('[CHAT] Failed to send admin alert:', err.message);
     }

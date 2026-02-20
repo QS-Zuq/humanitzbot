@@ -147,7 +147,6 @@ class RconManager {
           this._commandCallback = null;
           if (!resolved) {
             resolved = true;
-            console.log(`[RCON] Response for "${command}": ${responseData.substring(0, 200)}`);
             resolve(responseData);
           }
         }, 1000); // wait 1s after last data packet
@@ -155,7 +154,6 @@ class RconManager {
 
       try {
         this._sendPacket(id, SERVERDATA_EXECCOMMAND, command);
-        console.log(`[RCON] Sent command: ${command} (id=${id})`);
       } catch (err) {
         clearTimeout(hardTimeout);
         if (dataTimer) clearTimeout(dataTimer);
@@ -249,8 +247,6 @@ class RconManager {
 
       // Consume packet
       this._responseBuffer = this._responseBuffer.slice(4 + size);
-
-      console.log(`[RCON] Packet: id=${id} type=${type} bodyLen=${body.length} body="${body.substring(0, 100)}"`);
 
       // During auth phase — type 2 with id matching auth (1) or id -1
       if (this._authCallback && !this.authenticated) {

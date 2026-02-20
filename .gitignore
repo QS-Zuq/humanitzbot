@@ -5,5 +5,4 @@ data/
 *.sav
 *.log
 *.txt
-parse-*.js
 GameServerSettings.ini
