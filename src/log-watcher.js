@@ -552,6 +552,11 @@ class LogWatcher {
       });
       this._dailyDate = today;
       console.log(`[LOG WATCHER] Created daily thread: ${threadName}`);
+
+      // Auto-join admin users so the thread stays visible for them
+      for (const uid of config.adminUserIds) {
+        this._dailyThread.members.add(uid).catch(() => {});
+      }
     } catch (err) {
       console.error('[LOG WATCHER] Failed to create daily thread:', err.message);
       // Fallback — use the main channel directly

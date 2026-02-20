@@ -133,6 +133,11 @@ class ChatRelay {
       });
       this._chatThreadDate = today;
       console.log(`[CHAT] Created daily thread: ${threadName}`);
+
+      // Auto-join admin users so the thread stays visible for them
+      for (const uid of config.adminUserIds) {
+        this._chatThread.members.add(uid).catch(() => {});
+      }
     } catch (err) {
       console.error('[CHAT] Failed to create chat thread:', err.message);
     }
