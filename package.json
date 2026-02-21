@@ -10,7 +10,8 @@
     "setup:find": "node setup.js --find",
     "setup:validate": "node setup.js --validate",
     "deploy-commands": "node src/deploy-commands.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",

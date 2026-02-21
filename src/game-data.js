@@ -219,6 +219,31 @@ const CHALLENGES = [
   }
 ];
 
+/* ── Challenge descriptions keyed by save field name ── */
+/* Maps the parsed save-file challenge field names to display labels and descriptions.
+   Used by player-stats-channel.js to show rich challenge info instead of raw field names. */
+const CHALLENGE_DESCRIPTIONS = {
+  challengeKillZombies:        { name: 'Kill Zombies',            desc: 'Kill some zombies to get started' },
+  challengeKill50:             { name: 'Exterminator',            desc: 'Kill 50 zombies',                  target: 50 },
+  challengeCatch20Fish:        { name: 'Angler',                  desc: 'Catch 20 fish',                    target: 20 },
+  challengeRegularAngler:      { name: 'Regular Angler',          desc: 'Keep fishing regularly' },
+  challengeKillZombieBear:     { name: 'Bear Hunter',             desc: 'Kill a zombie bear' },
+  challenge9Squares:           { name: '9 Squares to Chaos',      desc: 'Unknown challenge objective' },
+  challengeCraftFirearm:       { name: 'Gunsmith',                desc: 'Craft a firearm' },
+  challengeCraftFurnace:       { name: 'Smelter',                 desc: 'Craft a furnace' },
+  challengeCraftMeleeBench:    { name: 'Melee Crafter',           desc: 'Craft a melee workbench' },
+  challengeCraftMeleeWeapon:   { name: 'Bladesmith',              desc: 'Craft a melee weapon' },
+  challengeCraftRainCollector: { name: 'Water Collector',         desc: 'Craft a rain collector' },
+  challengeCraftTablesaw:      { name: 'Woodworker',              desc: 'Craft a tablesaw' },
+  challengeCraftTreatment:     { name: 'Medic',                   desc: 'Craft an infection treatment' },
+  challengeCraftWeaponsBench:  { name: 'Armourer',                desc: 'Craft a weapons bench' },
+  challengeCraftWorkbench:     { name: 'Handyman',                desc: 'Craft a workbench' },
+  challengeFindDog:            { name: 'Best Friend',             desc: 'Find a canine companion' },
+  challengeFindHeli:           { name: 'Crash Site',              desc: 'Find a crashed helicopter' },
+  challengeLockpickSUV:        { name: 'Grand Theft Auto',        desc: 'Lockpick the Survivor SUV' },
+  challengeRepairRadio:        { name: 'Radio Operator',          desc: 'Repair the radio tower' },
+};
+
 /* ── Loading tips from DT_LoadingTips ── */
 const LOADING_TIPS = [
   // General gameplay advice
@@ -353,6 +378,7 @@ module.exports = {
   AFFLICTION_MAP,
   PROFESSION_DETAILS,
   CHALLENGES,
+  CHALLENGE_DESCRIPTIONS,
   LOADING_TIPS,
   SKILL_EFFECTS,
   SERVER_SETTING_DESCRIPTIONS,

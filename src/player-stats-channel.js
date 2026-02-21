@@ -6,11 +6,14 @@ const config = require('./config');
 const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 const { parseSave, parseClanData, PERK_MAP } = require('./save-parser');
+const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('./game-data');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const KILL_FILE = path.join(DATA_DIR, 'kill-tracker.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'server-settings.json');
+const WELCOME_STATS_FILE = path.join(DATA_DIR, 'welcome-stats.json');
+const WEEKLY_BASELINE_FILE = path.join(DATA_DIR, 'weekly-baseline.json');
 
 class PlayerStatsChannel {
   constructor(client, logWatcher) {
@@ -27,6 +30,7 @@ class PlayerStatsChannel {
     this._killData = { players: {} };
     this._killDirty = false;
     this._serverSettings = {};  // parsed GameServerSettings.ini
+    this._weeklyStats = null;   // cached weekly delta leaderboards
   }
 
   // ── Cross-validated player resolver ─────────────────────────
@@ -173,11 +177,244 @@ class PlayerStatsChannel {
           console.error('[PLAYER STATS CH] Server settings error:', err.message);
         }
       }
+      // Cache leaderboard data for WelcomeMessage.txt
+      this._cacheWelcomeStats();
+
+      // Write updated WelcomeMessage.txt to server (reuse open SFTP connection)
+      if (config.enableWelcomeFile) {
+        try {
+          const content = await buildWelcomeContent();
+          await sftp.put(Buffer.from(content, 'utf8'), config.ftpWelcomePath);
+          console.log('[PLAYER STATS CH] Updated WelcomeMessage.txt on server');
+        } catch (err) {
+          console.error('[PLAYER STATS CH] Failed to write WelcomeMessage.txt:', err.message);
+        }
+      }
+
     } catch (err) {
       console.error('[PLAYER STATS CH] Save poll error:', err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
+  }
+
+  /**
+   * Write a lightweight JSON cache with top-player and top-clan leaderboards
+   * for the WelcomeMessage.txt builder in auto-messages.js.
+   * Also manages the weekly baseline snapshot for "This Week" leaderboards.
+   */
+  _cacheWelcomeStats() {
+    try {
+      const allLog = playerStats.getAllPlayers();
+
+      // ── Top players by lifetime kills ──
+      const topKillers = [];
+      for (const [id, save] of this._saveData) {
+        const at = this.getAllTimeKills(id);
+        const kills = at?.zeeksKilled || 0;
+        if (kills <= 0) continue;
+        const resolved = this._resolvePlayer(id);
+        topKillers.push({ name: resolved.name, kills });
+      }
+      topKillers.sort((a, b) => b.kills - a.kills);
+
+      // ── Top PvP Killers (from logs) ──
+      const topPvpKillers = allLog
+        .filter(p => (p.pvpKills || 0) > 0)
+        .map(p => {
+          const resolved = this._resolvePlayer(p.id);
+          return { name: resolved.name, kills: p.pvpKills };
+        })
+        .sort((a, b) => b.kills - a.kills);
+
+      // ── Top Fishers (from save) ──
+      const topFishers = [];
+      for (const [id, save] of this._saveData) {
+        const count = save.fishCaught || 0;
+        if (count <= 0) continue;
+        const resolved = this._resolvePlayer(id);
+        topFishers.push({ name: resolved.name, count, pike: save.fishCaughtPike || 0 });
+      }
+      topFishers.sort((a, b) => b.count - a.count);
+
+      // ── Most Bitten (from save) ──
+      const topBitten = [];
+      for (const [id, save] of this._saveData) {
+        const count = save.timesBitten || 0;
+        if (count <= 0) continue;
+        const resolved = this._resolvePlayer(id);
+        topBitten.push({ name: resolved.name, count });
+      }
+      topBitten.sort((a, b) => b.count - a.count);
+
+      // ── Top clans by combined lifetime kills and playtime ──
+      const topClans = [];
+      for (const clan of this._clanData) {
+        let totalKills = 0;
+        let totalPlaytimeMs = 0;
+        for (const m of clan.members) {
+          const at = this.getAllTimeKills(m.steamId);
+          if (at) totalKills += at.zeeksKilled || 0;
+          const pt = playtime.getPlaytime(m.steamId);
+          if (pt) totalPlaytimeMs += pt.totalMs || 0;
+        }
+        topClans.push({
+          name: clan.name,
+          members: clan.members.length,
+          kills: totalKills,
+          playtimeMs: totalPlaytimeMs,
+        });
+      }
+      topClans.sort((a, b) => b.kills - a.kills);
+
+      // ── Weekly baseline management ──
+      const weekly = this._computeWeeklyStats();
+      this._weeklyStats = weekly;
+
+      const cache = {
+        updatedAt: new Date().toISOString(),
+        topKillers: topKillers.slice(0, 5),
+        topPvpKillers: topPvpKillers.slice(0, 5),
+        topFishers: topFishers.slice(0, 5),
+        topBitten: topBitten.slice(0, 5),
+        topClans: topClans.slice(0, 5),
+        weekly,
+      };
+      fs.writeFileSync(WELCOME_STATS_FILE, JSON.stringify(cache, null, 2));
+    } catch (err) {
+      console.error('[PLAYER STATS CH] Failed to cache welcome stats:', err.message);
+    }
+  }
+
+  /**
+   * Load or create the weekly baseline, reset if the week has turned over,
+   * and return top-5 weekly delta leaderboards.
+   */
+  _computeWeeklyStats() {
+    if (!config.showWeeklyStats) return null;
+
+    // Load existing baseline
+    let baseline = { weekStart: null, players: {} };
+    try {
+      if (fs.existsSync(WEEKLY_BASELINE_FILE)) {
+        baseline = JSON.parse(fs.readFileSync(WEEKLY_BASELINE_FILE, 'utf8'));
+      }
+    } catch (_) {}
+
+    // Check if we need to reset (different week)
+    const now = new Date();
+    const needsReset = !baseline.weekStart || this._isNewWeek(baseline.weekStart, now);
+
+    if (needsReset) {
+      // Snapshot current stats as baseline
+      baseline = { weekStart: now.toISOString(), players: {} };
+      for (const [id] of this._saveData) {
+        baseline.players[id] = this._snapshotPlayerStats(id);
+      }
+      try {
+        fs.writeFileSync(WEEKLY_BASELINE_FILE, JSON.stringify(baseline, null, 2));
+        console.log('[PLAYER STATS CH] Weekly baseline reset');
+      } catch (err) {
+        console.error('[PLAYER STATS CH] Failed to write weekly baseline:', err.message);
+      }
+    }
+
+    // Compute deltas: current - baseline
+    const allLog = playerStats.getAllPlayers();
+    const logMap = new Map(allLog.map(p => [p.id, p]));
+
+    const weeklyKillers = [];
+    const weeklyPvpKillers = [];
+    const weeklyFishers = [];
+    const weeklyBitten = [];
+    const weeklyPlaytime = [];
+
+    const allIds = new Set([...this._saveData.keys(), ...allLog.map(p => p.id)]);
+    for (const id of allIds) {
+      const resolved = this._resolvePlayer(id);
+      const snap = baseline.players[id] || {};
+
+      // Zombie kills (from save/tracker)
+      const at = this.getAllTimeKills(id);
+      const kills = (at?.zeeksKilled || 0) - (snap.kills || 0);
+      if (kills > 0) weeklyKillers.push({ name: resolved.name, kills });
+
+      // PvP kills (from logs)
+      const log = logMap.get(id);
+      const pvp = (log?.pvpKills || 0) - (snap.pvpKills || 0);
+      if (pvp > 0) weeklyPvpKillers.push({ name: resolved.name, kills: pvp });
+
+      // Fish caught (from save)
+      const save = this._saveData.get(id);
+      const fish = (save?.fishCaught || 0) - (snap.fish || 0);
+      if (fish > 0) weeklyFishers.push({ name: resolved.name, count: fish });
+
+      // Bitten (from save)
+      const bites = (save?.timesBitten || 0) - (snap.bitten || 0);
+      if (bites > 0) weeklyBitten.push({ name: resolved.name, count: bites });
+
+      // Playtime
+      const pt = playtime.getPlaytime(id);
+      const ptMs = (pt?.totalMs || 0) - (snap.playtimeMs || 0);
+      if (ptMs > 60000) weeklyPlaytime.push({ name: resolved.name, ms: ptMs });
+    }
+
+    weeklyKillers.sort((a, b) => b.kills - a.kills);
+    weeklyPvpKillers.sort((a, b) => b.kills - a.kills);
+    weeklyFishers.sort((a, b) => b.count - a.count);
+    weeklyBitten.sort((a, b) => b.count - a.count);
+    weeklyPlaytime.sort((a, b) => b.ms - a.ms);
+
+    return {
+      weekStart: baseline.weekStart,
+      topKillers: weeklyKillers.slice(0, 5),
+      topPvpKillers: weeklyPvpKillers.slice(0, 5),
+      topFishers: weeklyFishers.slice(0, 5),
+      topBitten: weeklyBitten.slice(0, 5),
+      topPlaytime: weeklyPlaytime.slice(0, 5),
+    };
+  }
+
+  /**
+   * Snapshot a player's current stats for weekly baseline comparison.
+   */
+  _snapshotPlayerStats(id) {
+    const at = this.getAllTimeKills(id);
+    const log = playerStats.getStats(id);
+    const save = this._saveData.get(id);
+    const pt = playtime.getPlaytime(id);
+    return {
+      kills: at?.zeeksKilled || 0,
+      pvpKills: log?.pvpKills || 0,
+      fish: save?.fishCaught || 0,
+      bitten: save?.timesBitten || 0,
+      playtimeMs: pt?.totalMs || 0,
+    };
+  }
+
+  /**
+   * Check if the baseline's weekStart falls in a previous week
+   * relative to `now`, using the configured reset day.
+   */
+  _isNewWeek(weekStartIso, now) {
+    const weekStart = new Date(weekStartIso);
+    const resetDay = config.weeklyResetDay; // 0=Sun, 1=Mon, … 6=Sat
+
+    // Find the most recent reset-day boundary in bot timezone
+    const dayStr = now.toLocaleDateString('en-US', {
+      weekday: 'short',
+      timeZone: config.botTimezone,
+    });
+    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const currentDay = dayMap[dayStr] ?? now.getDay();
+    const daysSinceReset = (currentDay - resetDay + 7) % 7;
+
+    // Latest reset boundary = today at 00:00 minus daysSinceReset days (in local terms)
+    const resetBoundary = new Date(now);
+    resetBoundary.setHours(0, 0, 0, 0);
+    resetBoundary.setDate(resetBoundary.getDate() - daysSinceReset);
+
+    return weekStart < resetBoundary;
   }
 
   async _updateEmbed() {
@@ -211,16 +448,31 @@ class PlayerStatsChannel {
   static KILL_KEYS = ['zeeksKilled', 'headshots', 'meleeKills', 'gunKills', 'blastKills', 'fistKills', 'takedownKills', 'vehicleKills'];
   static SURVIVAL_KEYS = ['daysSurvived'];
 
+  // Maps GameStats key → ExtendedStats (lifetime) save field
+  static LIFETIME_KEY_MAP = {
+    zeeksKilled:   'lifetimeKills',
+    headshots:     'lifetimeHeadshots',
+    meleeKills:    'lifetimeMeleeKills',
+    gunKills:      'lifetimeGunKills',
+    blastKills:    'lifetimeBlastKills',
+    fistKills:     'lifetimeFistKills',
+    takedownKills: 'lifetimeTakedownKills',
+    vehicleKills:  'lifetimeVehicleKills',
+  };
+
   _loadKillData() {
     try {
       if (fs.existsSync(KILL_FILE)) {
         this._killData = JSON.parse(fs.readFileSync(KILL_FILE, 'utf8'));
         const count = Object.keys(this._killData.players).length;
         console.log(`[STAT TRACKER] Loaded ${count} player(s) from kill-tracker.json`);
-        // Migrate old records: add survival fields if missing
+        // Migrate old records: add missing fields
         for (const record of Object.values(this._killData.players)) {
           if (!record.survivalCumulative) record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
           if (!record.survivalSnapshot) record.survivalSnapshot = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+          // Death checkpoint: lifetime kills at the moment of last death
+          if (!record.deathCheckpoint) record.deathCheckpoint = null;
+          if (record.lastKnownDeaths === undefined) record.lastKnownDeaths = 0;
         }
       }
     } catch (err) {
@@ -270,13 +522,28 @@ class PlayerStatsChannel {
 
       if (!this._killData.players[id]) {
         // First time seeing this player — initialise both trackers
+        const logDeaths = playerStats.getStats(id)?.deaths || 0;
         this._killData.players[id] = {
           cumulative: PlayerStatsChannel._emptyKills(),
           lastSnapshot: currentKills,
           survivalCumulative: PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS),
           survivalSnapshot: currentSurvival,
           hasExtendedStats: !!save.hasExtendedStats,
+          deathCheckpoint: null,
+          lastKnownDeaths: logDeaths,
         };
+        // If player already has deaths and is online (GameStats > 0), set initial checkpoint
+        // checkpoint = lifetime - current session kills (gives lifetime total at start of this life)
+        // If offline (GameStats = 0), skip — we can't determine the real checkpoint
+        if (save.hasExtendedStats && logDeaths > 0 && (save.zeeksKilled || 0) > 0) {
+          const cp = {};
+          for (const k of PlayerStatsChannel.KILL_KEYS) {
+            const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
+            const lifetime = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
+            cp[k] = lifetime - (save[k] || 0);
+          }
+          this._killData.players[id].deathCheckpoint = cp;
+        }
         this._killDirty = true;
         continue;
       }
@@ -286,7 +553,7 @@ class PlayerStatsChannel {
       const lastSurvival = record.survivalSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
       const playerName = this._resolvePlayer(id).name;
 
-      // ExtendedStats values are already lifetime cumulative — skip death detection
+      // ExtendedStats values are already lifetime cumulative — skip legacy death detection
       if (save.hasExtendedStats) {
         record.hasExtendedStats = true;
         // Clear stale cumulative data (ExtendedStats replaces the banking system)
@@ -294,6 +561,27 @@ class PlayerStatsChannel {
           console.log(`[STAT TRACKER] ${id}: ExtendedStats available — clearing banked cumulative`);
           record.cumulative = PlayerStatsChannel._emptyKills();
           record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+        }
+
+        // Death checkpoint: detect new deaths via log data and snapshot lifetime kills
+        const logDeaths = playerStats.getStats(id)?.deaths || 0;
+        const prevDeaths = record.lastKnownDeaths || 0;
+        if (logDeaths > prevDeaths) {
+          // Death occurred — set checkpoint = lifetimeKills - current GameStats kills
+          // GameStats shows kills in the NEW life (may be 0 if just died or offline)
+          const cp = {};
+          for (const k of PlayerStatsChannel.KILL_KEYS) {
+            const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
+            const lifetime = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
+            cp[k] = lifetime - (currentKills[k] || 0);
+          }
+          record.deathCheckpoint = cp;
+          record.lastKnownDeaths = logDeaths;
+          console.log(`[STAT TRACKER] ${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`);
+          this._killDirty = true;
+        } else if (record.lastKnownDeaths !== logDeaths) {
+          record.lastKnownDeaths = logDeaths;
+          this._killDirty = true;
         }
       } else {
         // Legacy fallback: detect death reset (main kill count dropped)
@@ -433,6 +721,48 @@ class PlayerStatsChannel {
       }
     }
     return allTime;
+  }
+
+  /**
+   * Get current-life kills for a player.
+   * For ExtendedStats players: lifetime - deathCheckpoint (or lifetime if never died).
+   * For online players with non-zero GameStats: uses GameStats directly.
+   * Returns { zeeksKilled, headshots, ... } or null.
+   */
+  getCurrentLifeKills(steamId) {
+    const record = this._killData.players[steamId];
+    const save = this._saveData.get(steamId);
+    if (!save) return null;
+
+    // If GameStats has non-zero kills, player is online — use directly
+    const sessionKills = save.zeeksKilled || 0;
+    if (sessionKills > 0) {
+      return PlayerStatsChannel._snapshotKills(save);
+    }
+
+    // ExtendedStats: compute from lifetime - checkpoint
+    if (save.hasExtendedStats && record?.deathCheckpoint) {
+      const life = {};
+      for (const k of PlayerStatsChannel.KILL_KEYS) {
+        const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
+        const lifetime = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
+        life[k] = Math.max(0, lifetime - (record.deathCheckpoint[k] || 0));
+      }
+      return life;
+    }
+
+    // ExtendedStats, never died: all lifetime kills are current life
+    if (save.hasExtendedStats) {
+      const life = {};
+      for (const k of PlayerStatsChannel.KILL_KEYS) {
+        const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
+        life[k] = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
+      }
+      return life;
+    }
+
+    // Legacy: GameStats is the current-life value
+    return PlayerStatsChannel._snapshotKills(save);
   }
 
   getAllTimeSurvival(steamId) {
@@ -602,6 +932,126 @@ class PlayerStatsChannel {
           return `${medal} **${e.name}** — ${e.days} days`;
         });
         embed.addFields({ name: 'Longest Survivors', value: lines.join('\n') });
+      }
+    }
+
+    // ── Most Bitten Leaderboard (from save data) ──
+    if (config.showMostBitten && this._saveData.size > 0) {
+      const bitten = [...this._saveData.entries()]
+        .map(([id, save]) => ({ id, name: roster.get(id)?.name || id, count: save.timesBitten || 0 }))
+        .filter(e => e.count > 0)
+        .sort((a, b) => b.count - a.count);
+
+      if (bitten.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = bitten.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.count} bites`;
+        });
+        embed.addFields({ name: 'Most Bitten', value: lines.join('\n') });
+      }
+    }
+
+    // ── Most Fish Caught Leaderboard (from save data) ──
+    if (config.showMostFish && this._saveData.size > 0) {
+      const fishers = [...this._saveData.entries()]
+        .map(([id, save]) => {
+          const pike = save.fishCaughtPike || 0;
+          return { id, name: roster.get(id)?.name || id, count: save.fishCaught || 0, pike };
+        })
+        .filter(e => e.count > 0)
+        .sort((a, b) => b.count - a.count);
+
+      if (fishers.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = fishers.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          const pikeStr = e.pike > 0 ? ` (${e.pike} pike)` : '';
+          return `${medal} **${e.name}** — ${e.count} fish${pikeStr}`;
+        });
+        embed.addFields({ name: 'Most Fish Caught', value: lines.join('\n') });
+      }
+    }
+
+    // ── Top PvP Killers (all-time, from logs) ──
+    if (config.showPvpKills && allLog.length > 0) {
+      const pvpKillers = allLog
+        .filter(p => (p.pvpKills || 0) > 0)
+        .map(p => ({ name: roster.get(p.id)?.name || p.id, kills: p.pvpKills }))
+        .sort((a, b) => b.kills - a.kills);
+
+      if (pvpKillers.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = pvpKillers.slice(0, 5).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.kills} kills`;
+        });
+        embed.addFields({ name: 'Top PvP Killers', value: lines.join('\n') });
+      }
+    }
+
+    // ── Weekly Leaderboards ──
+    const w = this._weeklyStats;
+    if (w) {
+      const weekLabel = w.weekStart
+        ? `Since ${new Date(w.weekStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+        : 'This Week';
+      const weeklyParts = [];
+
+      if (w.topKillers?.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = w.topKillers.slice(0, 3).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.kills}`;
+        });
+        weeklyParts.push({ name: `Zombie Kills · ${weekLabel}`, value: lines.join('\n'), inline: true });
+      }
+
+      if (w.topPvpKillers?.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = w.topPvpKillers.slice(0, 3).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.kills}`;
+        });
+        weeklyParts.push({ name: `PvP Kills · ${weekLabel}`, value: lines.join('\n'), inline: true });
+      }
+
+      if (w.topPlaytime?.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const fmtMs = (ms) => {
+          const h = Math.floor(ms / 3600000);
+          const m = Math.floor((ms % 3600000) / 60000);
+          return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        };
+        const lines = w.topPlaytime.slice(0, 3).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${fmtMs(e.ms)}`;
+        });
+        weeklyParts.push({ name: `Playtime · ${weekLabel}`, value: lines.join('\n'), inline: true });
+      }
+
+      if (w.topFishers?.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = w.topFishers.slice(0, 3).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.count}`;
+        });
+        weeklyParts.push({ name: `Fish Caught · ${weekLabel}`, value: lines.join('\n'), inline: true });
+      }
+
+      if (w.topBitten?.length > 0) {
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = w.topBitten.slice(0, 3).map((e, i) => {
+          const medal = medals[i] || `\`${i + 1}.\``;
+          return `${medal} **${e.name}** — ${e.count}`;
+        });
+        weeklyParts.push({ name: `Most Bitten · ${weekLabel}`, value: lines.join('\n'), inline: true });
+      }
+
+      if (weeklyParts.length > 0) {
+        // Add a separator then the weekly inline fields
+        embed.addFields({ name: '\u200b', value: '**── This Week ──**' });
+        embed.addFields(weeklyParts);
       }
     }
 
@@ -891,6 +1341,7 @@ class PlayerStatsChannel {
     // ── Kill Stats (code block grid) ──
     if (saveData) {
       const at = this.getAllTimeKills(steamId);
+      const cl = this.getCurrentLifeKills(steamId);
       const types = [
         ['Zombies',   'zeeksKilled'],
         ['Headshots', 'headshots'],
@@ -902,16 +1353,33 @@ class PlayerStatsChannel {
         ['Vehicle',   'vehicleKills'],
       ];
       const rows = [];
+      const hasExt = saveData.hasExtendedStats;
+      // Check if current-life differs from all-time (i.e. player has died)
+      let hasDiff = false;
+      for (const [, key] of types) {
+        if ((cl?.[key] || 0) !== (at?.[key] || 0)) { hasDiff = true; break; }
+      }
       for (const [label, key] of types) {
-        const life = saveData[key] || 0;
         const all = at?.[key] || 0;
+        const life = cl?.[key] || 0;
         if (life > 0 || all > 0) {
-          const allStr = all > life ? `(${all} AT)` : '';
-          rows.push(`${label.padEnd(10)} ${String(life).padStart(5)}  ${allStr}`);
+          if (hasExt && hasDiff) {
+            // Two-column: current life │ all-time
+            rows.push(`${label.padEnd(12)}${String(life).padStart(4)} │ ${String(all).padStart(4)}`);
+          } else {
+            rows.push(`${label.padEnd(12)}${String(all || life).padStart(4)}`);
+          }
         }
       }
       if (rows.length > 0) {
-        embed.addFields({ name: 'Kills', value: '```\n' + rows.join('\n') + '\n```' });
+        let killBlock;
+        if (hasExt && hasDiff) {
+          const header = `${''.padEnd(12)}${'Life'.padStart(4)} │ ${'All'.padStart(4)}`;
+          killBlock = '```\n' + header + '\n' + rows.join('\n') + '\n```';
+        } else {
+          killBlock = '```\n' + rows.join('\n') + '\n```';
+        }
+        embed.addFields({ name: 'Kills', value: killBlock });
       } else {
         embed.addFields({ name: 'Kills', value: '*No kills yet*' });
       }
@@ -1025,8 +1493,8 @@ class PlayerStatsChannel {
     // ── Inventory (compact code block) ──
     if (config.showInventory && saveData) {
       const allItems = [
-        ...saveData.equipment.map(i => ({ ...i, slot: 'E' })),
-        ...saveData.quickSlots.map(i => ({ ...i, slot: 'Q' })),
+        ...saveData.equipment.map(i => ({ ...i, slot: 'Equipped' })),
+        ...saveData.quickSlots.map(i => ({ ...i, slot: 'Quick' })),
         ...saveData.inventory.map(i => ({ ...i, slot: '' })),
       ].filter(i => i.item);
 
@@ -1067,40 +1535,49 @@ class PlayerStatsChannel {
     // ── Challenge Progress ──
     if (saveData && saveData.hasExtendedStats) {
       const challengeEntries = [
-        ['Kill Zombies',       saveData.challengeKillZombies],
-        ['Kill 50 Zombies',    saveData.challengeKill50,          50],
-        ['Catch 20 Fish',      saveData.challengeCatch20Fish,     20],
-        ['Regular Angler',     saveData.challengeRegularAngler],
-        ['Kill Zombie Bear',   saveData.challengeKillZombieBear],
-        ['9 Squares to Chaos', saveData.challenge9Squares],
-        ['Craft Firearm',      saveData.challengeCraftFirearm],
-        ['Craft Furnace',      saveData.challengeCraftFurnace],
-        ['Craft Melee Bench',  saveData.challengeCraftMeleeBench],
-        ['Craft Melee Weapon', saveData.challengeCraftMeleeWeapon],
-        ['Craft Rain Collector', saveData.challengeCraftRainCollector],
-        ['Craft Tablesaw',     saveData.challengeCraftTablesaw],
-        ['Craft Treatment',    saveData.challengeCraftTreatment],
-        ['Craft Weapons Bench', saveData.challengeCraftWeaponsBench],
-        ['Craft Workbench',    saveData.challengeCraftWorkbench],
-        ['Find Canine Companion', saveData.challengeFindDog],
-        ['Find Crashed Helicopter', saveData.challengeFindHeli],
-        ['Lockpick Survivor SUV', saveData.challengeLockpickSUV],
-        ['Repair Radio Tower', saveData.challengeRepairRadio],
+        ['challengeKillZombies',        saveData.challengeKillZombies],
+        ['challengeKill50',             saveData.challengeKill50],
+        ['challengeCatch20Fish',        saveData.challengeCatch20Fish],
+        ['challengeRegularAngler',      saveData.challengeRegularAngler],
+        ['challengeKillZombieBear',     saveData.challengeKillZombieBear],
+        ['challenge9Squares',           saveData.challenge9Squares],
+        ['challengeCraftFirearm',       saveData.challengeCraftFirearm],
+        ['challengeCraftFurnace',       saveData.challengeCraftFurnace],
+        ['challengeCraftMeleeBench',    saveData.challengeCraftMeleeBench],
+        ['challengeCraftMeleeWeapon',   saveData.challengeCraftMeleeWeapon],
+        ['challengeCraftRainCollector', saveData.challengeCraftRainCollector],
+        ['challengeCraftTablesaw',      saveData.challengeCraftTablesaw],
+        ['challengeCraftTreatment',     saveData.challengeCraftTreatment],
+        ['challengeCraftWeaponsBench',  saveData.challengeCraftWeaponsBench],
+        ['challengeCraftWorkbench',     saveData.challengeCraftWorkbench],
+        ['challengeFindDog',            saveData.challengeFindDog],
+        ['challengeFindHeli',           saveData.challengeFindHeli],
+        ['challengeLockpickSUV',        saveData.challengeLockpickSUV],
+        ['challengeRepairRadio',        saveData.challengeRepairRadio],
       ].filter(([, val]) => val > 0);
 
       if (challengeEntries.length > 0) {
-        const lines = challengeEntries.map(([label, val, target]) => {
-          return target ? `${label}: **${val}**/${target}` : `${label}: **${val}**`;
+        const descs = gameData.CHALLENGE_DESCRIPTIONS;
+        const lines = challengeEntries.map(([key, val]) => {
+          const info = descs[key];
+          if (info) {
+            const target = info.target ? `/${info.target}` : '';
+            const desc = config.showChallengeDescriptions ? ` — *${info.desc}*` : '';
+            return `**${info.name}**: ${val}${target}${desc}`;
+          }
+          return `**${key}**: ${val}`;
         });
-        embed.addFields({ name: 'Challenges', value: lines.join('\n').substring(0, 1024) });
+        embed.addFields({ name: `Challenges (${challengeEntries.length}/19)`, value: lines.join('\n').substring(0, 1024) });
       }
     }
 
     // ── Unique Items ──
     if (saveData) {
       const uniques = [];
-      if (saveData.uniqueLoots?.length > 0) uniques.push(`**Found:** ${saveData.uniqueLoots.map(_cleanItemName).join(', ')}`);
-      if (saveData.craftedUniques?.length > 0) uniques.push(`**Crafted:** ${saveData.craftedUniques.map(_cleanItemName).join(', ')}`);
+      const foundItems = (saveData.uniqueLoots || []).map(_cleanItemName).filter(n => n.length > 0);
+      const craftedItems = (saveData.craftedUniques || []).map(_cleanItemName).filter(n => n.length > 0);
+      if (foundItems.length > 0) uniques.push(`**Found:** ${foundItems.join(', ')}`);
+      if (craftedItems.length > 0) uniques.push(`**Crafted:** ${craftedItems.join(', ')}`);
       if (uniques.length > 0) embed.addFields({ name: 'Unique Items', value: uniques.join('\n').substring(0, 1024) });
     }
 
@@ -1173,3 +1650,5 @@ function _cleanItemName(name) {
 }
 
 module.exports = PlayerStatsChannel;
+module.exports._parseIni = _parseIni;
+module.exports._cleanItemName = _cleanItemName;

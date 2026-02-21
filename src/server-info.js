@@ -71,7 +71,7 @@ function parseServerInfo(raw) {
     result.fields[key] = value;
 
     // Map to known semantic fields
-    if (k === 'name') {
+    if (k === 'name' || k === 'nonename') {
       result.name = value;
     } else if (k === 'time') {
       // Zero-pad minutes: "2:2" → "2:02", "14:5" → "14:05"
@@ -161,4 +161,7 @@ module.exports = {
   getServerInfo,
   getPlayerList,
   sendAdminMessage,
+  // Exported for testing
+  _parseServerInfo: parseServerInfo,
+  _parsePlayerList: parsePlayerList,
 };

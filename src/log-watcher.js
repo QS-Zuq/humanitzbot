@@ -8,6 +8,7 @@ const playerStats = require('./player-stats');
 
 const OFFSETS_PATH = path.join(__dirname, '..', 'data', 'log-offsets.json');
 const PVP_KILLS_PATH = path.join(__dirname, '..', 'data', 'pvp-kills.json');
+const DAY_COUNTS_PATH = path.join(__dirname, '..', 'data', 'day-counts.json');
 
 class LogWatcher {
   constructor(client) {
@@ -39,6 +40,8 @@ class LogWatcher {
 
     // Daily counters for the summary
     this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
+    this._dayCountsDirty = false;
+    this._loadDayCounts();
 
     // Online player tracking (for peak stats)
     this._onlinePlayers = new Set();
@@ -55,6 +58,42 @@ class LogWatcher {
     this._pvpKills = [];
     this._pvpKillsDirty = false;
     this._loadPvpKills();
+
+    // Death loop detection: Map<playerNameLower, { count, firstTimestamp, lastTimestamp, suppressed }>
+    this._deathLoopTracker = new Map();
+  }
+
+  // ── Day Counts Persistence ─────────────────────────────────
+
+  _loadDayCounts() {
+    try {
+      if (fs.existsSync(DAY_COUNTS_PATH)) {
+        const raw = JSON.parse(fs.readFileSync(DAY_COUNTS_PATH, 'utf8'));
+        if (raw && raw.date === config.getToday()) {
+          // Only restore if it's still the same day
+          this._dayCounts = { ...this._dayCounts, ...raw.counts };
+          console.log(`[LOG WATCHER] Restored day counts for ${raw.date}`);
+        }
+      }
+    } catch (err) {
+      console.warn('[LOG WATCHER] Could not load day-counts.json:', err.message);
+    }
+  }
+
+  _saveDayCounts() {
+    if (!this._dayCountsDirty) return;
+    try {
+      const data = { date: this._dailyDate || config.getToday(), counts: this._dayCounts };
+      fs.writeFileSync(DAY_COUNTS_PATH, JSON.stringify(data, null, 2), 'utf8');
+      this._dayCountsDirty = false;
+    } catch (err) {
+      console.warn('[LOG WATCHER] Could not save day-counts.json:', err.message);
+    }
+  }
+
+  _incDayCount(key) {
+    this._dayCounts[key]++;
+    this._dayCountsDirty = true;
   }
 
   // ── PvP Kill Tracking ──────────────────────────────────────
@@ -353,6 +392,9 @@ class LogWatcher {
       this._prunePvpTracker();
       this._savePvpKills();
 
+      // Persist day counts
+      this._saveDayCounts();
+
     } catch (err) {
       console.error('[LOG WATCHER] Poll error:', err.message);
     } finally {
@@ -431,6 +473,8 @@ class LogWatcher {
     if (this._dailyDate && this._dailyDate !== today) {
       await this._postDailySummary();
       this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
+      this._dayCountsDirty = true;
+      this._saveDayCounts();
       this._dailyDate = today;
     }
 
@@ -511,7 +555,7 @@ class LogWatcher {
 
   async _postDailySummary() {
     const c = this._dayCounts;
-    const total = c.connects + c.deaths + c.builds + c.loots + c.raidHits + c.cheat + c.admin;
+    const total = c.connects + c.disconnects + c.deaths + c.builds + c.damage + c.loots + c.raidHits + c.destroyed + c.cheat + c.admin + c.pvpKills;
     if (total === 0) return; // nothing happened
 
     const dateLabel = this._dailyDate
@@ -626,7 +670,7 @@ class LogWatcher {
       const dmgSource = dmgMatch[3].trim();
       if (dmgAmount > 0) {
         playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
-        this._dayCounts.damage++;
+        this._incDayCount('damage');
 
         // Track PvP damage for kill attribution (source is a player name if no BP_ prefix)
         if (config.enablePvpKillFeed && !dmgSource.startsWith('BP_') && !(/Zombie|Wolf|Bear|Deer|Snake|Spider|Human|KaiHuman|Mutant|Runner|Brute|Pudge|Dogzombie|Police|Cop|Military|Hazmat|Camo/i.test(dmgSource))) {
@@ -645,7 +689,7 @@ class LogWatcher {
       const containerType = lootMatch[3];
       const ownerSteamId = lootMatch[4];
       playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
-      this._dayCounts.loots++;
+      this._incDayCount('loots');
       this._batchLoot(looterName, looterId, containerType, ownerSteamId, timestamp);
       return true;
     }
@@ -684,7 +728,7 @@ class LogWatcher {
       const attackerRaw = unownedMatch[2].trim();
       const destroyed = !!unownedMatch[4];
       if (attackerRaw !== 'Zeek' && attackerRaw !== 'Decayfalse' && destroyed) {
-        this._dayCounts.destroyed++;
+        this._incDayCount('destroyed');
         const cleanBuilding = this._simplifyBlueprintName(buildingType);
         const embed = new EmbedBuilder()
           .setAuthor({ name: '🏠 Building Destroyed' })
@@ -702,7 +746,7 @@ class LogWatcher {
     if (adminMatch) {
       const playerName = adminMatch[1].trim();
       playerStats.recordAdminAccess(playerName, timestamp);
-      this._dayCounts.admin++;
+      this._incDayCount('admin');
 
       const embed = new EmbedBuilder()
         .setAuthor({ name: '🔑 Admin Access' })
@@ -722,7 +766,7 @@ class LogWatcher {
       const playerName = cheatMatch[2].trim();
       const steamId = cheatMatch[3];
       playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
-      this._dayCounts.cheat++;
+      this._incDayCount('cheat');
 
       const embed = new EmbedBuilder()
         .setAuthor({ name: '🚨 Anti-Cheat Alert' })
@@ -752,7 +796,7 @@ class LogWatcher {
     if (action === 'Connected') {
       playerStats.recordConnect(name, steamId, timestamp);
       playtime.playerJoin(steamId, name, timestamp);
-      this._dayCounts.connects++;
+      this._incDayCount('connects');
 
       // Track online players for peak stats
       this._onlinePlayers.add(steamId);
@@ -768,7 +812,7 @@ class LogWatcher {
     } else {
       playerStats.recordDisconnect(name, steamId, timestamp);
       playtime.playerLeave(steamId, timestamp);
-      this._dayCounts.disconnects++;
+      this._incDayCount('disconnects');
 
       // Update online tracking
       this._onlinePlayers.delete(steamId);
@@ -792,7 +836,7 @@ class LogWatcher {
 
     // Record stats
     playerStats.recordBuild(playerName, steamId, cleanItem, timestamp);
-    this._dayCounts.builds++;
+    this._incDayCount('builds');
 
     // Batch builds to reduce spam
     if (!this._buildBatch[steamId]) {
@@ -813,18 +857,17 @@ class LogWatcher {
   }
 
   _onDeath(playerName, timestamp) {
-    // Record stats
+    // ALWAYS record stats — every death counts, no suppression
     playerStats.recordDeath(playerName, timestamp);
-    this._dayCounts.deaths++;
+    this._incDayCount('deaths');
 
     // Check for PvP kill attribution
     const pvpKill = config.enablePvpKillFeed ? this._checkPvpKill(playerName, timestamp) : null;
 
     if (pvpKill) {
-      // PvP kill confirmed — post killfeed embed
-      this._dayCounts.pvpKills++;
+      // PvP kill confirmed
+      this._incDayCount('pvpKills');
 
-      // Record to persistent kill log
       const killEntry = {
         killer: pvpKill.attacker,
         victim: playerName,
@@ -832,14 +875,12 @@ class LogWatcher {
         timestamp: timestamp.toISOString(),
       };
       this._pvpKills.push(killEntry);
-      // Keep last 50 kills in memory (display only shows 10)
       if (this._pvpKills.length > 50) this._pvpKills = this._pvpKills.slice(-50);
       this._pvpKillsDirty = true;
 
-      // Record PvP kill/death stats
       playerStats.recordPvpKill(pvpKill.attacker, playerName, timestamp);
 
-      // Post PvP kill to activity thread
+      // PvP kills always post individually (they're rare and important)
       const killEmbed = new EmbedBuilder()
         .setAuthor({ name: '⚔️ PvP Kill' })
         .setDescription(`**${pvpKill.attacker}** killed **${playerName}**`)
@@ -847,22 +888,67 @@ class LogWatcher {
         .setFooter({ text: `${pvpKill.totalDamage.toFixed(0)} damage dealt · ${this._formatTime(timestamp)}` });
       this._sendToThread(killEmbed);
 
-      // Also post the death notification (with kill context)
       const deathEmbed = new EmbedBuilder()
         .setAuthor({ name: '💀 Player Death' })
         .setDescription(`**${playerName}** was killed by **${pvpKill.attacker}**`)
         .setColor(0x992d22)
         .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
       this._sendToThread(deathEmbed);
-    } else {
-      // Normal death (PvE/environment/unknown cause)
-      const embed = new EmbedBuilder()
-        .setAuthor({ name: '💀 Player Death' })
-        .setDescription(`**${playerName}** died`)
-        .setColor(0x992d22)
-        .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
-      this._sendToThread(embed);
+      return;
     }
+
+    // ── Death loop detection: collapse rapid-fire embed spam ──
+    // Stats are already recorded above — this only affects Discord embed output.
+    if (config.enableDeathLoopDetection) {
+      const key = playerName.toLowerCase();
+      const windowMs = config.deathLoopWindow;
+      const threshold = config.deathLoopThreshold;
+      const existing = this._deathLoopTracker.get(key);
+
+      if (existing && (timestamp - existing.firstTimestamp) < windowMs) {
+        existing.count++;
+        existing.lastTimestamp = timestamp;
+
+        if (existing.count >= threshold) {
+          // In a loop — don't post individual embeds; _flushDeathLoop will summarise
+          if (!existing.timer) {
+            existing.timer = setTimeout(() => this._flushDeathLoop(key, playerName), windowMs);
+          }
+          return; // suppress embed only, stats already recorded
+        }
+      } else {
+        // New window — flush any previous loop for this player
+        if (existing && existing.count >= threshold) {
+          this._flushDeathLoop(key, playerName);
+        }
+        this._deathLoopTracker.set(key, { count: 1, firstTimestamp: timestamp, lastTimestamp: timestamp, timer: null });
+      }
+    }
+
+    // Normal death embed (no loop, or under threshold)
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '💀 Player Death' })
+      .setDescription(`**${playerName}** died`)
+      .setColor(0x992d22)
+      .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+    this._sendToThread(embed);
+  }
+
+  /** Post a single summary embed for a death loop, then clear the tracker entry. */
+  _flushDeathLoop(key, playerName) {
+    const entry = this._deathLoopTracker.get(key);
+    if (!entry || entry.count < config.deathLoopThreshold) return;
+    if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+
+    const elapsed = Math.round((entry.lastTimestamp - entry.firstTimestamp) / 1000);
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '💀 Death Loop' })
+      .setDescription(`**${playerName}** died **${entry.count}** times in ${elapsed}s — likely a respawn bug`)
+      .setColor(0xf39c12)
+      .setFooter({ text: this._formatTime(entry.lastTimestamp) });
+    this._sendToThread(embed);
+
+    this._deathLoopTracker.delete(key);
   }
 
   _onRaid(attackerName, attackerSteamId, ownerSteamId, buildingType, destroyed, timestamp) {
@@ -872,7 +958,7 @@ class LogWatcher {
 
     // Record stats
     playerStats.recordRaid(attacker, attackerSteamId, ownerSteamId, destroyed, timestamp);
-    this._dayCounts.raidHits++;
+    this._incDayCount('raidHits');
 
     // Batch raid events to reduce spam — group by attacker|owner pair
     const key = `${attackerSteamId}|${ownerSteamId}`;

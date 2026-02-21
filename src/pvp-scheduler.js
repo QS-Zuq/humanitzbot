@@ -19,9 +19,8 @@ class PvpScheduler {
 
   async start() {
     // Resolve start/end as total minutes from midnight.
-    // Prefer PVP_START_TIME / PVP_END_TIME (HH:MM), fall back to legacy PVP_START_HOUR / PVP_END_HOUR.
-    this._pvpStart = !isNaN(config.pvpStartMinutes) ? config.pvpStartMinutes : config.pvpStartHour * 60;
-    this._pvpEnd   = !isNaN(config.pvpEndMinutes) ? config.pvpEndMinutes : config.pvpEndHour * 60;
+    this._pvpStart = config.pvpStartMinutes;
+    this._pvpEnd   = config.pvpEndMinutes;
 
     if (isNaN(this._pvpStart) || isNaN(this._pvpEnd)) {
       console.log('[PVP] PVP start/end time not configured, scheduler idle');
@@ -33,7 +32,10 @@ class PvpScheduler {
     }
 
     const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    console.log(`[PVP] Scheduler active: PvP ${fmt(this._pvpStart)}–${fmt(this._pvpEnd)} (${config.pvpTimezone})`);
+    const dayLabel = config.pvpDays
+      ? [...config.pvpDays].sort().map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ')
+      : 'every day';
+    console.log(`[PVP] Scheduler active: PvP ${fmt(this._pvpStart)}–${fmt(this._pvpEnd)} (${config.pvpTimezone}), days: ${dayLabel}`);
     console.log(`[PVP] Restart delay: ${config.pvpRestartDelay} minutes (warnings start before scheduled time)`);
 
     // Resolve admin channel for announcements
@@ -88,26 +90,43 @@ class PvpScheduler {
       timeZone: config.pvpTimezone,
     });
     const [h, m] = timeStr.split(':').map(Number);
-    return { hour: h, minute: m, totalMinutes: h * 60 + m };
+
+    // Day of week (0=Sun … 6=Sat) in PvP timezone
+    const dayStr = now.toLocaleDateString('en-US', {
+      weekday: 'short',
+      timeZone: config.pvpTimezone,
+    });
+    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dayOfWeek = dayMap[dayStr] ?? now.getDay();
+
+    return { hour: h, minute: m, totalMinutes: h * 60 + m, dayOfWeek };
   }
 
-  _isInsidePvpWindow(totalMinutes) {
+  _isInsidePvpWindow(totalMinutes, dayOfWeek) {
     const start = this._pvpStart;
     const end = this._pvpEnd;
+    const pvpDays = config.pvpDays; // null = every day
 
     // Handle overnight windows (e.g. 22:00–06:00)
     if (start < end) {
-      return totalMinutes >= start && totalMinutes < end;
+      // Same-day window: must be a PvP day
+      const dayOk = !pvpDays || pvpDays.has(dayOfWeek);
+      return dayOk && totalMinutes >= start && totalMinutes < end;
     } else {
-      return totalMinutes >= start || totalMinutes < end;
+      // Overnight window: started on PvP day OR ended from yesterday's PvP day
+      const prevDay = (dayOfWeek + 6) % 7;
+      const startDayOk = !pvpDays || pvpDays.has(dayOfWeek);
+      const prevDayOk  = !pvpDays || pvpDays.has(prevDay);
+      return (startDayOk && totalMinutes >= start) || (prevDayOk && totalMinutes < end);
     }
   }
 
   _minutesUntilNextTransition() {
-    const { totalMinutes } = this._getCurrentTime();
+    const { totalMinutes, dayOfWeek } = this._getCurrentTime();
     const start = this._pvpStart; // PvP turns ON
     const end = this._pvpEnd;     // PvP turns OFF
-    const insidePvp = this._isInsidePvpWindow(totalMinutes);
+    const insidePvp = this._isInsidePvpWindow(totalMinutes, dayOfWeek);
+    const pvpDays = config.pvpDays; // null = every day
 
     let minutesUntil;
     let targetPvp;
@@ -119,7 +138,29 @@ class PvpScheduler {
     } else {
       // Currently outside PvP window — next transition is PvP ON at start hour
       targetPvp = true;
-      minutesUntil = start > totalMinutes ? start - totalMinutes : (1440 - totalMinutes) + start;
+
+      if (!pvpDays) {
+        // Every day — same as before
+        minutesUntil = start > totalMinutes ? start - totalMinutes : (1440 - totalMinutes) + start;
+      } else {
+        // Find the next PvP day
+        minutesUntil = Infinity;
+        for (let d = 0; d <= 7; d++) {
+          const checkDay = (dayOfWeek + d) % 7;
+          if (!pvpDays.has(checkDay)) continue;
+          if (d === 0) {
+            // Today — only valid if start hasn't passed yet
+            if (totalMinutes < start) {
+              minutesUntil = start - totalMinutes;
+              break;
+            }
+            continue; // start already passed today
+          }
+          // Future day
+          minutesUntil = (d * 1440) - totalMinutes + start;
+          break;
+        }
+      }
     }
 
     return { minutesUntil, targetPvp };

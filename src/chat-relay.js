@@ -236,21 +236,33 @@ class ChatRelay {
       )
       .setTimestamp();
 
-    try {
-      const thread = await this._getOrCreateChatThread();
-      if (thread) {
-        await thread.send({
-          content: '@here',
-          embeds: [embed],
-        });
-      } else {
-        await this.adminChannel.send({
-          content: '@here',
-          embeds: [embed],
-        });
+    const payload = { content: '@here', embeds: [embed] };
+
+    // Send to configured alert channels if set, otherwise default to chat thread/admin channel
+    const hasExtraChannels = config.adminAlertChannelIds.length > 0;
+
+    if (hasExtraChannels) {
+      // Send only to the designated alert channels (one @here, not duplicated)
+      for (const channelId of config.adminAlertChannelIds) {
+        try {
+          const ch = await this.client.channels.fetch(channelId);
+          if (ch) await ch.send(payload);
+        } catch (err) {
+          console.error(`[CHAT] Failed to send admin alert to ${channelId}:`, err.message);
+        }
       }
-    } catch (err) {
-      console.error('[CHAT] Failed to send admin alert:', err.message);
+    } else {
+      // Default: send to chat thread or admin channel
+      try {
+        const thread = await this._getOrCreateChatThread();
+        if (thread) {
+          await thread.send(payload);
+        } else {
+          await this.adminChannel.send(payload);
+        }
+      } catch (err) {
+        console.error('[CHAT] Failed to send admin alert:', err.message);
+      }
     }
 
     // Acknowledge in-game
