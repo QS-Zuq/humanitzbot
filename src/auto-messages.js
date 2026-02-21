@@ -221,10 +221,13 @@ async function buildWelcomeContent() {
     }
   }
 
+  // ── Update note ──
+  const updateInfo = color('gray', 'Updated each restart');
+
   if (config.discordInviteLink) {
-    parts.push(`${color('gray', '!admin for help')}  |  ${color('green', config.discordInviteLink)}`);
+    parts.push(`${color('gray', '!admin for help')}  |  ${color('green', config.discordInviteLink)}  |  ${updateInfo}`);
   } else {
-    parts.push(color('gray', '!admin in chat for help'));
+    parts.push(`${color('gray', '!admin in chat for help')}  |  ${updateInfo}`);
   }
 
   return parts.join('\n');
