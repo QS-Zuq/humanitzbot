@@ -141,6 +141,7 @@ describe('_isNewWeek', () => {
   // Create a minimal instance to call the prototype method
   function makeInstance() {
     const inst = Object.create(PlayerStatsChannel.prototype);
+    inst._config = { weeklyResetDay: 1, botTimezone: 'UTC' };
     return inst;
   }
 
@@ -195,6 +196,8 @@ describe('_snapshotPlayerStats', () => {
     const inst = Object.create(PlayerStatsChannel.prototype);
     inst._saveData = saveData || new Map();
     inst._killData = { players: {} };
+    inst._playerStats = { getStats: () => logStats || null, getAllPlayers: () => [] };
+    inst._playtime = { getPlaytime: () => ptData || null };
     return inst;
   }
 

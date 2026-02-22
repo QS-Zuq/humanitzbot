@@ -4,7 +4,7 @@
  */
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { _parseHmzLog, _parseConnectLog, _mergeDays, _buildSummaryEmbed, _dateKey } = require('../src/commands/threads');
+const { _parseHmzLog, _parseConnectLog, _mergeDays, _buildSummaryEmbed, _dateKey, _fetchThreadMessages, _findMatchingThreads } = require('../src/commands/threads');
 
 // ══════════════════════════════════════════════════════════
 // _dateKey
@@ -171,5 +171,161 @@ describe('_buildSummaryEmbed', () => {
     assert.ok(desc.includes('Deaths'));
     assert.ok(!desc.includes('Connections'));
     assert.ok(!desc.includes('Items Built'));
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// _fetchThreadMessages
+// ══════════════════════════════════════════════════════════
+
+describe('_fetchThreadMessages', () => {
+  /** Build a mock thread that returns messages from a flat array. */
+  function mockThread(messages) {
+    // Discord.js messages.fetch returns a Collection (Map-like, ordered by ID descending)
+    return {
+      messages: {
+        async fetch({ limit, before } = {}) {
+          // Sort descending by id (simulates Discord behaviour)
+          let pool = [...messages].sort((a, b) => Number(b.id) - Number(a.id));
+          if (before) pool = pool.filter(m => Number(m.id) < Number(before));
+          const batch = pool.slice(0, limit || 100);
+          const map = new Map();
+          for (const m of batch) map.set(m.id, m);
+          // Needs .last() and .size like a discord.js Collection
+          map.last = () => batch[batch.length - 1];
+          return map;
+        },
+      },
+    };
+  }
+
+  function msg(id, { embedTitle, embedDesc, content } = {}) {
+    const embeds = [];
+    if (embedTitle || embedDesc) {
+      embeds.push({ data: { title: embedTitle || '', description: embedDesc || '' } });
+    }
+    return { id: String(id), content: content || '', embeds };
+  }
+
+  it('returns messages in chronological order', async () => {
+    const thread = mockThread([msg(3), msg(1), msg(2)]);
+    const result = await _fetchThreadMessages(thread);
+    assert.deepEqual(result.map(m => m.id), ['1', '2', '3']);
+  });
+
+  it('filters out starter embeds with Activity Log title', async () => {
+    const thread = mockThread([
+      msg(1, { embedTitle: '📋 Activity Log — 15 Feb 2026' }),
+      msg(2, { embedTitle: '💀 Player Death' }),
+      msg(3, { embedTitle: '🔌 Player Connected' }),
+    ]);
+    const result = await _fetchThreadMessages(thread);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].id, '2');
+    assert.equal(result[1].id, '3');
+  });
+
+  it('filters out Log watcher connected startup message', async () => {
+    const thread = mockThread([
+      msg(1, { embedDesc: '📋 Log watcher connected. Monitoring game server activity.' }),
+      msg(2, { embedTitle: '💀 Player Death' }),
+    ]);
+    const result = await _fetchThreadMessages(thread);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, '2');
+  });
+
+  it('keeps text messages', async () => {
+    const thread = mockThread([
+      msg(1, { content: 'Hello world' }),
+    ]);
+    const result = await _fetchThreadMessages(thread);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].content, 'Hello world');
+  });
+
+  it('returns empty array for empty thread', async () => {
+    const thread = mockThread([]);
+    const result = await _fetchThreadMessages(thread);
+    assert.deepEqual(result, []);
+  });
+
+  it('handles pagination across multiple batches', async () => {
+    // Create 150 messages — should require 2 fetch calls (100 + 50)
+    const msgs = [];
+    for (let i = 1; i <= 150; i++) msgs.push(msg(i, { embedTitle: `Event ${i}` }));
+    const thread = mockThread(msgs);
+    const result = await _fetchThreadMessages(thread);
+    assert.equal(result.length, 150);
+    assert.equal(result[0].id, '1');
+    assert.equal(result[149].id, '150');
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// _findMatchingThreads
+// ══════════════════════════════════════════════════════════
+
+describe('_findMatchingThreads', () => {
+  function mockChannel(activeThreads, archivedThreads) {
+    return {
+      threads: {
+        async fetchActive() {
+          const map = new Map();
+          for (const t of activeThreads) map.set(t.id, t);
+          return { threads: map };
+        },
+        async fetchArchived() {
+          const map = new Map();
+          for (const t of archivedThreads) map.set(t.id, t);
+          return { threads: map };
+        },
+      },
+    };
+  }
+
+  it('finds active threads by name', async () => {
+    const ch = mockChannel(
+      [{ id: '1', name: '📋 Activity Log — 15 Feb 2026' }],
+      [],
+    );
+    const result = await _findMatchingThreads(ch, '📋 Activity Log — 15 Feb 2026');
+    assert.equal(result.length, 1);
+  });
+
+  it('finds archived threads by name', async () => {
+    const ch = mockChannel(
+      [],
+      [{ id: '2', name: '📋 Activity Log — 14 Feb 2026' }],
+    );
+    const result = await _findMatchingThreads(ch, '📋 Activity Log — 14 Feb 2026');
+    assert.equal(result.length, 1);
+  });
+
+  it('returns empty array when no match', async () => {
+    const ch = mockChannel(
+      [{ id: '1', name: '📋 Activity Log — 15 Feb 2026' }],
+      [],
+    );
+    const result = await _findMatchingThreads(ch, '📋 Activity Log — 20 Feb 2026');
+    assert.equal(result.length, 0);
+  });
+
+  it('returns both active and archived matches', async () => {
+    const ch = mockChannel(
+      [{ id: '1', name: '📋 Activity Log — 15 Feb 2026' }],
+      [{ id: '2', name: '📋 Activity Log — 15 Feb 2026' }],
+    );
+    const result = await _findMatchingThreads(ch, '📋 Activity Log — 15 Feb 2026');
+    assert.equal(result.length, 2);
+  });
+
+  it('matches legacy thread names without emoji prefix', async () => {
+    const ch = mockChannel(
+      [{ id: '1', name: 'Activity Log — 15 Feb 2026' }],
+      [{ id: '2', name: 'Activity Log - 15 Feb 2026' }],
+    );
+    const result = await _findMatchingThreads(ch, '📋 Activity Log — 15 Feb 2026', { dateLabel: '15 Feb 2026' });
+    assert.equal(result.length, 2);
   });
 });

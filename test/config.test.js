@@ -4,7 +4,7 @@
  */
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { _envBool: envBool, _envTime: envTime, _tzOffsetMs: tzOffsetMs } = require('../src/config');
+const { _envBool: envBool, _envTime: envTime, _tzOffsetMs: tzOffsetMs, canShow, isAdminView, addAdminMembers } = require('../src/config');
 const config = require('../src/config');
 
 // ══════════════════════════════════════════════════════════
@@ -207,5 +207,202 @@ describe('parseLogTimestamp', () => {
     config.logTimezone = 'UTC';
     const d = config.parseLogTimestamp('2026', '2', '3', '9', '5');
     assert.equal(d.toISOString(), '2026-02-03T09:05:00.000Z');
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// canShow — admin-only visibility helper
+// ══════════════════════════════════════════════════════════
+
+describe('canShow', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = {
+      showVitals: config.showVitals,
+      showVitalsAdminOnly: config.showVitalsAdminOnly,
+    };
+  });
+
+  afterEach(() => {
+    config.showVitals = saved.showVitals;
+    config.showVitalsAdminOnly = saved.showVitalsAdminOnly;
+  });
+
+  it('returns true when toggle is on and adminOnly is off', () => {
+    config.showVitals = true;
+    config.showVitalsAdminOnly = false;
+    assert.equal(canShow('showVitals', false), true);
+    assert.equal(canShow('showVitals', true), true);
+  });
+
+  it('returns false when toggle is off regardless of admin', () => {
+    config.showVitals = false;
+    config.showVitalsAdminOnly = false;
+    assert.equal(canShow('showVitals', false), false);
+    assert.equal(canShow('showVitals', true), false);
+  });
+
+  it('hides from non-admin when adminOnly is true', () => {
+    config.showVitals = true;
+    config.showVitalsAdminOnly = true;
+    assert.equal(canShow('showVitals', false), false);
+  });
+
+  it('shows to admin when adminOnly is true', () => {
+    config.showVitals = true;
+    config.showVitalsAdminOnly = true;
+    assert.equal(canShow('showVitals', true), true);
+  });
+
+  it('defaults isAdmin to false', () => {
+    config.showVitals = true;
+    config.showVitalsAdminOnly = true;
+    assert.equal(canShow('showVitals'), false);
+  });
+
+  it('returns true when no adminOnly key exists and toggle is on', () => {
+    // A toggle without a matching AdminOnly companion should still work
+    config.someCustomToggle = true;
+    assert.equal(canShow('someCustomToggle', false), true);
+    delete config.someCustomToggle;
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// isAdminView — configurable permission check
+// ══════════════════════════════════════════════════════════
+
+describe('isAdminView', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = [...config.adminViewPermissions];
+  });
+
+  afterEach(() => {
+    config.adminViewPermissions = saved;
+  });
+
+  it('returns false for null member', () => {
+    assert.equal(isAdminView(null), false);
+  });
+
+  it('returns false for member without permissions', () => {
+    assert.equal(isAdminView({}), false);
+    assert.equal(isAdminView({ permissions: null }), false);
+  });
+
+  it('returns true when member has Administrator (default)', () => {
+    config.adminViewPermissions = ['Administrator'];
+    const member = { permissions: { has: (p) => p === 'Administrator' } };
+    assert.equal(isAdminView(member), true);
+  });
+
+  it('returns false when member lacks the required permission', () => {
+    config.adminViewPermissions = ['Administrator'];
+    const member = { permissions: { has: () => false } };
+    assert.equal(isAdminView(member), false);
+  });
+
+  it('matches any of multiple configured permissions', () => {
+    config.adminViewPermissions = ['Administrator', 'ManageGuild'];
+    const memberA = { permissions: { has: (p) => p === 'Administrator' } };
+    const memberB = { permissions: { has: (p) => p === 'ManageGuild' } };
+    const memberC = { permissions: { has: () => false } };
+    assert.equal(isAdminView(memberA), true);
+    assert.equal(isAdminView(memberB), true);
+    assert.equal(isAdminView(memberC), false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// addAdminMembers — role + user ID thread auto-join
+// ══════════════════════════════════════════════════════════
+
+describe('addAdminMembers', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = {
+      adminUserIds: [...config.adminUserIds],
+      adminRoleIds: [...config.adminRoleIds],
+    };
+  });
+
+  afterEach(() => {
+    config.adminUserIds = saved.adminUserIds;
+    config.adminRoleIds = saved.adminRoleIds;
+  });
+
+  it('adds explicit user IDs to thread', async () => {
+    config.adminUserIds = ['111', '222'];
+    config.adminRoleIds = [];
+    const added = [];
+    const thread = { members: { add: (uid) => { added.push(uid); return Promise.resolve(); } } };
+    const guild = {};
+    await addAdminMembers(thread, guild);
+    assert.deepEqual(added, ['111', '222']);
+  });
+
+  it('adds role members to thread', async () => {
+    config.adminUserIds = [];
+    config.adminRoleIds = ['role1'];
+    const added = [];
+    const thread = { members: { add: (uid) => { added.push(uid); return Promise.resolve(); } } };
+    const roleMembers = new Map([['user1', {}], ['user2', {}]]);
+    const guild = {
+      roles: { cache: new Map([['role1', { members: roleMembers }]]) },
+      members: { cache: new Map([['a', {}], ['b', {}]]) },
+    };
+    await addAdminMembers(thread, guild);
+    assert.deepEqual(added, ['user1', 'user2']);
+  });
+
+  it('fetches role if not in cache', async () => {
+    config.adminUserIds = [];
+    config.adminRoleIds = ['role1'];
+    const added = [];
+    const thread = { members: { add: (uid) => { added.push(uid); return Promise.resolve(); } } };
+    const roleMembers = new Map([['user1', {}]]);
+    const guild = {
+      roles: {
+        cache: new Map(),
+        fetch: async (id) => id === 'role1' ? { members: roleMembers } : null,
+      },
+      members: { cache: new Map([['a', {}], ['b', {}]]) },
+    };
+    await addAdminMembers(thread, guild);
+    assert.deepEqual(added, ['user1']);
+  });
+
+  it('skips invalid role IDs gracefully', async () => {
+    config.adminUserIds = [];
+    config.adminRoleIds = ['badRole'];
+    const added = [];
+    const thread = { members: { add: (uid) => { added.push(uid); return Promise.resolve(); } } };
+    const guild = {
+      roles: {
+        cache: new Map(),
+        fetch: async () => null,
+      },
+      members: { cache: new Map([['a', {}]]) },
+    };
+    await addAdminMembers(thread, guild);
+    assert.deepEqual(added, []);
+  });
+
+  it('combines user IDs and role members', async () => {
+    config.adminUserIds = ['explicit1'];
+    config.adminRoleIds = ['role1'];
+    const added = [];
+    const thread = { members: { add: (uid) => { added.push(uid); return Promise.resolve(); } } };
+    const roleMembers = new Map([['roleUser1', {}]]);
+    const guild = {
+      roles: { cache: new Map([['role1', { members: roleMembers }]]) },
+      members: { cache: new Map([['a', {}], ['b', {}]]) },
+    };
+    await addAdminMembers(thread, guild);
+    assert.deepEqual(added, ['explicit1', 'roleUser1']);
   });
 });

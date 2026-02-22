@@ -1,15 +1,26 @@
 const { EmbedBuilder } = require('discord.js');
-const playtime = require('./playtime-tracker');
-const config = require('./config');
+const _defaultPlaytime = require('./playtime-tracker');
+const _defaultConfig = require('./config');
 
-function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
+/**
+ * Build a log-based player stats embed.
+ * @param {object} stats       Player stats record
+ * @param {object} [options]
+ * @param {boolean} [options.isAdmin]
+ * @param {object} [options.playtime]  Custom PlaytimeTracker instance
+ * @param {object} [options.config]    Custom config object
+ */
+function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
+  const pt_inst = playtime || _defaultPlaytime;
+  const cfg = config || _defaultConfig;
+
   const embed = new EmbedBuilder()
     .setTitle(stats.name)
     .setColor(0x9b59b6)
     .setTimestamp();
 
   // Get playtime data if available
-  const pt = playtime.getPlaytime(stats.id);
+  const pt = pt_inst.getPlaytime(stats.id);
 
   // ── General Info (inline row) ──
   const infoFields = [];
@@ -19,7 +30,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   }
   if (stats.lastEvent) {
     const lastDate = new Date(stats.lastEvent);
-    const dateStr = `${lastDate.toLocaleDateString('en-GB', { timeZone: config.botTimezone })} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: config.botTimezone })}`;
+    const dateStr = `${lastDate.toLocaleDateString('en-GB', { timeZone: cfg.botTimezone })} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: cfg.botTimezone })}`;
     infoFields.push({ name: 'Last Active', value: dateStr, inline: true });
   }
   if (infoFields.length > 0) embed.addFields(...infoFields);
@@ -57,7 +68,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   }
 
   // ── Raid Stats ──
-  if (config.showRaidStats) {
+  if (cfg.canShow('showRaidStats', isAdmin)) {
     embed.addFields(
       { name: 'Attacked', value: `${stats.raidsOut}`, inline: true },
       { name: 'Destroyed', value: `${stats.destroyedOut}`, inline: true },
@@ -71,7 +82,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   }
 
   // ── Connections ──
-  if (config.showConnections) {
+  if (cfg.canShow('showConnections', isAdmin)) {
     const connParts = [];
     if (stats.connects !== undefined) connParts.push(`In: **${stats.connects}**`);
     if (stats.disconnects !== undefined) connParts.push(`Out: **${stats.disconnects}**`);
@@ -83,7 +94,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   if (isAdmin && stats.cheatFlags && stats.cheatFlags.length > 0) {
     const flagLines = stats.cheatFlags.slice(-5).map(f => {
       const d = new Date(f.timestamp);
-      const dateStr = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: config.botTimezone });
+      const dateStr = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: cfg.botTimezone });
       return `${dateStr} — \`${f.type}\``;
     });
     if (stats.cheatFlags.length > 5) flagLines.unshift(`_Showing last 5 of ${stats.cheatFlags.length} flags_`);

@@ -16,6 +16,68 @@ function envTime(key) {
   return h * 60 + m;
 }
 
+/**
+ * Check whether a section is visible for a given user.
+ * Returns true when the toggle is enabled AND either the admin-only flag is off
+ * or the user is a Discord admin.
+ *
+ * @param {string} toggleKey  - Config key for the section toggle (e.g. 'showVitals')
+ * @param {boolean} isAdmin   - Whether the requesting user passes isAdminView()
+ * @returns {boolean}
+ */
+function canShow(toggleKey, isAdmin = false) {
+  if (!config[toggleKey]) return false;
+  const adminOnlyKey = toggleKey + 'AdminOnly';
+  if (config[adminOnlyKey] && !isAdmin) return false;
+  return true;
+}
+
+/**
+ * Check whether a Discord GuildMember has admin-view access.
+ * Returns true if the member has ANY of the permissions listed in ADMIN_VIEW_PERMISSIONS.
+ * Uses Discord's built-in permission system — no manual role config needed.
+ *
+ * @param {import('discord.js').GuildMember|null} member
+ * @returns {boolean}
+ */
+function isAdminView(member) {
+  if (!member?.permissions) return false;
+  return config.adminViewPermissions.some(p => member.permissions.has(p));
+}
+
+/**
+ * Add all configured admin users and role members to a Discord thread.
+ * Resolves ADMIN_USER_IDS (explicit) + ADMIN_ROLE_IDS (fetches role members).
+ * Requires GuildMembers intent for role member resolution.
+ *
+ * @param {import('discord.js').ThreadChannel} thread
+ * @param {import('discord.js').Guild} guild
+ */
+async function addAdminMembers(thread, guild) {
+  // Explicit user IDs
+  for (const uid of config.adminUserIds) {
+    thread.members.add(uid).catch(() => {});
+  }
+  // Role-based — requires GuildMembers privileged intent
+  for (const roleId of config.adminRoleIds) {
+    try {
+      const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId);
+      if (!role) continue;
+      // Ensure members are cached
+      if (guild.members.cache.size <= 1) await guild.members.fetch();
+      for (const [uid] of role.members) {
+        thread.members.add(uid).catch(() => {});
+      }
+    } catch (e) {
+      if (e.code === 50001 || /disallowed intents|privileged/i.test(e.message)) {
+        console.error(`[CONFIG] ADMIN_ROLE_IDS requires the "Server Members Intent" to be enabled in the Discord Developer Portal (Bot → Privileged Gateway Intents).`);
+      } else {
+        console.warn(`[CONFIG] Could not resolve role ${roleId}:`, e.message);
+      }
+    }
+  }
+}
+
 const config = {
   // Discord
   discordToken: process.env.DISCORD_TOKEN,
@@ -24,13 +86,27 @@ const config = {
   adminChannelId: process.env.ADMIN_CHANNEL_ID,
   chatChannelId: process.env.CHAT_CHANNEL_ID || '',  // defaults to adminChannelId if empty
   serverStatusChannelId: process.env.SERVER_STATUS_CHANNEL_ID,
+  panelChannelId: process.env.PANEL_CHANNEL_ID || '',
   adminUserIds: (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
+  adminRoleIds: (process.env.ADMIN_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
   adminAlertChannelIds: (process.env.ADMIN_ALERT_CHANNEL_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
+
+  // Discord permissions that grant "admin view" for admin-only embed sections.
+  // Comma-separated permission names from Discord.js PermissionFlagsBits.
+  // Default: Administrator. Examples: ManageGuild, ManageChannels, ManageRoles
+  adminViewPermissions: (process.env.ADMIN_VIEW_PERMISSIONS || 'Administrator').split(',').map(s => s.trim()).filter(Boolean),
 
   // RCON
   rconHost: process.env.RCON_HOST,
   rconPort: parseInt(process.env.RCON_PORT, 10) || 27015,
   rconPassword: process.env.RCON_PASSWORD,
+
+  // Game server connection port (shown in server-status embed for direct connect)
+  gamePort: process.env.GAME_PORT || '',
+
+  // Short display name for this server (used in daily thread titles and summaries).
+  // Multi-server instances use the 'name' field in servers.json instead.
+  serverName: process.env.SERVER_NAME || '',
 
   // Timezone for daily threads / summaries (IANA format, e.g. 'America/New_York', 'US/Eastern')
   botTimezone: process.env.BOT_TIMEZONE || 'UTC',
@@ -40,16 +116,18 @@ const config = {
   logTimezone: process.env.LOG_TIMEZONE || 'UTC',
 
   // Behavior
-  chatPollInterval: parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000,
-  statusCacheTtl: parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000,
-  statusChannelInterval: parseInt(process.env.STATUS_CHANNEL_INTERVAL, 10) || 300000, // 5 min default
-  serverStatusInterval: parseInt(process.env.SERVER_STATUS_INTERVAL, 10) || 30000, // 30s default
+  chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000, 5000),
+  statusCacheTtl: Math.max(parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000, 10000),
+  statusChannelInterval: Math.max(parseInt(process.env.STATUS_CHANNEL_INTERVAL, 10) || 300000, 60000), // min 1 min
+  serverStatusInterval: Math.max(parseInt(process.env.SERVER_STATUS_INTERVAL, 10) || 30000, 15000),
 
   // Auto-messages
   discordInviteLink: process.env.DISCORD_INVITE_LINK || '',
-  autoMsgLinkInterval: parseInt(process.env.AUTO_MSG_LINK_INTERVAL, 10) || 1800000,      // 30 min
-  autoMsgPromoInterval: parseInt(process.env.AUTO_MSG_PROMO_INTERVAL, 10) || 2700000,    // 45 min
-  autoMsgJoinCheckInterval: parseInt(process.env.AUTO_MSG_JOIN_CHECK, 10) || 10000,      // 10 sec
+  autoMsgLinkInterval: Math.max(parseInt(process.env.AUTO_MSG_LINK_INTERVAL, 10) || 1800000, 60000),      // min 1 min
+  autoMsgPromoInterval: Math.max(parseInt(process.env.AUTO_MSG_PROMO_INTERVAL, 10) || 2700000, 60000),    // min 1 min
+  autoMsgJoinCheckInterval: Math.max(parseInt(process.env.AUTO_MSG_JOIN_CHECK, 10) || 10000, 5000),      // min 5 sec
+  autoMsgLinkText: process.env.AUTO_MSG_LINK_TEXT || '',       // custom discord link broadcast (blank = default)
+  autoMsgPromoText: process.env.AUTO_MSG_PROMO_TEXT || '',     // custom promo broadcast (blank = default)
 
   // SFTP file paths
   ftpHost: process.env.FTP_HOST || '',
@@ -63,11 +141,28 @@ const config = {
   ftpSavePath: process.env.FTP_SAVE_PATH || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
   ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
   ftpWelcomePath: process.env.FTP_WELCOME_PATH || '/HumanitZServer/WelcomeMessage.txt',
-  logPollInterval: parseInt(process.env.LOG_POLL_INTERVAL, 10) || 30000,   // 30 sec
+  logPollInterval: Math.max(parseInt(process.env.LOG_POLL_INTERVAL, 10) || 30000, 10000),   // min 10 sec
   logChannelId: process.env.LOG_CHANNEL_ID || '',
 
+  // Pterodactyl / panel API (CPU, RAM, disk monitoring)
+  // PANEL_SERVER_URL is the full URL when viewing your server in the panel
+  // e.g. https://games.bisecthosting.com/server/a1b2c3d4
+  panelServerUrl: process.env.PANEL_SERVER_URL || '',
+  panelApiKey: process.env.PANEL_API_KEY || '',
+
+  // Enable the /panel slash command (power, console, backups, status)
+  // Requires PANEL_SERVER_URL + PANEL_API_KEY to be set.
+  enablePanel: envBool('ENABLE_PANEL', true),
+
+  // SSH resource monitoring (reuses FTP_HOST/FTP_USER/FTP_PASSWORD)
+  enableSshResources: envBool('ENABLE_SSH_RESOURCES', false),
+  sshPort: parseInt(process.env.SSH_PORT, 10) || 0,   // 0 = use FTP_PORT
+
+  // Cache TTL for resource metrics (default 30s)
+  resourceCacheTtl: Math.max(parseInt(process.env.RESOURCE_CACHE_TTL, 10) || 30000, 10000),
+
   // Save-file parser
-  savePollInterval: parseInt(process.env.SAVE_POLL_INTERVAL, 10) || 300000,  // 5 min default
+  savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL, 10) || 300000, 60000),  // min 1 min
 
   // Player-stats channel
   playerStatsChannelId: process.env.PLAYER_STATS_CHANNEL_ID || '',
@@ -106,6 +201,23 @@ const config = {
     return days.size > 0 ? days : null;
   })(),
 
+  // Per-day PvP hour overrides: PVP_HOURS_MON=18:00-22:00, etc.
+  // Falls back to PVP_START_TIME / PVP_END_TIME when not set for a day.
+  pvpDayHours: (() => {
+    const dayKeys = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const map = new Map(); // dayNum → { start, end } (total minutes from midnight)
+    for (let d = 0; d < 7; d++) {
+      const val = process.env[`PVP_HOURS_${dayKeys[d]}`];
+      if (!val || !val.includes('-')) continue;
+      const [startStr, endStr] = val.split('-');
+      const parseHM = (s) => { const p = s.trim().split(':'); return parseInt(p[0], 10) * 60 + (parseInt(p[1], 10) || 0); };
+      const start = parseHM(startStr);
+      const end = parseHM(endStr);
+      if (!isNaN(start) && !isNaN(end)) map.set(d, { start, end });
+    }
+    return map.size > 0 ? map : null;
+  })(),
+
   // First-run / data repair
   firstRun: envBool('FIRST_RUN', false),
 
@@ -134,6 +246,17 @@ const config = {
   showLore: envBool('SHOW_LORE', true),                    // default: on
   showConnections: envBool('SHOW_CONNECTIONS', true),      // default: on
 
+  // Admin-only flags — when true, that section is only shown to Discord users
+  // with the Administrator permission. Auto-detected from the server, no role config needed.
+  showVitalsAdminOnly: envBool('SHOW_VITALS_ADMIN_ONLY', false),
+  showStatusEffectsAdminOnly: envBool('SHOW_STATUS_EFFECTS_ADMIN_ONLY', false),
+  showInventoryAdminOnly: envBool('SHOW_INVENTORY_ADMIN_ONLY', false),
+  showRecipesAdminOnly: envBool('SHOW_RECIPES_ADMIN_ONLY', false),
+  showLoreAdminOnly: envBool('SHOW_LORE_ADMIN_ONLY', false),
+  showConnectionsAdminOnly: envBool('SHOW_CONNECTIONS_ADMIN_ONLY', false),
+  showRaidStatsAdminOnly: envBool('SHOW_RAID_STATS_ADMIN_ONLY', false),
+  showChallengeDescriptionsAdminOnly: envBool('SHOW_CHALLENGE_DESCRIPTIONS_ADMIN_ONLY', false),
+
   // Feature toggles — server status embed sections
   showServerSettings: envBool('SHOW_SERVER_SETTINGS', true),     // server settings grid from GameServerSettings.ini
   showExtendedSettings: envBool('SHOW_EXTENDED_SETTINGS', true), // bandits, companions, territory, vehicles in settings grid
@@ -151,6 +274,7 @@ const config = {
   showWeatherOdds: envBool('SHOW_WEATHER_ODDS', false),          // weather multiplier breakdown (off by default — niche)
   showServerVersion: envBool('SHOW_SERVER_VERSION', true),       // version from RCON info
   showServerPerformance: envBool('SHOW_SERVER_PERFORMANCE', true), // FPS + AI count from RCON info
+  showHostResources: envBool('SHOW_HOST_RESOURCES', true),       // CPU/RAM/disk from panel API or SSH
   showServerDay: envBool('SHOW_SERVER_DAY', true),               // in-game day number
   showSeasonProgress: envBool('SHOW_SEASON_PROGRESS', true),     // day X/Y within current season
 
@@ -284,6 +408,9 @@ config.parseLogTimestamp = function (year, month, day, hour, min) {
 console.log(`[CONFIG] Timezone: ${config.botTimezone}, Log timezone: ${config.logTimezone}`);
 
 module.exports = config;
+module.exports.canShow = canShow;
+module.exports.isAdminView = isAdminView;
+module.exports.addAdminMembers = addAdminMembers;
 module.exports._envBool = envBool;
 module.exports._envTime = envTime;
 module.exports._tzOffsetMs = _tzOffsetMs;

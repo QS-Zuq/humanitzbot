@@ -1,13 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
+const _defaultConfig = require('./config');
 const { sendAdminMessage, getPlayerList, getServerInfo } = require('./server-info');
-const playtime = require('./playtime-tracker');
-const playerStats = require('./player-stats');
+const _defaultPlaytime = require('./playtime-tracker');
+const _defaultPlayerStats = require('./player-stats');
 const SftpClient = require('ssh2-sftp-client');
 
-const SETTINGS_FILE = path.join(__dirname, '..', 'data', 'server-settings.json');
-const WELCOME_STATS_FILE = path.join(__dirname, '..', 'data', 'welcome-stats.json');
+const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
 
 // Difficulty index → label (same as server-status.js)
 const DIFFICULTY_LABELS = ['Very Easy', 'Easy', 'Default', 'Hard', 'Very Hard', 'Nightmare'];
@@ -40,19 +39,21 @@ function color(tag, text) {
 
 // ── Standalone helpers (used by buildWelcomeContent and class) ──
 
-function loadCachedSettings() {
+function loadCachedSettings(dataDir) {
+  const filePath = path.join(dataDir || DEFAULT_DATA_DIR, 'server-settings.json');
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     }
   } catch (_) {}
   return {};
 }
 
-function loadWelcomeStats() {
+function loadWelcomeStats(dataDir) {
+  const filePath = path.join(dataDir || DEFAULT_DATA_DIR, 'welcome-stats.json');
   try {
-    if (fs.existsSync(WELCOME_STATS_FILE)) {
-      return JSON.parse(fs.readFileSync(WELCOME_STATS_FILE, 'utf8'));
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     }
   } catch (_) {}
   return {};
@@ -76,17 +77,17 @@ function formatMs(ms) {
  * Returns e.g. "PvP Schedule: Mon, Wed, Fri 18:00-22:00 UTC" or ''.
  */
 function pvpScheduleLabel() {
-  if (!config.enablePvpScheduler) return '';
-  const startMin = config.pvpStartMinutes;
-  const endMin   = config.pvpEndMinutes;
+  if (!_defaultConfig.enablePvpScheduler) return '';
+  const startMin = _defaultConfig.pvpStartMinutes;
+  const endMin   = _defaultConfig.pvpEndMinutes;
   if (isNaN(startMin) || isNaN(endMin)) return '';
   const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-  const pvpDays = config.pvpDays;
+  const pvpDays = _defaultConfig.pvpDays;
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const daysLabel = pvpDays
     ? [...pvpDays].sort().map(d => DAY_NAMES[d]).join(', ') + ' '
     : '';
-  return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${config.botTimezone}`;
+  return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${_defaultConfig.botTimezone}`;
 }
 
 /**
@@ -94,13 +95,18 @@ function pvpScheduleLabel() {
  * Exported so player-stats-channel can call it after save polls.
  * No RCON required — uses cached server-settings.json for server name.
  */
-async function buildWelcomeContent() {
-  const settings = loadCachedSettings();
+async function buildWelcomeContent(deps = {}) {
+  const cfg = deps.config || _defaultConfig;
+  const pt = deps.playtime || _defaultPlaytime;
+  const ps = deps.playerStats || _defaultPlayerStats;
+  const getInfo = deps.getServerInfo || getServerInfo;
+  const dataDir = deps.dataDir || DEFAULT_DATA_DIR;
+  const settings = loadCachedSettings(dataDir);
   const parts = [];
 
   // ── Title ──
   let serverName = '';
-  try { serverName = (await getServerInfo()).name || ''; } catch {}
+  try { serverName = (await getInfo()).name || ''; } catch {}
   if (!serverName && settings.ServerName) {
     serverName = settings.ServerName.replace(/^"|"$/g, '');
   }
@@ -135,8 +141,8 @@ async function buildWelcomeContent() {
   }
 
   // ── Leaderboards ──
-  const leaderboard = playtime.getLeaderboard();
-  const welcomeStats = loadWelcomeStats();
+  const leaderboard = pt.getLeaderboard();
+  const welcomeStats = loadWelcomeStats(dataDir);
 
   if (leaderboard.length > 0) {
     parts.push('');
@@ -206,7 +212,7 @@ async function buildWelcomeContent() {
   }
 
   // ── Footer ──
-  const allLog = playerStats.getAllPlayers();
+  const allLog = ps.getAllPlayers();
   if (allLog.length > 0) {
     const totalDeaths = allLog.reduce((s, p) => s + p.deaths, 0);
     const totalBuilds = allLog.reduce((s, p) => s + p.builds, 0);
@@ -224,8 +230,8 @@ async function buildWelcomeContent() {
   // ── Update note ──
   const updateInfo = color('gray', 'Updated each restart');
 
-  if (config.discordInviteLink) {
-    parts.push(`${color('gray', '!admin for help')}  |  ${color('green', config.discordInviteLink)}  |  ${updateInfo}`);
+  if (cfg.discordInviteLink) {
+    parts.push(`${color('gray', '!admin for help')}  |  ${color('green', cfg.discordInviteLink)}  |  ${updateInfo}`);
   } else {
     parts.push(`${color('gray', '!admin in chat for help')}  |  ${updateInfo}`);
   }
@@ -234,12 +240,21 @@ async function buildWelcomeContent() {
 }
 
 class AutoMessages {
-  constructor() {
-    this.discordLink = config.discordInviteLink;
+  constructor(deps = {}) {
+    this._config = deps.config || _defaultConfig;
+    this._playtime = deps.playtime || _defaultPlaytime;
+    this._playerStats = deps.playerStats || _defaultPlayerStats;
+    this._getServerInfo = deps.getServerInfo || getServerInfo;
+    this._getPlayerList = deps.getPlayerList || getPlayerList;
+    this._sendAdminMessage = deps.sendAdminMessage || sendAdminMessage;
+    this._label = deps.label || 'AUTO MSG';
+    this._dataDir = deps.dataDir || DEFAULT_DATA_DIR;
+
+    this.discordLink = this._config.discordInviteLink;
 
     // Intervals (configurable via .env, defaults in ms)
-    this.linkInterval = config.autoMsgLinkInterval;   // 30 min
-    this.promoInterval = config.autoMsgPromoInterval;  // 45 min
+    this.linkInterval = this._config.autoMsgLinkInterval;   // 30 min
+    this.promoInterval = this._config.autoMsgPromoInterval;  // 45 min
 
     this._linkTimer = null;
     this._promoTimer = null;
@@ -252,42 +267,42 @@ class AutoMessages {
   }
 
   async start() {
-    console.log('[AUTO-MSG] Starting auto-messages...');
+    console.log(`[${this._label}] Starting auto-messages...`);
 
     // Seed the known player list so we don't welcome everyone already online
     await this._seedPlayers();
 
     // Periodic Discord link broadcast
-    if (config.enableAutoMsgLink) {
+    if (this._config.enableAutoMsgLink) {
       this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
-      console.log(`[AUTO-MSG] Discord link every ${this.linkInterval / 60000} min`);
+      console.log(`[${this._label}] Discord link every ${this.linkInterval / 60000} min`);
     } else {
-      console.log('[AUTO-MSG] Discord link broadcast disabled');
+      console.log(`[${this._label}] Discord link broadcast disabled`);
     }
 
     // Periodic promo message broadcast
-    if (config.enableAutoMsgPromo) {
+    if (this._config.enableAutoMsgPromo) {
       this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
-      console.log(`[AUTO-MSG] Promo message every ${this.promoInterval / 60000} min`);
+      console.log(`[${this._label}] Promo message every ${this.promoInterval / 60000} min`);
     } else {
-      console.log('[AUTO-MSG] Promo message disabled');
+      console.log(`[${this._label}] Promo message disabled`);
     }
 
     // Player count polling (peak tracking, unique player tracking, join welcome)
-    this._pollTimer = setInterval(() => this._pollPlayers(), config.autoMsgJoinCheckInterval);
-    console.log(`[AUTO-MSG] Player count polling every ${config.autoMsgJoinCheckInterval / 1000}s`);
-    if (config.enableWelcomeMsg) {
-      console.log('[AUTO-MSG] RCON welcome messages enabled (on player join)');
+    this._pollTimer = setInterval(() => this._pollPlayers(), this._config.autoMsgJoinCheckInterval);
+    console.log(`[${this._label}] Player count polling every ${this._config.autoMsgJoinCheckInterval / 1000}s`);
+    if (this._config.enableWelcomeMsg) {
+      console.log(`[${this._label}] RCON welcome messages enabled (on player join)`);
     } else {
-      console.log('[AUTO-MSG] RCON welcome messages disabled');
+      console.log(`[${this._label}] RCON welcome messages disabled`);
     }
 
     // SFTP WelcomeMessage.txt — write once at startup, then refreshed after each save poll
-    if (config.enableWelcomeFile && config.ftpHost) {
+    if (this._config.enableWelcomeFile && this._config.ftpHost) {
       await this._writeWelcomeFile();
-      console.log('[AUTO-MSG] WelcomeMessage.txt written (updates after each save poll)');
-    } else if (config.enableWelcomeFile) {
-      console.log('[AUTO-MSG] WelcomeMessage.txt disabled — no SFTP credentials');
+      console.log(`[${this._label}] WelcomeMessage.txt written (updates after each save poll)`);
+    } else if (this._config.enableWelcomeFile) {
+      console.log(`[${this._label}] WelcomeMessage.txt disabled — no SFTP credentials`);
     }
   }
 
@@ -298,14 +313,14 @@ class AutoMessages {
     this._linkTimer = null;
     this._promoTimer = null;
     this._pollTimer = null;
-    console.log('[AUTO-MSG] Stopped.');
+    console.log(`[${this._label}] Stopped.`);
   }
 
   // ── Private methods ────────────────────────────────────────
 
   async _seedPlayers() {
     try {
-      const list = await getPlayerList();
+      const list = await this._getPlayerList();
       if (list.players && list.players.length > 0) {
         for (const p of list.players) {
           const hasSteamId = p.steamId && p.steamId !== 'N/A';
@@ -315,14 +330,14 @@ class AutoMessages {
           // Only track playtime for players with a real SteamID
           // (name-only keys create ghost entries)
           if (hasSteamId) {
-            playtime.playerJoin(id, p.name || 'Unknown');
+            this._playtime.playerJoin(id, p.name || 'Unknown');
           }
         }
       }
       this._initialised = true;
-      console.log(`[AUTO-MSG] Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
+      console.log(`[${this._label}] Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
     } catch (err) {
-      console.error('[AUTO-MSG] Failed to seed players:', err.message);
+      console.error(`[${this._label}] Failed to seed players:`, err.message);
       this._initialised = true; // continue anyway
     }
   }
@@ -330,28 +345,41 @@ class AutoMessages {
   async _sendDiscordLink() {
     if (!this.discordLink) return;
     try {
-      await sendAdminMessage(`Join our Discord! ${this.discordLink}`);
-      console.log('[AUTO-MSG] Sent Discord link to game chat');
+      const custom = this._config.autoMsgLinkText;
+      const msg = custom
+        ? await this._resolveMessagePlaceholders(custom)
+        : `Join our Discord! ${this.discordLink}`;
+      await this._sendAdminMessage(msg);
+      console.log(`[${this._label}] Sent Discord link to game chat`);
     } catch (err) {
-      console.error('[AUTO-MSG] Failed to send Discord link:', err.message);
+      console.error(`[${this._label}] Failed to send Discord link:`, err.message);
     }
   }
 
   async _sendPromoMessage() {
     try {
-      const msg = `Have any issues, suggestions or just want to keep in contact with other players? Join our Discord: ${this.discordLink}`;
-      await sendAdminMessage(msg);
-      console.log('[AUTO-MSG] Sent promo message to game chat');
+      const custom = this._config.autoMsgPromoText;
+      const msg = custom
+        ? await this._resolveMessagePlaceholders(custom)
+        : `Have any issues, suggestions or just want to keep in contact with other players? Join our Discord: ${this.discordLink}`;
+      await this._sendAdminMessage(msg);
+      console.log(`[${this._label}] Sent promo message to game chat`);
     } catch (err) {
-      console.error('[AUTO-MSG] Failed to send promo message:', err.message);
+      console.error(`[${this._label}] Failed to send promo message:`, err.message);
     }
+  }
+
+  /** Resolve placeholders in custom broadcast messages. */
+  async _resolveMessagePlaceholders(text) {
+    const info = await this._getServerInfoSafe();
+    return this._resolvePlaceholders(text, info);
   }
 
   async _pollPlayers() {
     if (!this._initialised) return;
 
     try {
-      const list = await getPlayerList();
+      const list = await this._getPlayerList();
       const currentOnline = new Set();
       const newJoiners = [];   // players who just appeared
 
@@ -372,13 +400,13 @@ class AutoMessages {
 
       // Record peak player count and unique players for today (SteamID only)
       const steamOnly = [...currentOnline].filter(id => /^\d{17}$/.test(id));
-      playtime.recordPlayerCount(steamOnly.length);
+      this._playtime.recordPlayerCount(steamOnly.length);
       for (const id of steamOnly) {
-        playtime.recordUniqueToday(id);
+        this._playtime.recordUniqueToday(id);
       }
 
       // Send RCON admin welcome messages to new joiners
-      if (config.enableWelcomeMsg && newJoiners.length > 0) {
+      if (this._config.enableWelcomeMsg && newJoiners.length > 0) {
         for (const joiner of newJoiners) {
           await this._sendWelcomeMessage(joiner);
         }
@@ -396,7 +424,7 @@ class AutoMessages {
     }
 
     try {
-      const pt = joiner.steamId ? playtime.getPlaytime(joiner.steamId) : null;
+      const pt = joiner.steamId ? this._playtime.getPlaytime(joiner.steamId) : null;
       const pvpInfo = this._pvpScheduleText();
       const discordPart = this.discordLink ? ` Join our Discord: ${this.discordLink}` : '';
       const adminTip = ' Type !admin in chat if you need help from an admin.';
@@ -414,29 +442,33 @@ class AutoMessages {
         msg = `Welcome to the server, ${joiner.name}!${pvpInfo}${adminTip}${discordPart}`;
       }
 
-      await sendAdminMessage(msg);
+      await this._sendAdminMessage(msg);
       this._lastWelcomeTime = Date.now();
-      console.log(`[AUTO-MSG] Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
+      console.log(`[${this._label}] Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
     } catch (err) {
-      console.error(`[AUTO-MSG] Failed to send welcome to ${joiner.name}:`, err.message);
+      console.error(`[${this._label}] Failed to send welcome to ${joiner.name}:`, err.message);
     }
   }
 
   _pvpScheduleText() {
-    if (!config.enablePvpScheduler) return '';
-    const startMin = config.pvpStartMinutes;
-    const endMin   = config.pvpEndMinutes;
-    if (isNaN(startMin) || isNaN(endMin)) return '';
+    if (!this._config.enablePvpScheduler) return '';
+    const defaultStart = this._config.pvpStartMinutes;
+    const defaultEnd   = this._config.pvpEndMinutes;
+    const pvpDayHours  = this._config.pvpDayHours; // Map<dayNum, { start, end }> | null
+
+    // Need at least global defaults OR per-day overrides
+    const hasDefaults = !isNaN(defaultStart) && !isNaN(defaultEnd);
+    if (!hasDefaults && (!pvpDayHours || pvpDayHours.size === 0)) return '';
 
     const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const pvpDays = config.pvpDays; // null = every day
+    const pvpDays = this._config.pvpDays; // null = every day
 
     // Get current time in the configured timezone
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-GB', {
       hour: '2-digit', minute: '2-digit', hour12: false,
-      timeZone: config.botTimezone,
+      timeZone: this._config.botTimezone,
     });
     const [h, m] = timeStr.split(':').map(Number);
     const nowMin = h * 60 + m;
@@ -444,21 +476,45 @@ class AutoMessages {
     // Day of week in bot timezone
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
-      timeZone: config.botTimezone,
+      timeZone: this._config.botTimezone,
     });
     const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const dayOfWeek = dayMap[dayStr] ?? now.getDay();
 
+    // Resolve hours for a given day (per-day override or global default)
+    const getHours = (day) => {
+      if (pvpDayHours && pvpDayHours.has(day)) return pvpDayHours.get(day);
+      if (hasDefaults) return { start: defaultStart, end: defaultEnd };
+      return { start: undefined, end: undefined };
+    };
+
+    const { start: startMin, end: endMin } = getHours(dayOfWeek);
+
     // Check if currently inside PvP window (same logic as pvp-scheduler)
-    let insidePvp;
-    if (startMin < endMin) {
-      const dayOk = !pvpDays || pvpDays.has(dayOfWeek);
-      insidePvp = dayOk && nowMin >= startMin && nowMin < endMin;
+    let insidePvp = false;
+    if (startMin !== undefined && endMin !== undefined) {
+      if (startMin < endMin) {
+        const dayOk = !pvpDays || pvpDays.has(dayOfWeek);
+        insidePvp = dayOk && nowMin >= startMin && nowMin < endMin;
+      } else {
+        const prevDay = (dayOfWeek + 6) % 7;
+        const prev = getHours(prevDay);
+        const startDayOk = !pvpDays || pvpDays.has(dayOfWeek);
+        const prevDayOk  = !pvpDays || pvpDays.has(prevDay);
+        if (prevDayOk && prev.start !== undefined && prev.end !== undefined && prev.start > prev.end && nowMin < prev.end) {
+          insidePvp = true;
+        } else {
+          insidePvp = startDayOk && nowMin >= startMin;
+        }
+      }
     } else {
+      // Check yesterday's overnight tail
       const prevDay = (dayOfWeek + 6) % 7;
-      const startDayOk = !pvpDays || pvpDays.has(dayOfWeek);
-      const prevDayOk  = !pvpDays || pvpDays.has(prevDay);
-      insidePvp = (startDayOk && nowMin >= startMin) || (prevDayOk && nowMin < endMin);
+      const prev = getHours(prevDay);
+      const prevDayOk = !pvpDays || pvpDays.has(prevDay);
+      if (prevDayOk && prev.start !== undefined && prev.end !== undefined && prev.start > prev.end && nowMin < prev.end) {
+        insidePvp = true;
+      }
     }
 
     // Day schedule label (e.g. "Mon, Wed, Fri")
@@ -467,30 +523,35 @@ class AutoMessages {
       : '';
 
     if (insidePvp) {
-      // Calculate time remaining in PvP window
-      let minsLeft = endMin > nowMin ? endMin - nowMin : (1440 - nowMin) + endMin;
+      // Determine end time for the active window
+      let activeEnd = endMin;
+      if (startMin === undefined || endMin === undefined || (startMin < endMin && (nowMin < startMin || nowMin >= endMin))) {
+        // Must be in yesterday's overnight tail
+        const prevDay = (dayOfWeek + 6) % 7;
+        const prev = getHours(prevDay);
+        activeEnd = prev.end;
+      }
+      let minsLeft = activeEnd > nowMin ? activeEnd - nowMin : (1440 - nowMin) + activeEnd;
       const hours = Math.floor(minsLeft / 60);
       const mins = minsLeft % 60;
       const timeLeft = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-      return ` PvP is enabled for ${timeLeft} (until ${fmt(endMin)} ${config.botTimezone}).`;
+      return ` PvP is enabled for ${timeLeft} (until ${fmt(activeEnd)} ${this._config.botTimezone}).`;
     } else {
       // Calculate time until next PvP start
-      let minsUntil;
-      if (!pvpDays) {
-        minsUntil = startMin > nowMin ? startMin - nowMin : (1440 - nowMin) + startMin;
-      } else {
-        minsUntil = Infinity;
-        for (let d = 0; d <= 7; d++) {
-          const checkDay = (dayOfWeek + d) % 7;
-          if (!pvpDays.has(checkDay)) continue;
-          if (d === 0 && nowMin < startMin) {
-            minsUntil = startMin - nowMin;
-            break;
-          }
-          if (d === 0) continue;
-          minsUntil = (d * 1440) - nowMin + startMin;
+      let minsUntil = Infinity;
+      const checkDays = pvpDays ? pvpDays : new Set([0, 1, 2, 3, 4, 5, 6]);
+      for (let d = 0; d <= 7; d++) {
+        const checkDay = (dayOfWeek + d) % 7;
+        if (!checkDays.has(checkDay)) continue;
+        const h2 = getHours(checkDay);
+        if (h2.start === undefined || isNaN(h2.start)) continue;
+        if (d === 0 && nowMin < h2.start) {
+          minsUntil = h2.start - nowMin;
           break;
         }
+        if (d === 0) continue;
+        minsUntil = (d * 1440) - nowMin + h2.start;
+        break;
       }
       if (minsUntil === Infinity) return '';
 
@@ -503,9 +564,20 @@ class AutoMessages {
       if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
       const timeUntil = parts.join(' ');
 
+      // Show the next day's specific schedule if using per-day hours
+      let nextStart = startMin;
+      if (minsUntil > 0) {
+        const nextDay = (dayOfWeek + Math.ceil(minsUntil / 1440)) % 7;
+        const nextH = getHours(nextDay === dayOfWeek && nowMin < (getHours(dayOfWeek).start || 0) ? dayOfWeek : nextDay);
+        if (nextH.start !== undefined) nextStart = nextH.start;
+      }
+      const schedStart = nextStart !== undefined ? fmt(nextStart) : fmt(defaultStart);
+      const nextEnd = getHours(pvpDays ? [...checkDays].find(d2 => getHours(d2).start !== undefined) ?? dayOfWeek : dayOfWeek).end;
+      const schedEnd = nextEnd !== undefined ? fmt(nextEnd) : fmt(defaultEnd);
+
       const schedule = daysLabel
-        ? `${daysLabel} ${fmt(startMin)}–${fmt(endMin)} ${config.botTimezone}`
-        : `${fmt(startMin)}–${fmt(endMin)} ${config.botTimezone}`;
+        ? `${daysLabel} ${schedStart}–${schedEnd} ${this._config.botTimezone}`
+        : `${schedStart}–${schedEnd} ${this._config.botTimezone}`;
       return ` PvP starts in ${timeUntil} (${schedule}).`;
     }
   }
@@ -513,19 +585,25 @@ class AutoMessages {
   // ── SFTP WelcomeMessage.txt ─────────────────────────────────
 
   async _buildWelcomeFileContent() {
-    const lines = config.welcomeFileLines;
+    const lines = this._config.welcomeFileLines;
     if (lines.length > 0) {
       // User-defined lines — resolve placeholders
       const info = await this._getServerInfoSafe();
       return lines.map(line => this._resolvePlaceholders(line, info)).join('\n');
     }
     // Default: use the standalone builder (no RCON needed)
-    return buildWelcomeContent();
+    return buildWelcomeContent({
+      config: this._config,
+      playtime: this._playtime,
+      playerStats: this._playerStats,
+      getServerInfo: this._getServerInfo,
+      dataDir: this._dataDir,
+    });
   }
 
   async _getServerInfoSafe() {
     try {
-      return await getServerInfo();
+      return await this._getServerInfo();
     } catch {
       return {};
     }
@@ -550,17 +628,17 @@ class AutoMessages {
     const sftp = new SftpClient();
     try {
       await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
+        host: this._config.ftpHost,
+        port: this._config.ftpPort,
+        username: this._config.ftpUser,
+        password: this._config.ftpPassword,
       });
 
       const content = await this._buildWelcomeFileContent();
-      await sftp.put(Buffer.from(content, 'utf8'), config.ftpWelcomePath);
-      console.log('[AUTO-MSG] Updated WelcomeMessage.txt on server');
+      await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
+      console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
     } catch (err) {
-      console.error('[AUTO-MSG] Failed to write WelcomeMessage.txt:', err.message);
+      console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
     } finally {
       await sftp.end().catch(() => {});
     }

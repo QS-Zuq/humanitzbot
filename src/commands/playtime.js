@@ -39,7 +39,7 @@ module.exports = {
           .addFields(
             { name: 'Total Playtime', value: match.totalFormatted, inline: true },
             { name: 'Sessions', value: `${match.sessions}`, inline: true },
-            { name: 'Steam ID', value: interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ? `\`${match.id}\`` : `\`${match.id.slice(0, 8)}···\``, inline: false },
+            { name: 'Steam ID', value: require('../config').isAdminView(interaction.member) ? `\`${match.id}\`` : `\`${match.id.slice(0, 8)}···\``, inline: false },
           )
           .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone })}` })
           .setTimestamp();
