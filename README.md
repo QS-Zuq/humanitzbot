@@ -14,18 +14,21 @@ A comprehensive Discord bot for HumanitZ dedicated servers. Connects via RCON fo
 
 ## Features
 
-- **Live Server Status** — Voice channel dashboard + auto-updating text embed with player count, time, weather, leaderboards, and peak stats
-- **Player Statistics** — Per-player stats from save file parsing (kills, vitals, inventory, recipes) merged with log data (deaths, damage, builds, PvP K/D). Includes clan stats and weekly leaderboards
+- **Live Server Status** — Voice channel dashboard + auto-updating text embed with player count, time, weather, leaderboards, peak stats, and host resource metrics
+- **Player Statistics** — Per-player stats from save file parsing (kills, vitals, inventory, recipes) merged with log data (deaths, damage, builds, PvP K/D). Includes clan stats and weekly leaderboards. Configurable admin-only sections
+- **Admin Panel** — Two-embed admin dashboard: bot controls (env editor, module status, restart) + game server panel (power, console, backups, schedules). Requires Pterodactyl-based hosting panel (BisectHosting, Bloom.host, etc.) for server controls; bot controls work standalone
+- **Multi-Server** — Manage additional game server instances from one bot. Each server gets isolated RCON, SFTP, stats, and channel modules. Configured via `data/servers.json` or the panel UI
+- **Server Resource Monitoring** — CPU, RAM, and disk usage displayed on the server-status embed. Supports Pterodactyl API or SSH backends
 - **SFTP Welcome File** — Rich-text colored popup on player join with leaderboards, clan stats, server info, and Discord link. Auto-refreshed from save data
 - **Bidirectional Chat** — Discord ↔ in-game chat bridge with `!admin` alerts
 - **Activity Logging** — Deaths, damage, building, looting, raids, connects/disconnects posted to daily threads via SFTP log parsing. Death loop detection collapses rapid deaths into a single summary
 - **PvP Killfeed** — Correlates player damage events with deaths to attribute PvP kills. Posts ⚔️ kill embeds to the activity thread, tracks per-player PvP K/D
 - **Timezone Support** — Single `BOT_TIMEZONE` setting (IANA format) controls daily thread boundaries, summaries, and all displayed times
-- **PvP Scheduler** — Automatic PvP on/off at scheduled times with countdowns, server restart via SFTP, optional day-of-week filtering (`PVP_DAYS`), dynamic PvP info in welcome messages
-- **Auto-Messages** — Welcome messages for new/returning players, periodic Discord link and promo broadcasts
+- **PvP Scheduler** — Automatic PvP on/off at scheduled times with countdowns, server restart via SFTP, optional day-of-week filtering (`PVP_DAYS`), per-day hour overrides (`PVP_HOURS_MON`–`SUN`), dynamic PvP info in welcome messages
+- **Auto-Messages** — Welcome messages for new/returning players, periodic Discord link and promo broadcasts with customisable text
 - **Weekly Stats** — "This Week" leaderboards alongside all-time stats, with configurable reset day
 - **Bot Lifecycle** — Online/offline notification embeds with active module status and uptime
-- **Slash Commands** — `/server`, `/players`, `/playtime`, `/playerstats`, `/rcon`
+- **Slash Commands** — `/server`, `/players`, `/playtime`, `/playerstats`, `/rcon`, `/panel`, `/threads`
 - **Save File Parser** — Custom UE4 GVAS binary parser for kill stats, vitals, inventory, clan data, and more
 
 ## Quick Start
@@ -47,6 +50,14 @@ ADMIN_CHANNEL_ID=your_admin_channel_id
 RCON_HOST=your_server_ip
 RCON_PORT=27015
 RCON_PASSWORD=your_rcon_password
+```
+
+For the admin panel and server resource monitoring, also add:
+```env
+PANEL_SERVER_URL=https://games.yourhost.com/server/abc123
+PANEL_API_KEY=your_panel_api_key
+PANEL_CHANNEL_ID=your_panel_channel_id
+ADMIN_USER_IDS=your_discord_user_id
 ```
 
 See [`.env.example`](.env.example) for the full list of options.
