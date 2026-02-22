@@ -67,7 +67,7 @@ module.exports = {
         return;
       }
 
-      const isAdmin = selectInteraction.member?.permissions?.has('Administrator') ?? false;
+      const isAdmin = require('../config').isAdminView(selectInteraction.member);
       const embed = buildPlayerEmbed(stats, { isAdmin });
 
       await selectInteraction.update({
@@ -99,11 +99,11 @@ function buildOverviewEmbed(allPlayers) {
 
   // Server-wide totals as compact code block
   const grid = [
-    `Players   ${String(allPlayers.length).padStart(6)}    Deaths    ${String(totalDeaths).padStart(6)}`,
-    `Builds    ${String(totalBuilds).padStart(6)}    Looted    ${String(totalLoots).padStart(6)}`,
-    `Raids     ${String(totalRaids).padStart(6)}`,
+    `**Players:** ${allPlayers.length}  ·  **Deaths:** ${totalDeaths}`,
+    `**Builds:** ${totalBuilds}  ·  **Looted:** ${totalLoots}`,
   ];
-  embed.addFields({ name: 'Server Totals', value: '```\n' + grid.join('\n') + '\n```' });
+  if (totalRaids > 0) grid.push(`**Raids:** ${totalRaids}`);
+  embed.addFields({ name: 'Server Totals', value: grid.join('\n') });
 
   // Top 5 most active
   const top5 = allPlayers.slice(0, 5).map((p, i) => {

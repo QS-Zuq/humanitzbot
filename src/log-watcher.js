@@ -2,16 +2,28 @@ const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
-const playtime = require('./playtime-tracker');
-const playerStats = require('./player-stats');
+const _defaultConfig = require('./config');
+const { addAdminMembers } = require('./config');
+const _defaultPlaytime = require('./playtime-tracker');
+const _defaultPlayerStats = require('./player-stats');
 
 const OFFSETS_PATH = path.join(__dirname, '..', 'data', 'log-offsets.json');
 const PVP_KILLS_PATH = path.join(__dirname, '..', 'data', 'pvp-kills.json');
 const DAY_COUNTS_PATH = path.join(__dirname, '..', 'data', 'day-counts.json');
 
 class LogWatcher {
-  constructor(client) {
+  constructor(client, deps = {}) {
+    this._config = deps.config || _defaultConfig;
+    this._playtime = deps.playtime || _defaultPlaytime;
+    this._playerStats = deps.playerStats || _defaultPlayerStats;
+    this._label = deps.label || 'LOGS';
+    this._dataDir = deps.dataDir || path.join(__dirname, '..', 'data');
+
+    // Computed data paths
+    this._offsetsPath = path.join(this._dataDir, 'log-offsets.json');
+    this._pvpKillsPath = path.join(this._dataDir, 'pvp-kills.json');
+    this._dayCountsPath = path.join(this._dataDir, 'day-counts.json');
+
     this.client = client;
     this.logChannel = null;
     this.interval = null;
@@ -48,6 +60,7 @@ class LogWatcher {
 
     // PlayerIDMapped.txt warning flag
     this._idMapWarned = false;
+    this._idMapLastSize = 0;
 
     // PvP damage tracker: Map<victimNameLower, { attacker, attackerLower, timestamp, totalDamage }>
     // Used to correlate damage → death for PvP kill attribution
@@ -67,27 +80,27 @@ class LogWatcher {
 
   _loadDayCounts() {
     try {
-      if (fs.existsSync(DAY_COUNTS_PATH)) {
-        const raw = JSON.parse(fs.readFileSync(DAY_COUNTS_PATH, 'utf8'));
-        if (raw && raw.date === config.getToday()) {
+      if (fs.existsSync(this._dayCountsPath)) {
+        const raw = JSON.parse(fs.readFileSync(this._dayCountsPath, 'utf8'));
+        if (raw && raw.date === this._config.getToday()) {
           // Only restore if it's still the same day
           this._dayCounts = { ...this._dayCounts, ...raw.counts };
-          console.log(`[LOG WATCHER] Restored day counts for ${raw.date}`);
+          console.log(`[${this._label}] Restored day counts for ${raw.date}`);
         }
       }
     } catch (err) {
-      console.warn('[LOG WATCHER] Could not load day-counts.json:', err.message);
+      console.warn(`[${this._label}] Could not load day-counts.json:`, err.message);
     }
   }
 
   _saveDayCounts() {
     if (!this._dayCountsDirty) return;
     try {
-      const data = { date: this._dailyDate || config.getToday(), counts: this._dayCounts };
-      fs.writeFileSync(DAY_COUNTS_PATH, JSON.stringify(data, null, 2), 'utf8');
+      const data = { date: this._dailyDate || this._config.getToday(), counts: this._dayCounts };
+      fs.writeFileSync(this._dayCountsPath, JSON.stringify(data, null, 2), 'utf8');
       this._dayCountsDirty = false;
     } catch (err) {
-      console.warn('[LOG WATCHER] Could not save day-counts.json:', err.message);
+      console.warn(`[${this._label}] Could not save day-counts.json:`, err.message);
     }
   }
 
@@ -100,8 +113,8 @@ class LogWatcher {
 
   _loadPvpKills() {
     try {
-      if (fs.existsSync(PVP_KILLS_PATH)) {
-        const raw = JSON.parse(fs.readFileSync(PVP_KILLS_PATH, 'utf8'));
+      if (fs.existsSync(this._pvpKillsPath)) {
+        const raw = JSON.parse(fs.readFileSync(this._pvpKillsPath, 'utf8'));
         if (Array.isArray(raw)) {
           this._pvpKills = raw;
           console.log(`[PVP KILLFEED] Loaded ${raw.length} PvP kill(s) from history`);
@@ -116,9 +129,9 @@ class LogWatcher {
   _savePvpKills() {
     if (!this._pvpKillsDirty) return;
     try {
-      const dir = path.dirname(PVP_KILLS_PATH);
+      const dir = path.dirname(this._pvpKillsPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(PVP_KILLS_PATH, JSON.stringify(this._pvpKills, null, 2), 'utf8');
+      fs.writeFileSync(this._pvpKillsPath, JSON.stringify(this._pvpKills, null, 2), 'utf8');
       this._pvpKillsDirty = false;
     } catch (err) {
       console.warn('[PVP KILLFEED] Could not save pvp-kills.json:', err.message);
@@ -154,14 +167,14 @@ class LogWatcher {
     const elapsed = deathTimestamp.getTime() - entry.timestamp;
     // Use configurable window (default 5 min). Since log timestamps are only
     // minute-precision (HH:MM), we need a generous window.
-    if (elapsed <= config.pvpKillWindow && elapsed >= 0) {
+    if (elapsed <= this._config.pvpKillWindow && elapsed >= 0) {
       // Clean up after attribution
       this._pvpDamageTracker.delete(key);
       return { attacker: entry.attacker, totalDamage: entry.totalDamage };
     }
 
     // Expired — clean up
-    if (elapsed > config.pvpKillWindow) {
+    if (elapsed > this._config.pvpKillWindow) {
       this._pvpDamageTracker.delete(key);
     }
     return null;
@@ -170,7 +183,7 @@ class LogWatcher {
   _prunePvpTracker() {
     const now = Date.now();
     for (const [key, entry] of this._pvpDamageTracker) {
-      if (now - entry.timestamp > config.pvpKillWindow * 2) {
+      if (now - entry.timestamp > this._config.pvpKillWindow * 2) {
         this._pvpDamageTracker.delete(key);
       }
     }
@@ -182,30 +195,30 @@ class LogWatcher {
 
   async start() {
     // Validate required FTP config
-    if (!config.ftpHost || config.ftpHost.startsWith('PASTE_')) {
-      console.log('[LOG WATCHER] FTP not configured, skipping log watcher.');
+    if (!this._config.ftpHost || this._config.ftpHost.startsWith('PASTE_')) {
+      console.log(`[${this._label}] FTP not configured, skipping log watcher.`);
       return;
     }
 
-    const channelId = config.logChannelId || config.adminChannelId;
+    const channelId = this._config.logChannelId || this._config.adminChannelId;
     if (!channelId) {
-      console.log('[LOG WATCHER] No LOG_CHANNEL_ID or ADMIN_CHANNEL_ID configured, skipping log watcher.');
+      console.log(`[${this._label}] No LOG_CHANNEL_ID or ADMIN_CHANNEL_ID configured, skipping log watcher.`);
       return;
     }
     try {
       this.logChannel = await this.client.channels.fetch(channelId);
       if (!this.logChannel) {
-        console.error('[LOG WATCHER] Log channel not found! Check LOG_CHANNEL_ID.');
+        console.error(`[${this._label}] Log channel not found! Check LOG_CHANNEL_ID.`);
         return;
       }
     } catch (err) {
-      console.error('[LOG WATCHER] Failed to fetch log channel:', err.message);
+      console.error(`[${this._label}] Failed to fetch log channel:`, err.message);
       return;
     }
 
-    console.log(`[LOG WATCHER] Watching ${config.ftpLogPath} on ${config.ftpHost}:${config.ftpPort}`);
-    console.log(`[LOG WATCHER] Watching ${config.ftpConnectLogPath}`);
-    console.log(`[LOG WATCHER] Posting events to ${config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`);
+    console.log(`[${this._label}] Watching ${this._config.ftpLogPath} on ${this._config.ftpHost}:${this._config.ftpPort}`);
+    console.log(`[${this._label}] Watching ${this._config.ftpConnectLogPath}`);
+    console.log(`[${this._label}] Posting events to ${this._config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`);
 
     // First poll — just get current file size so we don't replay old history
     await this._initSize();
@@ -214,7 +227,7 @@ class LogWatcher {
     await this._getOrCreateDailyThread();
 
     // Start polling
-    this.interval = setInterval(() => this._poll(), config.logPollInterval);
+    this.interval = setInterval(() => this._poll(), this._config.logPollInterval);
 
     // Proactive midnight rollover check — ensures the daily summary posts
     // even if no log events happen around midnight in the configured timezone.
@@ -260,30 +273,30 @@ class LogWatcher {
 
   _loadOffsets() {
     try {
-      if (fs.existsSync(OFFSETS_PATH)) {
-        const raw = JSON.parse(fs.readFileSync(OFFSETS_PATH, 'utf8'));
+      if (fs.existsSync(this._offsetsPath)) {
+        const raw = JSON.parse(fs.readFileSync(this._offsetsPath, 'utf8'));
         return {
           hmzLogSize: typeof raw.hmzLogSize === 'number' ? raw.hmzLogSize : 0,
           connectLogSize: typeof raw.connectLogSize === 'number' ? raw.connectLogSize : 0,
         };
       }
     } catch (err) {
-      console.warn('[LOG WATCHER] Could not load saved offsets:', err.message);
+      console.warn(`[${this._label}] Could not load saved offsets:`, err.message);
     }
     return null;
   }
 
   _saveOffsets() {
     try {
-      const dir = path.dirname(OFFSETS_PATH);
+      const dir = path.dirname(this._offsetsPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(OFFSETS_PATH, JSON.stringify({
+      fs.writeFileSync(this._offsetsPath, JSON.stringify({
         hmzLogSize: this.lastSize,
         connectLogSize: this._connectLastSize,
         savedAt: new Date().toISOString(),
       }, null, 2));
     } catch (err) {
-      console.warn('[LOG WATCHER] Could not save offsets:', err.message);
+      console.warn(`[${this._label}] Could not save offsets:`, err.message);
     }
   }
 
@@ -292,51 +305,51 @@ class LogWatcher {
     const sftp = new SftpClient();
     try {
       await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
+        host: this._config.ftpHost,
+        port: this._config.ftpPort,
+        username: this._config.ftpUser,
+        password: this._config.ftpPassword,
       });
 
       // HMZLog.log
       try {
-        const stat = await sftp.stat(config.ftpLogPath);
+        const stat = await sftp.stat(this._config.ftpLogPath);
         if (saved && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
           this.lastSize = saved.hmzLogSize;
           this.initialised = true;
           const behind = stat.size - saved.hmzLogSize;
-          console.log(`[LOG WATCHER] HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`);
+          console.log(`[${this._label}] HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`);
         } else {
           this.lastSize = stat.size;
           this.initialised = true;
-          console.log(`[LOG WATCHER] HMZLog size: ${this.lastSize} bytes — tailing from here`);
+          console.log(`[${this._label}] HMZLog size: ${this.lastSize} bytes — tailing from here`);
         }
       } catch (err) {
-        console.warn('[LOG WATCHER] HMZLog.log not found, will retry:', err.message);
+        console.warn(`[${this._label}] HMZLog.log not found, will retry:`, err.message);
         this.lastSize = 0;
         this.initialised = false;
       }
 
       // PlayerConnectedLog.txt
       try {
-        const stat2 = await sftp.stat(config.ftpConnectLogPath);
+        const stat2 = await sftp.stat(this._config.ftpConnectLogPath);
         if (saved && saved.connectLogSize > 0 && saved.connectLogSize <= stat2.size) {
           this._connectLastSize = saved.connectLogSize;
           this._connectInitialised = true;
           const behind = stat2.size - saved.connectLogSize;
-          console.log(`[LOG WATCHER] ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`);
+          console.log(`[${this._label}] ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`);
         } else {
           this._connectLastSize = stat2.size;
           this._connectInitialised = true;
-          console.log(`[LOG WATCHER] ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
+          console.log(`[${this._label}] ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
         }
       } catch (err) {
-        console.warn('[LOG WATCHER] PlayerConnectedLog.txt not found, will retry:', err.message);
+        console.warn(`[${this._label}] PlayerConnectedLog.txt not found, will retry:`, err.message);
         this._connectLastSize = 0;
         this._connectInitialised = false;
       }
     } catch (err) {
-      console.error('[LOG WATCHER] SFTP init failed:', err.message);
+      console.error(`[${this._label}] SFTP init failed:`, err.message);
       this.lastSize = 0;
       this.initialised = false;
       this._connectLastSize = 0;
@@ -346,19 +359,24 @@ class LogWatcher {
     }
   }
 
+  /** Returns the display name for this server (from SERVER_NAME env or servers.json name). */
+  _getServerLabel() {
+    return this._config.serverName || '';
+  }
+
   async _poll() {
     const sftp = new SftpClient();
     try {
       await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
+        host: this._config.ftpHost,
+        port: this._config.ftpPort,
+        username: this._config.ftpUser,
+        password: this._config.ftpPassword,
       });
 
       // ── HMZLog.log ──────────────────────────────────
       await this._pollFile(sftp, {
-        path: config.ftpLogPath,
+        path: this._config.ftpLogPath,
         label: 'HMZLog',
         getSize: () => this.lastSize,
         setSize: (s) => { this.lastSize = s; },
@@ -371,7 +389,7 @@ class LogWatcher {
 
       // ── PlayerConnectedLog.txt ──────────────────────
       await this._pollFile(sftp, {
-        path: config.ftpConnectLogPath,
+        path: this._config.ftpConnectLogPath,
         label: 'ConnectLog',
         getSize: () => this._connectLastSize,
         setSize: (s) => { this._connectLastSize = s; },
@@ -396,7 +414,7 @@ class LogWatcher {
       this._saveDayCounts();
 
     } catch (err) {
-      console.error('[LOG WATCHER] Poll error:', err.message);
+      console.error(`[${this._label}] Poll error:`, err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
@@ -410,7 +428,7 @@ class LogWatcher {
 
       // File was truncated/rotated (server restart)
       if (currentSize < lastSize) {
-        console.log(`[LOG WATCHER] ${opts.label} rotated — resetting`);
+        console.log(`[${this._label}] ${opts.label} rotated — resetting`);
         opts.setSize(0);
         opts.setPartial('');
       }
@@ -421,12 +439,12 @@ class LogWatcher {
       if (!opts.getInit()) {
         opts.setSize(currentSize);
         opts.setInit(true);
-        console.log(`[LOG WATCHER] ${opts.label} initialised at ${currentSize} bytes`);
+        console.log(`[${this._label}] ${opts.label} initialised at ${currentSize} bytes`);
         return;
       }
 
       const bytesNew = currentSize - opts.getSize();
-      console.log(`[LOG WATCHER] ${opts.label}: ${bytesNew} new bytes`);
+      console.log(`[${this._label}] ${opts.label}: ${bytesNew} new bytes`);
 
       const newBytes = await this._downloadFrom(sftp, opts.path, opts.getSize(), currentSize);
       opts.setSize(currentSize);
@@ -444,14 +462,14 @@ class LogWatcher {
           totalLines++;
           if (opts.processLine(trimmed)) eventLines++;
         }
-        console.log(`[LOG WATCHER] ${opts.label}: ${totalLines} lines (${eventLines} events)`);
+        console.log(`[${this._label}] ${opts.label}: ${totalLines} lines (${eventLines} events)`);
       }
     } catch (err) {
       // File may not exist yet — that's OK
       if (err.code === 2 || err.message.includes('No such file')) {
         return; // silently skip missing files
       }
-      console.warn(`[LOG WATCHER] ${opts.label} poll error:`, err.message);
+      console.warn(`[${this._label}] ${opts.label} poll error:`, err.message);
     }
   }
 
@@ -459,15 +477,15 @@ class LogWatcher {
 
   async _checkDayRollover() {
     if (!this._dailyDate) return; // not initialised yet
-    const today = config.getToday();
+    const today = this._config.getToday();
     if (this._dailyDate !== today) {
-      console.log(`[LOG WATCHER] Day rollover detected: ${this._dailyDate} → ${today}`);
+      console.log(`[${this._label}] Day rollover detected: ${this._dailyDate} → ${today}`);
       await this._getOrCreateDailyThread(); // triggers summary + new thread
     }
   }
 
   async _getOrCreateDailyThread() {
-    const today = config.getToday(); // timezone-aware 'YYYY-MM-DD'
+    const today = this._config.getToday(); // timezone-aware 'YYYY-MM-DD'
 
     // Day rollover — post summary and reset counters (even in no-thread mode)
     if (this._dailyDate && this._dailyDate !== today) {
@@ -478,8 +496,33 @@ class LogWatcher {
       this._dailyDate = today;
     }
 
+    // First startup — check for stale day-counts from a previous session on a different day
+    if (!this._dailyDate) {
+      try {
+        if (fs.existsSync(this._dayCountsPath)) {
+          const raw = JSON.parse(fs.readFileSync(this._dayCountsPath, 'utf8'));
+          if (raw && raw.date && raw.date !== today && raw.counts) {
+            const total = Object.values(raw.counts).reduce((s, v) => s + (v || 0), 0);
+            if (total > 0) {
+              // Post the old day's summary before creating today's thread
+              this._dailyDate = raw.date;
+              this._dayCounts = { ...this._dayCounts, ...raw.counts };
+              await this._postDailySummary();
+              this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
+              this._dayCountsDirty = true;
+              this._saveDayCounts();
+              this._dailyDate = null; // reset so normal flow continues
+              console.log(`[${this._label}] Posted stale daily summary for ${raw.date}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[${this._label}] Could not process stale day-counts:`, err.message);
+      }
+    }
+
     // No-thread mode — post straight to the channel
-    if (!config.useActivityThreads) {
+    if (!this._config.useActivityThreads) {
       this._dailyThread = this.logChannel;
       this._dailyDate = today;
       return this._dailyThread;
@@ -491,8 +534,10 @@ class LogWatcher {
     }
 
     // Look for an existing thread for today
-    const dateLabel = config.getDateLabel();
-    const threadName = `📋 Activity Log — ${dateLabel}`;
+    const dateLabel = this._config.getDateLabel();
+    const serverLabel = this._getServerLabel();
+    const serverSuffix = serverLabel ? ` [${serverLabel}]` : '';
+    const threadName = `📋 Activity Log — ${dateLabel}${serverSuffix}`;
 
     try {
       // Check active threads
@@ -501,7 +546,9 @@ class LogWatcher {
       if (existing) {
         this._dailyThread = existing;
         this._dailyDate = today;
-        console.log(`[LOG WATCHER] Using existing thread: ${threadName}`);
+        console.log(`[${this._label}] Using existing thread: ${threadName}`);
+        // Re-add admin members (they may have been removed if bot restarted)
+        this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
         return this._dailyThread;
       }
 
@@ -513,11 +560,12 @@ class LogWatcher {
         await archivedMatch.setArchived(false);
         this._dailyThread = archivedMatch;
         this._dailyDate = today;
-        console.log(`[LOG WATCHER] Unarchived existing thread: ${threadName}`);
+        console.log(`[${this._label}] Unarchived existing thread: ${threadName}`);
+        this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
         return this._dailyThread;
       }
     } catch (err) {
-      console.warn('[LOG WATCHER] Could not search for threads:', err.message);
+      console.warn(`[${this._label}] Could not search for threads:`, err.message);
     }
 
     // Create a new thread (from a starter message so it appears inline in the channel)
@@ -525,7 +573,7 @@ class LogWatcher {
       const starterMsg = await this.logChannel.send({
         embeds: [
           new EmbedBuilder()
-            .setTitle(`📋 Activity Log — ${dateLabel}`)
+            .setTitle(`📋 Activity Log — ${dateLabel}${serverSuffix}`)
             .setDescription('All server events for today are logged in this thread.')
             .setColor(0x3498db)
             .setTimestamp(),
@@ -537,14 +585,12 @@ class LogWatcher {
         reason: 'Daily activity log thread',
       });
       this._dailyDate = today;
-      console.log(`[LOG WATCHER] Created daily thread: ${threadName}`);
+      console.log(`[${this._label}] Created daily thread: ${threadName}`);
 
-      // Auto-join admin users so the thread stays visible for them
-      for (const uid of config.adminUserIds) {
-        this._dailyThread.members.add(uid).catch(() => {});
-      }
+      // Auto-join admin users/roles so the thread stays visible for them
+      this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
     } catch (err) {
-      console.error('[LOG WATCHER] Failed to create daily thread:', err.message);
+      console.error(`[${this._label}] Failed to create daily thread:`, err.message);
       // Fallback — use the main channel directly
       this._dailyThread = this.logChannel;
       this._dailyDate = today;
@@ -559,7 +605,7 @@ class LogWatcher {
     if (total === 0) return; // nothing happened
 
     const dateLabel = this._dailyDate
-      ? config.getDateLabel(new Date(this._dailyDate + 'T12:00:00Z'))
+      ? this._config.getDateLabel(new Date(this._dailyDate + 'T12:00:00Z'))
       : 'Unknown';
 
     const lines = [];
@@ -575,19 +621,29 @@ class LogWatcher {
     if (c.cheat > 0)       lines.push(['Anti-Cheat Flags', c.cheat]);
     if (c.pvpKills > 0)    lines.push(['PvP Kills', c.pvpKills]);
 
-    const gridLines = lines.map(([label, val]) => `${label.padEnd(22)} ${String(val).padStart(5)}`);
+    const summaryLines = lines.map(([label, val]) => `**${label}:** ${val}`);
 
+    // Count unique players from playtime tracker for the daily footer.
+    // Use yesterdayUnique (snapshotted before day-rollover reset) to avoid
+    // a race where RCON polling resets uniqueToday before this runs.
+    const peaks = this._playtime.getPeaks();
+    const uniqueCount = peaks.yesterdayUnique || peaks.uniqueToday || 0;
+    const footerParts = [`${total} total events`];
+    if (uniqueCount > 0) footerParts.push(`${uniqueCount} unique players`);
+
+    const serverLabel = this._getServerLabel();
+    const serverSuffix = serverLabel ? ` [${serverLabel}]` : '';
     const embed = new EmbedBuilder()
-      .setTitle(`Daily Summary — ${dateLabel}`)
-      .setDescription('```\n' + gridLines.join('\n') + '\n```')
+      .setTitle(`Daily Summary — ${dateLabel}${serverSuffix}`)
+      .setDescription(summaryLines.join('\n'))
       .setColor(0x3498db)
-      .setFooter({ text: `${total} total events` })
+      .setFooter({ text: footerParts.join(' · ') })
       .setTimestamp();
 
     try {
       await this.logChannel.send({ embeds: [embed] });
     } catch (err) {
-      console.error('[LOG WATCHER] Failed to post daily summary:', err.message);
+      console.error(`[${this._label}] Failed to post daily summary:`, err.message);
     }
   }
 
@@ -595,11 +651,28 @@ class LogWatcher {
     return this._sendToThread(embed);
   }
 
+  /** Clear cached thread reference so it will be re-fetched on next send. */
+  resetThreadCache() {
+    this._dailyThread = null;
+    this._dailyDate = null;
+  }
+
   async _sendToThread(embed) {
     const thread = await this._getOrCreateDailyThread();
-    return thread.send({ embeds: [embed] }).catch(err => {
-      console.error('[LOG WATCHER] Failed to send to thread:', err.message);
-    });
+    try {
+      return await thread.send({ embeds: [embed] });
+    } catch (err) {
+      // Self-heal: if the thread was deleted/recreated (e.g. NUKE_THREADS), clear cache and retry once
+      if (err.code === 10003 || err.message?.includes('Unknown Channel')) {
+        console.warn(`[${this._label}] Thread gone — clearing cache and retrying...`);
+        this.resetThreadCache();
+        const fresh = await this._getOrCreateDailyThread();
+        return fresh.send({ embeds: [embed] }).catch(retryErr => {
+          console.error(`[${this._label}] Failed to send to thread (retry):`, retryErr.message);
+        });
+      }
+      console.error(`[${this._label}] Failed to send to thread:`, err.message);
+    }
   }
 
   async _downloadFrom(sftpClient, remotePath, startAt, endAt) {
@@ -624,7 +697,7 @@ class LogWatcher {
       readStream.on('data', chunk => chunks.push(chunk));
       readStream.on('end', () => resolve(chunks.join('')));
       readStream.on('error', err => {
-        console.warn('[LOG WATCHER] Stream read failed, trying full download:', err.message);
+        console.warn(`[${this._label}] Stream read failed, trying full download:`, err.message);
         // Fallback: download full file and slice
         sftpClient.get(remotePath)
           .then(buf => resolve(buf.slice(startAt, endAt).toString('utf8')))
@@ -641,7 +714,7 @@ class LogWatcher {
 
     const [, day, month, rawYear, hour, min, body] = lineMatch;
     const year = rawYear.replace(',', '');
-    const timestamp = config.parseLogTimestamp(year, month, day, hour, min);
+    const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
 
     // ── Player death ───────────────────────────────────────
     // Player died (PlayerName)
@@ -669,11 +742,11 @@ class LogWatcher {
       const dmgAmount = parseFloat(dmgMatch[2]);
       const dmgSource = dmgMatch[3].trim();
       if (dmgAmount > 0) {
-        playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
+        this._playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
         this._incDayCount('damage');
 
         // Track PvP damage for kill attribution (source is a player name if no BP_ prefix)
-        if (config.enablePvpKillFeed && !dmgSource.startsWith('BP_') && !(/Zombie|Wolf|Bear|Deer|Snake|Spider|Human|KaiHuman|Mutant|Runner|Brute|Pudge|Dogzombie|Police|Cop|Military|Hazmat|Camo/i.test(dmgSource))) {
+        if (this._config.enablePvpKillFeed && !dmgSource.startsWith('BP_') && !(/Zombie|Wolf|Bear|Deer|Snake|Spider|Human|KaiHuman|Mutant|Runner|Brute|Pudge|Dogzombie|Police|Cop|Military|Hazmat|Camo/i.test(dmgSource))) {
           this._recordPvpDamage(dmgVictim, dmgSource, dmgAmount, timestamp);
         }
       }
@@ -688,7 +761,7 @@ class LogWatcher {
       const looterId = lootMatch[2];
       const containerType = lootMatch[3];
       const ownerSteamId = lootMatch[4];
-      playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
+      this._playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
       this._incDayCount('loots');
       this._batchLoot(looterName, looterId, containerType, ownerSteamId, timestamp);
       return true;
@@ -745,7 +818,7 @@ class LogWatcher {
     const adminMatch = body.match(/^(.+?)\s+gained admin access!$/);
     if (adminMatch) {
       const playerName = adminMatch[1].trim();
-      playerStats.recordAdminAccess(playerName, timestamp);
+      this._playerStats.recordAdminAccess(playerName, timestamp);
       this._incDayCount('admin');
 
       const embed = new EmbedBuilder()
@@ -765,7 +838,7 @@ class LogWatcher {
       const type = cheatMatch[1].trim();
       const playerName = cheatMatch[2].trim();
       const steamId = cheatMatch[3];
-      playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
+      this._playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
       this._incDayCount('cheat');
 
       const embed = new EmbedBuilder()
@@ -789,17 +862,17 @@ class LogWatcher {
 
     const [, action, name, steamId, day, month, rawYear, hour, min] = connectMatch;
     const year = rawYear.replace(',', '');
-    const timestamp = config.parseLogTimestamp(year, month, day, hour, min);
+    const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
 
     if (action === 'Connected') {
-      playerStats.recordConnect(name, steamId, timestamp);
-      playtime.playerJoin(steamId, name, timestamp);
+      this._playerStats.recordConnect(name, steamId, timestamp);
+      this._playtime.playerJoin(steamId, name, timestamp);
       this._incDayCount('connects');
 
       // Track online players for peak stats
       this._onlinePlayers.add(steamId);
-      playtime.recordPlayerCount(this._onlinePlayers.size);
-      playtime.recordUniqueToday(steamId);
+      this._playtime.recordPlayerCount(this._onlinePlayers.size);
+      this._playtime.recordUniqueToday(steamId);
 
       const embed = new EmbedBuilder()
         .setAuthor({ name: '📥 Player Connected' })
@@ -808,8 +881,8 @@ class LogWatcher {
         .setFooter({ text: this._formatTime(timestamp) });
       this._sendToThread(embed);
     } else {
-      playerStats.recordDisconnect(name, steamId, timestamp);
-      playtime.playerLeave(steamId, timestamp);
+      this._playerStats.recordDisconnect(name, steamId, timestamp);
+      this._playtime.playerLeave(steamId, timestamp);
       this._incDayCount('disconnects');
 
       // Update online tracking
@@ -833,7 +906,7 @@ class LogWatcher {
     const cleanItem = this._simplifyBlueprintName(itemName);
 
     // Record stats
-    playerStats.recordBuild(playerName, steamId, cleanItem, timestamp);
+    this._playerStats.recordBuild(playerName, steamId, cleanItem, timestamp);
     this._incDayCount('builds');
 
     // Batch builds to reduce spam
@@ -856,11 +929,11 @@ class LogWatcher {
 
   _onDeath(playerName, timestamp) {
     // ALWAYS record stats — every death counts, no suppression
-    playerStats.recordDeath(playerName, timestamp);
+    this._playerStats.recordDeath(playerName, timestamp);
     this._incDayCount('deaths');
 
     // Check for PvP kill attribution
-    const pvpKill = config.enablePvpKillFeed ? this._checkPvpKill(playerName, timestamp) : null;
+    const pvpKill = this._config.enablePvpKillFeed ? this._checkPvpKill(playerName, timestamp) : null;
 
     if (pvpKill) {
       // PvP kill confirmed
@@ -876,7 +949,7 @@ class LogWatcher {
       if (this._pvpKills.length > 50) this._pvpKills = this._pvpKills.slice(-50);
       this._pvpKillsDirty = true;
 
-      playerStats.recordPvpKill(pvpKill.attacker, playerName, timestamp);
+      this._playerStats.recordPvpKill(pvpKill.attacker, playerName, timestamp);
 
       // PvP kills always post individually (they're rare and important)
       const killEmbed = new EmbedBuilder()
@@ -897,10 +970,10 @@ class LogWatcher {
 
     // ── Death loop detection: collapse rapid-fire embed spam ──
     // Stats are already recorded above — this only affects Discord embed output.
-    if (config.enableDeathLoopDetection) {
+    if (this._config.enableDeathLoopDetection) {
       const key = playerName.toLowerCase();
-      const windowMs = config.deathLoopWindow;
-      const threshold = config.deathLoopThreshold;
+      const windowMs = this._config.deathLoopWindow;
+      const threshold = this._config.deathLoopThreshold;
       const existing = this._deathLoopTracker.get(key);
 
       if (existing && (timestamp - existing.firstTimestamp) < windowMs) {
@@ -935,7 +1008,7 @@ class LogWatcher {
   /** Post a single summary embed for a death loop, then clear the tracker entry. */
   _flushDeathLoop(key, playerName) {
     const entry = this._deathLoopTracker.get(key);
-    if (!entry || entry.count < config.deathLoopThreshold) return;
+    if (!entry || entry.count < this._config.deathLoopThreshold) return;
     if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
 
     const elapsed = Math.round((entry.lastTimestamp - entry.firstTimestamp) / 1000);
@@ -955,7 +1028,7 @@ class LogWatcher {
     const cleanBuilding = this._simplifyBlueprintName(buildingType);
 
     // Record stats
-    playerStats.recordRaid(attacker, attackerSteamId, ownerSteamId, destroyed, timestamp);
+    this._playerStats.recordRaid(attacker, attackerSteamId, ownerSteamId, destroyed, timestamp);
     this._incDayCount('raidHits');
 
     // Batch raid events to reduce spam — group by attacker|owner pair
@@ -988,7 +1061,12 @@ class LogWatcher {
 
   async _refreshIdMap(sftp) {
     try {
-      const buf = await sftp.get(config.ftpIdMapPath);
+      // Stat first to skip full download if file hasn't changed
+      const stat = await sftp.stat(this._config.ftpIdMapPath);
+      if (stat.size === this._idMapLastSize) return;
+
+      const buf = await sftp.get(this._config.ftpIdMapPath);
+      this._idMapLastSize = stat.size;
       const text = buf.toString('utf8');
       const entries = [];
       for (const line of text.split('\n')) {
@@ -1001,12 +1079,12 @@ class LogWatcher {
         }
       }
       if (entries.length > 0) {
-        playerStats.loadIdMap(entries);
+        this._playerStats.loadIdMap(entries);
       }
     } catch (err) {
       // Not critical — file may not exist yet
       if (!this._idMapWarned) {
-        console.warn('[LOG WATCHER] Could not read PlayerIDMapped.txt:', err.message);
+        console.warn(`[${this._label}] Could not read PlayerIDMapped.txt:`, err.message);
         this._idMapWarned = true;
       }
     }
@@ -1046,7 +1124,7 @@ class LogWatcher {
     this._lootBatch = {};
 
     const lines = entries.map(entry => {
-      const ownerData = playtime.getPlaytime(entry.ownerSteamId);
+      const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
       const ownerName = ownerData ? ownerData.name : `Unknown (${entry.ownerSteamId.slice(0, 8)}...)`;
       const containerList = [...entry.containers].join(', ');
       return `**${entry.looter}** opened **${entry.count}** container(s) owned by **${ownerName}**\n> ${containerList}`;
@@ -1088,7 +1166,7 @@ class LogWatcher {
     this._raidBatch = {};
 
     const lines = entries.map(entry => {
-      const ownerData = playtime.getPlaytime(entry.ownerSteamId);
+      const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
       const ownerName = ownerData ? ownerData.name : `Unknown (${entry.ownerSteamId.slice(0, 8)}...)`;
       const buildingList = Object.entries(entry.buildings)
         .map(([b, count]) => count > 1 ? `${b} ×${count}` : b)
@@ -1128,7 +1206,7 @@ class LogWatcher {
   }
 
   _formatTime(date) {
-    return config.formatTime(date);
+    return this._config.formatTime(date);
   }
 }
 

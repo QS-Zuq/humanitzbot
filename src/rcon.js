@@ -1,11 +1,18 @@
 const net = require('net');
-const config = require('./config');
+const _defaultConfig = require('./config');
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
 
 class RconManager {
-  constructor() {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.host]     Override RCON host
+   * @param {number} [options.port]     Override RCON port
+   * @param {string} [options.password] Override RCON password
+   * @param {string} [options.label]    Log prefix for multi-server identification
+   */
+  constructor(options = {}) {
     this.socket = null;
     this.connected = false;
     this.authenticated = false;
@@ -16,6 +23,12 @@ class RconManager {
     this._commandCallback = null; // only one command at a time
     this._authCallback = null;
     this._commandQueue = Promise.resolve();
+    // Per-instance overrides (for multi-server support)
+    this._host = options.host || null;
+    this._port = options.port || null;
+    this._password = options.password || null;
+    this._label = options.label || 'RCON';
+    this._cacheTtl = options.cacheTtl || null;
   }
 
   async connect() {
@@ -31,12 +44,16 @@ class RconManager {
 
       this.socket = new net.Socket();
 
-      this.socket.connect(config.rconPort, config.rconHost, () => {
+      const host = this._host || _defaultConfig.rconHost;
+      const port = this._port || _defaultConfig.rconPort;
+      const password = this._password || _defaultConfig.rconPassword;
+
+      this.socket.connect(port, host, () => {
         this.connected = true;
-        console.log(`[RCON] TCP connected to ${config.rconHost}:${config.rconPort}`);
+        console.log(`[${this._label}] TCP connected to ${host}:${port}`);
 
         // Send auth packet
-        this._sendPacket(1, SERVERDATA_AUTH, config.rconPassword);
+        this._sendPacket(1, SERVERDATA_AUTH, password);
 
         const authTimeout = setTimeout(() => {
           clearTimeout(timeout);
@@ -53,7 +70,7 @@ class RconManager {
             reject(new Error('Authentication failed — wrong RCON password'));
           } else {
             this.authenticated = true;
-            console.log('[RCON] Authenticated successfully');
+            console.log(`[${this._label}] Authenticated successfully`);
             resolve();
           }
         };
@@ -62,7 +79,7 @@ class RconManager {
       this.socket.on('data', (data) => this._onData(data));
 
       this.socket.on('error', (err) => {
-        console.error('[RCON] Socket error:', err.message);
+        console.error(`[${this._label}] Socket error:`, err.message);
         clearTimeout(timeout);
         this._cleanup();
         this._scheduleReconnect();
@@ -70,7 +87,7 @@ class RconManager {
 
       this.socket.on('close', () => {
         if (this.connected) {
-          console.log('[RCON] Connection closed');
+          console.log(`[${this._label}] Connection closed`);
           this._cleanup();
           this._scheduleReconnect();
         }
@@ -114,7 +131,7 @@ class RconManager {
           if (responseData) {
             resolve(responseData);
           } else {
-            console.error(`[RCON] No response for: ${command}`);
+            console.error(`[${this._label}] No response for: ${command}`);
             reject(new Error(`No response for command: ${command}`));
           }
         }
@@ -149,7 +166,8 @@ class RconManager {
     });
   }
 
-  async sendCached(command, ttl = config.statusCacheTtl) {
+  async sendCached(command, ttl = null) {
+    if (ttl === null) ttl = this._cacheTtl || _defaultConfig.statusCacheTtl;
     const cached = this.cache.get(command);
     if (cached && Date.now() - cached.timestamp < ttl) {
       return cached.data;
@@ -179,7 +197,8 @@ class RconManager {
   // ── Private ──────────────────────────────────────────────
 
   _nextId() {
-    return this.requestId++;
+    this.requestId = (this.requestId + 1) & 0x7FFFFFFF;
+    return this.requestId;
   }
 
   _sendPacket(id, type, body) {
@@ -203,7 +222,7 @@ class RconManager {
 
       // Sanity check — if size is nonsensical, try treating raw data as text
       if (size < 10 || size > 65536) {
-        console.log(`[RCON] Non-standard packet (size=${size}), treating as raw text`);
+        console.log(`[${this._label}] Non-standard packet (size=${size}), treating as raw text`);
         const rawText = this._responseBuffer.toString('utf8');
         this._responseBuffer = Buffer.alloc(0);
         if (this._commandCallback) {
@@ -260,16 +279,18 @@ class RconManager {
 
   _scheduleReconnect() {
     if (this.reconnectTimeout) return;
-    console.log('[RCON] Reconnecting in 15 seconds...');
+    console.log(`[${this._label}] Reconnecting in 15 seconds...`);
     this.reconnectTimeout = setTimeout(async () => {
       this.reconnectTimeout = null;
       try {
         await this.connect();
       } catch (err) {
-        console.error('[RCON] Reconnect failed:', err.message);
+        console.error(`[${this._label}] Reconnect failed:`, err.message);
       }
     }, 15000);
   }
 }
 
-module.exports = new RconManager();
+const _singleton = new RconManager();
+module.exports = _singleton;
+module.exports.RconManager = RconManager;

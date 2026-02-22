@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilde
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { isAdminView } = require('./config');
 const rcon = require('./rcon');
 const ChatRelay = require('./chat-relay');
 const StatusChannels = require('./status-channels');
@@ -12,15 +13,20 @@ const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 const PlayerStatsChannel = require('./player-stats-channel');
 const PvpScheduler = require('./pvp-scheduler');
+const panelApi = require('./panel-api');
+const PanelChannel = require('./panel-channel');
+const MultiServerManager = require('./multi-server');
 
 // ── Create Discord client ───────────────────────────────────
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,  // needed for admin chat bridge
-  ],
-});
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,  // needed for admin chat bridge
+];
+if (config.adminRoleIds.length > 0) {
+  intents.push(GatewayIntentBits.GuildMembers); // privileged — enable in Developer Portal
+}
+const client = new Client({ intents });
 
 // ── Load slash commands ─────────────────────────────────────
 client.commands = new Collection();
@@ -38,27 +44,51 @@ for (const file of commandFiles) {
 // ── Handle interactions ─────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
 
+  // ── Panel channel interactions (buttons, select menus, modals) ──
+  if (panelChannel) {
+    const isPanel = interaction.isButton()
+      || interaction.isStringSelectMenu()
+      || interaction.isModalSubmit();
+    if (isPanel) {
+      try {
+        const handled = await panelChannel.handleInteraction(interaction);
+        if (handled) return;
+      } catch (err) {
+        console.error('[BOT] Panel interaction error:', err.message);
+      }
+    }
+  }
+
   // ── Persistent select menu on the player-stats channel ──
-  if (interaction.isStringSelectMenu() && interaction.customId === 'playerstats_player_select') {
-    if (!playerStatsChannel) {
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_player_select')) {
+    const serverId = interaction.customId.split(':')[1] || '';
+    const psc = serverId
+      ? _findMultiServerModuleById(serverId, 'playerStatsChannel')
+      : playerStatsChannel;
+    if (!psc) {
       await interaction.reply({ content: 'Player stats module is currently disabled.', ephemeral: true });
       return;
     }
     const selectedId = interaction.values[0];
-    const isAdmin = interaction.member?.permissions?.has('Administrator') ?? false;
-    const embed = playerStatsChannel.buildFullPlayerEmbed(selectedId, { isAdmin });
+    const isAdmin = isAdminView(interaction.member);
+    const embed = psc.buildFullPlayerEmbed(selectedId, { isAdmin });
     await interaction.reply({ embeds: [embed], ephemeral: true });
     return;
   }
 
   // ── Clan select menu on the player-stats channel ──
-  if (interaction.isStringSelectMenu() && interaction.customId === 'playerstats_clan_select') {
-    if (!playerStatsChannel) {
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_clan_select')) {
+    const serverId = interaction.customId.split(':')[1] || '';
+    const psc = serverId
+      ? _findMultiServerModuleById(serverId, 'playerStatsChannel')
+      : playerStatsChannel;
+    if (!psc) {
       await interaction.reply({ content: 'Player stats module is currently disabled.', ephemeral: true });
       return;
     }
     const clanName = interaction.values[0].replace(/^clan:/, '');
-    const embed = playerStatsChannel.buildClanEmbed(clanName);
+    const isAdmin = isAdminView(interaction.member);
+    const embed = psc.buildClanEmbed(clanName, { isAdmin });
     await interaction.reply({ embeds: [embed], ephemeral: true });
     return;
   }
@@ -90,6 +120,8 @@ let autoMessages;
 let logWatcher;
 let playerStatsChannel;
 let pvpScheduler;
+let panelChannel;
+let multiServerManager;
 let adminChannel; // cached for online/offline notifications
 const startedAt = new Date();
 
@@ -99,6 +131,35 @@ function setStatus(name, status) { moduleStatus[name] = status; }
 
 function hasFtp() {
   return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
+}
+
+/**
+ * Find a module instance from an additional server by channel ID.
+ * Returns the module if the channel belongs to an additional server, or null.
+ */
+function _findMultiServerModule(channelId, moduleName) {
+  if (!multiServerManager) return null;
+  for (const [, instance] of multiServerManager._instances) {
+    const mod = instance._modules[moduleName];
+    if (!mod) continue;
+    // Check if this channel belongs to this server's config
+    const ch = instance.config;
+    if (channelId === ch.playerStatsChannelId ||
+        channelId === ch.serverStatusChannelId ||
+        channelId === ch.logChannelId ||
+        channelId === ch.chatChannelId ||
+        channelId === ch.adminChannelId) {
+      return mod;
+    }
+  }
+  return null;
+}
+
+/** Find a multi-server module by server ID (used for select menu routing). */
+function _findMultiServerModuleById(serverId, moduleName) {
+  if (!multiServerManager) return null;
+  const instance = multiServerManager._instances.get(serverId);
+  return instance?._modules[moduleName] || null;
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -130,6 +191,24 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Initialize player stats tracker (must be before LogWatcher)
   playerStats.init();
+
+  // ── Wipe saved message IDs on FIRST_RUN or NUKE_THREADS ──
+  //    Forces each module to bulk-delete old bot messages in its channel.
+  if (config.firstRun || config.nukeThreads) {
+    const msgIdFile = path.join(__dirname, '..', 'data', 'message-ids.json');
+    if (fs.existsSync(msgIdFile)) {
+      fs.unlinkSync(msgIdFile);
+      console.log('[BOT] Cleared message-ids.json (FIRST_RUN or NUKE_THREADS)');
+    }
+    // Also clear per-server message IDs
+    const serversDir = path.join(__dirname, '..', 'data', 'servers');
+    if (fs.existsSync(serversDir)) {
+      for (const entry of fs.readdirSync(serversDir)) {
+        const fp = path.join(serversDir, entry, 'message-ids.json');
+        if (fs.existsSync(fp)) { fs.unlinkSync(fp); }
+      }
+    }
+  }
 
   // ── Start modules with dependency checks ──────────────────
 
@@ -265,11 +344,61 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
   }
 
-  // ── Post online notification to daily activity thread ──
+  // Panel — admin dashboard channel + /qspanel command
+  if (config.enablePanel) {
+    // Multi-server manager (before panel, so panel can reference it)
+    multiServerManager = new MultiServerManager(readyClient);
+    await multiServerManager.startAll();
+
+    if (config.panelChannelId) {
+      panelChannel = new PanelChannel(readyClient, { moduleStatus, startedAt, multiServerManager });
+      await panelChannel.start();
+    }
+    if (panelApi.available) {
+      const channelNote = config.panelChannelId ? 'channel + ' : '';
+      setStatus('Panel', `🟢 Active (${channelNote}/qspanel command)`);
+      console.log(`[BOT] Panel API available — ${channelNote}/qspanel command active`);
+    } else if (config.panelChannelId) {
+      setStatus('Panel', '🟢 Active (bot controls only — no panel API)');
+      console.log('[BOT] Panel channel active (bot controls + env editor). Panel API not configured.');
+    } else {
+      setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY or PANEL_CHANNEL_ID)');
+      console.log('[BOT] Panel skipped — no API credentials or channel configured');
+    }
+  } else {
+    setStatus('Panel', '⚫ Disabled');
+    console.log('[BOT] Panel disabled via ENABLE_PANEL=false');
+  }
+
+  // ── Post online notification to admin channel ──
+  const SHUTDOWN_FLAG = path.join(__dirname, '..', 'data', 'bot-running.flag');
   try {
     if (config.adminChannelId) {
       adminChannel = await readyClient.channels.fetch(config.adminChannelId);
     }
+
+    // Detect unclean shutdown: if the flag file exists from a previous run,
+    // the bot crashed or was killed without running the shutdown handler.
+    if (adminChannel && fs.existsSync(SHUTDOWN_FLAG)) {
+      try {
+        const flagData = JSON.parse(fs.readFileSync(SHUTDOWN_FLAG, 'utf8'));
+        const lastStarted = flagData.startedAt ? new Date(flagData.startedAt) : null;
+        const uptime = lastStarted ? _formatUptime(Date.now() - lastStarted.getTime()) : 'unknown';
+        const offlineEmbed = new EmbedBuilder()
+          .setTitle('🔴 Bot Offline')
+          .setDescription('Unexpected shutdown (process was killed)')
+          .addFields(
+            { name: 'Uptime', value: uptime, inline: true },
+          )
+          .setColor(0xe74c3c)
+          .setTimestamp(lastStarted || new Date());
+        await adminChannel.send({ embeds: [offlineEmbed] }).catch(() => {});
+      } catch (_) { /* ignore parse errors */ }
+    }
+    // Write flag file — removed on clean shutdown
+    try {
+      fs.writeFileSync(SHUTDOWN_FLAG, JSON.stringify({ startedAt: startedAt.toISOString() }));
+    } catch (_) {}
 
     // Build status lines grouped by state
     const active   = [];
@@ -302,11 +431,11 @@ client.once(Events.ClientReady, async (readyClient) => {
       .setColor(0x2ecc71)
       .setTimestamp();
 
-    // Post to the daily activity thread (visible inline) or fall back to admin channel
-    if (logWatcher) {
-      await logWatcher.sendToThread(embed);
-    } else if (adminChannel) {
-      await adminChannel.send({ embeds: [embed] });
+    // Post to admin channel only (not activity thread — keep threads for game events)
+    if (adminChannel) {
+      await adminChannel.send({ embeds: [embed] }).catch(err => {
+        console.error('[BOT] Could not post online notification:', err.message);
+      });
     }
   } catch (err) {
     console.error('[BOT] Failed to post online notification:', err.message);
@@ -317,14 +446,55 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] NUKE_THREADS=true — rebuilding all activity threads...');
     try {
       const { rebuildThreads } = require('./commands/threads');
+      // Primary server
       const result = await rebuildThreads(readyClient);
       if (result.error) {
         console.error('[BOT] Thread rebuild failed:', result.error);
       } else {
-        console.log(`[BOT] Thread rebuild complete: ${result.created} created, ${result.deleted} deleted`);
+        console.log(`[BOT] Thread rebuild complete: ${result.created} created, ${result.deleted} replaced, ${result.preserved} messages preserved, ${result.cleaned} old messages cleaned`);
+      }
+      // Additional servers
+      const { loadServers, createServerConfig } = require('./multi-server');
+      const servers = loadServers();
+      for (const serverDef of servers) {
+        const label = serverDef.name || serverDef.id;
+        if (!serverDef.channels?.log) {
+          console.log(`[BOT] NUKE_THREADS: skipping ${label} (no log channel)`);
+          continue;
+        }
+        const serverConfig = createServerConfig(serverDef);
+        console.log(`[BOT] NUKE_THREADS: rebuilding threads for ${label}...`);
+        const srvResult = await rebuildThreads(readyClient, null, serverConfig);
+        if (srvResult.error) {
+          console.error(`[BOT] Thread rebuild for ${label} failed:`, srvResult.error);
+        } else {
+          console.log(`[BOT] Thread rebuild for ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`);
+        }
       }
     } catch (err) {
       console.error('[BOT] Thread rebuild error:', err.message);
+    }
+
+    // Invalidate thread caches so modules re-fetch the new threads
+    if (logWatcher) {
+      logWatcher.resetThreadCache();
+      console.log('[BOT] Primary LogWatcher thread cache reset');
+    }
+    if (chatRelay && typeof chatRelay.resetThreadCache === 'function') {
+      chatRelay.resetThreadCache();
+      console.log('[BOT] Primary ChatRelay thread cache reset');
+    }
+    if (multiServerManager) {
+      for (const [, instance] of multiServerManager._instances) {
+        if (instance._modules?.logWatcher) {
+          instance._modules.logWatcher.resetThreadCache();
+          console.log(`[BOT] ${instance.name || instance.id} LogWatcher thread cache reset`);
+        }
+        if (instance._modules?.chatRelay && typeof instance._modules.chatRelay.resetThreadCache === 'function') {
+          instance._modules.chatRelay.resetThreadCache();
+          console.log(`[BOT] ${instance.name || instance.id} ChatRelay thread cache reset`);
+        }
+      }
     }
 
     // Set NUKE_THREADS=false in .env so it doesn't run again
@@ -344,10 +514,13 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 // ── Graceful shutdown ───────────────────────────────────────
+let shuttingDown = false;
 async function shutdown(reason = 'Manual shutdown') {
+  if (shuttingDown) return; // prevent double-shutdown
+  shuttingDown = true;
   console.log('\n[BOT] Shutting down...');
 
-  // Post offline notification to daily activity thread before tearing down
+  // Post offline notification — try both thread AND admin channel for reliability
   try {
     const uptime = _formatUptime(Date.now() - startedAt.getTime());
 
@@ -365,11 +538,12 @@ async function shutdown(reason = 'Manual shutdown') {
       .setColor(0xe74c3c)
       .setTimestamp();
 
-    // Post to the daily activity thread (visible inline) or fall back to admin channel
-    if (logWatcher) {
-      await logWatcher.sendToThread(embed);
-    } else if (adminChannel) {
-      await adminChannel.send({ embeds: [embed] });
+    // Race the notification against a timeout so shutdown never hangs
+    if (adminChannel) {
+      await Promise.race([
+        adminChannel.send({ embeds: [embed] }).catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 5000)),
+      ]);
     }
   } catch (err) {
     console.error('[BOT] Failed to post offline notification:', err.message);
@@ -380,11 +554,17 @@ async function shutdown(reason = 'Manual shutdown') {
   if (serverStatus) serverStatus.stop();
   if (autoMessages) autoMessages.stop();
   if (pvpScheduler) pvpScheduler.stop();
+  if (panelChannel) panelChannel.stop();
   if (logWatcher) logWatcher.stop();
   if (playerStatsChannel) playerStatsChannel.stop();
+  if (multiServerManager) await multiServerManager.stopAll();
   playerStats.stop();
   playtime.stop();
   await rcon.disconnect();
+
+  // Remove running flag — signals clean shutdown
+  try { fs.unlinkSync(path.join(__dirname, '..', 'data', 'bot-running.flag')); } catch (_) {}
+
   client.destroy();
   process.exit(0);
 }

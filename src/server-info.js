@@ -1,4 +1,4 @@
-const rcon = require('./rcon');
+const _defaultRcon = require('./rcon');
 
 const COMMANDS = {
   INFO: 'info',
@@ -19,18 +19,21 @@ const COMMANDS = {
   SHUTDOWN: 'shutdown',
 };
 
-async function getServerInfo() {
-  const raw = await rcon.sendCached(COMMANDS.INFO, 30000);
+async function getServerInfo(rcon) {
+  const r = rcon || _defaultRcon;
+  const raw = await r.sendCached(COMMANDS.INFO, 30000);
   return parseServerInfo(raw);
 }
 
-async function getPlayerList() {
-  const raw = await rcon.sendCached(COMMANDS.PLAYERS, 15000);
+async function getPlayerList(rcon) {
+  const r = rcon || _defaultRcon;
+  const raw = await r.sendCached(COMMANDS.PLAYERS, 30000);
   return parsePlayerList(raw);
 }
 
-async function sendAdminMessage(message) {
-  return rcon.send(`${COMMANDS.ADMIN_MSG} ${message}`);
+async function sendAdminMessage(message, rcon) {
+  const r = rcon || _defaultRcon;
+  return r.send(`${COMMANDS.ADMIN_MSG} ${message}`);
 }
 
 // ── Parsers ─────────────────────────────────────────────────────────────

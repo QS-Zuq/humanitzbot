@@ -421,6 +421,7 @@ function parseSave(buf) {
         inventory: [],
         equipment: [],
         quickSlots: [],
+        backpackItems: [],
         // States
         playerStates: [],
         bodyConditions: [],
@@ -611,10 +612,11 @@ function parseSave(buf) {
     // Lore
     if (n === 'LoreId' && typeof prop.value === 'string') p.lore.push(prop.value);
 
-    // Inventory / Equipment / Quick Slots
+    // Inventory / Equipment / Quick Slots / Backpack
     if (n === 'PlayerInventory' && Array.isArray(prop.value)) p.inventory = prop.value;
     if (n === 'PlayerEquipment' && Array.isArray(prop.value)) p.equipment = prop.value;
     if (n === 'PlayerQuickSlots' && Array.isArray(prop.value)) p.quickSlots = prop.value;
+    if ((n === 'BackpackInventory' || n.startsWith('BackpackInventory_')) && Array.isArray(prop.value)) p.backpackItems = prop.value;
 
   }
 

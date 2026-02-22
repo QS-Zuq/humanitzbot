@@ -2,21 +2,24 @@ const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('dis
 const SftpClient = require('ssh2-sftp-client');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
-const playtime = require('./playtime-tracker');
-const playerStats = require('./player-stats');
+const _defaultConfig = require('./config');
+const _defaultPlaytime = require('./playtime-tracker');
+const _defaultPlayerStats = require('./player-stats');
 const { parseSave, parseClanData, PERK_MAP } = require('./save-parser');
 const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('./game-data');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const KILL_FILE = path.join(DATA_DIR, 'kill-tracker.json');
-const SETTINGS_FILE = path.join(DATA_DIR, 'server-settings.json');
-const WELCOME_STATS_FILE = path.join(DATA_DIR, 'welcome-stats.json');
-const WEEKLY_BASELINE_FILE = path.join(DATA_DIR, 'weekly-baseline.json');
+const _DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
 
 class PlayerStatsChannel {
-  constructor(client, logWatcher) {
+  constructor(client, logWatcher, deps = {}) {
+    this._config = deps.config || _defaultConfig;
+    this._playtime = deps.playtime || _defaultPlaytime;
+    this._playerStats = deps.playerStats || _defaultPlayerStats;
+    this._label = deps.label || 'PLAYER STATS CH';
+    this._dataDir = deps.dataDir || _DEFAULT_DATA_DIR;
+    this._serverId = deps.serverId || '';  // unique suffix for select menu IDs
+
     this.client = client;
     this._logWatcher = logWatcher || null; // for posting kill feed to activity thread
     this.channel = null;
@@ -36,8 +39,8 @@ class PlayerStatsChannel {
   // ── Cross-validated player resolver ─────────────────────────
 
   _resolvePlayer(steamId) {
-    const pt  = playtime.getPlaytime(steamId);
-    const log = playerStats.getStats(steamId);
+    const pt  = this._playtime.getPlaytime(steamId);
+    const log = this._playerStats.getStats(steamId);
     const save = this._saveData.get(steamId);
 
     // ── Name resolution: most-recent-event wins ──
@@ -55,7 +58,7 @@ class PlayerStatsChannel {
         name = ptName; // they agree
       }
     } else {
-      name = ptName || logName || playerStats.getNameForId(steamId) || steamId;
+      name = ptName || logName || this._playerStats.getNameForId(steamId) || steamId;
     }
 
     // ── Last active: max of both timestamps ──
@@ -71,29 +74,29 @@ class PlayerStatsChannel {
   }
 
   async start() {
-    if (!config.playerStatsChannelId) {
-      console.log('[PLAYER STATS CH] No PLAYER_STATS_CHANNEL_ID set, skipping.');
+    if (!this._config.playerStatsChannelId) {
+      console.log(`[${this._label}] No PLAYER_STATS_CHANNEL_ID set, skipping.`);
       return;
     }
 
     try {
-      this.channel = await this.client.channels.fetch(config.playerStatsChannelId);
+      this.channel = await this.client.channels.fetch(this._config.playerStatsChannelId);
       if (!this.channel) {
-        console.error('[PLAYER STATS CH] Channel not found! Check PLAYER_STATS_CHANNEL_ID.');
+        console.error(`[${this._label}] Channel not found! Check PLAYER_STATS_CHANNEL_ID.`);
         return;
       }
     } catch (err) {
-      console.error('[PLAYER STATS CH] Failed to fetch channel:', err.message);
+      console.error(`[${this._label}] Failed to fetch channel:`, err.message);
       return;
     }
 
-    console.log(`[PLAYER STATS CH] Posting in #${this.channel.name}`);
+    console.log(`[${this._label}] Posting in #${this.channel.name}`);
 
     // Load persistent kill tracker
     this._loadKillData();
 
-    // Clean old bot messages
-    await this._cleanOldMessages();
+    // Delete previous own message (by saved ID), not all bot messages
+    await this._cleanOwnMessage();
 
     // Post the initial embed
     const embed = this._buildOverviewEmbed();
@@ -102,6 +105,7 @@ class PlayerStatsChannel {
       embeds: [embed],
       ...(components.length > 0 && { components }),
     });
+    this._saveMessageId();
 
     // Do initial save parse
     await this._pollSave();
@@ -110,9 +114,9 @@ class PlayerStatsChannel {
     await this._updateEmbed();
 
     // Start save poll loop (5 min default)
-    const pollMs = Math.max(config.savePollInterval || 300000, 60000);
+    const pollMs = Math.max(this._config.savePollInterval || 300000, 60000);
     this.saveInterval = setInterval(() => this._pollSave().then(() => this._updateEmbed()), pollMs);
-    console.log(`[PLAYER STATS CH] Save poll every ${pollMs / 1000}s`);
+    console.log(`[${this._label}] Save poll every ${pollMs / 1000}s`);
 
     // Update embed every 60s (for playtime changes etc.)
     this._embedInterval = setInterval(() => this._updateEmbed(), 60000);
@@ -125,74 +129,83 @@ class PlayerStatsChannel {
   }
 
   async _pollSave() {
-    if (!config.ftpHost || config.ftpHost.startsWith('PASTE_')) return;
+    if (!this._config.ftpHost || this._config.ftpHost.startsWith('PASTE_')) return;
 
     const sftp = new SftpClient();
     try {
       await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
+        host: this._config.ftpHost,
+        port: this._config.ftpPort,
+        username: this._config.ftpUser,
+        password: this._config.ftpPassword,
       });
 
-      const buf = await sftp.get(config.ftpSavePath);
+      // Load PlayerIDMapped.txt early so names resolve on first embed
+      await this._refreshIdMap(sftp);
+
+      const buf = await sftp.get(this._config.ftpSavePath);
       const players = parseSave(buf);
       this._saveData = players;
       this._lastSaveUpdate = new Date();
-      console.log(`[PLAYER STATS CH] Parsed save: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
+      console.log(`[${this._label}] Parsed save: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
 
       // Accumulate lifetime stats across deaths (kills + survival)
       this._accumulateStats();
 
       // Parse clan data (separate small file)
       try {
-        const clanPath = config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav');
+        const clanPath = this._config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav');
         const clanBuf = await sftp.get(clanPath);
         this._clanData = parseClanData(clanBuf);
-        console.log(`[PLAYER STATS CH] Parsed clans: ${this._clanData.length} clans`);
+        console.log(`[${this._label}] Parsed clans: ${this._clanData.length} clans`);
       } catch (err) {
         if (!err.message.includes('No such file')) {
-          console.error('[PLAYER STATS CH] Clan data error:', err.message);
+          console.error(`[${this._label}] Clan data error:`, err.message);
         }
       }
 
       // Fetch server settings (INI file)
       try {
-        const settingsPath = config.ftpSettingsPath || '/HumanitZServer/GameServerSettings.ini';
+        const settingsPath = this._config.ftpSettingsPath || '/HumanitZServer/GameServerSettings.ini';
         const settingsBuf = await sftp.get(settingsPath);
         const settingsText = settingsBuf.toString('utf8');
         this._serverSettings = _parseIni(settingsText);
         // Cache to disk for other modules
-        try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(this._serverSettings, null, 2)); } catch (_) {}
-        console.log(`[PLAYER STATS CH] Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
+        try { fs.writeFileSync(path.join(this._dataDir, 'server-settings.json'), JSON.stringify(this._serverSettings, null, 2)); } catch (_) {}
+        console.log(`[${this._label}] Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
       } catch (err) {
         // Try loading cached settings
         try {
-          if (fs.existsSync(SETTINGS_FILE)) {
-            this._serverSettings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+          const _settingsFile = path.join(this._dataDir, 'server-settings.json');
+          if (fs.existsSync(_settingsFile)) {
+            this._serverSettings = JSON.parse(fs.readFileSync(_settingsFile, 'utf8'));
           }
         } catch (_) {}
         if (!err.message.includes('No such file')) {
-          console.error('[PLAYER STATS CH] Server settings error:', err.message);
+          console.error(`[${this._label}] Server settings error:`, err.message);
         }
       }
       // Cache leaderboard data for WelcomeMessage.txt
       this._cacheWelcomeStats();
 
       // Write updated WelcomeMessage.txt to server (reuse open SFTP connection)
-      if (config.enableWelcomeFile) {
+      if (this._config.enableWelcomeFile) {
         try {
-          const content = await buildWelcomeContent();
-          await sftp.put(Buffer.from(content, 'utf8'), config.ftpWelcomePath);
-          console.log('[PLAYER STATS CH] Updated WelcomeMessage.txt on server');
+          const content = await buildWelcomeContent({
+            config: this._config,
+            playtime: this._playtime,
+            playerStats: this._playerStats,
+            dataDir: this._dataDir,
+          });
+          await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
+          console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
         } catch (err) {
-          console.error('[PLAYER STATS CH] Failed to write WelcomeMessage.txt:', err.message);
+          console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
         }
       }
 
     } catch (err) {
-      console.error('[PLAYER STATS CH] Save poll error:', err.message);
+      console.error(`[${this._label}] Save poll error:`, err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
@@ -205,7 +218,7 @@ class PlayerStatsChannel {
    */
   _cacheWelcomeStats() {
     try {
-      const allLog = playerStats.getAllPlayers();
+      const allLog = this._playerStats.getAllPlayers();
 
       // ── Top players by lifetime kills ──
       const topKillers = [];
@@ -255,7 +268,7 @@ class PlayerStatsChannel {
         for (const m of clan.members) {
           const at = this.getAllTimeKills(m.steamId);
           if (at) totalKills += at.zeeksKilled || 0;
-          const pt = playtime.getPlaytime(m.steamId);
+          const pt = this._playtime.getPlaytime(m.steamId);
           if (pt) totalPlaytimeMs += pt.totalMs || 0;
         }
         topClans.push({
@@ -280,9 +293,9 @@ class PlayerStatsChannel {
         topClans: topClans.slice(0, 5),
         weekly,
       };
-      fs.writeFileSync(WELCOME_STATS_FILE, JSON.stringify(cache, null, 2));
+      fs.writeFileSync(path.join(this._dataDir, 'welcome-stats.json'), JSON.stringify(cache, null, 2));
     } catch (err) {
-      console.error('[PLAYER STATS CH] Failed to cache welcome stats:', err.message);
+      console.error(`[${this._label}] Failed to cache welcome stats:`, err.message);
     }
   }
 
@@ -291,13 +304,14 @@ class PlayerStatsChannel {
    * and return top-5 weekly delta leaderboards.
    */
   _computeWeeklyStats() {
-    if (!config.showWeeklyStats) return null;
+    if (!this._config.showWeeklyStats) return null;
 
     // Load existing baseline
     let baseline = { weekStart: null, players: {} };
     try {
-      if (fs.existsSync(WEEKLY_BASELINE_FILE)) {
-        baseline = JSON.parse(fs.readFileSync(WEEKLY_BASELINE_FILE, 'utf8'));
+      const _weeklyFile = path.join(this._dataDir, 'weekly-baseline.json');
+      if (fs.existsSync(_weeklyFile)) {
+        baseline = JSON.parse(fs.readFileSync(_weeklyFile, 'utf8'));
       }
     } catch (_) {}
 
@@ -312,15 +326,15 @@ class PlayerStatsChannel {
         baseline.players[id] = this._snapshotPlayerStats(id);
       }
       try {
-        fs.writeFileSync(WEEKLY_BASELINE_FILE, JSON.stringify(baseline, null, 2));
-        console.log('[PLAYER STATS CH] Weekly baseline reset');
+        fs.writeFileSync(path.join(this._dataDir, 'weekly-baseline.json'), JSON.stringify(baseline, null, 2));
+        console.log(`[${this._label}] Weekly baseline reset`);
       } catch (err) {
-        console.error('[PLAYER STATS CH] Failed to write weekly baseline:', err.message);
+        console.error(`[${this._label}] Failed to write weekly baseline:`, err.message);
       }
     }
 
     // Compute deltas: current - baseline
-    const allLog = playerStats.getAllPlayers();
+    const allLog = this._playerStats.getAllPlayers();
     const logMap = new Map(allLog.map(p => [p.id, p]));
 
     const weeklyKillers = [];
@@ -354,7 +368,7 @@ class PlayerStatsChannel {
       if (bites > 0) weeklyBitten.push({ name: resolved.name, count: bites });
 
       // Playtime
-      const pt = playtime.getPlaytime(id);
+      const pt = this._playtime.getPlaytime(id);
       const ptMs = (pt?.totalMs || 0) - (snap.playtimeMs || 0);
       if (ptMs > 60000) weeklyPlaytime.push({ name: resolved.name, ms: ptMs });
     }
@@ -380,9 +394,9 @@ class PlayerStatsChannel {
    */
   _snapshotPlayerStats(id) {
     const at = this.getAllTimeKills(id);
-    const log = playerStats.getStats(id);
+    const log = this._playerStats.getStats(id);
     const save = this._saveData.get(id);
-    const pt = playtime.getPlaytime(id);
+    const pt = this._playtime.getPlaytime(id);
     return {
       kills: at?.zeeksKilled || 0,
       pvpKills: log?.pvpKills || 0,
@@ -398,12 +412,12 @@ class PlayerStatsChannel {
    */
   _isNewWeek(weekStartIso, now) {
     const weekStart = new Date(weekStartIso);
-    const resetDay = config.weeklyResetDay; // 0=Sun, 1=Mon, … 6=Sat
+    const resetDay = this._config.weeklyResetDay; // 0=Sun, 1=Mon, … 6=Sat
 
     // Find the most recent reset-day boundary in bot timezone
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
-      timeZone: config.botTimezone,
+      timeZone: this._config.botTimezone,
     });
     const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const currentDay = dayMap[dayStr] ?? now.getDay();
@@ -422,24 +436,124 @@ class PlayerStatsChannel {
     try {
       const embed = this._buildOverviewEmbed();
       const components = [...this._buildPlayerRow(), ...this._buildClanRow()];
+
+      // Skip Discord API call if content hasn't changed since last edit
+      const contentKey = JSON.stringify(embed.data) + JSON.stringify(components.map(c => c.toJSON()));
+      if (contentKey === this._lastEmbedKey) return;
+      this._lastEmbedKey = contentKey;
+
       await this.statusMessage.edit({
         embeds: [embed],
         ...(components.length > 0 && { components }),
       });
     } catch (err) {
-      console.error('[PLAYER STATS CH] Embed update error:', err.message);
+      // Message was deleted externally — re-create it
+      if (err.code === 10008) {
+        console.log(`[${this._label}] Embed message was deleted, re-creating...`);
+        try {
+          const freshEmbed = this._buildOverviewEmbed();
+          const components = [...this._buildPlayerRow(), ...this._buildClanRow()];
+          this.statusMessage = await this.channel.send({
+            embeds: [freshEmbed],
+            ...(components.length > 0 && { components }),
+          });
+          this._saveMessageId();
+        } catch (createErr) {
+          console.error(`[${this._label}] Failed to re-create message:`, createErr.message);
+        }
+      } else {
+        console.error(`[${this._label}] Embed update error:`, err.message);
+      }
     }
   }
 
-  async _cleanOldMessages() {
+  async _cleanOwnMessage() {
+    const savedId = this._loadMessageId();
+    if (savedId) {
+      // Have a saved ID — delete only that specific message
+      try {
+        const msg = await this.channel.messages.fetch(savedId);
+        if (msg && msg.author.id === this.client.user.id) {
+          await msg.delete();
+          console.log(`[${this._label}] Cleaned previous message ${savedId}`);
+          return; // success — no need for bulk sweep
+        }
+      } catch (err) {
+        if (err.code !== 10008) {
+          console.log(`[${this._label}] Could not clean saved message:`, err.message);
+          return;
+        }
+        // 10008 = message gone — fall through to bulk sweep
+        console.log(`[${this._label}] Saved message ${savedId} already gone, sweeping channel...`);
+      }
+    }
+    // No saved ID, or saved message was already deleted — sweep old bot messages
+    // Only delete messages older than this process start to avoid wiping
+    // sibling multi-server embeds posted earlier in this same startup.
+    const bootTime = Date.now() - process.uptime() * 1000;
     try {
       const messages = await this.channel.messages.fetch({ limit: 20 });
-      const botMessages = messages.filter(m => m.author.id === this.client.user.id && !m.hasThread);
-      for (const [, msg] of botMessages) {
-        try { await msg.delete(); } catch (_) {}
+      const botMessages = messages.filter(m => m.author.id === this.client.user.id && m.createdTimestamp < bootTime);
+      if (botMessages.size > 0) {
+        console.log(`[${this._label}] Cleaning ${botMessages.size} old bot message(s)`);
+        for (const [, msg] of botMessages) {
+          try { await msg.delete(); } catch (_) {}
+        }
       }
     } catch (err) {
-      console.log('[PLAYER STATS CH] Could not clean old messages:', err.message);
+      console.log(`[${this._label}] Could not clean old messages:`, err.message);
+    }
+  }
+
+  _loadMessageId() {
+    try {
+      const fp = path.join(this._dataDir, 'message-ids.json');
+      if (fs.existsSync(fp)) {
+        const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        return data.playerStats || null;
+      }
+    } catch {} return null;
+  }
+
+  _saveMessageId() {
+    if (!this.statusMessage) return;
+    try {
+      const fp = path.join(this._dataDir, 'message-ids.json');
+      let data = {};
+      try { if (fs.existsSync(fp)) data = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch {}
+      data.playerStats = this.statusMessage.id;
+      fs.writeFileSync(fp, JSON.stringify(data, null, 2));
+    } catch {}
+  }
+
+  /**
+   * Download PlayerIDMapped.txt and feed it to PlayerStats so names resolve
+   * before the overview embed is built. Reuses the already-open SFTP connection.
+   */
+  async _refreshIdMap(sftp) {
+    try {
+      const idMapPath = this._config.ftpIdMapPath;
+      if (!idMapPath) return;
+      const buf = await sftp.get(idMapPath);
+      const text = buf.toString('utf8');
+      const entries = [];
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const match = trimmed.match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
+        if (match) entries.push({ steamId: match[1], name: match[2].trim() });
+      }
+      if (entries.length > 0) {
+        this._playerStats.loadIdMap(entries);
+        // Cache locally for fast startup next time
+        try { fs.writeFileSync(path.join(this._dataDir, 'PlayerIDMapped.txt'), text); } catch (_) {}
+        console.log(`[${this._label}] Loaded ${entries.length} name(s) from PlayerIDMapped.txt`);
+      }
+    } catch (err) {
+      // Not critical — file may not exist on this server
+      if (!err.message.includes('No such file')) {
+        console.log(`[${this._label}] Could not read PlayerIDMapped.txt:`, err.message);
+      }
     }
   }
 
@@ -462,10 +576,11 @@ class PlayerStatsChannel {
 
   _loadKillData() {
     try {
-      if (fs.existsSync(KILL_FILE)) {
-        this._killData = JSON.parse(fs.readFileSync(KILL_FILE, 'utf8'));
+      const _killFile = path.join(this._dataDir, 'kill-tracker.json');
+      if (fs.existsSync(_killFile)) {
+        this._killData = JSON.parse(fs.readFileSync(_killFile, 'utf8'));
         const count = Object.keys(this._killData.players).length;
-        console.log(`[STAT TRACKER] Loaded ${count} player(s) from kill-tracker.json`);
+        console.log(`[${this._label}] Loaded ${count} player(s) from kill-tracker.json`);
         // Migrate old records: add missing fields
         for (const record of Object.values(this._killData.players)) {
           if (!record.survivalCumulative) record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
@@ -482,7 +597,7 @@ class PlayerStatsChannel {
         }
       }
     } catch (err) {
-      console.error('[STAT TRACKER] Failed to load, starting fresh:', err.message);
+      console.error(`[${this._label}] Failed to load kill tracker, starting fresh:`, err.message);
       this._killData = { players: {} };
     }
   }
@@ -490,11 +605,11 @@ class PlayerStatsChannel {
   _saveKillData() {
     if (!this._killDirty) return;
     try {
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(KILL_FILE, JSON.stringify(this._killData, null, 2), 'utf8');
+      if (!fs.existsSync(this._dataDir)) fs.mkdirSync(this._dataDir, { recursive: true });
+      fs.writeFileSync(path.join(this._dataDir, 'kill-tracker.json'), JSON.stringify(this._killData, null, 2), 'utf8');
       this._killDirty = false;
     } catch (err) {
-      console.error('[STAT TRACKER] Failed to save:', err.message);
+      console.error(`[${this._label}] Failed to save kill tracker:`, err.message);
     }
   }
 
@@ -528,7 +643,7 @@ class PlayerStatsChannel {
 
       if (!this._killData.players[id]) {
         // First time seeing this player — initialise both trackers
-        const logDeaths = playerStats.getStats(id)?.deaths || 0;
+        const logDeaths = this._playerStats.getStats(id)?.deaths || 0;
         this._killData.players[id] = {
           cumulative: PlayerStatsChannel._emptyKills(),
           lastSnapshot: currentKills,
@@ -576,7 +691,7 @@ class PlayerStatsChannel {
         record.hasExtendedStats = true;
         // Clear stale cumulative data (ExtendedStats replaces the banking system)
         if (record.cumulative.zeeksKilled > 0 || record.survivalCumulative?.daysSurvived > 0) {
-          console.log(`[STAT TRACKER] ${id}: ExtendedStats available — clearing banked cumulative`);
+          console.log(`[${this._label}] ${id}: ExtendedStats available — clearing banked cumulative`);
           record.cumulative = PlayerStatsChannel._emptyKills();
           record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
         }
@@ -592,7 +707,7 @@ class PlayerStatsChannel {
         };
 
         // Death checkpoint: detect new deaths via log data and snapshot lifetime kills
-        const logDeaths = playerStats.getStats(id)?.deaths || 0;
+        const logDeaths = this._playerStats.getStats(id)?.deaths || 0;
         const prevDeaths = record.lastKnownDeaths || 0;
         if (logDeaths > prevDeaths) {
           // Death occurred — set checkpoint = lifetimeKills - current GameStats kills
@@ -605,7 +720,7 @@ class PlayerStatsChannel {
           }
           record.deathCheckpoint = cp;
           record.lastKnownDeaths = logDeaths;
-          console.log(`[STAT TRACKER] ${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`);
+          console.log(`[${this._label}] ${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`);
           this._killDirty = true;
         } else if (record.lastKnownDeaths !== logDeaths) {
           record.lastKnownDeaths = logDeaths;
@@ -622,7 +737,7 @@ class PlayerStatsChannel {
           for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
             record.survivalCumulative[k] += lastSurvival[k];
           }
-          console.log(`[STAT TRACKER] ${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`);
+          console.log(`[${this._label}] ${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`);
           record.lastSnapshot = currentKills;
           record.survivalSnapshot = currentSurvival;
           this._killDirty = true;
@@ -681,11 +796,11 @@ class PlayerStatsChannel {
     this._saveKillData();
 
     // Post kill feed to activity thread if enabled
-    if (killDeltas.length > 0 && config.enableKillFeed && this._logWatcher) {
+    if (killDeltas.length > 0 && this._config.enableKillFeed && this._logWatcher) {
       this._postKillFeed(killDeltas);
     }
     // Post survival feed to activity thread if enabled
-    if (survivalDeltas.length > 0 && config.enableKillFeed && this._logWatcher) {
+    if (survivalDeltas.length > 0 && this._config.enableKillFeed && this._logWatcher) {
       this._postSurvivalFeed(survivalDeltas);
     }
   }
@@ -714,7 +829,7 @@ class PlayerStatsChannel {
     try {
       await this._logWatcher.sendToThread(embed);
     } catch (err) {
-      console.error('[KILL FEED] Failed to post to activity thread:', err.message);
+      console.error(`[${this._label}] Failed to post kill feed to activity thread:`, err.message);
     }
   }
 
@@ -734,7 +849,7 @@ class PlayerStatsChannel {
     try {
       await this._logWatcher.sendToThread(embed);
     } catch (err) {
-      console.error('[SURVIVAL FEED] Failed to post to activity thread:', err.message);
+      console.error(`[${this._label}] Failed to post survival feed to activity thread:`, err.message);
     }
   }
 
@@ -864,15 +979,16 @@ class PlayerStatsChannel {
   }
 
   _buildOverviewEmbed() {
+    const serverTag = this._config.serverName ? ` — ${this._config.serverName}` : '';
     const embed = new EmbedBuilder()
-      .setTitle('Player Statistics')
+      .setTitle(`Player Statistics${serverTag}`)
       .setColor(0x9b59b6)
       .setTimestamp()
       .setFooter({ text: 'Select a player below for full stats · Last updated' });
 
     // ── Merge all player data ──
-    const allLog = playerStats.getAllPlayers();
-    const allPlaytime = playtime.getLeaderboard();
+    const allLog = this._playerStats.getAllPlayers();
+    const allPlaytime = this._playtime.getLeaderboard();
 
     // Build merged roster — use _resolvePlayer() for consistent name + timestamp resolution
     const roster = new Map();
@@ -937,16 +1053,16 @@ class PlayerStatsChannel {
         const atSurv = this.getAllTimeSurvival(id);
         if (atSurv) totalDays += atSurv.daysSurvived;
       }
-      const grid = [
-        `Kills     ${String(totalKills).padStart(6)}    Headshots ${String(totalHS).padStart(6)}`,
-        `Melee     ${String(totalMelee).padStart(6)}    Ranged    ${String(totalGun).padStart(6)}`,
-        `Days      ${String(totalDays).padStart(6)}    Players   ${String(allTrackedIds.size).padStart(6)}`,
+      const totals = [
+        `Kills: **${totalKills}**  ·  Headshots: **${totalHS}**`,
+        `Melee: **${totalMelee}**  ·  Ranged: **${totalGun}**`,
+        `Days: **${totalDays}**  ·  Players: **${allTrackedIds.size}**`,
       ];
-      embed.addFields({ name: 'Server Totals (All Time)', value: '```\n' + grid.join('\n') + '\n```' });
+      embed.addFields({ name: 'Server Totals (All Time)', value: totals.join('\n') });
     }
 
     // ── Top Playtime ──
-    const leaderboard = playtime.getLeaderboard();
+    const leaderboard = this._playtime.getLeaderboard();
     if (leaderboard.length > 0) {
       const medals = ['🥇', '🥈', '🥉'];
       const top5 = leaderboard.slice(0, 5).map((entry, i) => {
@@ -965,7 +1081,7 @@ class PlayerStatsChannel {
       const totalPvpKills = allLog.reduce((s, p) => s + (p.pvpKills || 0), 0);
       const parts = [`Deaths: **${totalDeaths}**`, `Builds: **${totalBuilds}**`, `Looted: **${totalLoots}**`, `Hits: **${totalDmg}**`];
       if (totalPvpKills > 0) parts.push(`PvP Kills: **${totalPvpKills}**`);
-      if (config.showRaidStats) {
+      if (this._config.showRaidStats) {
         const totalRaids = allLog.reduce((s, p) => s + p.raidsOut, 0);
         parts.push(`Raids: **${totalRaids}**`);
       }
@@ -973,13 +1089,13 @@ class PlayerStatsChannel {
     }
 
     // ── Last 10 PvP Kills ──
-    if (config.showPvpKills && this._logWatcher) {
+    if (this._config.showPvpKills && this._logWatcher) {
       const recentKills = this._logWatcher.getPvpKills(10);
       if (recentKills.length > 0) {
         const killLines = recentKills.slice().reverse().map(k => {
           const ts = new Date(k.timestamp);
-          const timeStr = ts.toLocaleDateString('en-GB', { timeZone: config.botTimezone, day: 'numeric', month: 'short' }) +
-            ' ' + ts.toLocaleTimeString('en-GB', { timeZone: config.botTimezone, hour: '2-digit', minute: '2-digit' });
+          const timeStr = ts.toLocaleDateString('en-GB', { timeZone: this._config.botTimezone, day: 'numeric', month: 'short' }) +
+            ' ' + ts.toLocaleTimeString('en-GB', { timeZone: this._config.botTimezone, hour: '2-digit', minute: '2-digit' });
           return `**${k.killer}** killed **${k.victim}** — ${timeStr}`;
         });
         embed.addFields({ name: 'Recent PvP Kills', value: killLines.join('\n') });
@@ -1007,7 +1123,7 @@ class PlayerStatsChannel {
     }
 
     // ── Most Bitten Leaderboard (from save data) ──
-    if (config.showMostBitten && this._saveData.size > 0) {
+    if (this._config.showMostBitten && this._saveData.size > 0) {
       const bitten = [...this._saveData.entries()]
         .map(([id, save]) => ({ id, name: roster.get(id)?.name || id, count: save.timesBitten || 0 }))
         .filter(e => e.count > 0)
@@ -1024,7 +1140,7 @@ class PlayerStatsChannel {
     }
 
     // ── Most Fish Caught Leaderboard (from save data) ──
-    if (config.showMostFish && this._saveData.size > 0) {
+    if (this._config.showMostFish && this._saveData.size > 0) {
       const fishers = [...this._saveData.entries()]
         .map(([id, save]) => {
           const pike = save.fishCaughtPike || 0;
@@ -1045,7 +1161,7 @@ class PlayerStatsChannel {
     }
 
     // ── Top PvP Killers (all-time, from logs) ──
-    if (config.showPvpKills && allLog.length > 0) {
+    if (this._config.showPvpKills && allLog.length > 0) {
       const pvpKillers = allLog
         .filter(p => (p.pvpKills || 0) > 0)
         .map(p => ({ name: roster.get(p.id)?.name || p.id, kills: p.pvpKills }))
@@ -1065,7 +1181,7 @@ class PlayerStatsChannel {
     const w = this._weeklyStats;
     if (w) {
       const weekLabel = w.weekStart
-        ? `Since ${new Date(w.weekStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: config.botTimezone })}`
+        ? `Since ${new Date(w.weekStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: this._config.botTimezone })}`
         : 'This Week';
       const weeklyParts = [];
 
@@ -1127,17 +1243,17 @@ class PlayerStatsChannel {
     }
 
     // ── Server Info ──
-    const peaks = playtime.getPeaks();
-    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone });
+    const peaks = this._playtime.getPeaks();
+    const trackingSince = new Date(this._playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: this._config.botTimezone });
 
     embed.addFields(
-      { name: "Today's Peak", value: `${peaks.todayPeak}`, inline: true },
-      { name: 'All-Time Peak', value: `${peaks.allTimePeak}`, inline: true },
+      { name: "Today's Peak", value: `${peaks.todayPeak} online · ${peaks.uniqueToday} unique`, inline: true },
+      { name: 'Peak Online', value: `${peaks.allTimePeak}`, inline: true },
       { name: 'Total Players', value: `${playerCount}`, inline: true },
     );
 
     const updateNote = this._lastSaveUpdate
-      ? `Save data: ${this._lastSaveUpdate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: config.botTimezone })}`
+      ? `Save data: ${this._lastSaveUpdate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: this._config.botTimezone })}`
       : 'Save data: loading...';
     embed.setFooter({ text: `${updateNote} · Tracking since ${trackingSince} · Last updated` });
 
@@ -1148,7 +1264,7 @@ class PlayerStatsChannel {
     const merged = new Map();
 
     // Add from player-stats (use resolver for consistent names)
-    for (const p of playerStats.getAllPlayers()) {
+    for (const p of this._playerStats.getAllPlayers()) {
       const resolved = this._resolvePlayer(p.id);
       const at = this.getAllTimeKills(p.id);
       const atSurv = this.getAllTimeSurvival(p.id);
@@ -1162,7 +1278,7 @@ class PlayerStatsChannel {
 
     // Add from playtime + save data (catch players not in player-stats)
     const extraIds = new Set([
-      ...playtime.getLeaderboard().map(p => p.id),
+      ...this._playtime.getLeaderboard().map(p => p.id),
       ...this._saveData.keys(),
     ]);
     for (const id of extraIds) {
@@ -1194,8 +1310,9 @@ class PlayerStatsChannel {
       value: id,
     }));
 
+    const idSuffix = this._serverId ? `:${this._serverId}` : '';
     const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId('playerstats_player_select')
+      .setCustomId(`playerstats_player_select${idSuffix}`)
       .setPlaceholder('Select a player to view full stats...')
       .addOptions(options);
 
@@ -1221,15 +1338,16 @@ class PlayerStatsChannel {
       };
     });
 
+    const idSuffix = this._serverId ? `:${this._serverId}` : '';
     const selectMenu = new StringSelectMenuBuilder()
-      .setCustomId('playerstats_clan_select')
+      .setCustomId(`playerstats_clan_select${idSuffix}`)
       .setPlaceholder('Select a clan to view group stats...')
       .addOptions(options.slice(0, 25));
 
     return [new ActionRowBuilder().addComponents(selectMenu)];
   }
 
-  buildClanEmbed(clanName) {
+  buildClanEmbed(clanName, { isAdmin = false } = {}) {
     const clan = this._clanData.find(c => c.name === clanName);
     if (!clan) {
       return new EmbedBuilder()
@@ -1237,8 +1355,9 @@ class PlayerStatsChannel {
         .setColor(0xe74c3c);
     }
 
+    const serverTag = this._config.serverName ? ` [${this._config.serverName}]` : '';
     const embed = new EmbedBuilder()
-      .setTitle(`${clan.name}`)
+      .setTitle(`${clan.name}${serverTag}`)
       .setColor(0xe67e22)
       .setTimestamp();
 
@@ -1282,7 +1401,7 @@ class PlayerStatsChannel {
     let totalPlaytimeMs = 0;
 
     for (const m of clan.members) {
-      const log = playerStats.getStats(m.steamId);
+      const log = this._playerStats.getStats(m.steamId);
       if (log) {
         totalDeaths += log.deaths;
         totalBuilds += log.builds;
@@ -1291,7 +1410,7 @@ class PlayerStatsChannel {
         totalRaidsOut += log.raidsOut;
         totalRaidsIn += log.raidsIn;
       }
-      const pt = playtime.getPlaytime(m.steamId);
+      const pt = this._playtime.getPlaytime(m.steamId);
       if (pt) totalPlaytimeMs += pt.totalMs;
     }
 
@@ -1303,11 +1422,8 @@ class PlayerStatsChannel {
 
     // ── Kill Stats ──
     if (totalKills > 0) {
-      const grid = [
-        `Kills     ${String(totalKills).padStart(6)}    Headshots ${String(totalHS).padStart(6)}`,
-        `Melee     ${String(totalMelee).padStart(6)}    Ranged    ${String(totalGun).padStart(6)}`,
-      ];
-      embed.addFields({ name: 'Kill Stats', value: '```\n' + grid.join('\n') + '\n```' });
+      const parts = [`Kills: **${totalKills}**`, `Headshots: **${totalHS}**`, `Melee: **${totalMelee}**`, `Ranged: **${totalGun}**`];
+      embed.addFields({ name: 'Kill Stats', value: parts.join('  ·  ') });
     }
 
     // ── Survival ──
@@ -1321,7 +1437,7 @@ class PlayerStatsChannel {
     if (totalBuilds > 0) actParts.push(`Builds: **${totalBuilds}**`);
     if (totalLoots > 0) actParts.push(`Looted: **${totalLoots}**`);
     if (totalDmg > 0) actParts.push(`Hits: **${totalDmg}**`);
-    if (config.showRaidStats) {
+    if (this._config.canShow('showRaidStats', isAdmin)) {
       if (totalRaidsOut > 0) actParts.push(`Raids Out: **${totalRaidsOut}**`);
       if (totalRaidsIn > 0) actParts.push(`Raided: **${totalRaidsIn}**`);
     }
@@ -1331,8 +1447,8 @@ class PlayerStatsChannel {
     const memberLines = clan.members.map(m => {
       const save = this._saveData.get(m.steamId);
       const at = this.getAllTimeKills(m.steamId);
-      const pt = playtime.getPlaytime(m.steamId);
-      const log = playerStats.getStats(m.steamId);
+      const pt = this._playtime.getPlaytime(m.steamId);
+      const log = this._playerStats.getStats(m.steamId);
 
       const displayName = m.name;
 
@@ -1365,8 +1481,9 @@ class PlayerStatsChannel {
     const tips = gameData.LOADING_TIPS.filter(t => t.length > 20 && t.length < 120);
     const tip = tips.length > 0 ? tips[Math.floor(Math.random() * tips.length)] : null;
 
+    const serverTag = this._config.serverName ? ` [${this._config.serverName}]` : '';
     const embed = new EmbedBuilder()
-      .setTitle(resolved.name)
+      .setTitle(`${resolved.name}${serverTag}`)
       .setColor(0x9b59b6)
       .setTimestamp()
       .setFooter({ text: tip ? `Tip: ${tip}` : 'HumanitZ Player Stats' });
@@ -1399,7 +1516,7 @@ class PlayerStatsChannel {
       if (pt) lines.push(`**Playtime:** ${pt.totalFormatted}  ·  **Sessions:** ${pt.sessions}`);
       if (resolved.firstSeen) {
         const fs = new Date(resolved.firstSeen);
-        lines.push(`**First Seen:** ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: config.botTimezone })}`);
+        lines.push(`**First Seen:** ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: this._config.botTimezone })}`);
       }
       if (lines.length > 0) embed.addFields({ name: 'Character', value: lines.join('\n') });
     }
@@ -1409,7 +1526,7 @@ class PlayerStatsChannel {
       embed.addFields({ name: 'Previous Names', value: logData.nameHistory.map(h => h.name).join(', ') });
     }
 
-    // ── Kill Stats (code block grid) ──
+    // ── Kill Stats ──
     if (saveData) {
       const at = this.getAllTimeKills(steamId);
       const cl = this.getCurrentLifeKills(steamId);
@@ -1425,7 +1542,6 @@ class PlayerStatsChannel {
       ];
       const rows = [];
       const hasExt = saveData.hasExtendedStats;
-      // Check if current-life differs from all-time (i.e. player has died)
       let hasDiff = false;
       for (const [, key] of types) {
         if ((cl?.[key] || 0) !== (at?.[key] || 0)) { hasDiff = true; break; }
@@ -1433,24 +1549,16 @@ class PlayerStatsChannel {
       for (const [label, key] of types) {
         const all = at?.[key] || 0;
         const life = cl?.[key] || 0;
-        if (life > 0 || all > 0) {
-          if (hasExt && hasDiff) {
-            // Two-column: current life │ all-time
-            rows.push(`${label.padEnd(12)}${String(life).padStart(4)} │ ${String(all).padStart(4)}`);
+        if (all > 0 || life > 0) {
+          if (hasExt && hasDiff && life > 0) {
+            rows.push(`${label}: **${all}** (Life: **${life}**)`);
           } else {
-            rows.push(`${label.padEnd(12)}${String(all || life).padStart(4)}`);
+            rows.push(`${label}: **${all}**`);
           }
         }
       }
       if (rows.length > 0) {
-        let killBlock;
-        if (hasExt && hasDiff) {
-          const header = `${''.padEnd(12)}${'Life'.padStart(4)} │ ${'All'.padStart(4)}`;
-          killBlock = '```\n' + header + '\n' + rows.join('\n') + '\n```';
-        } else {
-          killBlock = '```\n' + rows.join('\n') + '\n```';
-        }
-        embed.addFields({ name: 'Kills', value: killBlock });
+        embed.addFields({ name: 'Kills', value: rows.join('\n') });
       } else {
         embed.addFields({ name: 'Kills', value: '*No kills yet*' });
       }
@@ -1485,26 +1593,18 @@ class PlayerStatsChannel {
       embed.addFields({ name: 'PvP', value: pvpParts.join('\n'), inline: true });
     }
 
-    // ── Vitals (code block bars) ──
-    if (config.showVitals && saveData) {
-      const bar = (val) => {
-        const pct = Math.max(0, Math.min(100, val));
-        const filled = Math.round(pct / 10);
-        return '█'.repeat(filled) + '░'.repeat(10 - filled) + ` ${Math.round(pct)}%`;
-      };
+    // ── Vitals ──
+    if (this._config.canShow('showVitals', isAdmin) && saveData) {
+      const pct = (v) => `**${Math.round(Math.max(0, Math.min(100, v)))}%**`;
       const vitals = [
-        `Health    ${bar(saveData.health)}`,
-        `Hunger    ${bar(saveData.hunger)}`,
-        `Thirst    ${bar(saveData.thirst)}`,
-        `Stamina   ${bar(saveData.stamina)}`,
-        `Immunity  ${bar(saveData.infection)}`,
-        `Battery   ${bar(saveData.battery)}`,
+        `Health: ${pct(saveData.health)}  ·  Hunger: ${pct(saveData.hunger)}  ·  Thirst: ${pct(saveData.thirst)}`,
+        `Stamina: ${pct(saveData.stamina)}  ·  Immunity: ${pct(saveData.infection)}  ·  Battery: ${pct(saveData.battery)}`,
       ];
-      embed.addFields({ name: 'Vitals', value: '```\n' + vitals.join('\n') + '\n```' });
+      embed.addFields({ name: 'Vitals', value: vitals.join('\n') });
     }
 
     // ── Status Effects ──
-    if (config.showStatusEffects && saveData) {
+    if (this._config.canShow('showStatusEffects', isAdmin) && saveData) {
       const statuses = [];
       if (saveData.playerStates?.length > 0) {
         for (const s of saveData.playerStates) {
@@ -1547,7 +1647,7 @@ class PlayerStatsChannel {
     }
 
     // ── Raid Stats ──
-    if (config.showRaidStats && logData) {
+    if (this._config.canShow('showRaidStats', isAdmin) && logData) {
       const raidParts = [];
       if (logData.raidsOut > 0) raidParts.push(`Attacked: **${logData.raidsOut}**`);
       if (logData.destroyedOut > 0) raidParts.push(`Destroyed: **${logData.destroyedOut}**`);
@@ -1561,27 +1661,34 @@ class PlayerStatsChannel {
       embed.addFields({ name: 'Looted', value: `**${logData.containersLooted}** containers`, inline: true });
     }
 
-    // ── Inventory (compact code block) ──
-    if (config.showInventory && saveData) {
-      const allItems = [
-        ...saveData.equipment.map(i => ({ ...i, slot: 'Equipped' })),
-        ...saveData.quickSlots.map(i => ({ ...i, slot: 'Quick' })),
-        ...saveData.inventory.map(i => ({ ...i, slot: '' })),
-      ].filter(i => i.item);
+    // ── Inventory (inline grid) ──
+    if (this._config.canShow('showInventory', isAdmin) && saveData) {
+      const notEmpty = (i) => i.item && !/^empty$/i.test(i.item) && !/^empty$/i.test(_cleanItemName(i.item));
+      const fmt = (i) => {
+        const amt = i.amount > 1 ? ` x${i.amount}` : '';
+        const dur = i.durability > 0 ? ` (${i.durability}%)` : '';
+        return `${_cleanItemName(i.item)}${amt}${dur}`;
+      };
 
-      if (allItems.length > 0) {
-        const invLines = allItems.map(i => {
-          const amt = i.amount > 1 ? ` x${i.amount}` : '';
-          const dur = i.durability > 0 ? ` (${i.durability}%)` : '';
-          const tag = i.slot ? ` [${i.slot}]` : '';
-          return `${_cleanItemName(i.item)}${amt}${dur}${tag}`;
-        });
-        embed.addFields({ name: 'Inventory', value: '```\n' + invLines.join('\n').substring(0, 1014) + '\n```' });
+      const equip = saveData.equipment.filter(notEmpty);
+      const quick = saveData.quickSlots.filter(notEmpty);
+      const bpItems = (saveData.backpackItems || []).filter(notEmpty);
+      const pockets = saveData.inventory.filter(notEmpty);
+
+      // If player has backpack items, note backpack is equipped in equipment section
+      const equipLines = equip.map(fmt);
+      if (bpItems.length > 0 && !equip.some(i => /backpack/i.test(i.item))) {
+        equipLines.push('Backpack');
       }
+
+      if (equipLines.length > 0) embed.addFields({ name: `Equipment (${equipLines.length})`, value: equipLines.join('\n').substring(0, 1024), inline: true });
+      if (quick.length > 0) embed.addFields({ name: `Quick Slots (${quick.length})`, value: quick.map(fmt).join('\n').substring(0, 1024), inline: true });
+      if (pockets.length > 0) embed.addFields({ name: `Pockets (${pockets.length})`, value: pockets.map(fmt).join('\n').substring(0, 1024), inline: true });
+      if (bpItems.length > 0) embed.addFields({ name: `Backpack (${bpItems.length})`, value: bpItems.map(fmt).join('\n').substring(0, 1024), inline: true });
     }
 
     // ── Recipes ──
-    if (config.showRecipes && saveData) {
+    if (this._config.canShow('showRecipes', isAdmin) && saveData) {
       const recipeParts = [];
       if (saveData.craftingRecipes.length > 0) recipeParts.push(`**Crafting:** ${saveData.craftingRecipes.map(_cleanItemName).join(', ')}`);
       if (saveData.buildingRecipes.length > 0) recipeParts.push(`**Building:** ${saveData.buildingRecipes.map(_cleanItemName).join(', ')}`);
@@ -1589,7 +1696,7 @@ class PlayerStatsChannel {
     }
 
     // ── Lore ──
-    if (config.showLore && saveData && saveData.lore.length > 0) {
+    if (this._config.canShow('showLore', isAdmin) && saveData && saveData.lore.length > 0) {
       embed.addFields({ name: 'Lore', value: `${saveData.lore.length} entries collected`, inline: true });
     }
 
@@ -1633,7 +1740,7 @@ class PlayerStatsChannel {
           const info = descs[key];
           if (info) {
             const target = info.target ? `/${info.target}` : '';
-            const desc = config.showChallengeDescriptions ? ` — *${info.desc}*` : '';
+            const desc = this._config.canShow('showChallengeDescriptions', isAdmin) ? ` — *${info.desc}*` : '';
             return `**${info.name}**: ${val}${target}${desc}`;
           }
           return `**${key}**: ${val}`;
@@ -1653,7 +1760,7 @@ class PlayerStatsChannel {
     }
 
     // ── Connections ──
-    if (config.showConnections && logData) {
+    if (this._config.canShow('showConnections', isAdmin) && logData) {
       const connParts = [];
       if (logData.connects > 0) connParts.push(`In: **${logData.connects}**`);
       if (logData.disconnects > 0) connParts.push(`Out: **${logData.disconnects}**`);

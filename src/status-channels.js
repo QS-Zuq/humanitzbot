@@ -1,5 +1,5 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
-const config = require('./config');
+const _defaultConfig = require('./config');
 const { getPlayerList } = require('./server-info');
 
 const STATUS_CHANNELS = [
@@ -9,18 +9,26 @@ const STATUS_CHANNELS = [
 const CATEGORY_NAME = '\u{1F4CA} HumanitZ Server Info';
 
 class StatusChannels {
-  constructor(client) {
+  /**
+   * @param {import('discord.js').Client} client
+   * @param {object} [deps]
+   * @param {object} [deps.config]        Config overrides (for multi-server)
+   * @param {Function} [deps.getPlayerList] Custom getPlayerList function (bound to a specific rcon)
+   */
+  constructor(client, deps = {}) {
     this.client = client;
     this.guild = null;
     this.category = null;
     this.channels = new Map(); // key -> channel
     this.interval = null;
-    this.updateIntervalMs = Math.max(config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
+    this._config = deps.config || _defaultConfig;
+    this._getPlayerList = deps.getPlayerList || getPlayerList;
+    this.updateIntervalMs = Math.max(this._config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
   }
 
   async start() {
     try {
-      this.guild = await this.client.guilds.fetch(config.guildId);
+      this.guild = await this.client.guilds.fetch(this._config.guildId);
       if (!this.guild) {
         console.error('[STATUS] Guild not found! Check DISCORD_GUILD_ID.');
         return;
@@ -122,7 +130,7 @@ class StatusChannels {
 
   async _update() {
     try {
-      const playerList = await getPlayerList();
+      const playerList = await this._getPlayerList();
 
       const values = {
         players: `${playerList.count}`,
@@ -148,7 +156,20 @@ class StatusChannels {
         }
       }
     } catch (err) {
-      if (!err.message.includes('RCON not connected')) {
+      if (err.message.includes('RCON not connected')) {
+        // Server offline — show "Offline" in voice channel name
+        for (const spec of STATUS_CHANNELS) {
+          const channel = this.channels.get(spec.key);
+          if (!channel) continue;
+
+          const offlineName = spec.template.replace('{value}', 'Offline');
+          if (channel.name !== offlineName) {
+            try {
+              await channel.setName(offlineName);
+            } catch (_) { /* rate limit / permission — ignore */ }
+          }
+        }
+      } else {
         console.error('[STATUS] Update error:', err.message);
       }
     }

@@ -1,28 +1,39 @@
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
+const _defaultConfig = require('./config');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const DATA_FILE = path.join(DATA_DIR, 'playtime.json');
+const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
 const SAVE_INTERVAL = 60000; // save to disk every 60s
 
 class PlaytimeTracker {
-  constructor() {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.dataDir]  Custom data directory (for multi-server)
+   * @param {object} [options.config]   Custom config object
+   * @param {string} [options.label]    Log prefix for identification
+   */
+  constructor(options = {}) {
     this._data = null;
     this._activeSessions = new Map(); // id → login timestamp
     this._saveTimer = null;
     this._dirty = false;
     this._currentOnlineCount = 0;
+    // Per-instance overrides (for multi-server support)
+    this._dataDir = options.dataDir || DEFAULT_DATA_DIR;
+    this._dataFile = path.join(this._dataDir, 'playtime.json');
+    this._config = options.config || _defaultConfig;
+    this._label = options.label || 'PLAYTIME';
   }
 
   init() {
     if (this._data) return; // already initialised
     this._load();
     this._cleanGhostEntries();
+    this._backfillUniqueDayPeak();
     // Periodic save so we don't lose data on crash
     this._saveTimer = setInterval(() => this._autoSave(), SAVE_INTERVAL);
-    console.log(`[PLAYTIME] Tracking since ${this._data.trackingSince}`);
-    console.log(`[PLAYTIME] ${Object.keys(this._data.players).length} player(s) in database`);
+    console.log(`[${this._label}] Tracking since ${this._data.trackingSince}`);
+    console.log(`[${this._label}] ${Object.keys(this._data.players).length} player(s) in database`);
   }
 
   stop() {
@@ -34,7 +45,7 @@ class PlaytimeTracker {
     this._activeSessions.clear();
     this._save();
     if (this._saveTimer) clearInterval(this._saveTimer);
-    console.log('[PLAYTIME] Saved and stopped.');
+    console.log(`[${this._label}] Saved and stopped.`);
   }
 
   playerJoin(id, name, timestamp) {
@@ -73,7 +84,7 @@ class PlaytimeTracker {
     }
     this._dirty = true;
 
-    console.log(`[PLAYTIME] ${name} (${id}) session started`);
+    console.log(`[${this._label}] ${name} (${id}) session started`);
   }
 
   playerLeave(id, timestamp) {
@@ -86,7 +97,7 @@ class PlaytimeTracker {
 
       const record = this._data.players[id];
       const name = record ? record.name : id;
-      console.log(`[PLAYTIME] ${name} (${id}) session ended — ${this._formatDuration(duration)}`);
+      console.log(`[${this._label}] ${name} (${id}) session ended — ${this._formatDuration(duration)}`);
     }
   }
 
@@ -151,22 +162,13 @@ class PlaytimeTracker {
   recordPlayerCount(count) {
     this._ensureInit();
     this._currentOnlineCount = count;
+    this._ensurePeaks();
 
-    // Ensure peaks object exists (migration for old data)
-    if (!this._data.peaks) {
-      this._data.peaks = {
-        allTimePeak: 0,
-        allTimePeakDate: null,
-        todayPeak: 0,
-        todayDate: config.getToday(),
-        uniqueToday: [],
-      };
-    }
+    const today = this._config.getToday();
 
-    const today = config.getToday();
-
-    // Reset daily stats if the date changed
+    // Day rollover — snapshot yesterday's unique count before resetting
     if (this._data.peaks.todayDate !== today) {
+      this._snapshotYesterdayUnique();
       this._data.peaks.todayPeak = 0;
       this._data.peaks.todayDate = today;
       this._data.peaks.uniqueToday = [];
@@ -186,17 +188,28 @@ class PlaytimeTracker {
 
   recordUniqueToday(id) {
     this._ensureInit();
-    if (!this._data.peaks) return;
-    const today = config.getToday();
+    this._ensurePeaks();
+    const today = this._config.getToday();
+
+    // Day rollover — snapshot yesterday's unique count before resetting
     if (this._data.peaks.todayDate !== today) {
+      this._snapshotYesterdayUnique();
       this._data.peaks.todayPeak = 0;
       this._data.peaks.todayDate = today;
       this._data.peaks.uniqueToday = [];
     }
-    if (!this._data.peaks.uniqueToday.includes(id)) {
-      this._data.peaks.uniqueToday.push(id);
-      this._dirty = true;
+
+    if (!id || this._data.peaks.uniqueToday.includes(id)) return;
+    this._data.peaks.uniqueToday.push(id);
+
+    // Update unique-day peak (best day by unique player count)
+    const uniqueCount = this._data.peaks.uniqueToday.length;
+    if (uniqueCount > (this._data.peaks.uniqueDayPeak || 0)) {
+      this._data.peaks.uniqueDayPeak = uniqueCount;
+      this._data.peaks.uniqueDayPeakDate = new Date().toISOString();
     }
+
+    this._dirty = true;
   }
 
   getPeaks() {
@@ -207,8 +220,42 @@ class PlaytimeTracker {
       allTimePeakDate: peaks.allTimePeakDate || null,
       todayPeak: peaks.todayPeak || 0,
       uniqueToday: (peaks.uniqueToday || []).length,
+      uniqueDayPeak: peaks.uniqueDayPeak || 0,
+      uniqueDayPeakDate: peaks.uniqueDayPeakDate || null,
+      yesterdayUnique: peaks.yesterdayUnique || 0,
       totalUniquePlayers: Object.keys(this._data.players).length,
     };
+  }
+
+  /**
+   * Snapshot yesterday's unique player count before the daily reset.
+   * Also updates the unique-day peak if yesterday was a record day.
+   */
+  _snapshotYesterdayUnique() {
+    const uniqueCount = (this._data.peaks.uniqueToday || []).length;
+    this._data.peaks.yesterdayUnique = uniqueCount;
+    if (uniqueCount > (this._data.peaks.uniqueDayPeak || 0)) {
+      this._data.peaks.uniqueDayPeak = uniqueCount;
+      this._data.peaks.uniqueDayPeakDate = new Date().toISOString();
+    }
+  }
+
+  /**
+   * Ensure peaks sub-object exists (migration for old data).
+   */
+  _ensurePeaks() {
+    if (!this._data.peaks) {
+      this._data.peaks = {
+        allTimePeak: 0,
+        allTimePeakDate: null,
+        todayPeak: 0,
+        todayDate: this._config.getToday(),
+        uniqueToday: [],
+        uniqueDayPeak: 0,
+        uniqueDayPeakDate: null,
+        yesterdayUnique: 0,
+      };
+    }
   }
 
   // ── Private ────────────────────────────────────────────────
@@ -230,13 +277,13 @@ class PlaytimeTracker {
           if (ghost.firstSeen && (!record.firstSeen || ghost.firstSeen < record.firstSeen)) {
             record.firstSeen = ghost.firstSeen;
           }
-          console.log(`[PLAYTIME] Merged ghost "${key}" into ${sid} (${record.name})`);
+          console.log(`[${this._label}] Merged ghost "${key}" into ${sid} (${record.name})`);
           merged = true;
           break;
         }
       }
       if (!merged) {
-        console.log(`[PLAYTIME] Removing orphan ghost entry "${key}" (no SteamID match)`);
+        console.log(`[${this._label}] Removing orphan ghost entry "${key}" (no SteamID match)`);
       }
       toDelete.push(key);
     }
@@ -247,7 +294,56 @@ class PlaytimeTracker {
         this._data.peaks.uniqueToday = this._data.peaks.uniqueToday.filter(id => /^\d{17}$/.test(id));
       }
       this._dirty = true;
-      console.log(`[PLAYTIME] Cleaned ${toDelete.length} ghost entries`);
+      console.log(`[${this._label}] Cleaned ${toDelete.length} ghost entries`);
+    }
+  }
+
+  /**
+   * One-time migration: if uniqueDayPeak is 0, scan the local
+   * PlayerConnectedLog.txt to compute the best-unique-day from history.
+   */
+  _backfillUniqueDayPeak() {
+    this._ensurePeaks();
+    if (this._data.peaks.uniqueDayPeak > 0) return; // already populated
+
+    const logPath = path.join(this._dataDir, 'PlayerConnectedLog.txt');
+    if (!fs.existsSync(logPath)) return;
+
+    try {
+      const text = fs.readFileSync(logPath, 'utf8');
+      const dayMap = new Map(); // 'D/M/YYYY' → Set of steamIds
+      // Format: Player Connected Name NetID(76561198055916841_+_|...) (13/2/2026 11:13)
+      const RE = /Player Connected .+ NetID\((\d{17})_\+_\|[^)]+\) \((\d{1,2}\/\d{1,2}\/\d{4}) /;
+
+      for (const line of text.split('\n')) {
+        const m = line.match(RE);
+        if (!m) continue;
+        const [, steamId, dateStr] = m;
+        if (!dayMap.has(dateStr)) dayMap.set(dateStr, new Set());
+        dayMap.get(dateStr).add(steamId);
+      }
+
+      let bestCount = 0;
+      let bestDate = null;
+      for (const [dateStr, ids] of dayMap) {
+        if (ids.size > bestCount) {
+          bestCount = ids.size;
+          bestDate = dateStr;
+        }
+      }
+
+      if (bestCount > 0) {
+        this._data.peaks.uniqueDayPeak = bestCount;
+        // Parse D/M/YYYY → ISO date
+        const parts = bestDate.split('/');
+        this._data.peaks.uniqueDayPeakDate = new Date(
+          parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), 12, 0, 0
+        ).toISOString();
+        this._dirty = true;
+        console.log(`[${this._label}] Backfilled uniqueDayPeak: ${bestCount} on ${bestDate}`);
+      }
+    } catch (err) {
+      console.warn(`[${this._label}] Could not backfill uniqueDayPeak:`, err.message);
     }
   }
 
@@ -274,26 +370,26 @@ class PlaytimeTracker {
 
   _load() {
     try {
-      if (fs.existsSync(DATA_FILE)) {
-        const raw = fs.readFileSync(DATA_FILE, 'utf8');
+      if (fs.existsSync(this._dataFile)) {
+        const raw = fs.readFileSync(this._dataFile, 'utf8');
         const parsed = JSON.parse(raw);
         // Validate: must be an object with a players property
         if (!parsed || typeof parsed !== 'object' || !parsed.players || typeof parsed.players !== 'object') {
-          console.error('[PLAYTIME] playtime.json is corrupt (missing players object) — creating fresh');
+          console.error(`[${this._label}] playtime.json is corrupt (missing players object) — creating fresh`);
           // Backup the corrupt file for inspection
-          const corruptBackup = DATA_FILE.replace('.json', `-corrupt-${Date.now()}.json`);
-          fs.copyFileSync(DATA_FILE, corruptBackup);
-          console.log(`[PLAYTIME] Corrupt file backed up to ${path.basename(corruptBackup)}`);
+          const corruptBackup = this._dataFile.replace('.json', `-corrupt-${Date.now()}.json`);
+          fs.copyFileSync(this._dataFile, corruptBackup);
+          console.log(`[${this._label}] Corrupt file backed up to ${path.basename(corruptBackup)}`);
           this._createFresh();
           return;
         }
         this._data = parsed;
-        console.log('[PLAYTIME] Loaded existing data from playtime.json');
+        console.log(`[${this._label}] Loaded existing data from playtime.json`);
       } else {
         this._createFresh();
       }
     } catch (err) {
-      console.error('[PLAYTIME] Failed to load data, creating fresh:', err.message);
+      console.error(`[${this._label}] Failed to load data, creating fresh:`, err.message);
       this._createFresh();
     }
   }
@@ -306,46 +402,49 @@ class PlaytimeTracker {
         allTimePeak: 0,
         allTimePeakDate: null,
         todayPeak: 0,
-        todayDate: config.getToday(),
+        todayDate: this._config.getToday(),
         uniqueToday: [],
+        uniqueDayPeak: 0,
+        uniqueDayPeakDate: null,
+        yesterdayUnique: 0,
       },
     };
     this._save();
-    console.log('[PLAYTIME] Created fresh playtime.json');
+    console.log(`[${this._label}] Created fresh playtime.json`);
   }
 
   _save(doBackup = false) {
     try {
       if (!this._data || typeof this._data !== 'object') {
-        console.warn('[PLAYTIME] Not saving: _data is null or invalid');
+        console.warn(`[${this._label}] Not saving: _data is null or invalid`);
         return false;
       }
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      if (!fs.existsSync(this._dataDir)) {
+        fs.mkdirSync(this._dataDir, { recursive: true });
       }
       // Atomic write: write to temp file then rename
-      const tmpFile = DATA_FILE + '.tmp';
+      const tmpFile = this._dataFile + '.tmp';
       fs.writeFileSync(tmpFile, JSON.stringify(this._data, null, 2), 'utf8');
-      fs.renameSync(tmpFile, DATA_FILE);
+      fs.renameSync(tmpFile, this._dataFile);
       this._dirty = false;
       // Backup logic
       if (doBackup) {
         const ts = Date.now();
-        const backupFile = path.join(DATA_DIR, `playtime-backup-${ts}.json`);
-        fs.copyFileSync(DATA_FILE, backupFile);
+        const backupFile = path.join(this._dataDir, `playtime-backup-${ts}.json`);
+        fs.copyFileSync(this._dataFile, backupFile);
         // Prune old backups (keep last 5)
-        const files = fs.readdirSync(DATA_DIR)
+        const files = fs.readdirSync(this._dataDir)
           .filter(f => f.startsWith('playtime-backup-') && f.endsWith('.json'))
           .map(f => ({ f, t: parseInt(f.split('-')[2]) }))
           .filter(x => !isNaN(x.t))
           .sort((a, b) => b.t - a.t);
         for (let i = 5; i < files.length; ++i) {
-          try { fs.unlinkSync(path.join(DATA_DIR, files[i].f)); } catch {}
+          try { fs.unlinkSync(path.join(this._dataDir, files[i].f)); } catch {}
         }
       }
       return true;
     } catch (err) {
-      console.error('[PLAYTIME] Failed to save:', err.message);
+      console.error(`[${this._label}] Failed to save:`, err.message);
       return false;
     }
   }
@@ -394,4 +493,6 @@ class PlaytimeTracker {
 }
 
 // Singleton — shared across the bot
-module.exports = new PlaytimeTracker();
+const _singleton = new PlaytimeTracker();
+module.exports = _singleton;
+module.exports.PlaytimeTracker = PlaytimeTracker;
