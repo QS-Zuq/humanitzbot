@@ -35,7 +35,7 @@ class PvpScheduler {
     const dayLabel = config.pvpDays
       ? [...config.pvpDays].sort().map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ')
       : 'every day';
-    console.log(`[PVP] Scheduler active: PvP ${fmt(this._pvpStart)}–${fmt(this._pvpEnd)} (${config.pvpTimezone}), days: ${dayLabel}`);
+    console.log(`[PVP] Scheduler active: PvP ${fmt(this._pvpStart)}–${fmt(this._pvpEnd)} (${config.botTimezone}), days: ${dayLabel}`);
     console.log(`[PVP] Restart delay: ${config.pvpRestartDelay} minutes (warnings start before scheduled time)`);
 
     // Resolve admin channel for announcements
@@ -87,14 +87,14 @@ class PvpScheduler {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-      timeZone: config.pvpTimezone,
+      timeZone: config.botTimezone,
     });
     const [h, m] = timeStr.split(':').map(Number);
 
-    // Day of week (0=Sun … 6=Sat) in PvP timezone
+    // Day of week (0=Sun … 6=Sat) in bot timezone
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
-      timeZone: config.pvpTimezone,
+      timeZone: config.botTimezone,
     });
     const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const dayOfWeek = dayMap[dayStr] ?? now.getDay();
@@ -340,7 +340,7 @@ class PvpScheduler {
 
   _formatPvpTimeRange() {
     const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    return `${fmt(this._pvpStart)}-${fmt(this._pvpEnd)} ${config.pvpTimezone}`;
+    return `${fmt(this._pvpStart)}-${fmt(this._pvpEnd)} ${config.botTimezone}`;
   }
 
   _updateServerName(content, pvpOn) {

@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const playtime = require('../playtime-tracker');
+const config = require('../config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -40,7 +41,7 @@ module.exports = {
             { name: 'Sessions', value: `${match.sessions}`, inline: true },
             { name: 'Steam ID', value: interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ? `\`${match.id}\`` : `\`${match.id.slice(0, 8)}···\``, inline: false },
           )
-          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB')}` })
+          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone })}` })
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
@@ -51,7 +52,7 @@ module.exports = {
         const embed = new EmbedBuilder()
           .setTitle('⏱️ Playtime Leaderboard')
           .setColor(0x9b59b6)
-          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB')}` })
+          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone })}` })
           .setTimestamp();
 
         if (leaderboard.length === 0) {

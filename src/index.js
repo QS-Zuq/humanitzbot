@@ -312,6 +312,34 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error('[BOT] Failed to post online notification:', err.message);
   }
 
+  // ── NUKE_THREADS: one-shot thread rebuild on startup ─────────
+  if (config.nukeThreads) {
+    console.log('[BOT] NUKE_THREADS=true — rebuilding all activity threads...');
+    try {
+      const { rebuildThreads } = require('./commands/threads');
+      const result = await rebuildThreads(readyClient);
+      if (result.error) {
+        console.error('[BOT] Thread rebuild failed:', result.error);
+      } else {
+        console.log(`[BOT] Thread rebuild complete: ${result.created} created, ${result.deleted} deleted`);
+      }
+    } catch (err) {
+      console.error('[BOT] Thread rebuild error:', err.message);
+    }
+
+    // Set NUKE_THREADS=false in .env so it doesn't run again
+    try {
+      const envPath = path.join(__dirname, '..', '.env');
+      let envContent = fs.readFileSync(envPath, 'utf8');
+      envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      console.log('[BOT] NUKE_THREADS set back to false in .env');
+    } catch (err) {
+      console.warn('[BOT] Could not update .env:', err.message);
+      console.warn('[BOT] Please manually set NUKE_THREADS=false to prevent repeat rebuild.');
+    }
+  }
+
   console.log('[BOT] Ready!');
 });
 

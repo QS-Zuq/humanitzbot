@@ -35,6 +35,10 @@ const config = {
   // Timezone for daily threads / summaries (IANA format, e.g. 'America/New_York', 'US/Eastern')
   botTimezone: process.env.BOT_TIMEZONE || 'UTC',
 
+  // Timezone the game server writes log timestamps in (IANA format, default UTC).
+  // Most dedicated-server hosts (Bisect, Nitrado, etc.) run in UTC.
+  logTimezone: process.env.LOG_TIMEZONE || 'UTC',
+
   // Behavior
   chatPollInterval: parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000,
   statusCacheTtl: parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000,
@@ -52,6 +56,7 @@ const config = {
   ftpPort: parseInt(process.env.FTP_PORT, 10) || 8821,
   ftpUser: process.env.FTP_USER || '',
   ftpPassword: process.env.FTP_PASSWORD || '',
+  ftpBasePath: (process.env.FTP_BASE_PATH || '').replace(/\/+$/, ''),  // strip trailing slash
   ftpLogPath: process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log',
   ftpConnectLogPath: process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt',
   ftpIdMapPath: process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt',
@@ -85,7 +90,6 @@ const config = {
   enablePvpScheduler: envBool('ENABLE_PVP_SCHEDULER', false),
   pvpStartMinutes: envTime('PVP_START_TIME'),   // total minutes from midnight (supports "HH" or "HH:MM")
   pvpEndMinutes: envTime('PVP_END_TIME'),       // total minutes from midnight (supports "HH" or "HH:MM")
-  pvpTimezone: process.env.PVP_TIMEZONE || process.env.BOT_TIMEZONE || 'UTC',
   pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY, 10) || 10,
   pvpUpdateServerName: envBool('PVP_UPDATE_SERVER_NAME', false),
   pvpDays: (() => {
@@ -105,6 +109,9 @@ const config = {
   // First-run / data repair
   firstRun: envBool('FIRST_RUN', false),
 
+  // Experimental — one-shot thread rebuild on startup
+  nukeThreads: envBool('NUKE_THREADS', false),
+
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
   enablePvpKillFeed: envBool('ENABLE_PVP_KILL_FEED', true), // post PvP kills to activity thread
@@ -113,6 +120,7 @@ const config = {
   // Feature toggles — auto-message sub-features (all on by default)
   enableAutoMsgLink: envBool('ENABLE_AUTO_MSG_LINK', true),
   enableAutoMsgPromo: envBool('ENABLE_AUTO_MSG_PROMO', true),
+  enableWelcomeMsg: envBool('ENABLE_WELCOME_MSG', true),            // RCON admin welcome on player join
   enableWelcomeFile: envBool('ENABLE_WELCOME_FILE', true),          // SFTP-managed WelcomeMessage.txt
   welcomeFileLines: (process.env.WELCOME_FILE_LINES || '').split('|').map(s => s.trim()).filter(Boolean),
 
@@ -129,6 +137,16 @@ const config = {
   // Feature toggles — server status embed sections
   showServerSettings: envBool('SHOW_SERVER_SETTINGS', true),     // server settings grid from GameServerSettings.ini
   showExtendedSettings: envBool('SHOW_EXTENDED_SETTINGS', true), // bandits, companions, territory, vehicles in settings grid
+  // Per-category toggles within the settings grid
+  showSettingsGeneral: envBool('SHOW_SETTINGS_GENERAL', true),       // PvP, Max Players, On Death, etc.
+  showSettingsTime: envBool('SHOW_SETTINGS_TIME', true),             // Day/Night/Season Length, Start Season
+  showSettingsZombies: envBool('SHOW_SETTINGS_ZOMBIES', true),       // Zombie Health/Speed/Damage/Spawns/Respawn
+  showSettingsItems: envBool('SHOW_SETTINGS_ITEMS', true),           // Weapon Break, Food Decay, Loot Respawn, Air Drops
+  showSettingsBandits: envBool('SHOW_SETTINGS_BANDITS', true),       // Bandit stats + AI Events (requires SHOW_EXTENDED_SETTINGS)
+  showSettingsCompanions: envBool('SHOW_SETTINGS_COMPANIONS', true), // Dog Companion, Companion HP/Dmg (requires SHOW_EXTENDED_SETTINGS)
+  showSettingsBuilding: envBool('SHOW_SETTINGS_BUILDING', true),     // Building HP/Decay, Gen Fuel, Territory, Dismantle (requires SHOW_EXTENDED_SETTINGS)
+  showSettingsVehicles: envBool('SHOW_SETTINGS_VEHICLES', true),     // Max Cars (requires SHOW_EXTENDED_SETTINGS)
+  showSettingsAnimals: envBool('SHOW_SETTINGS_ANIMALS', true),       // Animal Spawns/Respawn (requires SHOW_EXTENDED_SETTINGS)
   showLootScarcity: envBool('SHOW_LOOT_SCARCITY', true),         // loot rarity breakdown
   showWeatherOdds: envBool('SHOW_WEATHER_ODDS', false),          // weather multiplier breakdown (off by default — niche)
   showServerVersion: envBool('SHOW_SERVER_VERSION', true),       // version from RCON info
@@ -148,8 +166,20 @@ const config = {
   showMostBitten: envBool('SHOW_MOST_BITTEN', true),             // most bitten leaderboard (from save)
   showMostFish: envBool('SHOW_MOST_FISH', true),                 // most fish caught leaderboard (from save)
   showWeeklyStats: envBool('SHOW_WEEKLY_STATS', true),           // weekly leaderboards alongside all-time
-  weeklyResetDay: parseInt(process.env.WEEKLY_RESET_DAY, 10) || 1, // day to reset weekly baseline (0=Sun … 6=Sat, default 1=Mon)
+  weeklyResetDay: (() => { const v = parseInt(process.env.WEEKLY_RESET_DAY, 10); return isNaN(v) ? 1 : v; })(), // day to reset weekly baseline (0=Sun … 6=Sat, default 1=Mon)
 };
+
+// Prepend FTP_BASE_PATH to all FTP file paths when set
+if (config.ftpBasePath) {
+  const prefix = config.ftpBasePath;
+  const ftpKeys = ['ftpLogPath', 'ftpConnectLogPath', 'ftpIdMapPath', 'ftpSavePath', 'ftpSettingsPath', 'ftpWelcomePath'];
+  for (const key of ftpKeys) {
+    if (config[key] && !config[key].startsWith(prefix)) {
+      config[key] = prefix + (config[key].startsWith('/') ? '' : '/') + config[key];
+    }
+  }
+  console.log(`[CONFIG] FTP base path: ${prefix}`);
+}
 
 // Validate required values (only core Discord + RCON needed)
 const required = ['discordToken', 'clientId', 'guildId', 'rconHost', 'rconPassword'];
@@ -207,8 +237,53 @@ config.formatTime = function (date) {
   }
 };
 
-console.log(`[CONFIG] Timezone: ${config.botTimezone}`);
+// ── Log-timestamp parser ────────────────────────────────────
+// Converts a log timestamp (written in LOG_TIMEZONE) to a proper UTC Date.
+// Components come straight from the regex match: all are strings.
+
+function _tzOffsetMs(utcDate, timezone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(utcDate);
+
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  const d = parts.find(p => p.type === 'day').value;
+  let h = parts.find(p => p.type === 'hour').value;
+  if (h === '24') h = '00'; // midnight edge case
+  const mn = parts.find(p => p.type === 'minute').value;
+  const s = parts.find(p => p.type === 'second').value;
+
+  const localAsUtc = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
+  return localAsUtc.getTime() - utcDate.getTime();
+}
+
+config.parseLogTimestamp = function (year, month, day, hour, min) {
+  const pad = n => String(n).padStart(2, '0');
+  const iso = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(min)}:00Z`;
+  const asUtc = new Date(iso);
+
+  const tz = config.logTimezone;
+  if (tz === 'UTC') return asUtc;
+
+  // First pass: compute offset at the "as-if-UTC" time
+  const offset1 = _tzOffsetMs(asUtc, tz);
+  const corrected = new Date(asUtc.getTime() - offset1);
+
+  // Second pass: offset may differ at corrected time (DST edge)
+  const offset2 = _tzOffsetMs(corrected, tz);
+  if (offset2 !== offset1) {
+    return new Date(asUtc.getTime() - offset2);
+  }
+  return corrected;
+};
+
+console.log(`[CONFIG] Timezone: ${config.botTimezone}, Log timezone: ${config.logTimezone}`);
 
 module.exports = config;
 module.exports._envBool = envBool;
 module.exports._envTime = envTime;
+module.exports._tzOffsetMs = _tzOffsetMs;

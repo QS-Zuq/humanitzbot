@@ -473,6 +473,12 @@ class PlayerStatsChannel {
           // Death checkpoint: lifetime kills at the moment of last death
           if (!record.deathCheckpoint) record.deathCheckpoint = null;
           if (record.lastKnownDeaths === undefined) record.lastKnownDeaths = 0;
+          // Cached lifetime values for when player goes offline
+          if (!record.lifetimeSnapshot) record.lifetimeSnapshot = null;
+          if (!record.survivalLifetimeSnapshot) record.survivalLifetimeSnapshot = null;
+          // Last lifetime snapshot for delta computation
+          if (!record.lastLifetimeSnapshot) record.lastLifetimeSnapshot = record.lifetimeSnapshot ? { ...record.lifetimeSnapshot } : null;
+          if (!record.lastSurvivalLifetimeSnapshot) record.lastSurvivalLifetimeSnapshot = record.survivalLifetimeSnapshot ? { ...record.survivalLifetimeSnapshot } : null;
         }
       }
     } catch (err) {
@@ -531,19 +537,31 @@ class PlayerStatsChannel {
           hasExtendedStats: !!save.hasExtendedStats,
           deathCheckpoint: null,
           lastKnownDeaths: logDeaths,
+          lifetimeSnapshot: null,
+          survivalLifetimeSnapshot: null,
+          lastLifetimeSnapshot: null,
+          lastSurvivalLifetimeSnapshot: null,
         };
-        // If player already has deaths and is online (GameStats > 0), set initial checkpoint
-        // checkpoint = lifetime - current session kills (gives lifetime total at start of this life)
-        // If offline (GameStats = 0), skip — we can't determine the real checkpoint
-        if (save.hasExtendedStats && logDeaths > 0 && (save.zeeksKilled || 0) > 0) {
-          const cp = {};
+        // Cache lifetime values if available
+        if (save.hasExtendedStats) {
+          const ls = {};
           for (const k of PlayerStatsChannel.KILL_KEYS) {
             const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
-            const lifetime = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
-            cp[k] = lifetime - (save[k] || 0);
+            ls[k] = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
           }
-          this._killData.players[id].deathCheckpoint = cp;
+          this._killData.players[id].lifetimeSnapshot = ls;
+          this._killData.players[id].lastLifetimeSnapshot = { ...ls }; // seed delta baseline
+          this._killData.players[id].survivalLifetimeSnapshot = {
+            daysSurvived: save.lifetimeDaysSurvived || save.daysSurvived || 0,
+          };
+          this._killData.players[id].lastSurvivalLifetimeSnapshot = {
+            ...this._killData.players[id].survivalLifetimeSnapshot,
+          };
         }
+        // Don't set initial checkpoint — GameStats is often stale and would
+        // produce a wrong checkpoint.  Leave null until the bot actually
+        // observes a death via LogWatcher, then _accumulateStats sets it
+        // precisely from the death-time lifetime snapshot.
         this._killDirty = true;
         continue;
       }
@@ -562,6 +580,16 @@ class PlayerStatsChannel {
           record.cumulative = PlayerStatsChannel._emptyKills();
           record.survivalCumulative = PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
         }
+        // Cache lifetime values so they persist when player goes offline
+        const ls = {};
+        for (const k of PlayerStatsChannel.KILL_KEYS) {
+          const lifetimeKey = PlayerStatsChannel.LIFETIME_KEY_MAP[k];
+          ls[k] = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
+        }
+        record.lifetimeSnapshot = ls;
+        record.survivalLifetimeSnapshot = {
+          daysSurvived: save.lifetimeDaysSurvived || save.daysSurvived || 0,
+        };
 
         // Death checkpoint: detect new deaths via log data and snapshot lifetime kills
         const logDeaths = playerStats.getStats(id)?.deaths || 0;
@@ -603,22 +631,43 @@ class PlayerStatsChannel {
       }
 
       // Compute kill deltas since last poll
+      // For ExtendedStats players: use lifetime values (never reset on death)
+      // For legacy players: use GameStats values (session-based)
       const killDelta = {};
       let hasKills = false;
-      for (const k of PlayerStatsChannel.KILL_KEYS) {
-        const diff = currentKills[k] - lastKills[k];
-        if (diff > 0) { killDelta[k] = diff; hasKills = true; }
+      if (record.hasExtendedStats && record.lifetimeSnapshot) {
+        const prevLifetime = record.lastLifetimeSnapshot || PlayerStatsChannel._emptyKills();
+        for (const k of PlayerStatsChannel.KILL_KEYS) {
+          const diff = (record.lifetimeSnapshot[k] || 0) - (prevLifetime[k] || 0);
+          if (diff > 0) { killDelta[k] = diff; hasKills = true; }
+        }
+        record.lastLifetimeSnapshot = { ...record.lifetimeSnapshot };
+      } else {
+        for (const k of PlayerStatsChannel.KILL_KEYS) {
+          const diff = currentKills[k] - lastKills[k];
+          if (diff > 0) { killDelta[k] = diff; hasKills = true; }
+        }
       }
       if (hasKills) {
         killDeltas.push({ steamId: id, name: playerName, delta: killDelta });
       }
 
       // Compute survival deltas since last poll
+      // For ExtendedStats: use lifetime values (reliable); legacy: use GameStats
       const survDelta = {};
       let hasSurv = false;
-      for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
-        const diff = currentSurvival[k] - lastSurvival[k];
-        if (diff > 0) { survDelta[k] = diff; hasSurv = true; }
+      if (record.hasExtendedStats && record.survivalLifetimeSnapshot) {
+        const prevSurvLifetime = record.lastSurvivalLifetimeSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.SURVIVAL_KEYS);
+        for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
+          const diff = (record.survivalLifetimeSnapshot[k] || 0) - (prevSurvLifetime[k] || 0);
+          if (diff > 0) { survDelta[k] = diff; hasSurv = true; }
+        }
+        record.lastSurvivalLifetimeSnapshot = { ...record.survivalLifetimeSnapshot };
+      } else {
+        for (const k of PlayerStatsChannel.SURVIVAL_KEYS) {
+          const diff = currentSurvival[k] - lastSurvival[k];
+          if (diff > 0) { survDelta[k] = diff; hasSurv = true; }
+        }
       }
       if (hasSurv) {
         survivalDeltas.push({ steamId: id, name: playerName, delta: survDelta });
@@ -709,6 +758,14 @@ class PlayerStatsChannel {
       return allTime;
     }
 
+    // Player was previously seen with ExtendedStats but is now offline — use cached lifetime values
+    if (record?.hasExtendedStats && record.lifetimeSnapshot) {
+      for (const k of PlayerStatsChannel.KILL_KEYS) {
+        allTime[k] = record.lifetimeSnapshot[k] || 0;
+      }
+      return allTime;
+    }
+
     // Fallback: cumulative (banked from deaths) + current save
     if (record) {
       for (const k of PlayerStatsChannel.KILL_KEYS) {
@@ -725,8 +782,8 @@ class PlayerStatsChannel {
 
   /**
    * Get current-life kills for a player.
-   * For ExtendedStats players: lifetime - deathCheckpoint (or lifetime if never died).
-   * For online players with non-zero GameStats: uses GameStats directly.
+   * For ExtendedStats players: lifetime - deathCheckpoint (most reliable).
+   * Falls back to GameStats for legacy (non-ExtendedStats) players only.
    * Returns { zeeksKilled, headshots, ... } or null.
    */
   getCurrentLifeKills(steamId) {
@@ -734,13 +791,8 @@ class PlayerStatsChannel {
     const save = this._saveData.get(steamId);
     if (!save) return null;
 
-    // If GameStats has non-zero kills, player is online — use directly
-    const sessionKills = save.zeeksKilled || 0;
-    if (sessionKills > 0) {
-      return PlayerStatsChannel._snapshotKills(save);
-    }
-
-    // ExtendedStats: compute from lifetime - checkpoint
+    // ExtendedStats: compute from lifetime - checkpoint (most reliable source;
+    // GameStats writes infrequently and is often stale)
     if (save.hasExtendedStats && record?.deathCheckpoint) {
       const life = {};
       for (const k of PlayerStatsChannel.KILL_KEYS) {
@@ -751,7 +803,7 @@ class PlayerStatsChannel {
       return life;
     }
 
-    // ExtendedStats, never died: all lifetime kills are current life
+    // ExtendedStats, never died (or no checkpoint yet): all lifetime kills are current life
     if (save.hasExtendedStats) {
       const life = {};
       for (const k of PlayerStatsChannel.KILL_KEYS) {
@@ -759,6 +811,19 @@ class PlayerStatsChannel {
         life[k] = lifetimeKey ? (save[lifetimeKey] || 0) : 0;
       }
       return life;
+    }
+
+    // Player offline but was previously seen with ExtendedStats — use cached lifetime - checkpoint
+    if (record?.hasExtendedStats && record.lifetimeSnapshot) {
+      if (record.deathCheckpoint) {
+        const life = {};
+        for (const k of PlayerStatsChannel.KILL_KEYS) {
+          life[k] = Math.max(0, (record.lifetimeSnapshot[k] || 0) - (record.deathCheckpoint[k] || 0));
+        }
+        return life;
+      }
+      // Never died — all lifetime kills are current life
+      return { ...record.lifetimeSnapshot };
     }
 
     // Legacy: GameStats is the current-life value
@@ -775,6 +840,12 @@ class PlayerStatsChannel {
     // ExtendedStats lifetime values (persist across deaths)
     if (save?.hasExtendedStats) {
       allTime.daysSurvived = save.lifetimeDaysSurvived || save.daysSurvived || 0;
+      return allTime;
+    }
+
+    // Player was previously seen with ExtendedStats but is now offline — use cached lifetime values
+    if (record?.hasExtendedStats && record.survivalLifetimeSnapshot) {
+      allTime.daysSurvived = record.survivalLifetimeSnapshot.daysSurvived || 0;
       return allTime;
     }
 
@@ -994,7 +1065,7 @@ class PlayerStatsChannel {
     const w = this._weeklyStats;
     if (w) {
       const weekLabel = w.weekStart
-        ? `Since ${new Date(w.weekStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+        ? `Since ${new Date(w.weekStart).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: config.botTimezone })}`
         : 'This Week';
       const weeklyParts = [];
 
@@ -1057,7 +1128,7 @@ class PlayerStatsChannel {
 
     // ── Server Info ──
     const peaks = playtime.getPeaks();
-    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB');
+    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone });
 
     embed.addFields(
       { name: "Today's Peak", value: `${peaks.todayPeak}`, inline: true },
@@ -1066,7 +1137,7 @@ class PlayerStatsChannel {
     );
 
     const updateNote = this._lastSaveUpdate
-      ? `Save data: ${this._lastSaveUpdate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+      ? `Save data: ${this._lastSaveUpdate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: config.botTimezone })}`
       : 'Save data: loading...';
     embed.setFooter({ text: `${updateNote} · Tracking since ${trackingSince} · Last updated` });
 
@@ -1328,7 +1399,7 @@ class PlayerStatsChannel {
       if (pt) lines.push(`**Playtime:** ${pt.totalFormatted}  ·  **Sessions:** ${pt.sessions}`);
       if (resolved.firstSeen) {
         const fs = new Date(resolved.firstSeen);
-        lines.push(`**First Seen:** ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`);
+        lines.push(`**First Seen:** ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: config.botTimezone })}`);
       }
       if (lines.length > 0) embed.addFields({ name: 'Character', value: lines.join('\n') });
     }
