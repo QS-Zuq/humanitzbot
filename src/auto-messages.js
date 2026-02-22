@@ -86,7 +86,7 @@ function pvpScheduleLabel() {
   const daysLabel = pvpDays
     ? [...pvpDays].sort().map(d => DAY_NAMES[d]).join(', ') + ' '
     : '';
-  return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${config.pvpTimezone}`;
+  return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${config.botTimezone}`;
 }
 
 /**
@@ -244,8 +244,10 @@ class AutoMessages {
     this._linkTimer = null;
     this._promoTimer = null;
 
-    // Track currently online players (for playtime seeding)
+    // Track currently online players (for join detection + playtime seeding)
     this._onlinePlayers = new Set();
+    this._lastWelcomeTime = 0;      // anti-spam: last RCON welcome sent
+    this._welcomeCooldown = 5000;   // ms between welcome messages
     this._initialised = false;
   }
 
@@ -271,9 +273,14 @@ class AutoMessages {
       console.log('[AUTO-MSG] Promo message disabled');
     }
 
-    // Player count polling (peak tracking, unique player tracking)
+    // Player count polling (peak tracking, unique player tracking, join welcome)
     this._pollTimer = setInterval(() => this._pollPlayers(), config.autoMsgJoinCheckInterval);
     console.log(`[AUTO-MSG] Player count polling every ${config.autoMsgJoinCheckInterval / 1000}s`);
+    if (config.enableWelcomeMsg) {
+      console.log('[AUTO-MSG] RCON welcome messages enabled (on player join)');
+    } else {
+      console.log('[AUTO-MSG] RCON welcome messages disabled');
+    }
 
     // SFTP WelcomeMessage.txt — write once at startup, then refreshed after each save poll
     if (config.enableWelcomeFile && config.ftpHost) {
@@ -346,12 +353,18 @@ class AutoMessages {
     try {
       const list = await getPlayerList();
       const currentOnline = new Set();
+      const newJoiners = [];   // players who just appeared
 
       if (list.players && list.players.length > 0) {
         for (const p of list.players) {
           const hasSteamId = p.steamId && p.steamId !== 'N/A';
           const id = hasSteamId ? p.steamId : p.name;
           currentOnline.add(id);
+
+          // Detect new joins — player wasn't in previous snapshot
+          if (!this._onlinePlayers.has(id)) {
+            newJoiners.push({ id, name: p.name || 'Unknown', steamId: hasSteamId ? p.steamId : null });
+          }
         }
       }
 
@@ -363,8 +376,49 @@ class AutoMessages {
       for (const id of steamOnly) {
         playtime.recordUniqueToday(id);
       }
+
+      // Send RCON admin welcome messages to new joiners
+      if (config.enableWelcomeMsg && newJoiners.length > 0) {
+        for (const joiner of newJoiners) {
+          await this._sendWelcomeMessage(joiner);
+        }
+      }
     } catch (_) {
       // Silently ignore — server might be restarting
+    }
+  }
+
+  async _sendWelcomeMessage(joiner) {
+    // Anti-spam: don't stack welcome messages too close together
+    const now = Date.now();
+    if (now - this._lastWelcomeTime < this._welcomeCooldown) {
+      await new Promise(r => setTimeout(r, this._welcomeCooldown));
+    }
+
+    try {
+      const pt = joiner.steamId ? playtime.getPlaytime(joiner.steamId) : null;
+      const pvpInfo = this._pvpScheduleText();
+      const discordPart = this.discordLink ? ` Join our Discord: ${this.discordLink}` : '';
+      const adminTip = ' Type !admin in chat if you need help from an admin.';
+
+      let msg;
+      if (pt && pt.isReturning) {
+        // Returning player — include playtime info
+        const firstDate = pt.firstSeen
+          ? new Date(pt.firstSeen).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+          : null;
+        const sincePart = firstDate ? ` since ${firstDate}` : '';
+        msg = `Welcome back, ${joiner.name}! Your total playtime${sincePart} is ${pt.totalFormatted}.${pvpInfo}${adminTip}${discordPart}`;
+      } else {
+        // First-time player
+        msg = `Welcome to the server, ${joiner.name}!${pvpInfo}${adminTip}${discordPart}`;
+      }
+
+      await sendAdminMessage(msg);
+      this._lastWelcomeTime = Date.now();
+      console.log(`[AUTO-MSG] Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
+    } catch (err) {
+      console.error(`[AUTO-MSG] Failed to send welcome to ${joiner.name}:`, err.message);
     }
   }
 
@@ -382,15 +436,15 @@ class AutoMessages {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-GB', {
       hour: '2-digit', minute: '2-digit', hour12: false,
-      timeZone: config.pvpTimezone,
+      timeZone: config.botTimezone,
     });
     const [h, m] = timeStr.split(':').map(Number);
     const nowMin = h * 60 + m;
 
-    // Day of week in PvP timezone
+    // Day of week in bot timezone
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
-      timeZone: config.pvpTimezone,
+      timeZone: config.botTimezone,
     });
     const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const dayOfWeek = dayMap[dayStr] ?? now.getDay();
@@ -418,7 +472,7 @@ class AutoMessages {
       const hours = Math.floor(minsLeft / 60);
       const mins = minsLeft % 60;
       const timeLeft = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-      return ` PvP is enabled for ${timeLeft} (until ${fmt(endMin)} ${config.pvpTimezone}).`;
+      return ` PvP is enabled for ${timeLeft} (until ${fmt(endMin)} ${config.botTimezone}).`;
     } else {
       // Calculate time until next PvP start
       let minsUntil;
@@ -450,8 +504,8 @@ class AutoMessages {
       const timeUntil = parts.join(' ');
 
       const schedule = daysLabel
-        ? `${daysLabel} ${fmt(startMin)}–${fmt(endMin)} ${config.pvpTimezone}`
-        : `${fmt(startMin)}–${fmt(endMin)} ${config.pvpTimezone}`;
+        ? `${daysLabel} ${fmt(startMin)}–${fmt(endMin)} ${config.botTimezone}`
+        : `${fmt(startMin)}–${fmt(endMin)} ${config.botTimezone}`;
       return ` PvP starts in ${timeUntil} (${schedule}).`;
     }
   }

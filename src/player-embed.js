@@ -19,7 +19,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   }
   if (stats.lastEvent) {
     const lastDate = new Date(stats.lastEvent);
-    const dateStr = `${lastDate.toLocaleDateString('en-GB')} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    const dateStr = `${lastDate.toLocaleDateString('en-GB', { timeZone: config.botTimezone })} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: config.botTimezone })}`;
     infoFields.push({ name: 'Last Active', value: dateStr, inline: true });
   }
   if (infoFields.length > 0) embed.addFields(...infoFields);
@@ -83,7 +83,7 @@ function buildPlayerEmbed(stats, { isAdmin = false } = {}) {
   if (isAdmin && stats.cheatFlags && stats.cheatFlags.length > 0) {
     const flagLines = stats.cheatFlags.slice(-5).map(f => {
       const d = new Date(f.timestamp);
-      const dateStr = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      const dateStr = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: config.botTimezone });
       return `${dateStr} — \`${f.type}\``;
     });
     if (stats.cheatFlags.length > 5) flagLines.unshift(`_Showing last 5 of ${stats.cheatFlags.length} flags_`);

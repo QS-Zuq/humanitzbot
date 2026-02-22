@@ -264,9 +264,9 @@ class ServerStatus {
 
     // ── Server Statistics ──
     const peaks = playtime.getPeaks();
-    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB');
+    const trackingSince = new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone });
     const peakDate = peaks.allTimePeakDate
-      ? ` (${new Date(peaks.allTimePeakDate).toLocaleDateString('en-GB')})`
+      ? ` (${new Date(peaks.allTimePeakDate).toLocaleDateString('en-GB', { timeZone: config.botTimezone })})`
       : '';
 
     embed.addFields(
@@ -351,70 +351,91 @@ function _buildSettingsGrid(s) {
   function spacer() { rows.push(''); }
 
   // ── General ──
-  row('PvP',             _settingBool(s.PVP));
-  row('Max Players',     s.MaxPlayers);
-  row('On Death',        _settingLabel(s.OnDeath, ON_DEATH_LABELS));
-  row('Perma Death',     _settingLabel(s.PermaDeath, ['Off', 'Individual', 'All']));
-  row('Vital Drain',     _settingLabel(s.VitalDrain, VITAL_DRAIN_LABELS));
-  row('XP Multiplier',   s.XpMultiplier != null ? `${s.XpMultiplier}x` : null);
+  if (config.showSettingsGeneral) {
+    row('PvP',             _settingBool(s.PVP));
+    row('Max Players',     s.MaxPlayers);
+    row('On Death',        _settingLabel(s.OnDeath, ON_DEATH_LABELS));
+    row('Perma Death',     _settingLabel(s.PermaDeath, ['Off', 'Individual', 'All']));
+    row('Vital Drain',     _settingLabel(s.VitalDrain, VITAL_DRAIN_LABELS));
+    row('XP Multiplier',   s.XpMultiplier != null ? `${s.XpMultiplier}x` : null);
+  }
 
   // ── Time & Seasons ──
-  spacer();
-  row('Day Length',      s.DayDur != null ? `${s.DayDur} min` : null);
-  row('Night Length',    s.NightDur != null ? `${s.NightDur} min` : null);
-  row('Season Length',   s.DaysPerSeason != null ? `${s.DaysPerSeason} days` : null);
-  row('Start Season',    _settingLabel(s.StartingSeason, ['Summer', 'Autumn', 'Winter', 'Spring']));
+  if (config.showSettingsTime) {
+    spacer();
+    row('Day Length',      s.DayDur != null ? `${s.DayDur} min` : null);
+    row('Night Length',    s.NightDur != null ? `${s.NightDur} min` : null);
+    row('Season Length',   s.DaysPerSeason != null ? `${s.DaysPerSeason} days` : null);
+    row('Start Season',    _settingLabel(s.StartingSeason, ['Summer', 'Autumn', 'Winter', 'Spring']));
+  }
 
   // ── Zombies ──
-  spacer();
-  row('Zombie Health',   _difficultyLabel(s.ZombieDiffHealth));
-  row('Zombie Speed',    _difficultyLabel(s.ZombieDiffSpeed));
-  row('Zombie Damage',   _difficultyLabel(s.ZombieDiffDamage));
-  row('Zombie Spawns',   _spawnLabel(s.ZombieAmountMulti));
-  row('Zombie Respawn',  s.ZombieRespawnTimer != null ? `${s.ZombieRespawnTimer} min` : null);
-
-  // ── Items & Building ──
-  spacer();
-  row('Weapon Break',    _settingBool(s.WeaponBreak));
-  row('Food Decay',      _settingBool(s.FoodDecay));
-  row('Loot Respawn',    s.LootRespawnTimer != null ? `${s.LootRespawnTimer} min` : null);
-  row('Air Drops',       _settingBool(s.AirDrop));
-  if (s.AirDrop === '1' || s.AirDrop === 'true') {
-    row('  Interval',    s.AirDropInterval != null ? `Every ${s.AirDropInterval} day${s.AirDropInterval === '1' ? '' : 's'}` : null);
+  if (config.showSettingsZombies) {
+    spacer();
+    row('Zombie Health',   _difficultyLabel(s.ZombieDiffHealth));
+    row('Zombie Speed',    _difficultyLabel(s.ZombieDiffSpeed));
+    row('Zombie Damage',   _difficultyLabel(s.ZombieDiffDamage));
+    row('Zombie Spawns',   _spawnLabel(s.ZombieAmountMulti));
+    row('Zombie Respawn',  s.ZombieRespawnTimer != null ? `${s.ZombieRespawnTimer} min` : null);
+    row('Zombie Dogs',     _spawnLabel(s.ZombieDogMulti));
   }
-  row('Dog Companion',   _settingBool(s.DogEnabled));
+
+  // ── Items ──
+  if (config.showSettingsItems) {
+    spacer();
+    row('Weapon Break',    _settingBool(s.WeaponBreak));
+    row('Food Decay',      _settingBool(s.FoodDecay));
+    row('Loot Respawn',    s.LootRespawnTimer != null ? `${s.LootRespawnTimer} min` : null);
+    row('Air Drops',       _settingBool(s.AirDrop));
+    if (s.AirDrop === '1' || s.AirDrop === 'true') {
+      row('  Interval',    s.AirDropInterval != null ? `Every ${s.AirDropInterval} day${s.AirDropInterval === '1' ? '' : 's'}` : null);
+    }
+  }
 
   // ── Extended settings (toggled) ──
   if (config.showExtendedSettings) {
     // Bandits
-    spacer();
-    row('Bandit Health',   _difficultyLabel(s.HumanHealth));
-    row('Bandit Speed',    _difficultyLabel(s.HumanSpeed));
-    row('Bandit Damage',   _difficultyLabel(s.HumanDamage));
-    row('Bandit Spawns',   _spawnLabel(s.HumanAmountMulti));
-    row('Bandit Respawn',  s.HumanRespawnTimer != null ? `${s.HumanRespawnTimer} min` : null);
-    row('AI Events',       _settingLabel(s.AIEvent, ['Off', 'Low', 'Default']));
+    if (config.showSettingsBandits) {
+      spacer();
+      row('Bandit Health',   _difficultyLabel(s.HumanHealth));
+      row('Bandit Speed',    _difficultyLabel(s.HumanSpeed));
+      row('Bandit Damage',   _difficultyLabel(s.HumanDamage));
+      row('Bandit Spawns',   _spawnLabel(s.HumanAmountMulti));
+      row('Bandit Respawn',  s.HumanRespawnTimer != null ? `${s.HumanRespawnTimer} min` : null);
+      row('AI Events',       _settingLabel(s.AIEvent, ['Off', 'Low', 'Default']));
+    }
 
     // Companions
-    spacer();
-    row('Companion HP',    _settingLabel(s.CompanionHealth, ['Low', 'Default', 'High']));
-    row('Companion Dmg',   _settingLabel(s.CompanionDmg, ['Low', 'Default', 'High']));
+    if (config.showSettingsCompanions) {
+      spacer();
+      row('Dog Companion',   _settingBool(s.DogEnabled));
+      row('Companion HP',    _settingLabel(s.CompanionHealth, ['Low', 'Default', 'High']));
+      row('Companion Dmg',   _settingLabel(s.CompanionDmg, ['Low', 'Default', 'High']));
+    }
 
     // Building & Territory
-    spacer();
-    row('Building HP',     _settingLabel(s.BuildingHealth, VITAL_DRAIN_LABELS));
-    row('Building Decay',  _settingBool(s.BuildingDecay));
-    row('Territory',       _settingBool(s.Territory));
-    row('Dismantle Own',   _settingBool(s.AllowDismantle));
-    row('Dismantle House', _settingBool(s.AllowHouseDismantle));
+    if (config.showSettingsBuilding) {
+      spacer();
+      row('Building HP',     _settingLabel(s.BuildingHealth, VITAL_DRAIN_LABELS));
+      row('Building Decay',  _settingBool(s.BuildingDecay));
+      row('Gen Fuel Rate',   s.GenFuel != null ? `${s.GenFuel}x` : null);
+      row('Territory',       _settingBool(s.Territory));
+      row('Dismantle Own',   _settingBool(s.AllowDismantle));
+      row('Dismantle House', _settingBool(s.AllowHouseDismantle));
+    }
 
-    // Vehicles & Misc
-    spacer();
-    row('Max Cars',        s.MaxOwnedCars != null ? (s.MaxOwnedCars === '0' ? 'Disabled' : s.MaxOwnedCars) : null);
-    row('Gen Fuel Rate',   s.GenFuel != null ? `${s.GenFuel}x` : null);
-    row('Animal Spawns',   _spawnLabel(s.AnimalMulti));
-    row('Animal Respawn',  s.AnimalRespawnTimer != null ? `${s.AnimalRespawnTimer} min` : null);
-    row('Zombie Dogs',     _spawnLabel(s.ZombieDogMulti));
+    // Vehicles
+    if (config.showSettingsVehicles) {
+      spacer();
+      row('Max Cars',        s.MaxOwnedCars != null ? (s.MaxOwnedCars === '0' ? 'Disabled' : s.MaxOwnedCars) : null);
+    }
+
+    // Animals
+    if (config.showSettingsAnimals) {
+      spacer();
+      row('Animal Spawns',   _spawnLabel(s.AnimalMulti));
+      row('Animal Respawn',  s.AnimalRespawnTimer != null ? `${s.AnimalRespawnTimer} min` : null);
+    }
   }
 
   // Strip trailing empty lines

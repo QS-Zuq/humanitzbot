@@ -641,7 +641,7 @@ class LogWatcher {
 
     const [, day, month, rawYear, hour, min, body] = lineMatch;
     const year = rawYear.replace(',', '');
-    const timestamp = new Date(`${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}T${hour.padStart(2,'0')}:${min.padStart(2,'0')}:00Z`);
+    const timestamp = config.parseLogTimestamp(year, month, day, hour, min);
 
     // ── Player death ───────────────────────────────────────
     // Player died (PlayerName)
@@ -789,9 +789,7 @@ class LogWatcher {
 
     const [, action, name, steamId, day, month, rawYear, hour, min] = connectMatch;
     const year = rawYear.replace(',', '');
-    const timestamp = new Date(
-      `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}T${hour.padStart(2,'0')}:${min.padStart(2,'0')}:00Z`
-    );
+    const timestamp = config.parseLogTimestamp(year, month, day, hour, min);
 
     if (action === 'Connected') {
       playerStats.recordConnect(name, steamId, timestamp);
