@@ -154,6 +154,9 @@ const config = {
   // Requires PANEL_SERVER_URL + PANEL_API_KEY to be set.
   enablePanel: envBool('ENABLE_PANEL', true),
 
+  // Game settings editor in panel channel (requires SFTP credentials)
+  enableGameSettingsEditor: envBool('ENABLE_GAME_SETTINGS_EDITOR', true),
+
   // SSH resource monitoring (reuses FTP_HOST/FTP_USER/FTP_PASSWORD)
   enableSshResources: envBool('ENABLE_SSH_RESOURCES', false),
   sshPort: parseInt(process.env.SSH_PORT, 10) || 0,   // 0 = use FTP_PORT

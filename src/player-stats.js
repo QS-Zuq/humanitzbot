@@ -58,7 +58,7 @@ class PlayerStats {
           const alreadyLogged = record.nameHistory.some(h => h.name.toLowerCase() === record.name.toLowerCase());
           if (!alreadyLogged) {
             record.nameHistory.push({ name: record.name, until: new Date().toISOString() });
-            console.log(`[PLAYER STATS] Name change detected via ID map: "${record.name}" → "${name}" (${steamId})`);
+            console.log(`[${this._label}] Name change detected via ID map: "${record.name}" → "${name}" (${steamId})`);
           }
           record.name = name;
           this._dirty = true;
@@ -82,7 +82,7 @@ class PlayerStats {
         console.log(`[${this._label}] Loaded ${entries.length} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err) {
-      console.error('[PLAYER STATS] Failed to load cached ID map:', err.message);
+      console.error(`[${this._label}] Failed to load cached ID map:`, err.message);
     }
   }
 
@@ -254,6 +254,8 @@ class PlayerStats {
 
   getAllPlayers() {
     this._ensureInit();
+    // Return cached result when data hasn't changed
+    if (this._allPlayersCache && !this._dirty) return this._allPlayersCache;
     const entries = [];
     for (const [id, record] of Object.entries(this._data.players)) {
       entries.push({ id, ...record });
@@ -264,6 +266,7 @@ class PlayerStats {
       const actB = b.deaths + b.builds + b.raidsOut + b.containersLooted;
       return actB - actA;
     });
+    this._allPlayersCache = entries;
     return entries;
   }
 
@@ -292,7 +295,7 @@ class PlayerStats {
         const alreadyLogged = record.nameHistory.some(h => h.name.toLowerCase() === record.name.toLowerCase());
         if (!alreadyLogged) {
           record.nameHistory.push({ name: record.name, until: new Date().toISOString() });
-          console.log(`[PLAYER STATS] Name change detected: "${record.name}" → "${name}" (${steamId})`);
+          console.log(`[${this._label}] Name change detected: "${record.name}" → "${name}" (${steamId})`);
         }
         this._dirty = true;
       }
@@ -406,7 +409,7 @@ class PlayerStats {
 
     delete this._data.players[nameKey];
     this._dirty = true;
-    console.log(`[PLAYER STATS] Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
+    console.log(`[${this._label}] Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
   }
 
   _buildNameIndex() {

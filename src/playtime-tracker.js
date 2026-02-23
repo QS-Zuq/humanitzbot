@@ -136,6 +136,10 @@ class PlaytimeTracker {
 
   getLeaderboard() {
     this._ensureInit();
+    // Return cached result when data hasn't changed and no active sessions
+    if (this._leaderboardCache && !this._dirty && this._activeSessions.size === 0) {
+      return this._leaderboardCache;
+    }
     const entries = [];
     for (const [id, record] of Object.entries(this._data.players)) {
       let totalMs = record.totalMs;
@@ -151,6 +155,7 @@ class PlaytimeTracker {
       });
     }
     entries.sort((a, b) => b.totalMs - a.totalMs);
+    this._leaderboardCache = entries;
     return entries;
   }
 
@@ -172,6 +177,7 @@ class PlaytimeTracker {
       this._data.peaks.todayPeak = 0;
       this._data.peaks.todayDate = today;
       this._data.peaks.uniqueToday = [];
+      this._uniqueTodaySet = new Set();
     }
 
     // Update peaks
@@ -197,9 +203,16 @@ class PlaytimeTracker {
       this._data.peaks.todayPeak = 0;
       this._data.peaks.todayDate = today;
       this._data.peaks.uniqueToday = [];
+      this._uniqueTodaySet = new Set();
     }
 
-    if (!id || this._data.peaks.uniqueToday.includes(id)) return;
+    if (!id) return;
+    // Lazily build the Set from the array (e.g. after a load from disk)
+    if (!this._uniqueTodaySet) {
+      this._uniqueTodaySet = new Set(this._data.peaks.uniqueToday || []);
+    }
+    if (this._uniqueTodaySet.has(id)) return;
+    this._uniqueTodaySet.add(id);
     this._data.peaks.uniqueToday.push(id);
 
     // Update unique-day peak (best day by unique player count)

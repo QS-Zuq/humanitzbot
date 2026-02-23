@@ -115,7 +115,11 @@ class PlayerStatsChannel {
 
     // Start save poll loop (5 min default)
     const pollMs = Math.max(this._config.savePollInterval || 300000, 60000);
-    this.saveInterval = setInterval(() => this._pollSave().then(() => this._updateEmbed()), pollMs);
+    this.saveInterval = setInterval(() => {
+      this._pollSave()
+        .then(() => this._updateEmbed())
+        .catch(err => console.error(`[${this._label}] Save poll error:`, err.message));
+    }, pollMs);
     console.log(`[${this._label}] Save poll every ${pollMs / 1000}s`);
 
     // Update embed every 60s (for playtime changes etc.)
@@ -1531,8 +1535,8 @@ class PlayerStatsChannel {
       const at = this.getAllTimeKills(steamId);
       const cl = this.getCurrentLifeKills(steamId);
       const types = [
-        ['Zombies',   'zeeksKilled'],
-        ['Headshots', 'headshots'],
+        ['Zombie Kills', 'zeeksKilled'],
+        ['Headshots',    'headshots'],
         ['Melee',     'meleeKills'],
         ['Ranged',    'gunKills'],
         ['Blast',     'blastKills'],

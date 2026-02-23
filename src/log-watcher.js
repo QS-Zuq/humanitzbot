@@ -117,11 +117,11 @@ class LogWatcher {
         const raw = JSON.parse(fs.readFileSync(this._pvpKillsPath, 'utf8'));
         if (Array.isArray(raw)) {
           this._pvpKills = raw;
-          console.log(`[PVP KILLFEED] Loaded ${raw.length} PvP kill(s) from history`);
+          console.log(`[${this._label}:PVP] Loaded ${raw.length} PvP kill(s) from history`);
         }
       }
     } catch (err) {
-      console.warn('[PVP KILLFEED] Could not load pvp-kills.json:', err.message);
+      console.warn(`[${this._label}:PVP] Could not load pvp-kills.json:`, err.message);
       this._pvpKills = [];
     }
   }
@@ -134,7 +134,7 @@ class LogWatcher {
       fs.writeFileSync(this._pvpKillsPath, JSON.stringify(this._pvpKills, null, 2), 'utf8');
       this._pvpKillsDirty = false;
     } catch (err) {
-      console.warn('[PVP KILLFEED] Could not save pvp-kills.json:', err.message);
+      console.warn(`[${this._label}:PVP] Could not save pvp-kills.json:`, err.message);
     }
   }
 

@@ -119,7 +119,7 @@ module.exports = {
       case 'backup-delete': return _backupDelete(interaction);
       case 'schedules':     return _schedules(interaction);
       default:
-        await interaction.reply({ content: `Unknown subcommand: ${sub}`, ephemeral: true });
+        await interaction.reply({ content: `❌ Unknown subcommand: ${sub}`, ephemeral: true });
     }
   },
 };
