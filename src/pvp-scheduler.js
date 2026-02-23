@@ -374,7 +374,7 @@ class PvpScheduler {
   async _announce(message) {
     console.log(`[${this._label}] ${message}`);
     const embed = new EmbedBuilder()
-      .setAuthor({ name: 'PvP Scheduler' })
+      .setAuthor({ name: '⚔️ PvP Scheduler' })
       .setDescription(message)
       .setColor(0xf39c12)
       .setTimestamp();
@@ -429,7 +429,7 @@ class PvpScheduler {
 
     let newName;
     if (pvpOn) {
-      newName = `${this._originalServerName} - PVP Enabled ${this._formatPvpTimeRange()}`;
+      newName = `${this._originalServerName} - PvP Enabled ${this._formatPvpTimeRange()}`;
     } else {
       newName = this._originalServerName;
     }
@@ -448,7 +448,7 @@ class PvpScheduler {
     const label = targetPvp ? 'ENABLED' : 'DISABLED';
     const color = targetPvp ? 0xe74c3c : 0x2ecc71; // red for PvP on, green for PvP off
     const embed = new EmbedBuilder()
-      .setAuthor({ name: `PvP ${label}` })
+      .setAuthor({ name: `⚔️ PvP ${label}` })
       .setDescription(`PvP has been **${label.toLowerCase()}** by the PvP scheduler.\nServer is restarting to apply the change.`)
       .setColor(color)
       .setTimestamp();

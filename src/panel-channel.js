@@ -469,7 +469,7 @@ class PanelChannel {
       const features = [];
       features.push('bot controls');
       features.push('env editor');
-      if (this._hasSftp) features.push('game settings (SFTP)');
+      if (this._hasSftp && config.enableGameSettingsEditor) features.push('game settings (SFTP)');
       if (panelApi.available) features.push('server panel (API)');
       console.log(`[PANEL CH] Posting in #${this.channel.name} — ${features.join(', ')} (every ${this.updateIntervalMs / 1000}s)`);
       await this._cleanOwnMessages();
@@ -526,17 +526,19 @@ class PanelChannel {
           );
         }
         if (toolsRow.components.length > 0) primaryRows.push(toolsRow);
-        const settingsSelect = new StringSelectMenuBuilder()
-          .setCustomId(SELECT.SETTINGS)
-          .setPlaceholder('Edit game server settings...')
-          .addOptions(
-            GAME_SETTINGS_CATEGORIES.map(c => ({
-              label: c.label,
-              value: c.id,
-              emoji: c.emoji,
-            }))
-          );
-        primaryRows.push(new ActionRowBuilder().addComponents(settingsSelect));
+        if (config.enableGameSettingsEditor) {
+          const settingsSelect = new StringSelectMenuBuilder()
+            .setCustomId(SELECT.SETTINGS)
+            .setPlaceholder('Edit game server settings...')
+            .addOptions(
+              GAME_SETTINGS_CATEGORIES.map(c => ({
+                label: c.label,
+                value: c.id,
+                emoji: c.emoji,
+              }))
+            );
+          primaryRows.push(new ActionRowBuilder().addComponents(settingsSelect));
+        }
         this.panelMessage = await this.channel.send({
           embeds: [primaryEmbed],
           components: primaryRows,
@@ -2800,8 +2802,8 @@ class PanelChannel {
     const rows = [powerRow];
     if (toolsRow.components.length > 0) rows.push(toolsRow);
 
-    // Game settings dropdown if SFTP is configured
-    if (this._hasSftp) {
+    // Game settings dropdown if SFTP is configured and editor is enabled
+    if (this._hasSftp && config.enableGameSettingsEditor) {
       const settingsSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.SETTINGS)
         .setPlaceholder('Edit game server settings...')

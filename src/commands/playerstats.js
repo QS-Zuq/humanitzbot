@@ -103,7 +103,7 @@ function buildOverviewEmbed(allPlayers) {
     `**Builds:** ${totalBuilds}  ·  **Looted:** ${totalLoots}`,
   ];
   if (totalRaids > 0) grid.push(`**Raids:** ${totalRaids}`);
-  embed.addFields({ name: 'Server Totals', value: grid.join('\n') });
+  embed.addFields({ name: 'Server Totals (All Time)', value: grid.join('\n') });
 
   // Top 5 most active
   const top5 = allPlayers.slice(0, 5).map((p, i) => {

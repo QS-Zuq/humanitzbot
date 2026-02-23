@@ -27,7 +27,7 @@ module.exports = {
     const cmdWord = command.trim().toLowerCase().split(/\s+/)[0];
     if (BLOCKED_COMMANDS.has(cmdWord)) {
       await interaction.editReply({
-        content: `\u274C The command \`${cmdWord}\` is blocked for safety. Use the server panel to perform this action.`,
+        content: `❌ The command \`${cmdWord}\` is blocked for safety. Use the server panel to perform this action.`,
       });
       return;
     }

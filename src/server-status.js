@@ -320,7 +320,16 @@ class ServerStatus {
     try {
       const settingsFile = path.join(this._dataDir, 'server-settings.json');
       if (fs.existsSync(settingsFile)) {
-        return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        const stat = fs.statSync(settingsFile);
+        const mtime = stat.mtimeMs;
+        // Return cached copy if file hasn't been modified
+        if (this._settingsCache && this._settingsCacheMtime === mtime) {
+          return this._settingsCache;
+        }
+        const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        this._settingsCache = data;
+        this._settingsCacheMtime = mtime;
+        return data;
       }
     } catch (_) {}
     return {};
