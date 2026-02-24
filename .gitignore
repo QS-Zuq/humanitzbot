@@ -12,9 +12,10 @@ data/
 # Personal developer scripts (credentials, diagnostics)
 _*.js
 
-# Web map module — large map images (~40MB). Available on `web-map` branch.
-src/web-map/
+# Web map generated tile cache only
+src/web-map/public/tiles/
 
 # Development / extraction utility scripts & cached data
 tools/
 GameServerSettings.ini
+.tmp-*
