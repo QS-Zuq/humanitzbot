@@ -101,6 +101,9 @@ const config = {
   rconPort: parseInt(process.env.RCON_PORT, 10) || 27015,
   rconPassword: process.env.RCON_PASSWORD,
 
+  // Public IP for server-status embed (if different from rconHost for localhost setups)
+  publicHost: process.env.PUBLIC_HOST || process.env.RCON_HOST,
+
   // Game server connection port (shown in server-status embed for direct connect)
   gamePort: process.env.GAME_PORT || '',
 

@@ -186,11 +186,15 @@ async function _fetchSsh() {
       reject(err);
     });
 
+    // Use the standard SFTP config which supports SSH keys
+    const sftpCfg = config.sftpConnectConfig();
     conn.connect({
-      host: config.ftpHost,
-      port: config.sshPort || config.ftpPort,
-      username: config.ftpUser,
-      password: config.ftpPassword,
+      host: sftpCfg.host,
+      port: config.sshPort || sftpCfg.port,
+      username: sftpCfg.username,
+      password: sftpCfg.password,
+      privateKey: sftpCfg.privateKey,
+      passphrase: sftpCfg.passphrase,
     });
   });
 }

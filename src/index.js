@@ -149,7 +149,7 @@ const moduleStatus = {};
 function setStatus(name, status) { moduleStatus[name] = status; }
 
 function hasFtp() {
-  return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
+  return !!(config.ftpHost && config.ftpUser && (config.ftpPassword || config.ftpPrivateKeyPath));
 }
 
 /**
@@ -445,12 +445,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Save Service — SFTP save-file polling → SQLite sync (agent or direct)
   if (hasFtp()) {
     saveService = new SaveService(db, {
-      sftpConfig: {
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
-      },
+      sftpConfig: config.sftpConnectConfig(),
       savePath: config.ftpSavePath,
       pollInterval: config.savePollInterval,
       agentMode: config.agentMode,

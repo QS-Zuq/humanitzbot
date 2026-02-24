@@ -287,7 +287,7 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
   const cfg = configOverride || config;
   const channelId = cfg.logChannelId;
   if (!channelId) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'LOG_CHANNEL_ID is not set' };
-  if (!cfg.ftpHost || !cfg.ftpUser || !cfg.ftpPassword) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'SFTP credentials not configured' };
+  if (!cfg.ftpHost || !cfg.ftpUser || (!cfg.ftpPassword && !cfg.ftpPrivateKeyPath)) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'SFTP credentials not configured' };
 
   const channel = await discordClient.channels.fetch(channelId).catch(() => null);
   if (!channel) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'Could not access log channel' };
@@ -298,12 +298,7 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
   const sftp = new SftpClient();
 
   try {
-    await sftp.connect({
-      host: cfg.ftpHost,
-      port: cfg.ftpPort,
-      username: cfg.ftpUser,
-      password: cfg.ftpPassword,
-    });
+    await sftp.connect(cfg.sftpConnectConfig());
 
     try {
       const buf = await sftp.get(cfg.ftpLogPath);

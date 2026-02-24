@@ -349,7 +349,7 @@ class ServerStatus {
     }
 
     // Server name + status line
-    const host = this._config.rconHost || 'unknown';
+    const host = this._config.publicHost || this._config.rconHost || 'unknown';
     const port = this._config.gamePort || null;
     const connectStr = port ? `${host}:${port}` : host;
     const descParts = [];
@@ -554,7 +554,7 @@ class ServerStatus {
       .setFooter({ text: 'Last updated' });
 
     // Connection info
-    const host = this._config.rconHost || 'unknown';
+    const host = this._config.publicHost || this._config.rconHost || 'unknown';
     const port = this._config.gamePort || null;
     const connectStr = port ? `\`${host}:${port}\`` : `\`${host}\``;
 

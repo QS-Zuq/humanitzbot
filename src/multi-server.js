@@ -276,7 +276,7 @@ class ServerInstance {
 
   /** Whether SFTP is configured for this server. */
   get hasSftp() {
-    return !!(this.config.ftpHost && this.config.ftpUser && this.config.ftpPassword);
+    return !!(this.config.ftpHost && this.config.ftpUser && (this.config.ftpPassword || this.config.ftpPrivateKeyPath));
   }
 
   /** Common deps object for module constructors. */

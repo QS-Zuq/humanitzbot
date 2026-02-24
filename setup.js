@@ -47,10 +47,29 @@ const ftpConfig = {
   username: process.env.FTP_USER,
   password: process.env.FTP_PASSWORD,
 };
+
+// Add SSH private key support if configured
+if (process.env.FTP_PRIVATE_KEY_PATH) {
+  try {
+    ftpConfig.privateKey = require('fs').readFileSync(process.env.FTP_PRIVATE_KEY_PATH, 'utf8');
+  } catch (err) {
+    console.warn(`[SETUP] Could not read SSH private key at ${process.env.FTP_PRIVATE_KEY_PATH}:`, err.message);
+  }
+}
+
+const ftpBasePath = (process.env.FTP_BASE_PATH || '').replace(/\/+$/, '');  // strip trailing slash
 let ftpLogPath = process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log';
 let ftpConnectLogPath = process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt';
 let ftpIdMapPath = process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt';
 let ftpSavePath = process.env.FTP_SAVE_PATH || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
+
+// Prepend base path if configured and paths are relative
+if (ftpBasePath) {
+  if (ftpLogPath && !ftpLogPath.startsWith(ftpBasePath)) ftpLogPath = ftpBasePath + ftpLogPath;
+  if (ftpConnectLogPath && !ftpConnectLogPath.startsWith(ftpBasePath)) ftpConnectLogPath = ftpBasePath + ftpConnectLogPath;
+  if (ftpIdMapPath && !ftpIdMapPath.startsWith(ftpBasePath)) ftpIdMapPath = ftpBasePath + ftpIdMapPath;
+  if (ftpSavePath && !ftpSavePath.startsWith(ftpBasePath)) ftpSavePath = ftpBasePath + ftpSavePath;
+}
 
 // ── CLI Args ──────────────────────────────────────────────────
 const args = process.argv.slice(2);

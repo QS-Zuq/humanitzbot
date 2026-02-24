@@ -629,12 +629,7 @@ class AutoMessages {
   async _writeWelcomeFile() {
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
+      await sftp.connect(this._config.sftpConnectConfig());
 
       const content = await this._buildWelcomeFileContent();
       await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);

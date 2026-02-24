@@ -802,7 +802,7 @@ class PanelChannel {
 
   /** Whether SFTP credentials are configured (needed for game settings editor). */
   get _hasSftp() {
-    return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
+    return !!(config.ftpHost && config.ftpUser && (config.ftpPassword || config.ftpPrivateKeyPath));
   }
 
   /**
@@ -2450,7 +2450,7 @@ class PanelChannel {
         }
 
         const srvConfig = createServerConfig(server);
-        if (!srvConfig.ftpHost || !srvConfig.ftpUser || !srvConfig.ftpPassword) {
+        if (!srvConfig.ftpHost || !srvConfig.ftpUser || (!srvConfig.ftpPassword && !srvConfig.ftpPrivateKeyPath)) {
           await interaction.reply({ content: '❌ No SFTP credentials configured for this server.', ephemeral: true });
           return true;
         }
@@ -2665,7 +2665,7 @@ class PanelChannel {
   /** Get effective SFTP config for a managed server (own creds or inherited from primary). */
   _getSrvSftpConfig(serverDef) {
     const srvConfig = createServerConfig(serverDef);
-    if (!srvConfig.ftpHost || !srvConfig.ftpUser || !srvConfig.ftpPassword) return null;
+    if (!srvConfig.ftpHost || !srvConfig.ftpUser || (!srvConfig.ftpPassword && !srvConfig.ftpPrivateKeyPath)) return null;
     return {
       host: srvConfig.ftpHost,
       port: srvConfig.ftpPort,
