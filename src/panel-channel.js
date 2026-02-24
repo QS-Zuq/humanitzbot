@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const panelApi = require('./panel-api');
+const playerMap = require('./player-map');
 const SftpClient = require('ssh2-sftp-client');
 const { formatBytes, formatUptime } = require('./server-resources');
 const MultiServerManager = require('./multi-server');
@@ -59,24 +60,34 @@ const BTN = {
   BACKUP:       'panel_backup',
   KILL:         'panel_kill',
   BOT_RESTART:  'panel_bot_restart',
+  NUKE:         'panel_nuke',
+  REIMPORT:     'panel_reimport',
   ADD_SERVER:   'panel_add_server',
   WELCOME_EDIT: 'panel_welcome_edit',
   BROADCASTS:   'panel_broadcasts',
+  MAP:          'panel_map',
+  HEATMAP:      'panel_heatmap',
 };
 
 const SELECT = {
   ENV:      'panel_env_select',
+  ENV2:     'panel_env_select2',
   SETTINGS: 'panel_settings_select',
   SERVER:   'panel_server_select',
 };
 
-// ── Env categories (max 5 fields per category — Discord modal limit) ─
+// ── Env categories ──────────────────────────────────────────
+// Max 5 fields per category (Discord modal limit).
 // `cfg` = config.js key for live apply. `type` = value parser.
 // `restart` = true when bot restart is required for the change to take effect.
+// `sensitive` = true hides the current value in the modal (passwords / API keys).
+// `style` = 'paragraph' for multi-line TextInput.
+// `group` = 1 (core settings select) or 2 (display / schedule select).
 
 const ENV_CATEGORIES = [
+  // ── Group 1: Core & Module Settings ────────────────────────
   {
-    id: 'channels', label: 'Channel IDs', emoji: '📺',
+    id: 'channels', label: 'Channel IDs', emoji: '📺', group: 1,
     description: 'Discord channel assignments (restart required)',
     restart: true,
     fields: [
@@ -88,7 +99,78 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'features1', label: 'Module Toggles', emoji: '⚡',
+    id: 'server_identity', label: 'Server & Identity', emoji: '🏷️', group: 1,
+    description: 'Server name, panel channel, editor toggles (restart)',
+    restart: true,
+    fields: [
+      { env: 'SERVER_NAME', label: 'Server Display Name', cfg: 'serverName' },
+      { env: 'PANEL_CHANNEL_ID', label: 'Panel Channel', cfg: 'panelChannelId' },
+      { env: 'GAME_PORT', label: 'Game Port (direct connect)', cfg: 'gamePort' },
+      { env: 'ENABLE_GAME_SETTINGS_EDITOR', label: 'Settings Editor (true/false)', cfg: 'enableGameSettingsEditor', type: 'bool' },
+      { env: 'ENABLE_SSH_RESOURCES', label: 'SSH Resources (true/false)', cfg: 'enableSshResources', type: 'bool' },
+    ],
+  },
+  {
+    id: 'admin', label: 'Admin Settings', emoji: '🛡️', group: 1,
+    description: 'Admin users, roles, and alert channels (restart)',
+    restart: true,
+    fields: [
+      { env: 'ADMIN_USER_IDS', label: 'Admin User IDs (comma-sep)' },
+      { env: 'ADMIN_ROLE_IDS', label: 'Admin Role IDs (comma-sep)' },
+      { env: 'ADMIN_ALERT_CHANNEL_IDS', label: 'Alert Channel IDs (comma-sep)' },
+      { env: 'ADMIN_VIEW_PERMISSIONS', label: 'Admin View Perms (e.g. Administrator)' },
+    ],
+  },
+  {
+    id: 'credentials', label: 'RCON & Panel API', emoji: '🔑', group: 1,
+    description: 'Connection credentials (restart required)',
+    restart: true,
+    fields: [
+      { env: 'RCON_HOST', label: 'RCON Host', cfg: 'rconHost' },
+      { env: 'RCON_PORT', label: 'RCON Port', cfg: 'rconPort', type: 'int' },
+      { env: 'RCON_PASSWORD', label: 'RCON Password', sensitive: true },
+      { env: 'PANEL_SERVER_URL', label: 'Panel Server URL' },
+      { env: 'PANEL_API_KEY', label: 'Panel API Key', sensitive: true },
+    ],
+  },
+  {
+    id: 'sftp', label: 'SFTP Connection', emoji: '📂', group: 1,
+    description: 'SFTP host, credentials, base path (restart)',
+    restart: true,
+    fields: [
+      { env: 'FTP_HOST', label: 'SFTP Host', cfg: 'ftpHost' },
+      { env: 'FTP_PORT', label: 'SFTP Port', cfg: 'ftpPort', type: 'int' },
+      { env: 'FTP_USER', label: 'SFTP Username', cfg: 'ftpUser' },
+      { env: 'FTP_PASSWORD', label: 'SFTP Password', sensitive: true },
+      { env: 'FTP_BASE_PATH', label: 'Base Path Prefix', cfg: 'ftpBasePath' },
+    ],
+  },
+  {
+    id: 'sftp_paths', label: 'SFTP File Paths', emoji: '📁', group: 1,
+    description: 'Auto-discovered paths — override if needed (restart)',
+    restart: true,
+    fields: [
+      { env: 'FTP_LOG_PATH', label: 'Log File Path' },
+      { env: 'FTP_CONNECT_LOG_PATH', label: 'Player Connect Log' },
+      { env: 'FTP_ID_MAP_PATH', label: 'Player ID Map' },
+      { env: 'FTP_SAVE_PATH', label: 'Save File Path' },
+      { env: 'FTP_SETTINGS_PATH', label: 'Settings INI Path' },
+    ],
+  },
+  {
+    id: 'agent', label: 'Save Agent', emoji: '🤖', group: 1,
+    description: 'Remote save-parser agent (restart required)',
+    restart: true,
+    fields: [
+      { env: 'AGENT_MODE', label: 'Mode (auto/agent/direct)', cfg: 'agentMode' },
+      { env: 'AGENT_TRIGGER', label: 'Trigger (auto/ssh/panel/none)', cfg: 'agentTrigger' },
+      { env: 'AGENT_POLL_INTERVAL', label: 'Agent Poll Interval (ms)', cfg: 'agentPollInterval', type: 'int' },
+      { env: 'AGENT_TIMEOUT', label: 'Timeout (ms)', cfg: 'agentTimeout', type: 'int' },
+      { env: 'AGENT_NODE_PATH', label: 'Remote Node.js Path', cfg: 'agentNodePath' },
+    ],
+  },
+  {
+    id: 'features1', label: 'Module Toggles', emoji: '⚡', group: 1,
     description: 'Enable/disable core modules (restart required)',
     restart: true,
     fields: [
@@ -100,7 +182,7 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'features2', label: 'Module Toggles 2', emoji: '⚡',
+    id: 'features2', label: 'Module Toggles 2', emoji: '⚡', group: 1,
     description: 'More toggles (restart required)',
     restart: true,
     fields: [
@@ -112,83 +194,7 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'display_player', label: 'Display: Player', emoji: '👤',
-    description: 'Player stats sections (applies live)',
-    restart: false,
-    fields: [
-      { env: 'SHOW_VITALS', label: 'Vitals (true/false)', cfg: 'showVitals', type: 'bool' },
-      { env: 'SHOW_STATUS_EFFECTS', label: 'Status Effects (true/false)', cfg: 'showStatusEffects', type: 'bool' },
-      { env: 'SHOW_INVENTORY', label: 'Inventory (true/false)', cfg: 'showInventory', type: 'bool' },
-      { env: 'SHOW_RECIPES', label: 'Recipes (true/false)', cfg: 'showRecipes', type: 'bool' },
-      { env: 'SHOW_LORE', label: 'Lore (true/false)', cfg: 'showLore', type: 'bool' },
-    ],
-  },
-  {
-    id: 'display_server', label: 'Display: Server', emoji: '🖥️',
-    description: 'Server status sections (applies live)',
-    restart: false,
-    fields: [
-      { env: 'SHOW_SERVER_SETTINGS', label: 'Server Settings (true/false)', cfg: 'showServerSettings', type: 'bool' },
-      { env: 'SHOW_LOOT_SCARCITY', label: 'Loot Scarcity (true/false)', cfg: 'showLootScarcity', type: 'bool' },
-      { env: 'SHOW_WEATHER_ODDS', label: 'Weather Odds (true/false)', cfg: 'showWeatherOdds', type: 'bool' },
-      { env: 'SHOW_HOST_RESOURCES', label: 'Host Resources (true/false)', cfg: 'showHostResources', type: 'bool' },
-      { env: 'SHOW_SERVER_PERFORMANCE', label: 'Performance (true/false)', cfg: 'showServerPerformance', type: 'bool' },
-    ],
-  },
-  {
-    id: 'display_extra', label: 'Display: Extra', emoji: '📊',
-    description: 'Additional display toggles (applies live)',
-    restart: false,
-    fields: [
-      { env: 'SHOW_RAID_STATS', label: 'Raid Stats (true/false)', cfg: 'showRaidStats', type: 'bool' },
-      { env: 'SHOW_PVP_KILLS', label: 'PvP Kills (true/false)', cfg: 'showPvpKills', type: 'bool' },
-      { env: 'SHOW_CONNECTIONS', label: 'Connections (true/false)', cfg: 'showConnections', type: 'bool' },
-      { env: 'SHOW_CHALLENGE_DESCRIPTIONS', label: 'Challenge Desc. (true/false)', cfg: 'showChallengeDescriptions', type: 'bool' },
-      { env: 'SHOW_WEEKLY_STATS', label: 'Weekly Stats (true/false)', cfg: 'showWeeklyStats', type: 'bool' },
-    ],
-  },
-  {
-    id: 'intervals', label: 'Poll Intervals', emoji: '⏱️',
-    description: 'Update frequencies in ms (restart required)',
-    restart: true,
-    fields: [
-      { env: 'SERVER_STATUS_INTERVAL', label: 'Status Refresh (ms)', cfg: 'serverStatusInterval', type: 'int' },
-      { env: 'LOG_POLL_INTERVAL', label: 'Log Poll (ms)', cfg: 'logPollInterval', type: 'int' },
-      { env: 'SAVE_POLL_INTERVAL', label: 'Save Poll (ms)', cfg: 'savePollInterval', type: 'int' },
-      { env: 'CHAT_POLL_INTERVAL', label: 'Chat Poll (ms)', cfg: 'chatPollInterval', type: 'int' },
-      { env: 'STATUS_CHANNEL_INTERVAL', label: 'Voice Channel (ms)', cfg: 'statusChannelInterval', type: 'int' },
-    ],
-  },
-  {
-    id: 'timezone', label: 'Timezone', emoji: '🌐',
-    description: 'Time settings (restart required)',
-    restart: true,
-    fields: [
-      { env: 'BOT_TIMEZONE', label: 'Bot Timezone (IANA)', cfg: 'botTimezone' },
-      { env: 'LOG_TIMEZONE', label: 'Log Timezone (IANA)', cfg: 'logTimezone' },
-    ],
-  },
-  {
-    id: 'pvp', label: 'PvP Schedule', emoji: '⚔️',
-    description: 'PvP scheduler settings (restart required)',
-    restart: true,
-    fields: [
-      { env: 'PVP_START_TIME', label: 'Default Start (HH:MM)' },
-      { env: 'PVP_END_TIME', label: 'Default End (HH:MM)' },
-      { env: 'PVP_RESTART_DELAY', label: 'Restart Delay (min)', cfg: 'pvpRestartDelay', type: 'int' },
-      { env: 'PVP_UPDATE_SERVER_NAME', label: 'Update Name (true/false)', cfg: 'pvpUpdateServerName', type: 'bool' },
-      { env: 'PVP_DAYS', label: 'Days (e.g. Mon,Wed,Fri)' },
-      { env: 'PVP_HOURS_MON', label: 'Mon hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_TUE', label: 'Tue hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_WED', label: 'Wed hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_THU', label: 'Thu hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_FRI', label: 'Fri hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_SAT', label: 'Sat hours (HH:MM-HH:MM)' },
-      { env: 'PVP_HOURS_SUN', label: 'Sun hours (HH:MM-HH:MM)' },
-    ],
-  },
-  {
-    id: 'automsg', label: 'Auto Messages', emoji: '📢',
+    id: 'automsg', label: 'Auto Messages', emoji: '📢', group: 1,
     description: 'Broadcast & welcome toggles (restart required)',
     restart: true,
     fields: [
@@ -200,7 +206,18 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'log_features', label: 'Log Features', emoji: '📋',
+    id: 'automsg_custom', label: 'Custom Messages', emoji: '📝', group: 1,
+    description: 'Custom broadcast text and welcome lines (restart)',
+    restart: true,
+    fields: [
+      { env: 'AUTO_MSG_LINK_TEXT', label: 'Custom Link Broadcast', cfg: 'autoMsgLinkText' },
+      { env: 'AUTO_MSG_PROMO_TEXT', label: 'Custom Promo Broadcast', cfg: 'autoMsgPromoText' },
+      { env: 'WELCOME_FILE_LINES', label: 'Welcome Lines (pipe-separated)' },
+      { env: 'FTP_WELCOME_PATH', label: 'Welcome File Path' },
+    ],
+  },
+  {
+    id: 'log_features', label: 'Log Features', emoji: '📋', group: 1,
     description: 'Kill feed & death loop (restart required)',
     restart: true,
     fields: [
@@ -212,7 +229,149 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'display_more', label: 'Display: Status', emoji: '📺',
+    id: 'activity_feeds', label: 'Activity Feeds', emoji: '📰', group: 1,
+    description: 'Save-based activity feed toggles (applies live)',
+    restart: false,
+    fields: [
+      { env: 'ENABLE_FISHING_FEED', label: 'Fishing Feed (true/false)', cfg: 'enableFishingFeed', type: 'bool' },
+      { env: 'ENABLE_RECIPE_FEED', label: 'Recipe Feed (true/false)', cfg: 'enableRecipeFeed', type: 'bool' },
+      { env: 'ENABLE_SKILL_FEED', label: 'Skill Feed (true/false)', cfg: 'enableSkillFeed', type: 'bool' },
+      { env: 'ENABLE_PROFESSION_FEED', label: 'Profession Feed (true/false)', cfg: 'enableProfessionFeed', type: 'bool' },
+      { env: 'ENABLE_LORE_FEED', label: 'Lore Feed (true/false)', cfg: 'enableLoreFeed', type: 'bool' },
+    ],
+  },
+  {
+    id: 'activity_feeds2', label: 'Activity Feeds 2', emoji: '📰', group: 1,
+    description: 'More save-based feeds (applies live)',
+    restart: false,
+    fields: [
+      { env: 'ENABLE_UNIQUE_FEED', label: 'Unique Item Feed (true/false)', cfg: 'enableUniqueFeed', type: 'bool' },
+      { env: 'ENABLE_COMPANION_FEED', label: 'Companion Feed (true/false)', cfg: 'enableCompanionFeed', type: 'bool' },
+      { env: 'ENABLE_WORLD_EVENT_FEED', label: 'World Event Feed (true/false)', cfg: 'enableWorldEventFeed', type: 'bool' },
+    ],
+  },
+  {
+    id: 'intervals', label: 'Poll Intervals', emoji: '⏱️', group: 1,
+    description: 'Update frequencies in ms (restart required)',
+    restart: true,
+    fields: [
+      { env: 'SERVER_STATUS_INTERVAL', label: 'Status Refresh (ms)', cfg: 'serverStatusInterval', type: 'int' },
+      { env: 'LOG_POLL_INTERVAL', label: 'Log Poll (ms)', cfg: 'logPollInterval', type: 'int' },
+      { env: 'SAVE_POLL_INTERVAL', label: 'Save Poll (ms)', cfg: 'savePollInterval', type: 'int' },
+      { env: 'CHAT_POLL_INTERVAL', label: 'Chat Poll (ms)', cfg: 'chatPollInterval', type: 'int' },
+      { env: 'STATUS_CHANNEL_INTERVAL', label: 'Voice Channel (ms)', cfg: 'statusChannelInterval', type: 'int' },
+    ],
+  },
+  {
+    id: 'advanced', label: 'Advanced', emoji: '⚙️', group: 1,
+    description: 'Cache TTLs, auto-msg intervals (restart required)',
+    restart: true,
+    fields: [
+      { env: 'STATUS_CACHE_TTL', label: 'RCON Cache TTL (ms)', cfg: 'statusCacheTtl', type: 'int' },
+      { env: 'RESOURCE_CACHE_TTL', label: 'Resource Cache TTL (ms)', cfg: 'resourceCacheTtl', type: 'int' },
+      { env: 'AUTO_MSG_LINK_INTERVAL', label: 'Link Broadcast (ms)', cfg: 'autoMsgLinkInterval', type: 'int' },
+      { env: 'AUTO_MSG_PROMO_INTERVAL', label: 'Promo Broadcast (ms)', cfg: 'autoMsgPromoInterval', type: 'int' },
+      { env: 'AUTO_MSG_JOIN_CHECK', label: 'Join Check (ms)', cfg: 'autoMsgJoinCheckInterval', type: 'int' },
+    ],
+  },
+  // ── Group 2: Display & Schedule Settings ───────────────────
+  {
+    id: 'display_player', label: 'Display: Player', emoji: '👤', group: 2,
+    description: 'Player stats sections (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_VITALS', label: 'Vitals (true/false)', cfg: 'showVitals', type: 'bool' },
+      { env: 'SHOW_STATUS_EFFECTS', label: 'Status Effects (true/false)', cfg: 'showStatusEffects', type: 'bool' },
+      { env: 'SHOW_INVENTORY', label: 'Inventory (true/false)', cfg: 'showInventory', type: 'bool' },
+      { env: 'SHOW_RECIPES', label: 'Recipes (true/false)', cfg: 'showRecipes', type: 'bool' },
+      { env: 'SHOW_LORE', label: 'Lore (true/false)', cfg: 'showLore', type: 'bool' },
+    ],
+  },
+  {
+    id: 'sub_vitals', label: 'Sub: Vitals', emoji: '❤️', group: 2,
+    description: 'Individual vital stats (parent: Vitals)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_HEALTH', label: 'Health (true/false)', cfg: 'showHealth', type: 'bool' },
+      { env: 'SHOW_HUNGER', label: 'Hunger (true/false)', cfg: 'showHunger', type: 'bool' },
+      { env: 'SHOW_THIRST', label: 'Thirst (true/false)', cfg: 'showThirst', type: 'bool' },
+      { env: 'SHOW_STAMINA', label: 'Stamina (true/false)', cfg: 'showStamina', type: 'bool' },
+      { env: 'SHOW_IMMUNITY', label: 'Immunity (true/false)', cfg: 'showImmunity', type: 'bool' },
+    ],
+  },
+  {
+    id: 'sub_status', label: 'Sub: Status Effects', emoji: '🩹', group: 2,
+    description: 'Individual status effect types (parent: Status Effects)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_BATTERY', label: 'Battery (true/false)', cfg: 'showBattery', type: 'bool' },
+      { env: 'SHOW_PLAYER_STATES', label: 'Player States (true/false)', cfg: 'showPlayerStates', type: 'bool' },
+      { env: 'SHOW_BODY_CONDITIONS', label: 'Body Conditions (true/false)', cfg: 'showBodyConditions', type: 'bool' },
+      { env: 'SHOW_INFECTION_BUILDUP', label: 'Infection % (true/false)', cfg: 'showInfectionBuildup', type: 'bool' },
+      { env: 'SHOW_FATIGUE', label: 'Fatigue (true/false)', cfg: 'showFatigue', type: 'bool' },
+    ],
+  },
+  {
+    id: 'sub_inventory', label: 'Sub: Inventory', emoji: '🎒', group: 2,
+    description: 'Individual inventory slots (parent: Inventory)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_EQUIPMENT', label: 'Equipment (true/false)', cfg: 'showEquipment', type: 'bool' },
+      { env: 'SHOW_QUICK_SLOTS', label: 'Quick Slots (true/false)', cfg: 'showQuickSlots', type: 'bool' },
+      { env: 'SHOW_POCKETS', label: 'Pockets (true/false)', cfg: 'showPockets', type: 'bool' },
+      { env: 'SHOW_BACKPACK', label: 'Backpack (true/false)', cfg: 'showBackpack', type: 'bool' },
+      { env: 'SHOW_COORDINATES', label: 'Coordinates (true/false)', cfg: 'showCoordinates', type: 'bool' },
+    ],
+  },
+  {
+    id: 'sub_misc', label: 'Sub: Recipes/Conn/Raid', emoji: '📋', group: 2,
+    description: 'Recipes, connections, raid sub-toggles',
+    restart: false,
+    fields: [
+      { env: 'SHOW_CRAFTING_RECIPES', label: 'Crafting Recipes (true/false)', cfg: 'showCraftingRecipes', type: 'bool' },
+      { env: 'SHOW_BUILDING_RECIPES', label: 'Building Recipes (true/false)', cfg: 'showBuildingRecipes', type: 'bool' },
+      { env: 'SHOW_CONNECT_COUNT', label: 'Connect Count (true/false)', cfg: 'showConnectCount', type: 'bool' },
+      { env: 'SHOW_RAIDS_OUT', label: 'Raids Out (true/false)', cfg: 'showRaidsOut', type: 'bool' },
+      { env: 'SHOW_RAIDS_IN', label: 'Raids In (true/false)', cfg: 'showRaidsIn', type: 'bool' },
+    ],
+  },
+  {
+    id: 'sub_access', label: 'Sub: Access/Lore', emoji: '🔐', group: 2,
+    description: 'Admin access, coordinate privacy, lore/skills',
+    restart: false,
+    fields: [
+      { env: 'SHOW_ADMIN_ACCESS', label: 'Admin Access (true/false)', cfg: 'showAdminAccess', type: 'bool' },
+      { env: 'SHOW_COORDINATES_ADMIN_ONLY', label: 'Coords Admin-Only (true/false)', cfg: 'showCoordinatesAdminOnly', type: 'bool' },
+      { env: 'SHOW_LORE', label: 'Lore (true/false)', cfg: 'showLore', type: 'bool' },
+      { env: 'SHOW_SKILLS', label: 'Skills (true/false)', cfg: 'showSkills', type: 'bool' },
+    ],
+  },
+  {
+    id: 'display_server', label: 'Display: Server', emoji: '🖥️', group: 2,
+    description: 'Server status sections (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_SERVER_SETTINGS', label: 'Server Settings (true/false)', cfg: 'showServerSettings', type: 'bool' },
+      { env: 'SHOW_LOOT_SCARCITY', label: 'Loot Scarcity (true/false)', cfg: 'showLootScarcity', type: 'bool' },
+      { env: 'SHOW_WEATHER_ODDS', label: 'Weather Odds (true/false)', cfg: 'showWeatherOdds', type: 'bool' },
+      { env: 'SHOW_HOST_RESOURCES', label: 'Host Resources (true/false)', cfg: 'showHostResources', type: 'bool' },
+      { env: 'SHOW_SERVER_PERFORMANCE', label: 'Performance (true/false)', cfg: 'showServerPerformance', type: 'bool' },
+    ],
+  },
+  {
+    id: 'display_extra', label: 'Display: Extra', emoji: '📊', group: 2,
+    description: 'Additional display toggles (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_RAID_STATS', label: 'Raid Stats (true/false)', cfg: 'showRaidStats', type: 'bool' },
+      { env: 'SHOW_PVP_KILLS', label: 'PvP Kills (true/false)', cfg: 'showPvpKills', type: 'bool' },
+      { env: 'SHOW_CONNECTIONS', label: 'Connections (true/false)', cfg: 'showConnections', type: 'bool' },
+      { env: 'SHOW_CHALLENGE_DESCRIPTIONS', label: 'Challenge Desc. (true/false)', cfg: 'showChallengeDescriptions', type: 'bool' },
+      { env: 'SHOW_WEEKLY_STATS', label: 'Weekly Stats (true/false)', cfg: 'showWeeklyStats', type: 'bool' },
+    ],
+  },
+  {
+    id: 'display_more', label: 'Display: Status', emoji: '📺', group: 2,
     description: 'Server status extras (applies live)',
     restart: false,
     fields: [
@@ -224,15 +383,125 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'threads_misc', label: 'Threads & Misc', emoji: '🧵',
-    description: 'Thread mode, game port, leaderboards (restart required)',
+    id: 'display_settings', label: 'Settings Grid', emoji: '🔧', group: 2,
+    description: 'Per-category settings grid toggles (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_SETTINGS_GENERAL', label: 'General (true/false)', cfg: 'showSettingsGeneral', type: 'bool' },
+      { env: 'SHOW_SETTINGS_TIME', label: 'Time & Seasons (true/false)', cfg: 'showSettingsTime', type: 'bool' },
+      { env: 'SHOW_SETTINGS_ZOMBIES', label: 'Zombies (true/false)', cfg: 'showSettingsZombies', type: 'bool' },
+      { env: 'SHOW_SETTINGS_ITEMS', label: 'Items & Loot (true/false)', cfg: 'showSettingsItems', type: 'bool' },
+      { env: 'SHOW_SETTINGS_BANDITS', label: 'Bandits (true/false)', cfg: 'showSettingsBandits', type: 'bool' },
+    ],
+  },
+  {
+    id: 'display_settings2', label: 'Settings Grid 2', emoji: '🔧', group: 2,
+    description: 'More settings grid toggles (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_SETTINGS_COMPANIONS', label: 'Companions (true/false)', cfg: 'showSettingsCompanions', type: 'bool' },
+      { env: 'SHOW_SETTINGS_BUILDING', label: 'Building (true/false)', cfg: 'showSettingsBuilding', type: 'bool' },
+      { env: 'SHOW_SETTINGS_VEHICLES', label: 'Vehicles (true/false)', cfg: 'showSettingsVehicles', type: 'bool' },
+      { env: 'SHOW_SETTINGS_ANIMALS', label: 'Animals (true/false)', cfg: 'showSettingsAnimals', type: 'bool' },
+    ],
+  },
+  {
+    id: 'admin_only', label: 'Admin-Only Sections', emoji: '🔒', group: 2,
+    description: 'Restrict sections to Discord admins (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_VITALS_ADMIN_ONLY', label: 'Vitals (true/false)', cfg: 'showVitalsAdminOnly', type: 'bool' },
+      { env: 'SHOW_STATUS_EFFECTS_ADMIN_ONLY', label: 'Status Effects (true/false)', cfg: 'showStatusEffectsAdminOnly', type: 'bool' },
+      { env: 'SHOW_INVENTORY_ADMIN_ONLY', label: 'Inventory (true/false)', cfg: 'showInventoryAdminOnly', type: 'bool' },
+      { env: 'SHOW_RECIPES_ADMIN_ONLY', label: 'Recipes (true/false)', cfg: 'showRecipesAdminOnly', type: 'bool' },
+      { env: 'SHOW_LORE_ADMIN_ONLY', label: 'Lore (true/false)', cfg: 'showLoreAdminOnly', type: 'bool' },
+    ],
+  },
+  {
+    id: 'admin_only2', label: 'Admin-Only 2', emoji: '🔒', group: 2,
+    description: 'More admin-only restrictions (applies live)',
+    restart: false,
+    fields: [
+      { env: 'SHOW_CONNECTIONS_ADMIN_ONLY', label: 'Connections (true/false)', cfg: 'showConnectionsAdminOnly', type: 'bool' },
+      { env: 'SHOW_RAID_STATS_ADMIN_ONLY', label: 'Raid Stats (true/false)', cfg: 'showRaidStatsAdminOnly', type: 'bool' },
+      { env: 'SHOW_CHALLENGE_DESCRIPTIONS_ADMIN_ONLY', label: 'Challenges (true/false)', cfg: 'showChallengeDescriptionsAdminOnly', type: 'bool' },
+    ],
+  },
+  {
+    id: 'timezone', label: 'Timezone', emoji: '🌐', group: 2,
+    description: 'Time settings (restart required)',
+    restart: true,
+    fields: [
+      { env: 'BOT_TIMEZONE', label: 'Bot Timezone (IANA)', cfg: 'botTimezone' },
+      { env: 'LOG_TIMEZONE', label: 'Log Timezone (IANA)', cfg: 'logTimezone' },
+    ],
+  },
+  {
+    id: 'threads_misc', label: 'Threads & Misc', emoji: '🧵', group: 2,
+    description: 'Thread mode, leaderboards, SSH (restart required)',
     restart: true,
     fields: [
       { env: 'USE_CHAT_THREADS', label: 'Chat in Threads (true/false)', cfg: 'useChatThreads', type: 'bool' },
       { env: 'USE_ACTIVITY_THREADS', label: 'Activity Threads (true/false)', cfg: 'useActivityThreads', type: 'bool' },
-      { env: 'GAME_PORT', label: 'Game Port (direct connect)', cfg: 'gamePort' },
       { env: 'SHOW_MOST_FISH', label: 'Most Fish Board (true/false)', cfg: 'showMostFish', type: 'bool' },
       { env: 'WEEKLY_RESET_DAY', label: 'Weekly Reset (0=Sun,1=Mon..6=Sat)', cfg: 'weeklyResetDay', type: 'int' },
+      { env: 'SSH_PORT', label: 'SSH Port (blank = FTP_PORT)', cfg: 'sshPort', type: 'int' },
+    ],
+  },
+  {
+    id: 'pvp', label: 'PvP Schedule', emoji: '⚔️', group: 2,
+    description: 'PvP times, delay, server name (restart required)',
+    restart: true,
+    fields: [
+      { env: 'PVP_START_TIME', label: 'Default Start (HH:MM)' },
+      { env: 'PVP_END_TIME', label: 'Default End (HH:MM)' },
+      { env: 'PVP_RESTART_DELAY', label: 'Restart Delay (min)', cfg: 'pvpRestartDelay', type: 'int' },
+      { env: 'PVP_UPDATE_SERVER_NAME', label: 'Update Name (true/false)', cfg: 'pvpUpdateServerName', type: 'bool' },
+      { env: 'PVP_DAYS', label: 'Days (e.g. Mon,Wed,Fri)' },
+    ],
+  },
+  {
+    id: 'pvp_hours', label: 'PvP Daily Hours', emoji: '📅', group: 2,
+    description: 'Per-day PvP hour overrides (restart required)',
+    restart: true,
+    fields: [
+      { env: 'PVP_HOURS_MON', label: 'Monday (HH:MM-HH:MM)' },
+      { env: 'PVP_HOURS_TUE', label: 'Tuesday (HH:MM-HH:MM)' },
+      { env: 'PVP_HOURS_WED', label: 'Wednesday (HH:MM-HH:MM)' },
+      { env: 'PVP_HOURS_THU', label: 'Thursday (HH:MM-HH:MM)' },
+      { env: 'PVP_HOURS_FRI', label: 'Friday (HH:MM-HH:MM)' },
+    ],
+  },
+  {
+    id: 'pvp_extra', label: 'PvP Weekend & Overrides', emoji: '📅', group: 2,
+    description: 'Weekend hours + settings override JSON (restart)',
+    restart: true,
+    fields: [
+      { env: 'PVP_HOURS_SAT', label: 'Saturday (HH:MM-HH:MM)' },
+      { env: 'PVP_HOURS_SUN', label: 'Sunday (HH:MM-HH:MM)' },
+      { env: 'PVP_SETTINGS_OVERRIDES', label: 'Settings Override JSON', style: 'paragraph' },
+    ],
+  },
+  {
+    id: 'player_map', label: 'Player Map', emoji: '🗺️', group: 2,
+    description: 'Player map tracking & overlay (restart)',
+    restart: true,
+    fields: [
+      { env: 'ENABLE_PLAYER_MAP', label: 'Enable Map (true/false)', cfg: 'enablePlayerMap', type: 'bool' },
+      { env: 'MAP_CHANNEL_ID', label: 'Map Channel ID', cfg: 'mapChannelId' },
+      { env: 'MAP_SHOW_OFFLINE', label: 'Show Offline (true/false)', cfg: 'mapShowOffline', type: 'bool' },
+      { env: 'MAP_SHOW_NAMES', label: 'Show Names (true/false)', cfg: 'mapShowNames', type: 'bool' },
+      { env: 'MAP_POLL_INTERVAL', label: 'Map Poll (ms)', cfg: 'mapPollInterval', type: 'int' },
+    ],
+  },
+  {
+    id: 'player_map2', label: 'Map Appearance', emoji: '🗺️', group: 2,
+    description: 'Map image and size (restart)',
+    restart: true,
+    fields: [
+      { env: 'MAP_WIDTH', label: 'Map Width (px)', cfg: 'mapWidth', type: 'int' },
+      { env: 'MAP_IMAGE_URL', label: 'Custom Map Image URL', cfg: 'mapImageUrl' },
+      { env: 'SHOW_COORDINATES', label: 'Show Coords (true/false)', cfg: 'showCoordinates', type: 'bool' },
     ],
   },
 ];
@@ -328,6 +597,75 @@ const GAME_SETTINGS_CATEGORIES = [
       { ini: 'CompanionDmg', label: 'Companion Dmg (0=Low,1=Def,2=Hi)' },
       { ini: 'AnimalMulti', label: 'Animal Spawn Multiplier' },
       { ini: 'AnimalRespawnTimer', label: 'Animal Respawn (min)' },
+    ],
+  },
+  {
+    id: 'gameplay', label: 'Gameplay Toggles', emoji: '♻️',
+    settings: [
+      { ini: 'ClearInfection', label: 'Clear Infection on Respawn (0/1)' },
+      { ini: 'EagleEye', label: 'Eagle Eye Skill (0/1)' },
+      { ini: 'Voip', label: 'Voice Chat (0/1)' },
+      { ini: 'MultiplayerSleep', label: 'Multiplayer Sleep (0/1)' },
+      { ini: 'Sleep', label: 'Sleep Deprivation (0/1)' },
+    ],
+  },
+  {
+    id: 'spawns', label: 'Spawns & Perms', emoji: '🌍',
+    settings: [
+      { ini: 'LimitedSpawns', label: 'Limited Spawns (true/false)' },
+      { ini: 'AllowDismantle', label: 'Allow Dismantle (0/1)' },
+      { ini: 'AllowHouseDismantle', label: 'Dismantle Houses (0/1)' },
+      { ini: 'RecruitDog', label: 'Recruit Dogs (0/1)' },
+      { ini: 'XpMultiplier', label: 'XP Multiplier (e.g. 1, 2)' },
+    ],
+  },
+  {
+    id: 'timers2', label: 'Respawn Timers', emoji: '⏳',
+    settings: [
+      { ini: 'RespawnTimer', label: 'Player Respawn (sec, 0=instant)' },
+      { ini: 'PickupRespawnTimer', label: 'Pickup Respawn (min)' },
+      { ini: 'AirDropInterval', label: 'AirDrop Every X Days' },
+      { ini: 'HumanRespawnTimer', label: 'Bandit Respawn (min)' },
+      { ini: 'SaveIntervalSec', label: 'Auto-Save (sec, 0=off)' },
+    ],
+  },
+  {
+    id: 'decay', label: 'Decay & Cleanup', emoji: '🧹',
+    settings: [
+      { ini: 'Decay', label: 'Spawn Point Decay (real days)' },
+      { ini: 'PickupCleanup', label: 'Pickup Cleanup (game days, 0=off)' },
+      { ini: 'FakeBuildingCleanup', label: 'Blueprint Cleanup (min)' },
+      { ini: 'ZombieDogMulti', label: 'Zombie Dog Multiplier' },
+      { ini: 'DogNum', label: 'Max Wild Dogs' },
+    ],
+  },
+  {
+    id: 'weather1', label: 'Weather Odds 1', emoji: '🌤️',
+    settings: [
+      { ini: 'Weather_ClearSky', label: 'Clear Sky (multiplier)' },
+      { ini: 'Weather_Cloudy', label: 'Cloudy (multiplier)' },
+      { ini: 'Weather_Foggy', label: 'Foggy (multiplier)' },
+      { ini: 'Weather_LightRain', label: 'Light Rain (multiplier)' },
+      { ini: 'Weather_Rain', label: 'Rain (multiplier)' },
+    ],
+  },
+  {
+    id: 'weather2', label: 'Weather Odds 2', emoji: '⛈️',
+    settings: [
+      { ini: 'Weather_Thunderstorm', label: 'Thunderstorm (multiplier)' },
+      { ini: 'Weather_LightSnow', label: 'Light Snow (multiplier)' },
+      { ini: 'Weather_Snow', label: 'Snow (multiplier)' },
+      { ini: 'Weather_Blizzard', label: 'Blizzard (multiplier)' },
+    ],
+  },
+  {
+    id: 'host', label: 'Host & Feedback', emoji: '📡',
+    settings: [
+      { ini: 'NoJoinFeedback', label: 'Hide Join/Leave (true/false)' },
+      { ini: 'NoDeathFeedback', label: 'Hide Death Notices (0/1)' },
+      { ini: 'Seg0', label: 'Spawn Seg0 (default 8)' },
+      { ini: 'Seg1', label: 'Spawn Seg1 (default 12)' },
+      { ini: 'Seg2', label: 'Spawn Seg2 (default 20)' },
     ],
   },
 ];
@@ -451,6 +789,18 @@ class PanelChannel {
     return !!(config.ftpHost && config.ftpUser && config.ftpPassword);
   }
 
+  /**
+   * Check admin permission. Returns true if admin, false (with ephemeral reply) if not.
+   * Usage: `if (!await this._requireAdmin(interaction, 'edit config')) return true;`
+   */
+  async _requireAdmin(interaction, action) {
+    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({ content: `❌ Only administrators can ${action}.`, ephemeral: true });
+      return false;
+    }
+    return true;
+  }
+
   async start() {
     console.log('[PANEL CH] Module starting...');
 
@@ -513,7 +863,6 @@ class PanelChannel {
               .setCustomId(BTN.WELCOME_EDIT)
               .setLabel('Welcome Message')
               .setStyle(ButtonStyle.Secondary)
-              .setEmoji('📝')
           );
         }
         if (config.enableAutoMessages) {
@@ -522,7 +871,6 @@ class PanelChannel {
               .setCustomId(BTN.BROADCASTS)
               .setLabel('Broadcasts')
               .setStyle(ButtonStyle.Secondary)
-              .setEmoji('📢')
           );
         }
         if (toolsRow.components.length > 0) primaryRows.push(toolsRow);
@@ -599,6 +947,12 @@ class PanelChannel {
       if (id === BTN.BOT_RESTART) {
         return this._handleBotRestart(interaction);
       }
+      if (id === BTN.NUKE) {
+        return this._handleNukeButton(interaction);
+      }
+      if (id === BTN.REIMPORT) {
+        return this._handleReimportButton(interaction);
+      }
       if (id === BTN.WELCOME_EDIT) {
         return this._handleWelcomeEditButton(interaction);
       }
@@ -614,6 +968,12 @@ class PanelChannel {
       if (id === BTN.ADD_SERVER) {
         return this._handleAddServerButton(interaction);
       }
+      if (id === BTN.MAP) {
+        return this._handleMapButton(interaction, 'players');
+      }
+      if (id === BTN.HEATMAP) {
+        return this._handleMapButton(interaction, 'heatmap');
+      }
       if (id.startsWith('panel_srv_')) {
         return this._handleServerAction(interaction, id);
       }
@@ -628,7 +988,7 @@ class PanelChannel {
 
     // ── Select menus ──
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId === SELECT.ENV) {
+      if (interaction.customId === SELECT.ENV || interaction.customId === SELECT.ENV2) {
         return this._handleEnvSelect(interaction);
       }
       if (interaction.customId === SELECT.SETTINGS) {
@@ -647,6 +1007,9 @@ class PanelChannel {
     if (interaction.isModalSubmit()) {
       if (interaction.customId.startsWith('panel_env_modal:')) {
         return this._handleEnvModal(interaction);
+      }
+      if (interaction.customId === 'panel_nuke_confirm') {
+        return this._handleNukeConfirmModal(interaction);
       }
       if (interaction.customId.startsWith('panel_game_modal:')) {
         return this._handleGameSettingsModal(interaction);
@@ -695,10 +1058,7 @@ class PanelChannel {
   // ═══════════════════════════════════════════════════════════
 
   async _handlePowerButton(interaction, id) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can use panel controls.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'use panel controls')) return true;
 
     if (!panelApi.available) {
       await interaction.reply({ content: '❌ Panel API is not configured. Power controls require PANEL_SERVER_URL and PANEL_API_KEY.', ephemeral: true });
@@ -739,10 +1099,7 @@ class PanelChannel {
   }
 
   async _handleBotRestart(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can restart the bot.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'restart the bot')) return true;
 
     await interaction.reply({
       content: '🔄 Restarting bot... The process will exit and your process manager should restart it.',
@@ -754,15 +1111,132 @@ class PanelChannel {
     return true;
   }
 
+  async _handleNukeButton(interaction) {
+    if (!await this._requireAdmin(interaction, 'factory reset the bot')) return true;
+
+    // Confirmation modal — user must type "NUKE" to proceed
+    const modal = new ModalBuilder()
+      .setCustomId('panel_nuke_confirm')
+      .setTitle('⚠️ Factory Reset — Confirm');
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('confirm')
+          .setLabel('Type NUKE to confirm (deletes ALL bot data)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('NUKE')
+          .setRequired(true)
+          .setMinLength(4)
+          .setMaxLength(4)
+      )
+    );
+
+    await interaction.showModal(modal);
+    return true;
+  }
+
+  async _handleNukeConfirmModal(interaction) {
+    if (!await this._requireAdmin(interaction, 'factory reset the bot')) return true;
+
+    const confirm = interaction.fields.getTextInputValue('confirm').trim().toUpperCase();
+    if (confirm !== 'NUKE') {
+      await interaction.reply({ content: '❌ Factory reset cancelled — you must type `NUKE` exactly.', ephemeral: true });
+      return true;
+    }
+
+    // Set NUKE_BOT=true in .env and restart
+    _writeEnvValues({ NUKE_BOT: 'true' });
+    await interaction.reply({
+      content: '💣 **Factory Reset initiated.** The bot will restart, wipe all Discord messages and local data, then rebuild from server logs.\n\nThis may take a minute...',
+      ephemeral: true,
+    });
+
+    setTimeout(() => process.exit(0), 1500);
+    return true;
+  }
+
+  async _handleReimportButton(interaction) {
+    if (!await this._requireAdmin(interaction, 're-import data')) return true;
+
+    // Set FIRST_RUN=true and restart — re-downloads logs and rebuilds stats
+    _writeEnvValues({ FIRST_RUN: 'true' });
+    await interaction.reply({
+      content: '📥 **Re-Import started.** The bot will restart and re-download server logs to rebuild player stats and playtime data.\n\nExisting Discord messages are preserved — only local data is refreshed.',
+      ephemeral: true,
+    });
+
+    setTimeout(() => process.exit(0), 1500);
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Map button handlers
+  // ═══════════════════════════════════════════════════════════
+
+  async _handleMapButton(interaction, type) {
+    if (!await this._requireAdmin(interaction, 'use panel controls')) return true;
+
+    if (!config.enablePlayerMap) {
+      await interaction.reply({ content: '🗺️ Player map tracking is not enabled.', ephemeral: true });
+      return true;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      const { AttachmentBuilder } = require('discord.js');
+      let buf, embed;
+
+      if (type === 'heatmap') {
+        buf = await playerMap.generateHeatmap({ width: config.mapWidth });
+        if (!buf) {
+          await interaction.editReply('❌ Failed to generate heatmap. Map image may not be available.');
+          return true;
+        }
+        const summary = playerMap.getSummary();
+        const attachment = new AttachmentBuilder(buf, { name: 'heatmap.png' });
+        embed = new EmbedBuilder()
+          .setTitle('🔥 Player Activity Heatmap')
+          .setColor(0xe74c3c)
+          .setImage('attachment://heatmap.png')
+          .setDescription(`**${summary.heatmapCells}** active zones · **${summary.totalPoints}** data points`)
+          .setTimestamp();
+        await interaction.editReply({ embeds: [embed], files: [attachment] });
+      } else {
+        buf = await playerMap.generateMapOverlay({
+          showOffline: config.mapShowOffline,
+          showNames: config.mapShowNames,
+          width: config.mapWidth,
+        });
+        if (!buf) {
+          await interaction.editReply('❌ Failed to generate map. Map image may not be available.');
+          return true;
+        }
+        const summary = playerMap.getSummary();
+        const attachment = new AttachmentBuilder(buf, { name: 'player-map.png' });
+        embed = new EmbedBuilder()
+          .setTitle('🗺️ Player Positions')
+          .setColor(0x2ecc71)
+          .setImage('attachment://player-map.png')
+          .setDescription(`**${summary.online}** online · **${summary.offline}** offline · **${summary.totalPlayers}** tracked`)
+          .setFooter({ text: summary.lastUpdated ? `Last save: ${new Date(summary.lastUpdated).toLocaleString('en-GB', { timeZone: config.botTimezone })}` : 'No save data yet' })
+          .setTimestamp();
+        await interaction.editReply({ embeds: [embed], files: [attachment] });
+      }
+    } catch (err) {
+      console.error('[PANEL CH] Map generation error:', err);
+      await interaction.editReply('❌ Failed to generate map image.');
+    }
+    return true;
+  }
+
   // ═══════════════════════════════════════════════════════════
   // Select menu → modal handlers
   // ═══════════════════════════════════════════════════════════
 
   async _handleEnvSelect(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit bot config.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit bot config')) return true;
 
     const categoryId = interaction.values[0];
     const category = ENV_CATEGORIES.find(c => c.id === categoryId);
@@ -777,12 +1251,21 @@ class PanelChannel {
       .setTitle(`Edit: ${category.label}${restartTag}`);
 
     for (const field of category.fields) {
+      const style = field.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short;
       const input = new TextInputBuilder()
         .setCustomId(field.env)
         .setLabel(field.label)
-        .setStyle(TextInputStyle.Short)
-        .setValue(_getEnvValue(field))
+        .setStyle(style)
         .setRequired(false);
+
+      if (field.sensitive) {
+        const current = _getEnvValue(field);
+        input.setPlaceholder(current ? 'Leave empty to keep current' : 'Enter value');
+        input.setValue('');
+      } else {
+        input.setValue(_getEnvValue(field));
+      }
+
       modal.addComponents(new ActionRowBuilder().addComponents(input));
     }
 
@@ -791,10 +1274,7 @@ class PanelChannel {
   }
 
   async _handleGameSettingsSelect(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit server settings.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
 
     if (!this._hasSftp) {
       await interaction.reply({ content: '❌ SFTP credentials not configured. Game settings require FTP_HOST, FTP_USER, and FTP_PASSWORD.', ephemeral: true });
@@ -834,10 +1314,7 @@ class PanelChannel {
   // ═══════════════════════════════════════════════════════════
 
   async _handleEnvModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit bot config.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit bot config')) return true;
 
     const categoryId = interaction.customId.replace('panel_env_modal:', '');
     const category = ENV_CATEGORIES.find(c => c.id === categoryId);
@@ -854,11 +1331,17 @@ class PanelChannel {
 
       for (const field of category.fields) {
         const newValue = interaction.fields.getTextInputValue(field.env);
+
+        // Skip empty sensitive fields — keep current value unchanged
+        if (field.sensitive && newValue === '') continue;
+
         const oldValue = _getEnvValue(field);
 
         if (newValue !== oldValue) {
           updates[field.env] = newValue;
-          changes.push(`**${field.label}:** \`${oldValue || '(empty)'}\` → \`${newValue || '(empty)'}\``);
+          const displayOld = field.sensitive ? '••••••' : (oldValue || '(empty)');
+          const displayNew = field.sensitive ? '••••••' : (newValue || '(empty)');
+          changes.push(`**${field.label}:** \`${displayOld}\` → \`${displayNew}\``);
 
           // Apply live for categories that don't require restart
           if (!category.restart) {
@@ -895,10 +1378,7 @@ class PanelChannel {
   }
 
   async _handleGameSettingsModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit server settings.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
 
     if (!this._hasSftp) {
       await interaction.reply({ content: '❌ SFTP credentials not configured.', ephemeral: true });
@@ -980,10 +1460,7 @@ class PanelChannel {
   // ═══════════════════════════════════════════════════════════
 
   async _handleAddServerButton(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const modal = new ModalBuilder()
       .setCustomId('panel_add_modal_step1')
@@ -1012,10 +1489,7 @@ class PanelChannel {
   }
 
   async _handleAddServerStep1Modal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const name = interaction.fields.getTextInputValue('name').trim();
     const rconHost = interaction.fields.getTextInputValue('rcon_host').trim();
@@ -1040,14 +1514,12 @@ class PanelChannel {
     const sftpBtn = new ButtonBuilder()
       .setCustomId(`panel_add_sftp:${interaction.user.id}`)
       .setLabel('Configure SFTP')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📂');
+      .setStyle(ButtonStyle.Primary);
 
     const continueBtn = new ButtonBuilder()
       .setCustomId(`panel_add_step2:${interaction.user.id}`)
       .setLabel('Configure Channels')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📺');
+      .setStyle(ButtonStyle.Primary);
 
     const skipBtn = new ButtonBuilder()
       .setCustomId(`panel_srv_skip_channels:${interaction.user.id}`)
@@ -1066,10 +1538,7 @@ class PanelChannel {
   }
 
   async _handleAddSftpButton(interaction, customId) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const userId = customId.replace('panel_add_sftp:', '');
     const pending = this._pendingServers.get(userId);
@@ -1102,10 +1571,7 @@ class PanelChannel {
   }
 
   async _handleAddSftpModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const userId = interaction.customId.replace('panel_add_sftp_modal:', '');
     const pending = this._pendingServers.get(userId);
@@ -1131,8 +1597,7 @@ class PanelChannel {
     const continueBtn = new ButtonBuilder()
       .setCustomId(`panel_add_step2:${userId}`)
       .setLabel('Configure Channels')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📺');
+      .setStyle(ButtonStyle.Primary);
 
     const skipBtn = new ButtonBuilder()
       .setCustomId(`panel_srv_skip_channels:${userId}`)
@@ -1150,10 +1615,7 @@ class PanelChannel {
   }
 
   async _handleAddServerStep2Button(interaction, customId) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const userId = customId.replace('panel_add_step2:', '');
     const pending = this._pendingServers.get(userId);
@@ -1189,10 +1651,7 @@ class PanelChannel {
   }
 
   async _handleAddServerStep2Modal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const userId = interaction.customId.replace('panel_add_modal_step2:', '');
     const pending = this._pendingServers.get(userId);
@@ -1258,10 +1717,7 @@ class PanelChannel {
   }
 
   async _handleServerSelect(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.values[0];
     const servers = this.multiServerManager?.getAllServers() || [];
@@ -1335,10 +1791,7 @@ class PanelChannel {
   }
 
   async _handleServerAction(interaction, customId) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     // Handle skip channels button from add wizard
     if (customId.startsWith('panel_srv_skip_channels:')) {
@@ -1672,10 +2125,7 @@ class PanelChannel {
   }
 
   async _handleEditServerModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.customId.replace('panel_srv_edit_modal:', '');
     await interaction.deferReply({ ephemeral: true });
@@ -1703,10 +2153,7 @@ class PanelChannel {
   }
 
   async _handleEditChannelsModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.customId.replace('panel_srv_channels_modal:', '');
     await interaction.deferReply({ ephemeral: true });
@@ -1735,10 +2182,7 @@ class PanelChannel {
   }
 
   async _handleEditSftpModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.customId.replace('panel_srv_sftp_modal:', '');
     await interaction.deferReply({ ephemeral: true });
@@ -1792,10 +2236,7 @@ class PanelChannel {
   }
 
   async _handleSrvGameSettingsSelect(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit server settings.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
 
     // customId = panel_srv_settings:<serverId>, value = categoryId
     const serverId = interaction.customId.replace('panel_srv_settings:', '');
@@ -1845,10 +2286,7 @@ class PanelChannel {
   }
 
   async _handleSrvGameSettingsModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit server settings.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
 
     // customId = panel_srv_game_modal:<serverId>:<categoryId>
     const parts = interaction.customId.replace('panel_srv_game_modal:', '').split(':');
@@ -1931,10 +2369,7 @@ class PanelChannel {
   }
 
   async _handleSrvWelcomeModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.customId.replace('panel_srv_welcome_modal:', '');
 
@@ -1968,10 +2403,7 @@ class PanelChannel {
   }
 
   async _handleSrvAutoMsgModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can manage servers.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'manage servers')) return true;
 
     const serverId = interaction.customId.replace('panel_srv_automsg_modal:', '');
 
@@ -2047,10 +2479,7 @@ class PanelChannel {
   // ═══════════════════════════════════════════════════════════
 
   async _handleWelcomeEditButton(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit the welcome message.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit the welcome message')) return true;
 
     if (!this._hasSftp) {
       await interaction.reply({ content: '❌ SFTP credentials not configured.', ephemeral: true });
@@ -2109,8 +2538,7 @@ class PanelChannel {
     const openBtn = new ButtonBuilder()
       .setCustomId('panel_welcome_open_modal')
       .setLabel('Open Editor')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📝');
+      .setStyle(ButtonStyle.Primary);
 
     await interaction.editReply({
       content: helpText,
@@ -2120,10 +2548,7 @@ class PanelChannel {
   }
 
   async _handleWelcomeOpenModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit the welcome message.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit the welcome message')) return true;
 
     const pending = this._pendingWelcome;
     // Truncate to Discord's 4000-char modal value limit
@@ -2150,10 +2575,7 @@ class PanelChannel {
   }
 
   async _handleWelcomeModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit the welcome message.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit the welcome message')) return true;
 
     await interaction.deferReply({ ephemeral: true });
 
@@ -2217,10 +2639,7 @@ class PanelChannel {
   // ═══════════════════════════════════════════════════════════
 
   async _handleBroadcastsButton(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit broadcasts.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit broadcasts')) return true;
 
     const linkText = config.autoMsgLinkText || '';
     const promoText = config.autoMsgPromoText || '';
@@ -2253,8 +2672,7 @@ class PanelChannel {
     const openBtn = new ButtonBuilder()
       .setCustomId('panel_broadcasts_open_modal')
       .setLabel('Open Editor')
-      .setStyle(ButtonStyle.Primary)
-      .setEmoji('📢');
+      .setStyle(ButtonStyle.Primary);
 
     await interaction.reply({
       content: helpText,
@@ -2265,10 +2683,7 @@ class PanelChannel {
   }
 
   async _handleBroadcastsOpenModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit broadcasts.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit broadcasts')) return true;
 
     const pending = this._pendingBroadcasts;
     const linkVal = (pending?.linkText || '').slice(0, 4000);
@@ -2306,10 +2721,7 @@ class PanelChannel {
   }
 
   async _handleBroadcastsModal(interaction) {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: '❌ Only administrators can edit broadcasts.', ephemeral: true });
-      return true;
-    }
+    if (!await this._requireAdmin(interaction, 'edit broadcasts')) return true;
 
     await interaction.deferReply({ ephemeral: true });
 
@@ -2639,13 +3051,11 @@ class PanelChannel {
       new ButtonBuilder()
         .setCustomId(`panel_srv_welcome:${serverId}`)
         .setLabel('Welcome Message')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('📝'),
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId(`panel_srv_automsg:${serverId}`)
         .setLabel('Auto Messages')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('📢'),
+        .setStyle(ButtonStyle.Secondary),
     );
 
     // Game settings dropdown (row 3) — uses server's SFTP
@@ -2710,11 +3120,13 @@ class PanelChannel {
   }
 
   _buildBotComponents() {
-    const select = new StringSelectMenuBuilder()
+    // ── Select 1: Core & module settings ──
+    const coreCategories = ENV_CATEGORIES.filter(c => c.group === 1);
+    const coreSelect = new StringSelectMenuBuilder()
       .setCustomId(SELECT.ENV)
-      .setPlaceholder('Edit bot config...')
+      .setPlaceholder('Core & module settings...')
       .addOptions(
-        ENV_CATEGORIES.map(c => ({
+        coreCategories.map(c => ({
           label: c.label,
           description: c.description,
           value: c.id,
@@ -2722,27 +3134,69 @@ class PanelChannel {
         }))
       );
 
+    // ── Select 2: Display & schedule settings ──
+    const displayCategories = ENV_CATEGORIES.filter(c => c.group === 2);
+    const displaySelect = new StringSelectMenuBuilder()
+      .setCustomId(SELECT.ENV2)
+      .setPlaceholder('Display & schedule settings...')
+      .addOptions(
+        displayCategories.map(c => ({
+          label: c.label,
+          description: c.description,
+          value: c.id,
+          emoji: c.emoji,
+        }))
+      );
+
+    // ── Button row: Restart, Nuke, Re-Import, [Add Server] ──
     const restartBtn = new ButtonBuilder()
       .setCustomId(BTN.BOT_RESTART)
       .setLabel('Restart Bot')
+      .setStyle(ButtonStyle.Primary);
+
+    const nukeBtn = new ButtonBuilder()
+      .setCustomId(BTN.NUKE)
+      .setLabel('Factory Reset')
       .setStyle(ButtonStyle.Danger);
 
-    const buttonRow = new ActionRowBuilder().addComponents(restartBtn);
+    const reimportBtn = new ButtonBuilder()
+      .setCustomId(BTN.REIMPORT)
+      .setLabel('Re-Import Data')
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder().addComponents(restartBtn, nukeBtn, reimportBtn);
 
     // Add server management button if multi-server manager is available
     if (this.multiServerManager) {
       const addServerBtn = new ButtonBuilder()
         .setCustomId(BTN.ADD_SERVER)
         .setLabel('Add Server')
-        .setStyle(ButtonStyle.Success)
-        .setEmoji('➕');
+        .setStyle(ButtonStyle.Success);
       buttonRow.addComponents(addServerBtn);
     }
 
-    return [
-      new ActionRowBuilder().addComponents(select),
+    const rows = [
+      new ActionRowBuilder().addComponents(coreSelect),
+      new ActionRowBuilder().addComponents(displaySelect),
       buttonRow,
     ];
+
+    // Add map row when player map is enabled
+    if (config.enablePlayerMap) {
+      const mapRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(BTN.MAP)
+          .setLabel('Player Map')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(BTN.HEATMAP)
+          .setLabel('Heatmap')
+          .setStyle(ButtonStyle.Secondary),
+      );
+      rows.push(mapRow);
+    }
+
+    return rows;
   }
 
   _buildServerComponents(state) {
@@ -2786,7 +3240,6 @@ class PanelChannel {
           .setCustomId(BTN.WELCOME_EDIT)
           .setLabel('Welcome Message')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji('📝')
       );
     }
     if (config.enableAutoMessages) {
@@ -2795,7 +3248,6 @@ class PanelChannel {
           .setCustomId(BTN.BROADCASTS)
           .setLabel('Broadcasts')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji('📢')
       );
     }
 

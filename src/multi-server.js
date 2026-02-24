@@ -352,6 +352,7 @@ class ServerInstance {
     if (this.config.logChannelId && this.hasSftp) {
       try {
         const mod = new LogWatcher(this.client, deps);
+        if (_defaultConfig.nukeBot) mod._nukeActive = true;
         await mod.start();
         this._modules.logWatcher = mod;
         console.log(`[MULTI:${label}] LogWatcher active`);
@@ -364,6 +365,14 @@ class ServerInstance {
     if ((this.config.chatChannelId || this.config.adminChannelId) && this.config.rconHost) {
       try {
         const mod = new ChatRelay(this.client, deps);
+        if (_defaultConfig.nukeBot) mod._nukeActive = true;
+        // Coordinate thread ordering with LogWatcher if both are active
+        if (this._modules.logWatcher) {
+          mod._awaitActivityThread = true;
+          this._modules.logWatcher._dayRolloverCb = async () => {
+            try { await mod.createDailyThread(); } catch (_) {}
+          };
+        }
         await mod.start();
         this._modules.chatRelay = mod;
         console.log(`[MULTI:${label}] ChatRelay active`);
@@ -577,6 +586,17 @@ class MultiServerManager {
     const servers = loadServers();
     const filtered = servers.filter(s => s.id !== id);
     saveServers(filtered);
+
+    // Delete server data directory
+    const dataDir = path.join(SERVERS_DIR, id);
+    if (fs.existsSync(dataDir)) {
+      try {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+        console.log(`[MULTI] Deleted data directory for ${id}`);
+      } catch (err) {
+        console.warn(`[MULTI] Could not delete data directory for ${id}:`, err.message);
+      }
+    }
 
     return true;
   }

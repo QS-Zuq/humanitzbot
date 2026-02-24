@@ -27,6 +27,9 @@ class ChatRelay {
     this._chatThread = null;   // daily chat thread
     this._chatThreadDate = null;
     this._boundOnMessage = null; // stored listener ref for cleanup
+    this._rolloverPending = false; // true = waiting for activity thread before creating chat thread
+    this._rolloverFallback = null; // safety timer if LogWatcher callback never fires
+    this._nukeActive = false;      // true during NUKE_BOT — suppresses thread creation
   }
 
   async start() {
@@ -50,7 +53,11 @@ class ChatRelay {
       await this._cleanOldMessages();
 
       // Create / find today's chat thread (or use channel directly)
-      await this._getOrCreateChatThread();
+      // During NUKE_BOT, defer thread creation — nuke phase 2 will recreate it
+      // after activity threads and Bot Online embed so it appears in the right order.
+      if (!this._config.nukeBot) {
+        await this._getOrCreateChatThread();
+      }
 
       // Listen for outbound admin messages
       this._boundOnMessage = async (message) => {
@@ -106,11 +113,30 @@ class ChatRelay {
   resetThreadCache() {
     this._chatThread = null;
     this._chatThreadDate = null;
+    if (this._rolloverFallback) {
+      clearTimeout(this._rolloverFallback);
+      this._rolloverFallback = null;
+    }
+    this._rolloverPending = false;
+  }
+
+  /**
+   * Called by LogWatcher's day-rollover callback to signal that the
+   * activity thread has been created and it's safe to create the chat thread.
+   */
+  async createDailyThread() {
+    this.resetThreadCache();
+    return this._getOrCreateChatThread();
   }
 
   // ── Daily chat thread management ───────────────────────────
 
   async _getOrCreateChatThread() {
+    // During nuke phase 1→2, suppress thread creation so rebuild controls ordering
+    if (this._nukeActive) {
+      return this.adminChannel;
+    }
+
     // No-thread mode — post straight to the channel
     if (!this._config.useChatThreads) {
       this._chatThread = this.adminChannel;
@@ -118,6 +144,11 @@ class ChatRelay {
     }
 
     const today = this._config.getToday(); // timezone-aware 'YYYY-MM-DD'
+
+    // If waiting for LogWatcher to create activity thread first, use main channel
+    if (this._rolloverPending) {
+      return this.adminChannel;
+    }
 
     // Already have today's thread
     if (this._chatThread && this._chatThreadDate === today) {
@@ -136,6 +167,19 @@ class ChatRelay {
       }
       this._chatThread = null;
       this._chatThreadDate = null;
+
+      // If LogWatcher is managing thread ordering, defer creation
+      // until the activity thread has been created first
+      if (this._awaitActivityThread) {
+        this._rolloverPending = true;
+        // Safety fallback: create thread after 2 min if callback never fires
+        this._rolloverFallback = setTimeout(() => {
+          this._rolloverPending = false;
+          this._rolloverFallback = null;
+          console.log(`[${this._label}] Rollover fallback — creating chat thread now`);
+        }, 120_000);
+        return this.adminChannel;
+      }
     }
 
     const dateLabel = this._config.getDateLabel();

@@ -5,9 +5,11 @@ const path = require('path');
 const _defaultConfig = require('./config');
 const _defaultPlaytime = require('./playtime-tracker');
 const _defaultPlayerStats = require('./player-stats');
-const { parseSave, parseClanData, PERK_MAP } = require('./save-parser');
+const playerMap = require('./player-map');
+const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('./save-parser');
 const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('./game-data');
+const os = require('os');
 
 const _DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
 
@@ -113,14 +115,16 @@ class PlayerStatsChannel {
     // Update the embed after initial parse
     await this._updateEmbed();
 
-    // Start save poll loop (5 min default)
-    const pollMs = Math.max(this._config.savePollInterval || 300000, 60000);
+    // Start save poll loop — use faster agent interval if agent mode is active
+    const pollMs = typeof this._config.getEffectiveSavePollInterval === 'function'
+      ? this._config.getEffectiveSavePollInterval()
+      : Math.max(this._config.savePollInterval || 300000, 60000);
     this.saveInterval = setInterval(() => {
       this._pollSave()
         .then(() => this._updateEmbed())
         .catch(err => console.error(`[${this._label}] Save poll error:`, err.message));
     }, pollMs);
-    console.log(`[${this._label}] Save poll every ${pollMs / 1000}s`);
+    console.log(`[${this._label}] Save poll every ${pollMs / 1000}s (agent mode: ${this._config.agentMode || 'direct'})`);
 
     // Update embed every 60s (for playtime changes etc.)
     this._embedInterval = setInterval(() => this._updateEmbed(), 60000);
@@ -137,24 +141,45 @@ class PlayerStatsChannel {
 
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
+      await sftp.connect(this._config.sftpConnectConfig());
 
       // Load PlayerIDMapped.txt early so names resolve on first embed
       await this._refreshIdMap(sftp);
 
-      const buf = await sftp.get(this._config.ftpSavePath);
-      const players = parseSave(buf);
+      const buf = await this._downloadSave(sftp);
+      const { players, worldState } = parseSave(buf);
       this._saveData = players;
       this._lastSaveUpdate = new Date();
+
+      // Track world state changes (season, day, airdrop)
+      const prevWorldState = this._worldState || null;
+      this._worldState = worldState || {};
       console.log(`[${this._label}] Parsed save: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
 
-      // Accumulate lifetime stats across deaths (kills + survival)
+      // Accumulate lifetime stats across deaths (kills + survival + activity)
       this._accumulateStats();
+
+      // Detect world state changes (season, day milestones, airdrops)
+      if (prevWorldState && this._config.enableWorldEventFeed && this._logWatcher) {
+        this._detectWorldEvents(prevWorldState, this._worldState);
+      }
+
+      // Feed coordinates to player map tracker
+      if (this._config.enablePlayerMap) {
+        try {
+          const nameMap = new Map();
+          if (this._playerStats._idMap) {
+            for (const [nameLower, steamId] of this._playerStats._idMap) {
+              // Use the proper-cased name from player records when available
+              const rec = this._playerStats._data?.players?.[steamId];
+              nameMap.set(steamId, rec?.name || nameLower);
+            }
+          }
+          playerMap.updateFromSave(players, new Set(), nameMap);
+        } catch (err) {
+          console.error(`[${this._label}] Player map update error:`, err.message);
+        }
+      }
 
       // Parse clan data (separate small file)
       try {
@@ -174,6 +199,29 @@ class PlayerStatsChannel {
         const settingsBuf = await sftp.get(settingsPath);
         const settingsText = settingsBuf.toString('utf8');
         this._serverSettings = _parseIni(settingsText);
+        // Inject world state from save file so server-status can use it as fallback
+        if (this._worldState) {
+          if (this._worldState.daysPassed != null) this._serverSettings._daysPassed = this._worldState.daysPassed;
+          if (this._worldState.currentSeason) this._serverSettings._currentSeason = this._worldState.currentSeason;
+          if (this._worldState.currentSeasonDay != null) this._serverSettings._currentSeasonDay = this._worldState.currentSeasonDay;
+          if (this._worldState.totalStructures != null) this._serverSettings._totalStructures = this._worldState.totalStructures;
+          if (this._worldState.totalVehicles != null) this._serverSettings._totalVehicles = this._worldState.totalVehicles;
+          if (this._worldState.totalCompanions != null) this._serverSettings._totalCompanions = this._worldState.totalCompanions;
+          if (this._worldState.totalPlayers != null) this._serverSettings._totalPlayers = this._worldState.totalPlayers;
+          // Extract weather from UDS weather state stored in save
+          if (Array.isArray(this._worldState.weatherState)) {
+            const weatherProp = this._worldState.weatherState.find(p => p.name === 'CurrentWeather');
+            if (weatherProp && typeof weatherProp.value === 'string') {
+              this._serverSettings._currentWeather = _resolveUdsWeather(weatherProp.value);
+            }
+          }
+          // Compute total zombie kills across all players from lifetime stats
+          let totalZombieKills = 0;
+          for (const [, p] of this._saveData) {
+            totalZombieKills += p.lifetimeKills || p.zeeksKilled || 0;
+          }
+          this._serverSettings._totalZombieKills = totalZombieKills;
+        }
         // Cache to disk for other modules
         try { fs.writeFileSync(path.join(this._dataDir, 'server-settings.json'), JSON.stringify(this._serverSettings, null, 2)); } catch (_) {}
         console.log(`[${this._label}] Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
@@ -208,10 +256,46 @@ class PlayerStatsChannel {
         }
       }
 
+      // Write parsed save data cache for web map
+      this._writeSaveCache();
+
     } catch (err) {
       console.error(`[${this._label}] Save poll error:`, err.message);
     } finally {
       await sftp.end().catch(() => {});
+    }
+  }
+
+  /**
+   * Download the save file using fastGet (parallel chunks) for reliability.
+   * Falls back to buffered get() if fastGet fails (e.g. permissions issue).
+   * Validates file size against remote to detect truncated downloads.
+   */
+  async _downloadSave(sftp) {
+    const remotePath = this._config.ftpSavePath;
+    const tmpFile = path.join(os.tmpdir(), `humanitzbot-save-${process.pid}.sav`);
+
+    try {
+      // Use fastGet — parallel chunked download, much faster for large files
+      const remoteStat = await sftp.stat(remotePath);
+      await sftp.fastGet(remotePath, tmpFile);
+      const localStat = fs.statSync(tmpFile);
+
+      if (remoteStat.size && localStat.size !== remoteStat.size) {
+        console.warn(`[${this._label}] Save download size mismatch: remote=${remoteStat.size} local=${localStat.size}, retrying with buffered get`);
+        const buf = await sftp.get(remotePath);
+        try { fs.unlinkSync(tmpFile); } catch (_) {}
+        return buf;
+      }
+
+      const buf = fs.readFileSync(tmpFile);
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      return buf;
+    } catch (err) {
+      // fastGet can fail on some SFTP servers — fall back to buffered get
+      console.warn(`[${this._label}] fastGet failed (${err.message}), using buffered get`);
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      return sftp.get(remotePath);
     }
   }
 
@@ -300,6 +384,30 @@ class PlayerStatsChannel {
       fs.writeFileSync(path.join(this._dataDir, 'welcome-stats.json'), JSON.stringify(cache, null, 2));
     } catch (err) {
       console.error(`[${this._label}] Failed to cache welcome stats:`, err.message);
+    }
+  }
+
+  /**
+   * Write a compact save-data cache to disk for the web map.
+   * Contains player positions, vitals, inventory, kills, etc. —
+   * everything the web map needs without having to re-parse the .sav.
+   */
+  _writeSaveCache() {
+    if (!this._saveData || this._saveData.size === 0) return;
+    try {
+      const players = {};
+      for (const [steamId, data] of this._saveData) {
+        players[steamId] = data;
+      }
+      const cache = {
+        updatedAt: new Date().toISOString(),
+        playerCount: this._saveData.size,
+        worldState: this._worldState || {},
+        players,
+      };
+      fs.writeFileSync(path.join(this._dataDir, 'save-cache.json'), JSON.stringify(cache));
+    } catch (err) {
+      console.error(`[${this._label}] Failed to write save cache:`, err.message);
     }
   }
 
@@ -407,18 +515,31 @@ class PlayerStatsChannel {
       fish: save?.fishCaught || 0,
       bitten: save?.timesBitten || 0,
       playtimeMs: pt?.totalMs || 0,
+      // New weekly-tracked fields
+      craftingRecipes: save?.craftingRecipes?.length || 0,
+      buildingRecipes: save?.buildingRecipes?.length || 0,
+      unlockedSkills: save?.unlockedSkills?.length || 0,
+      unlockedProfessions: save?.unlockedProfessions?.length || 0,
+      lore: save?.lore?.length || 0,
+      uniqueLoots: save?.uniqueLoots?.length || 0,
+      craftedUniques: save?.craftedUniques?.length || 0,
+      companions: (save?.companionData?.length || 0) + (save?.horses?.length || 0),
     };
   }
 
   /**
    * Check if the baseline's weekStart falls in a previous week
    * relative to `now`, using the configured reset day.
+   *
+   * All date comparisons are done as YYYY-MM-DD strings in the bot timezone
+   * to avoid mismatches between system-timezone midnight and bot-timezone
+   * day-of-week boundaries. (setHours(0,0,0,0) operates in the system
+   * timezone, which may differ from BOT_TIMEZONE.)
    */
   _isNewWeek(weekStartIso, now) {
-    const weekStart = new Date(weekStartIso);
     const resetDay = this._config.weeklyResetDay; // 0=Sun, 1=Mon, … 6=Sat
 
-    // Find the most recent reset-day boundary in bot timezone
+    // Current day-of-week in bot timezone
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
       timeZone: this._config.botTimezone,
@@ -427,12 +548,22 @@ class PlayerStatsChannel {
     const currentDay = dayMap[dayStr] ?? now.getDay();
     const daysSinceReset = (currentDay - resetDay + 7) % 7;
 
-    // Latest reset boundary = today at 00:00 minus daysSinceReset days (in local terms)
-    const resetBoundary = new Date(now);
-    resetBoundary.setHours(0, 0, 0, 0);
-    resetBoundary.setDate(resetBoundary.getDate() - daysSinceReset);
+    // Today's date in bot timezone as 'YYYY-MM-DD'
+    const todayStr = now.toLocaleDateString('en-CA', {
+      timeZone: this._config.botTimezone,
+    });
+    // Reset boundary = todayStr minus daysSinceReset (as a date-only value in UTC avoids DST)
+    const [y, m, d] = todayStr.split('-').map(Number);
+    const resetDate = new Date(Date.UTC(y, m - 1, d - daysSinceReset));
+    const resetDateStr = resetDate.toISOString().slice(0, 10);
 
-    return weekStart < resetBoundary;
+    // weekStart's date in bot timezone
+    const weekStart = new Date(weekStartIso);
+    const weekStartDateStr = weekStart.toLocaleDateString('en-CA', {
+      timeZone: this._config.botTimezone,
+    });
+
+    return weekStartDateStr < resetDateStr;
   }
 
   async _updateEmbed() {
@@ -566,6 +697,26 @@ class PlayerStatsChannel {
   static KILL_KEYS = ['zeeksKilled', 'headshots', 'meleeKills', 'gunKills', 'blastKills', 'fistKills', 'takedownKills', 'vehicleKills'];
   static SURVIVAL_KEYS = ['daysSurvived'];
 
+  // Scalar activity fields tracked via save diffs (simple number deltas)
+  static ACTIVITY_SCALAR_KEYS = ['fishCaught', 'fishCaughtPike', 'timesBitten'];
+
+  // Challenge progress keys — tracked for completion feed
+  static CHALLENGE_KEYS = [
+    'challengeKillZombies', 'challengeKill50', 'challengeCatch20Fish', 'challengeRegularAngler',
+    'challengeKillZombieBear', 'challenge9Squares', 'challengeCraftFirearm', 'challengeCraftFurnace',
+    'challengeCraftMeleeBench', 'challengeCraftMeleeWeapon', 'challengeCraftRainCollector',
+    'challengeCraftTablesaw', 'challengeCraftTreatment', 'challengeCraftWeaponsBench',
+    'challengeCraftWorkbench', 'challengeFindDog', 'challengeFindHeli', 'challengeLockpickSUV',
+    'challengeRepairRadio',
+  ];
+
+  // Array-based activity fields tracked via save diffs (new items = set difference)
+  static ACTIVITY_ARRAY_KEYS = [
+    'craftingRecipes', 'buildingRecipes', 'unlockedSkills',
+    'unlockedProfessions', 'lore', 'lootItemUnique', 'craftedUniques',
+    'companionData', 'horses',
+  ];
+
   // Maps GameStats key → ExtendedStats (lifetime) save field
   static LIFETIME_KEY_MAP = {
     zeeksKilled:   'lifetimeKills',
@@ -598,6 +749,14 @@ class PlayerStatsChannel {
           // Last lifetime snapshot for delta computation
           if (!record.lastLifetimeSnapshot) record.lastLifetimeSnapshot = record.lifetimeSnapshot ? { ...record.lifetimeSnapshot } : null;
           if (!record.lastSurvivalLifetimeSnapshot) record.lastSurvivalLifetimeSnapshot = record.survivalLifetimeSnapshot ? { ...record.survivalLifetimeSnapshot } : null;
+          // Activity tracking snapshots (scalar + array diffs)
+          if (!record.activitySnapshot) record.activitySnapshot = PlayerStatsChannel._emptyObj(PlayerStatsChannel.ACTIVITY_SCALAR_KEYS);
+          if (!record.activityArraySnapshot) {
+            record.activityArraySnapshot = {};
+            for (const k of PlayerStatsChannel.ACTIVITY_ARRAY_KEYS) record.activityArraySnapshot[k] = [];
+          }
+          // Challenge progress snapshot (for completion feed)
+          if (!record.challengeSnapshot) record.challengeSnapshot = PlayerStatsChannel._emptyObj(PlayerStatsChannel.CHALLENGE_KEYS);
         }
       }
     } catch (err) {
@@ -637,9 +796,37 @@ class PlayerStatsChannel {
     return obj;
   }
 
+  static _snapshotChallenges(save) {
+    const obj = {};
+    for (const k of PlayerStatsChannel.CHALLENGE_KEYS) obj[k] = save[k] || 0;
+    return obj;
+  }
+
   _accumulateStats() {
+    const today = this._config.getToday();  // timezone-aware 'YYYY-MM-DD'
+
+    // Determine which date's thread these deltas belong to.
+    // If kill-tracker has a lastPollDate from a previous day, the first poll's
+    // deltas represent activity that happened on that day — post to the old thread.
+    const lastPollDate = this._killData.lastPollDate || null;
+    const targetDate = (lastPollDate && lastPollDate !== today) ? lastPollDate : today;
+    this._killData.lastPollDate = today;
+    this._killDirty = true;
+
+    if (targetDate !== today) {
+      console.log(`[${this._label}] First poll after restart — posting pending deltas to ${targetDate} thread`);
+    }
+
     const killDeltas = [];    // per-player kill deltas for the kill feed
     const survivalDeltas = []; // per-player survival deltas for the survival feed
+    const fishingDeltas = [];  // per-player fishing deltas
+    const recipeDeltas = [];   // per-player new recipes
+    const skillDeltas = [];    // per-player new skills
+    const professionDeltas = []; // per-player new professions
+    const loreDeltas = [];     // per-player new lore entries
+    const uniqueDeltas = [];   // per-player new unique items
+    const companionDeltas = []; // per-player new companions/horses
+    const challengeDeltas = []; // per-player challenge completions
 
     for (const [id, save] of this._saveData) {
       const currentKills = PlayerStatsChannel._snapshotKills(save);
@@ -648,6 +835,10 @@ class PlayerStatsChannel {
       if (!this._killData.players[id]) {
         // First time seeing this player — initialise both trackers
         const logDeaths = this._playerStats.getStats(id)?.deaths || 0;
+        const actSnapshot = {};
+        for (const k of PlayerStatsChannel.ACTIVITY_SCALAR_KEYS) actSnapshot[k] = save[k] || 0;
+        const arrSnapshot = {};
+        for (const k of PlayerStatsChannel.ACTIVITY_ARRAY_KEYS) arrSnapshot[k] = Array.isArray(save[k]) ? [...save[k]] : [];
         this._killData.players[id] = {
           cumulative: PlayerStatsChannel._emptyKills(),
           lastSnapshot: currentKills,
@@ -660,6 +851,9 @@ class PlayerStatsChannel {
           survivalLifetimeSnapshot: null,
           lastLifetimeSnapshot: null,
           lastSurvivalLifetimeSnapshot: null,
+          activitySnapshot: actSnapshot,
+          activityArraySnapshot: arrSnapshot,
+          challengeSnapshot: PlayerStatsChannel._snapshotChallenges(save),
         };
         // Cache lifetime values if available
         if (save.hasExtendedStats) {
@@ -792,6 +986,82 @@ class PlayerStatsChannel {
         survivalDeltas.push({ steamId: id, name: playerName, delta: survDelta });
       }
 
+      // ── Activity scalar diffs (fishing, bites) ──
+      const prevAct = record.activitySnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.ACTIVITY_SCALAR_KEYS);
+      const fishDelta = {};
+      let hasFish = false;
+      for (const k of PlayerStatsChannel.ACTIVITY_SCALAR_KEYS) {
+        const diff = (save[k] || 0) - (prevAct[k] || 0);
+        if (diff > 0) { fishDelta[k] = diff; hasFish = true; }
+      }
+      if (hasFish) {
+        fishingDeltas.push({ steamId: id, name: playerName, delta: fishDelta });
+      }
+      // Update scalar snapshot
+      const newActSnapshot = {};
+      for (const k of PlayerStatsChannel.ACTIVITY_SCALAR_KEYS) newActSnapshot[k] = save[k] || 0;
+      record.activitySnapshot = newActSnapshot;
+
+      // ── Activity array diffs (recipes, skills, professions, lore, uniques, companions) ──
+      const prevArr = record.activityArraySnapshot || {};
+      const newArrSnapshot = {};
+      for (const k of PlayerStatsChannel.ACTIVITY_ARRAY_KEYS) {
+        const current = Array.isArray(save[k]) ? save[k] : [];
+        const prev = Array.isArray(prevArr[k]) ? prevArr[k] : [];
+        newArrSnapshot[k] = [...current];
+
+        // Find new entries (in current but not in previous)
+        if (current.length > prev.length) {
+          const prevSet = new Set(prev.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v)));
+          const newItems = current.filter(v => {
+            const key = typeof v === 'object' ? JSON.stringify(v) : String(v);
+            return !prevSet.has(key);
+          });
+          if (newItems.length > 0) {
+            if (k === 'craftingRecipes' || k === 'buildingRecipes') {
+              recipeDeltas.push({ steamId: id, name: playerName, type: k === 'craftingRecipes' ? 'Crafting' : 'Building', items: newItems });
+            } else if (k === 'unlockedSkills') {
+              skillDeltas.push({ steamId: id, name: playerName, items: newItems });
+            } else if (k === 'unlockedProfessions') {
+              professionDeltas.push({ steamId: id, name: playerName, items: newItems });
+            } else if (k === 'lore') {
+              loreDeltas.push({ steamId: id, name: playerName, items: newItems });
+            } else if (k === 'lootItemUnique' || k === 'craftedUniques') {
+              uniqueDeltas.push({ steamId: id, name: playerName, type: k === 'lootItemUnique' ? 'found' : 'crafted', items: newItems });
+            } else if (k === 'companionData' || k === 'horses') {
+              companionDeltas.push({ steamId: id, name: playerName, type: k === 'horses' ? 'horse' : 'companion', items: newItems });
+            }
+          }
+        }
+      }
+      record.activityArraySnapshot = newArrSnapshot;
+
+      // ── Challenge completion detection ──
+      if (save.hasExtendedStats) {
+        const prevChal = record.challengeSnapshot || PlayerStatsChannel._emptyObj(PlayerStatsChannel.CHALLENGE_KEYS);
+        const completedNow = [];
+        for (const k of PlayerStatsChannel.CHALLENGE_KEYS) {
+          const cur = save[k] || 0;
+          const prev = prevChal[k] || 0;
+          if (cur > prev) {
+            const info = gameData.CHALLENGE_DESCRIPTIONS[k];
+            // Check if the challenge was just completed (reached or exceeded target)
+            // For challenges without a numeric target (e.g., "find a dog"), any increase = completion
+            if (info) {
+              const wasComplete = info.target ? prev >= info.target : prev > 0;
+              const isComplete = info.target ? cur >= info.target : cur > 0;
+              if (!wasComplete && isComplete) {
+                completedNow.push({ key: k, name: info.name, desc: info.desc });
+              }
+            }
+          }
+        }
+        if (completedNow.length > 0) {
+          challengeDeltas.push({ steamId: id, name: playerName, completed: completedNow });
+        }
+        record.challengeSnapshot = PlayerStatsChannel._snapshotChallenges(save);
+      }
+
       record.lastSnapshot = currentKills;
       record.survivalSnapshot = currentSurvival;
       this._killDirty = true;
@@ -799,17 +1069,56 @@ class PlayerStatsChannel {
 
     this._saveKillData();
 
-    // Post kill feed to activity thread if enabled
+    // Post feeds to activity thread (may be a previous day's thread on first poll after restart)
+    const feedTarget = targetDate;  // 'YYYY-MM-DD' — routed to correct thread
     if (killDeltas.length > 0 && this._config.enableKillFeed && this._logWatcher) {
-      this._postKillFeed(killDeltas);
+      this._postKillFeed(killDeltas, feedTarget);
     }
     // Post survival feed to activity thread if enabled
     if (survivalDeltas.length > 0 && this._config.enableKillFeed && this._logWatcher) {
-      this._postSurvivalFeed(survivalDeltas);
+      this._postSurvivalFeed(survivalDeltas, feedTarget);
+    }
+    // Post activity feeds to activity thread if enabled
+    if (fishingDeltas.length > 0 && this._config.enableFishingFeed && this._logWatcher) {
+      this._postFishingFeed(fishingDeltas, feedTarget);
+    }
+    if (recipeDeltas.length > 0 && this._config.enableRecipeFeed && this._logWatcher) {
+      this._postRecipeFeed(recipeDeltas, feedTarget);
+    }
+    if (skillDeltas.length > 0 && this._config.enableSkillFeed && this._logWatcher) {
+      this._postSkillFeed(skillDeltas, feedTarget);
+    }
+    if (professionDeltas.length > 0 && this._config.enableProfessionFeed && this._logWatcher) {
+      this._postProfessionFeed(professionDeltas, feedTarget);
+    }
+    if (loreDeltas.length > 0 && this._config.enableLoreFeed && this._logWatcher) {
+      this._postLoreFeed(loreDeltas, feedTarget);
+    }
+    if (uniqueDeltas.length > 0 && this._config.enableUniqueFeed && this._logWatcher) {
+      this._postUniqueFeed(uniqueDeltas, feedTarget);
+    }
+    if (companionDeltas.length > 0 && this._config.enableCompanionFeed && this._logWatcher) {
+      this._postCompanionFeed(companionDeltas, feedTarget);
+    }
+    if (challengeDeltas.length > 0 && this._config.enableChallengeFeed && this._logWatcher) {
+      this._postChallengeFeed(challengeDeltas, feedTarget);
     }
   }
 
-  async _postKillFeed(deltas) {
+  /**
+   * Send an embed to the correct activity thread for the given date.
+   * @param {EmbedBuilder} embed
+   * @param {string} [targetDate] - 'YYYY-MM-DD'; defaults to today's thread
+   */
+  async _sendFeedEmbed(embed, targetDate) {
+    const today = this._config.getToday();
+    if (targetDate && targetDate !== today && this._logWatcher.sendToDateThread) {
+      return this._logWatcher.sendToDateThread(embed, targetDate);
+    }
+    return this._logWatcher.sendToThread(embed);
+  }
+
+  async _postKillFeed(deltas, targetDate) {
     const lines = deltas.map(({ name, delta }) => {
       const total = delta.zeeksKilled || 0;
       const parts = [];
@@ -831,13 +1140,13 @@ class PlayerStatsChannel {
       .setTimestamp();
 
     try {
-      await this._logWatcher.sendToThread(embed);
+      await this._sendFeedEmbed(embed, targetDate);
     } catch (err) {
       console.error(`[${this._label}] Failed to post kill feed to activity thread:`, err.message);
     }
   }
 
-  async _postSurvivalFeed(deltas) {
+  async _postSurvivalFeed(deltas, targetDate) {
     const lines = deltas.map(({ name, delta }) => {
       const parts = [];
       if (delta.daysSurvived)  parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
@@ -851,9 +1160,226 @@ class PlayerStatsChannel {
       .setTimestamp();
 
     try {
-      await this._logWatcher.sendToThread(embed);
+      await this._sendFeedEmbed(embed, targetDate);
     } catch (err) {
       console.error(`[${this._label}] Failed to post survival feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postFishingFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, delta }) => {
+      const total = delta.fishCaught || 0;
+      const pike = delta.fishCaughtPike || 0;
+      const bitten = delta.timesBitten || 0;
+      const parts = [];
+      if (total > 0) {
+        const pikeNote = pike > 0 ? ` (${pike} pike)` : '';
+        parts.push(`caught **${total} fish**${pikeNote}`);
+      }
+      if (bitten > 0) parts.push(`was bitten **${bitten} time${bitten > 1 ? 's' : ''}**`);
+      return `**${name}** ${parts.join(', ')}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🎣 Fishing Activity' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x3498db)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post fishing feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postRecipeFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, type, items }) => {
+      const names = items.map(r => _cleanItemName(r)).filter(Boolean);
+      const display = names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
+      return `**${name}** learned ${type}: ${display}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '📖 Recipe Unlocked' })
+      .setDescription(lines.join('\n'))
+      .setColor(0xe67e22)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post recipe feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postSkillFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, items }) => {
+      const names = items.map(s => {
+        const clean = _cleanItemName(s).toUpperCase();
+        return clean;
+      });
+      return `**${name}** unlocked skill${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '⚡ Skill Unlocked' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x9b59b6)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post skill feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postProfessionFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, items }) => {
+      const names = items.map(p => {
+        // Try to resolve enum → friendly name
+        if (typeof p === 'number') return PERK_INDEX_MAP[p] || `Profession #${p}`;
+        if (typeof p === 'string') return PERK_MAP[p] || _cleanItemName(p);
+        return String(p);
+      });
+      return `**${name}** unlocked profession${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🎓 Profession Unlocked' })
+      .setDescription(lines.join('\n'))
+      .setColor(0xf1c40f)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post profession feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postLoreFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, items }) => {
+      const count = items.length;
+      const names = items.map(l => _cleanItemName(typeof l === 'object' ? (l.name || l.id || JSON.stringify(l)) : l)).filter(Boolean);
+      const display = names.length > 0 && names.length <= 3 ? `: ${names.join(', ')}` : '';
+      return `**${name}** discovered **${count} lore entr${count > 1 ? 'ies' : 'y'}**${display}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '📜 Lore Discovered' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x8e44ad)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post lore feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postUniqueFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, type, items }) => {
+      const names = items.map(u => _cleanItemName(typeof u === 'object' ? (u.name || u.id || JSON.stringify(u)) : u)).filter(Boolean);
+      const display = names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
+      return `**${name}** ${type} unique item${items.length > 1 ? 's' : ''}: **${display}**`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '✨ Unique Item' })
+      .setDescription(lines.join('\n'))
+      .setColor(0xe74c3c)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post unique feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postCompanionFeed(deltas, targetDate) {
+    const lines = deltas.map(({ name, type, items }) => {
+      const count = items.length;
+      const emoji = type === 'horse' ? '🐴' : '🐕';
+      const label = type === 'horse'
+        ? `${count} horse${count > 1 ? 's' : ''}`
+        : `${count} companion${count > 1 ? 's' : ''}`;
+      return `${emoji} **${name}** tamed **${label}**`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🐾 Companion Tamed' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x27ae60)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post companion feed to activity thread:`, err.message);
+    }
+  }
+
+  async _postChallengeFeed(deltas, targetDate) {
+    const lines = deltas.flatMap(({ name, completed }) =>
+      completed.map(c => `**${name}** completed **${c.name}** — *${c.desc}*`)
+    );
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🏆 Challenge Completed' })
+      .setDescription(lines.join('\n'))
+      .setColor(0xf39c12)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed, targetDate);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post challenge feed to activity thread:`, err.message);
+    }
+  }
+
+  async _detectWorldEvents(prev, current) {
+    const lines = [];
+
+    // Season change
+    if (prev.currentSeason && current.currentSeason && prev.currentSeason !== current.currentSeason) {
+      const seasonEmoji = { Spring: '🌱', Summer: '☀️', Autumn: '🍂', Winter: '❄️' };
+      const emoji = seasonEmoji[current.currentSeason] || '🔄';
+      lines.push(`${emoji} Season changed to **${current.currentSeason}**`);
+    }
+
+    // Day milestone (every 10 days)
+    if (prev.daysPassed != null && current.daysPassed != null) {
+      const prevDay = Math.floor(prev.daysPassed);
+      const curDay = Math.floor(current.daysPassed);
+      if (curDay > prevDay) {
+        // Post milestone at every 10th day, or the first day change after bot start
+        if (curDay % 10 === 0 || Math.floor(prevDay / 10) < Math.floor(curDay / 10)) {
+          lines.push(`📅 **Day ${curDay}** reached`);
+        }
+      }
+    }
+
+    // Airdrop detected
+    if (!prev.airdropActive && current.airdropActive) {
+      lines.push('📦 **Airdrop incoming!**');
+    }
+
+    if (lines.length === 0) return;
+
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: '🌍 World Event' })
+      .setDescription(lines.join('\n'))
+      .setColor(0x2c3e50)
+      .setTimestamp();
+
+    try {
+      await this._sendFeedEmbed(embed);
+    } catch (err) {
+      console.error(`[${this._label}] Failed to post world event feed to activity thread:`, err.message);
     }
   }
 
@@ -1600,30 +2126,35 @@ class PlayerStatsChannel {
     // ── Vitals ──
     if (this._config.canShow('showVitals', isAdmin) && saveData) {
       const pct = (v) => `**${Math.round(Math.max(0, Math.min(100, v)))}%**`;
-      const vitals = [
-        `Health: ${pct(saveData.health)}  ·  Hunger: ${pct(saveData.hunger)}  ·  Thirst: ${pct(saveData.thirst)}`,
-        `Stamina: ${pct(saveData.stamina)}  ·  Immunity: ${pct(saveData.infection)}  ·  Battery: ${pct(saveData.battery)}`,
-      ];
-      embed.addFields({ name: 'Vitals', value: vitals.join('\n') });
+      const row1 = [];
+      const row2 = [];
+      if (this._config.showHealth)   row1.push(`Health: ${pct(saveData.health)}`);
+      if (this._config.showHunger)   row1.push(`Hunger: ${pct(saveData.hunger)}`);
+      if (this._config.showThirst)   row1.push(`Thirst: ${pct(saveData.thirst)}`);
+      if (this._config.showStamina)  row2.push(`Stamina: ${pct(saveData.stamina)}`);
+      if (this._config.showImmunity) row2.push(`Immunity: ${pct(saveData.infection)}`);
+      if (this._config.showBattery)  row2.push(`Battery: ${pct(saveData.battery)}`);
+      const vitals = [row1.join('  ·  '), row2.join('  ·  ')].filter(Boolean);
+      if (vitals.length > 0) embed.addFields({ name: 'Vitals', value: vitals.join('\n') });
     }
 
     // ── Status Effects ──
     if (this._config.canShow('showStatusEffects', isAdmin) && saveData) {
       const statuses = [];
-      if (saveData.playerStates?.length > 0) {
+      if (this._config.showPlayerStates && saveData.playerStates?.length > 0) {
         for (const s of saveData.playerStates) {
           if (typeof s !== 'string') continue;
           statuses.push(s.replace('States.Player.', ''));
         }
       }
-      if (saveData.bodyConditions?.length > 0) {
+      if (this._config.showBodyConditions && saveData.bodyConditions?.length > 0) {
         for (const s of saveData.bodyConditions) {
           if (typeof s !== 'string') continue;
           statuses.push(s.replace('Attributes.Health.', ''));
         }
       }
-      if (saveData.infectionBuildup > 0) statuses.push(`Infection: ${saveData.infectionBuildup}%`);
-      if (saveData.fatigue > 0.5) statuses.push('Fatigued');
+      if (this._config.showInfectionBuildup && saveData.infectionBuildup > 0) statuses.push(`Infection: ${saveData.infectionBuildup}%`);
+      if (this._config.showFatigue && saveData.fatigue > 0.5) statuses.push('Fatigued');
       if (statuses.length > 0) embed.addFields({ name: 'Status Effects', value: statuses.join(', ') });
     }
 
@@ -1653,10 +2184,10 @@ class PlayerStatsChannel {
     // ── Raid Stats ──
     if (this._config.canShow('showRaidStats', isAdmin) && logData) {
       const raidParts = [];
-      if (logData.raidsOut > 0) raidParts.push(`Attacked: **${logData.raidsOut}**`);
-      if (logData.destroyedOut > 0) raidParts.push(`Destroyed: **${logData.destroyedOut}**`);
-      if (logData.raidsIn > 0) raidParts.push(`Raided: **${logData.raidsIn}**`);
-      if (logData.destroyedIn > 0) raidParts.push(`Lost: **${logData.destroyedIn}**`);
+      if (this._config.showRaidsOut && logData.raidsOut > 0) raidParts.push(`Attacked: **${logData.raidsOut}**`);
+      if (this._config.showRaidsOut && logData.destroyedOut > 0) raidParts.push(`Destroyed: **${logData.destroyedOut}**`);
+      if (this._config.showRaidsIn && logData.raidsIn > 0) raidParts.push(`Raided: **${logData.raidsIn}**`);
+      if (this._config.showRaidsIn && logData.destroyedIn > 0) raidParts.push(`Lost: **${logData.destroyedIn}**`);
       if (raidParts.length > 0) embed.addFields({ name: 'Raids', value: raidParts.join('  ·  '), inline: true });
     }
 
@@ -1685,17 +2216,17 @@ class PlayerStatsChannel {
         equipLines.push('Backpack');
       }
 
-      if (equipLines.length > 0) embed.addFields({ name: `Equipment (${equipLines.length})`, value: equipLines.join('\n').substring(0, 1024), inline: true });
-      if (quick.length > 0) embed.addFields({ name: `Quick Slots (${quick.length})`, value: quick.map(fmt).join('\n').substring(0, 1024), inline: true });
-      if (pockets.length > 0) embed.addFields({ name: `Pockets (${pockets.length})`, value: pockets.map(fmt).join('\n').substring(0, 1024), inline: true });
-      if (bpItems.length > 0) embed.addFields({ name: `Backpack (${bpItems.length})`, value: bpItems.map(fmt).join('\n').substring(0, 1024), inline: true });
+      if (this._config.showEquipment && equipLines.length > 0) embed.addFields({ name: `Equipment (${equipLines.length})`, value: equipLines.join('\n').substring(0, 1024), inline: true });
+      if (this._config.showQuickSlots && quick.length > 0) embed.addFields({ name: `Quick Slots (${quick.length})`, value: quick.map(fmt).join('\n').substring(0, 1024), inline: true });
+      if (this._config.showPockets && pockets.length > 0) embed.addFields({ name: `Pockets (${pockets.length})`, value: pockets.map(fmt).join('\n').substring(0, 1024), inline: true });
+      if (this._config.showBackpack && bpItems.length > 0) embed.addFields({ name: `Backpack (${bpItems.length})`, value: bpItems.map(fmt).join('\n').substring(0, 1024), inline: true });
     }
 
     // ── Recipes ──
     if (this._config.canShow('showRecipes', isAdmin) && saveData) {
       const recipeParts = [];
-      if (saveData.craftingRecipes.length > 0) recipeParts.push(`**Crafting:** ${saveData.craftingRecipes.map(_cleanItemName).join(', ')}`);
-      if (saveData.buildingRecipes.length > 0) recipeParts.push(`**Building:** ${saveData.buildingRecipes.map(_cleanItemName).join(', ')}`);
+      if (this._config.showCraftingRecipes && saveData.craftingRecipes.length > 0) recipeParts.push(`**Crafting:** ${saveData.craftingRecipes.map(_cleanItemName).join(', ')}`);
+      if (this._config.showBuildingRecipes && saveData.buildingRecipes.length > 0) recipeParts.push(`**Building:** ${saveData.buildingRecipes.map(_cleanItemName).join(', ')}`);
       if (recipeParts.length > 0) embed.addFields({ name: 'Recipes', value: recipeParts.join('\n').substring(0, 1024) });
     }
 
@@ -1756,7 +2287,7 @@ class PlayerStatsChannel {
     // ── Unique Items ──
     if (saveData) {
       const uniques = [];
-      const foundItems = (saveData.uniqueLoots || []).map(_cleanItemName).filter(n => n.length > 0);
+      const foundItems = (saveData.lootItemUnique || []).map(_cleanItemName).filter(n => n.length > 0);
       const craftedItems = (saveData.craftedUniques || []).map(_cleanItemName).filter(n => n.length > 0);
       if (foundItems.length > 0) uniques.push(`**Found:** ${foundItems.join(', ')}`);
       if (craftedItems.length > 0) uniques.push(`**Crafted:** ${craftedItems.join(', ')}`);
@@ -1766,9 +2297,9 @@ class PlayerStatsChannel {
     // ── Connections ──
     if (this._config.canShow('showConnections', isAdmin) && logData) {
       const connParts = [];
-      if (logData.connects > 0) connParts.push(`In: **${logData.connects}**`);
-      if (logData.disconnects > 0) connParts.push(`Out: **${logData.disconnects}**`);
-      if (logData.adminAccess > 0) connParts.push(`Admin: **${logData.adminAccess}**`);
+      if (this._config.showConnectCount && logData.connects > 0) connParts.push(`In: **${logData.connects}**`);
+      if (this._config.showConnectCount && logData.disconnects > 0) connParts.push(`Out: **${logData.disconnects}**`);
+      if (this._config.showAdminAccess && logData.adminAccess > 0) connParts.push(`Admin: **${logData.adminAccess}**`);
       if (connParts.length > 0) embed.addFields({ name: 'Connections', value: connParts.join('  ·  '), inline: true });
     }
 
@@ -1777,6 +2308,14 @@ class PlayerStatsChannel {
       const lastDate = new Date(resolved.lastActive);
       const dateStr = `${lastDate.toLocaleDateString('en-GB')} ${lastDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
       embed.addFields({ name: 'Last Active', value: dateStr, inline: true });
+    }
+
+    // ── Coordinates ──
+    if (this._config.canShow('showCoordinates', isAdmin) && saveData && saveData.x !== null && saveData.x !== 0) {
+      const dir = saveData.rotationYaw !== null
+        ? ` | Facing: ${saveData.rotationYaw}°`
+        : '';
+      embed.addFields({ name: '📍 Location', value: `X: **${Math.round(saveData.x)}** · Y: **${Math.round(saveData.y)}** · Z: **${Math.round(saveData.z)}**${dir}`, inline: true });
     }
 
     // ── Anti-Cheat Flags (admin only) ──
@@ -1831,6 +2370,29 @@ function _cleanItemName(name) {
     .trim();
 }
 
+/** Map UDS (Ultra Dynamic Sky) weather enum values to human-readable names */
+const UDS_WEATHER_MAP = {
+  'UDS_WeatherTypes::NewEnumerator0': 'Clear Skies',
+  'UDS_WeatherTypes::NewEnumerator1': 'Partly Cloudy',
+  'UDS_WeatherTypes::NewEnumerator2': 'Cloudy',
+  'UDS_WeatherTypes::NewEnumerator3': 'Overcast',
+  'UDS_WeatherTypes::NewEnumerator4': 'Foggy',
+  'UDS_WeatherTypes::NewEnumerator5': 'Light Rain',
+  'UDS_WeatherTypes::NewEnumerator6': 'Rain',
+  'UDS_WeatherTypes::NewEnumerator7': 'Thunderstorm',
+  'UDS_WeatherTypes::NewEnumerator8': 'Light Snow',
+  'UDS_WeatherTypes::NewEnumerator9': 'Snow',
+  'UDS_WeatherTypes::NewEnumerator10': 'Blizzard',
+  'UDS_WeatherTypes::NewEnumerator11': 'Heatwave',
+  'UDS_WeatherTypes::NewEnumerator12': 'Sandstorm',
+};
+
+function _resolveUdsWeather(enumValue) {
+  if (!enumValue) return null;
+  return UDS_WEATHER_MAP[enumValue] || enumValue.replace(/^UDS_WeatherTypes::/, '').replace(/NewEnumerator/, 'Weather ');
+}
+
 module.exports = PlayerStatsChannel;
 module.exports._parseIni = _parseIni;
 module.exports._cleanItemName = _cleanItemName;
+module.exports._resolveUdsWeather = _resolveUdsWeather;

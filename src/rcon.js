@@ -1,10 +1,11 @@
 const net = require('net');
+const { EventEmitter } = require('events');
 const _defaultConfig = require('./config');
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
 
-class RconManager {
+class RconManager extends EventEmitter {
   /**
    * @param {object} [options]
    * @param {string} [options.host]     Override RCON host
@@ -13,6 +14,7 @@ class RconManager {
    * @param {string} [options.label]    Log prefix for multi-server identification
    */
   constructor(options = {}) {
+    super();
     this.socket = null;
     this.connected = false;
     this.authenticated = false;
@@ -29,6 +31,10 @@ class RconManager {
     this._password = options.password || null;
     this._label = options.label || 'RCON';
     this._cacheTtl = options.cacheTtl || null;
+    /** True after first successful connect — distinguishes initial connection from reconnects. */
+    this._everConnected = false;
+    /** Timestamp of last disconnect (for uptime reporting). */
+    this._disconnectedAt = null;
   }
 
   async connect() {
@@ -71,6 +77,13 @@ class RconManager {
           } else {
             this.authenticated = true;
             console.log(`[${this._label}] Authenticated successfully`);
+            // Emit reconnect event (after first initial connect, subsequent connects are reconnects)
+            if (this._everConnected) {
+              const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
+              this.emit('reconnect', { downtime });
+            }
+            this._everConnected = true;
+            this._disconnectedAt = null;
             resolve();
           }
         };
@@ -81,6 +94,10 @@ class RconManager {
       this.socket.on('error', (err) => {
         console.error(`[${this._label}] Socket error:`, err.message);
         clearTimeout(timeout);
+        if (this._everConnected && !this._disconnectedAt) {
+          this._disconnectedAt = Date.now();
+          this.emit('disconnect', { reason: err.message });
+        }
         this._cleanup();
         this._scheduleReconnect();
       });
@@ -88,6 +105,10 @@ class RconManager {
       this.socket.on('close', () => {
         if (this.connected) {
           console.log(`[${this._label}] Connection closed`);
+          if (this._everConnected && !this._disconnectedAt) {
+            this._disconnectedAt = Date.now();
+            this.emit('disconnect', { reason: 'Connection closed' });
+          }
           this._cleanup();
           this._scheduleReconnect();
         }

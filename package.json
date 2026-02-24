@@ -14,8 +14,11 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.94",
+    "better-sqlite3": "^12.6.2",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
+    "express": "^5.2.1",
     "ssh2-sftp-client": "^11.0.0"
   },
   "engines": {

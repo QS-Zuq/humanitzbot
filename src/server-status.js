@@ -389,31 +389,39 @@ class ServerStatus {
     }
 
     const time = _formatTime(info.time) || '--';
-    const season = info.season || '--';
-    const weather = info.weather || '--';
 
-    // Load settings early so we can use DaysPerSeason for season progress
-    const settings = (this._config.showServerSettings || this._config.showLootScarcity || this._config.showSeasonProgress)
-      ? this._loadServerSettings() : {};
+    // Always load settings — save-derived fields are needed for day/season/weather/world stats fallbacks
+    const settings = this._loadServerSettings();
+
+    // Season & weather: prefer RCON, fall back to save-derived values
+    const season = info.season || settings._currentSeason || '--';
+    const weather = info.weather || settings._currentWeather || '--';
 
     embed.addFields(
       { name: '👥 Players Online', value: `${playerCount}${playerBar}`, inline: true },
       { name: `${_timeEmoji(time)}Time`, value: time, inline: true },
     );
 
-    // Day number (from RCON info)
-    if (this._config.showServerDay && info.day) {
-      embed.addFields({ name: '📅 Day', value: info.day, inline: true });
+    // Day number — prefer RCON, fall back to save file world state written by player-stats-channel
+    const dayValue = info.day || (settings._daysPassed != null ? String(Math.floor(settings._daysPassed)) : null);
+    if (this._config.showServerDay && dayValue) {
+      embed.addFields({ name: '📅 Day', value: dayValue, inline: true });
     }
 
     // Season progress: compute day within current season
     let seasonDisplay = `${_seasonEmoji(season)}${season}`;
-    if (this._config.showSeasonProgress && info.day && settings.DaysPerSeason) {
-      const day = parseInt(info.day, 10);
+    if (this._config.showSeasonProgress && settings.DaysPerSeason) {
       const dps = parseInt(settings.DaysPerSeason, 10);
-      if (day > 0 && dps > 0) {
-        const dayInSeason = ((day - 1) % dps) + 1;
+      // Prefer save-file currentSeasonDay (exact), fall back to manual calculation from total days
+      if (dps > 0 && settings._currentSeasonDay != null) {
+        const dayInSeason = Math.floor(settings._currentSeasonDay) + 1; // save is 0-indexed
         seasonDisplay = `${_seasonEmoji(season)}${season} (Day ${dayInSeason}/${dps})`;
+      } else if (dps > 0 && dayValue) {
+        const day = parseInt(dayValue, 10);
+        if (day > 0) {
+          const dayInSeason = ((day - 1) % dps) + 1;
+          seasonDisplay = `${_seasonEmoji(season)}${season} (Day ${dayInSeason}/${dps})`;
+        }
       }
     }
 
@@ -483,6 +491,19 @@ class ServerStatus {
         return `${medals[i]} **${entry.name}** — ${entry.totalFormatted}`;
       });
       embed.addFields({ name: '⏱️ Top Playtime', value: top3.join('\n') });
+    }
+
+    // ── World Stats (from save file) ──
+    if (this._config.showWorldStats) {
+      const worldParts = [];
+      if (settings._totalPlayers != null) worldParts.push(`👥 Players: **${settings._totalPlayers}**`);
+      if (settings._totalZombieKills != null) worldParts.push(`🧟 Zombies Killed: **${settings._totalZombieKills.toLocaleString()}**`);
+      if (settings._totalStructures != null) worldParts.push(`🏗️ Structures: **${settings._totalStructures.toLocaleString()}**`);
+      if (settings._totalVehicles != null) worldParts.push(`🚗 Vehicles: **${settings._totalVehicles}**`);
+      if (settings._totalCompanions != null && settings._totalCompanions > 0) worldParts.push(`🐕 Companions: **${settings._totalCompanions}**`);
+      if (worldParts.length > 0) {
+        embed.addFields({ name: '🌎 World Stats', value: worldParts.join('  ·  ') });
+      }
     }
 
     // ── Player Activity Stats ──

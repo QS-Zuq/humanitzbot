@@ -6,7 +6,7 @@ A comprehensive Discord bot for HumanitZ dedicated servers. Connects via RCON fo
 
 | | |
 |---|---|
-| **Server** | `[EU] Howyagarn Newbies - PVE - Low Zombies / Long Seasons` |
+| **Server** | `[EU] Howyagarn PVE - 50% Zeeks, Slower but Difficult / Long Seasons / Stats / Leaderboards` |
 | **Direct Connect** | `66.248.194.203:9098` |
 | **Discord** | [Discord.gg/Dp2M2CaQhj](https://discord.gg/Dp2M2CaQhj) |
 
