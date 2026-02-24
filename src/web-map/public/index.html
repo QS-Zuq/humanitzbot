@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HumanitZ — Live Player Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    #map { height: 100%; background: #4a8c8c; flex: 1; }
+
+    /* Top bar */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      background: rgba(13, 17, 23, 0.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid #30363d;
+      display: flex; align-items: center; padding: 8px 16px; gap: 16px;
+      font-size: 13px;
+    }
+    #topbar .title { font-size: 16px; font-weight: 700; color: #58a6ff; }
+    #topbar .stat { color: #8b949e; }
+    #topbar .stat b { color: #c9d1d9; }
+    #topbar .online-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fb950; margin-right: 4px; }
+    #topbar .offline-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #da3633; margin-right: 4px; }
+    #topbar button {
+      background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    #topbar button:hover { background: #30363d; }
+    #topbar button.active { background: #1f6feb; border-color: #58a6ff; color: #fff; }
+
+    /* Player popup */
+    .leaflet-popup-content-wrapper {
+      background: #161b22 !important;
+      border: 1px solid #30363d !important;
+      border-radius: 8px !important;
+      color: #c9d1d9 !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+    }
+    .leaflet-popup-tip { background: #161b22 !important; border: 1px solid #30363d !important; }
+    .leaflet-popup-content { margin: 12px 16px !important; min-width: 260px; }
+    .player-popup h3 { margin: 0 0 8px; color: #58a6ff; font-size: 15px; }
+    .player-popup .steam-id { font-size: 11px; color: #6e7681; word-break: break-all; }
+    .player-popup .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin: 8px 0; font-size: 12px; }
+    .player-popup .stat-grid .label { color: #8b949e; }
+    .player-popup .stat-grid .value { font-weight: 600; text-align: right; }
+    .player-popup .vitals { margin: 8px 0; }
+    .player-popup .vital-bar { margin: 3px 0; }
+    .player-popup .vital-bar .bar-label { font-size: 11px; color: #8b949e; display: inline-block; width: 60px; }
+    .player-popup .vital-bar .bar-bg { display: inline-block; width: 140px; height: 10px; background: #21262d; border-radius: 3px; vertical-align: middle; overflow: hidden; }
+    .player-popup .vital-bar .bar-fill { height: 100%; border-radius: 3px; }
+    .player-popup .vital-bar .bar-val { font-size: 11px; margin-left: 6px; color: #c9d1d9; }
+    .player-popup .section-title { font-size: 11px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin: 10px 0 4px; border-top: 1px solid #21262d; padding-top: 8px; }
+    .player-popup .item-list { font-size: 11px; color: #8b949e; max-height: 120px; overflow-y: auto; }
+    .player-popup .item-list div { padding: 1px 0; }
+    .player-popup .admin-actions { margin-top: 10px; padding-top: 8px; border-top: 1px solid #21262d; display: flex; gap: 8px; }
+    .player-popup .admin-actions button {
+      flex: 1; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .player-popup .btn-kick { background: #b08800; color: #fff; }
+    .player-popup .btn-kick:hover { background: #d4a017; }
+    .player-popup .btn-ban { background: #da3633; color: #fff; }
+    .player-popup .btn-ban:hover { background: #f85149; }
+    .player-popup .btn-msg { background: #238636; color: #fff; }
+    .player-popup .btn-msg:hover { background: #2ea043; }
+    .player-popup .coordinates { font-size: 11px; color: #6e7681; margin-top: 4px; }
+
+    /* Refresh progress overlay */
+    #refresh-progress {
+      display: none;
+      position: fixed; bottom: 50px; left: 16px; z-index: 1002;
+      background: rgba(13, 17, 23, 0.95); border: 1px solid #30363d;
+      border-radius: 8px; padding: 12px 16px;
+      width: 320px; max-height: 200px; overflow-y: auto;
+      font-size: 12px; color: #8b949e;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    #refresh-progress .progress-step {
+      padding: 4px 0 4px 20px; border-bottom: 1px solid #21262d;
+      position: relative;
+    }
+    #refresh-progress .progress-step:last-child { border-bottom: none; }
+    #refresh-progress .progress-step::before {
+      content: '\25CB'; position: absolute; left: 2px; color: #6e7681;
+    }
+    #refresh-progress .progress-step.done {
+      color: #3fb950;
+    }
+    #refresh-progress .progress-step.done::before {
+      content: '\2713'; color: #3fb950;
+    }
+    #refresh-progress .progress-step.error {
+      color: #f85149;
+    }
+    #refresh-progress .progress-step.error::before {
+      content: '\2717'; color: #f85149;
+    }
+
+    /* Fade-out animation for progress panel */
+    #refresh-progress.fade-out {
+      animation: progress-fade 1.5s ease forwards;
+    }
+    @keyframes progress-fade {
+      0% { opacity: 1; }
+      60% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    /* Online marker pulse animation */
+    .marker-online div {
+      animation: online-pulse 2s ease-in-out infinite;
+    }
+    @keyframes online-pulse {
+      0%, 100% { box-shadow: 0 0 6px rgba(63,185,80,0.4); }
+      50% { box-shadow: 0 0 14px rgba(63,185,80,0.8); }
+    }
+
+    /* Inactive marker: grey, red glow on hover */
+    .marker-inactive div {
+      transition: all 0.3s;
+    }
+    .marker-inactive:hover div {
+      background: #da3633 !important;
+      border-color: #b62324 !important;
+      box-shadow: 0 0 8px rgba(218, 54, 51, 0.5) !important;
+    }
+
+    /* Topbar stat colors */
+    #topbar .inactive-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #484f58; margin-right: 4px; }
+
+    /* Player side panel — always visible */
+    #player-panel {
+      position: relative; top: 0; right: 0; bottom: 0; z-index: 1001;
+      width: 320px; min-width: 320px;
+      background: rgba(22, 27, 34, 0.97); backdrop-filter: blur(8px);
+      border-left: 1px solid #30363d;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    #player-panel-header {
+      position: sticky; top: 0; z-index: 1;
+      background: rgba(22, 27, 34, 0.97);
+      padding: 10px 16px 8px;
+      border-bottom: 1px solid #30363d;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #player-panel-header span { font-size: 12px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; }
+    #player-panel-header .back-btn {
+      background: none; border: none; color: #58a6ff; cursor: pointer;
+      font-size: 12px; padding: 2px 6px; display: none;
+    }
+    #player-panel-header .back-btn:hover { color: #79c0ff; }
+    #player-panel-content {
+      padding: 0 16px 16px; flex: 1; overflow-y: auto;
+    }
+    #player-panel-footer {
+      display: none; gap: 8px; padding: 10px 16px;
+      border-top: 1px solid #30363d;
+      background: rgba(22, 27, 34, 0.97);
+    }
+    #player-panel-footer button {
+      flex: 1; padding: 7px 8px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; font-weight: 600; border: 1px solid transparent;
+    }
+    #player-panel-footer .btn-msg { background: #238636; color: #fff; }
+    #player-panel-footer .btn-msg:hover { background: #2ea043; }
+    #player-panel-footer .btn-kick { background: #b08800; color: #fff; }
+    #player-panel-footer .btn-kick:hover { background: #d4a017; }
+    #player-panel-footer .btn-ban { background: #da3633; color: #fff; }
+    #player-panel-footer .btn-ban:hover { background: #f85149; }
+    /* Reuse player-popup styles inside the panel */
+    #player-panel-content .player-popup h3 { margin-top: 12px; }
+    #player-panel-content .vital-bar .bar-bg { width: 180px; }
+    #player-panel-content .item-list { max-height: 200px; }
+
+    /* Player list in sidebar */
+    .player-list-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0; border-bottom: 1px solid #21262d;
+      cursor: pointer; font-size: 13px; color: #c9d1d9;
+      transition: background 0.15s;
+    }
+    .player-list-item:hover { background: rgba(56,139,253,0.08); margin: 0 -16px; padding: 6px 16px; }
+    .player-list-item .dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .player-list-item .dot.online { background: #3fb950; }
+    .player-list-item .dot.offline { background: #da3633; }
+    .player-list-item .dot.inactive { background: #484f58; }
+    .player-list-item .player-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-list-item .player-extra { font-size: 11px; color: #6e7681; white-space: nowrap; }
+    .player-list-section {
+      font-size: 11px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px;
+      margin: 12px 0 4px; padding-bottom: 4px; border-bottom: 1px solid #30363d;
+    }
+    .player-list-section:first-child { margin-top: 8px; }
+
+  </style>
+</head>
+<body>
+  <!-- Top bar -->
+  <div id="topbar">
+    <span class="title">HumanitZ Map</span>
+    <select id="server-select" style="display:none;background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:3px 8px;border-radius:6px;font-size:12px;cursor:pointer;" title="Select server"></select>
+    <span class="stat"><span class="online-dot"></span>Online: <b id="online-count">0</b></span>
+    <span class="stat"><span class="offline-dot"></span>Total: <b id="total-count">0</b></span>
+    <span class="stat" style="color:#6e7681">Updated: <b id="last-update" style="font-weight:400">—</b></span>
+    <span style="flex:1"></span>
+    <button id="btn-focus-online" onclick="focusOnlinePlayers()" title="Zoom to fit online players">Online</button>
+    <button id="btn-zoom-out" onclick="zoomToFit()" title="Zoom out to see entire map">Full Map</button>
+    <button id="btn-refresh" onclick="refreshPlayers()">Refresh</button>
+  </div>
+
+  <!-- Map + Side panel wrapper -->
+  <div id="map-wrapper" style="display:flex; position:fixed; top:40px; left:0; right:0; bottom:0;">
+    <div id="map"></div>
+    <!-- Player side panel (always visible) -->
+    <div id="player-panel">
+      <div id="player-panel-header">
+        <span id="panel-title">Players</span>
+        <button class="back-btn" onclick="showPlayerList()">&larr; Back</button>
+      </div>
+      <div id="player-panel-content"></div>
+      <div id="player-panel-footer"></div>
+    </div>
+  </div>
+
+  <!-- Refresh progress (SSE) -->
+  <div id="refresh-progress"></div>
+
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
