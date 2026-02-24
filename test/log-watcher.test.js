@@ -244,3 +244,50 @@ describe('simplifyBlueprintName', () => {
     assert.equal(simplifyBlueprintName('BP_Item_Name_With_Parts_C_98765432'), 'Item Name With Parts');
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// _nukeActive thread suppression
+// ══════════════════════════════════════════════════════════
+
+describe('_nukeActive thread suppression', () => {
+  const LogWatcher = require('../src/log-watcher');
+  const ChatRelay = require('../src/chat-relay');
+
+  const mockClient = { channels: { fetch: async () => null }, on: () => {}, user: { id: '1' } };
+  const mockChannel = { id: '123', name: 'test', threads: { fetchActive: async () => ({ threads: new Map() }), fetchArchived: async () => ({ threads: new Map() }) }, send: async () => ({ startThread: async () => ({ send: async () => {} }) }), messages: { fetch: async () => new Map() } };
+  const fakeConfig = {
+    getToday: () => '2026-01-01',
+    getDateLabel: () => '01 Jan 2026',
+    useActivityThreads: true,
+    useChatThreads: true,
+    logPollInterval: 600000,
+    ftpHost: 'x', ftpPort: 22, ftpUser: 'x', ftpPassword: 'x',
+    ftpLogPath: '/test', ftpConnectLogPath: '/test',
+    logChannelId: '123', adminChannelId: '123',
+    serverName: '', nukeBot: true,
+    addAdminMembers: async () => {},
+  };
+
+  it('LogWatcher _getOrCreateDailyThread falls back to logChannel when _nukeActive', async () => {
+    const lw = new LogWatcher(mockClient, { config: fakeConfig });
+    lw.logChannel = mockChannel;
+    lw._nukeActive = true;
+
+    const result = await lw._getOrCreateDailyThread();
+    assert.strictEqual(result, mockChannel, 'should return logChannel directly');
+    assert.strictEqual(lw._dailyDate, '2026-01-01');
+
+    // Cleanup
+    clearInterval(lw._midnightCheckInterval);
+    clearInterval(lw.interval);
+  });
+
+  it('ChatRelay _getOrCreateChatThread falls back to adminChannel when _nukeActive', async () => {
+    const cr = new ChatRelay(mockClient, { config: fakeConfig });
+    cr.adminChannel = mockChannel;
+    cr._nukeActive = true;
+
+    const result = await cr._getOrCreateChatThread();
+    assert.strictEqual(result, mockChannel, 'should return adminChannel directly');
+  });
+});

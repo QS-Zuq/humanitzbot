@@ -41,6 +41,8 @@ class LogWatcher {
     // Daily thread
     this._dailyThread = null;
     this._dailyDate = null;   // 'YYYY-MM-DD'
+    this._dayRolloverCb = null; // callback after daily thread created on rollover
+    this._nukeActive = false;   // true during NUKE_BOT — suppresses thread creation
 
     // Batching (reduces Discord spam)
     this._lootBatch = {};     // key → { looter, looterId, ownerSteamId, count, containers }
@@ -223,8 +225,10 @@ class LogWatcher {
     // First poll — just get current file size so we don't replay old history
     await this._initSize();
 
-    // Initialise today's thread
-    await this._getOrCreateDailyThread();
+    // Initialise today's thread (skip during nuke — phase 2 rebuilds them)
+    if (!this._nukeActive) {
+      await this._getOrCreateDailyThread();
+    }
 
     // Start polling
     this.interval = setInterval(() => this._poll(), this._config.logPollInterval);
@@ -233,13 +237,15 @@ class LogWatcher {
     // even if no log events happen around midnight in the configured timezone.
     this._midnightCheckInterval = setInterval(() => this._checkDayRollover(), 60000);
 
-    // Send startup notification
-    const thread = await this._getOrCreateDailyThread();
-    const embed = new EmbedBuilder()
-      .setDescription('📋 Log watcher connected. Monitoring game server activity.')
-      .setColor(0x3498db)
-      .setTimestamp();
-    await thread.send({ embeds: [embed] }).catch(() => {});
+    // Send startup notification (skip during nuke — would appear out of order)
+    if (!this._nukeActive) {
+      const thread = await this._getOrCreateDailyThread();
+      const embed = new EmbedBuilder()
+        .setDescription('📋 Log watcher connected. Monitoring game server activity.')
+        .setColor(0x3498db)
+        .setTimestamp();
+      await thread.send({ embeds: [embed] }).catch(() => {});
+    }
   }
 
   stop() {
@@ -304,14 +310,7 @@ class LogWatcher {
     const saved = this._loadOffsets();
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
-
-      // HMZLog.log
+      await sftp.connect(this._config.sftpConnectConfig());
       try {
         const stat = await sftp.stat(this._config.ftpLogPath);
         if (saved && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
@@ -367,12 +366,7 @@ class LogWatcher {
   async _poll() {
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
+      await sftp.connect(this._config.sftpConnectConfig());
 
       // ── HMZLog.log ──────────────────────────────────
       await this._pollFile(sftp, {
@@ -485,6 +479,13 @@ class LogWatcher {
   }
 
   async _getOrCreateDailyThread() {
+    // During nuke phase 1→2, suppress thread creation so rebuildThreads controls ordering
+    if (this._nukeActive) {
+      this._dailyThread = this.logChannel;
+      this._dailyDate = this._config.getToday();
+      return this._dailyThread;
+    }
+
     const today = this._config.getToday(); // timezone-aware 'YYYY-MM-DD'
 
     // Day rollover — post summary and reset counters (even in no-thread mode)
@@ -493,6 +494,7 @@ class LogWatcher {
       this._dayCounts = { connects: 0, disconnects: 0, deaths: 0, builds: 0, damage: 0, loots: 0, raidHits: 0, destroyed: 0, admin: 0, cheat: 0, pvpKills: 0 };
       this._dayCountsDirty = true;
       this._saveDayCounts();
+      this._dailyThread = null; // clear stale thread so a new one is created below
       this._dailyDate = today;
     }
 
@@ -596,6 +598,13 @@ class LogWatcher {
       this._dailyDate = today;
     }
 
+    // Notify listeners (e.g. ChatRelay) that the daily thread was created
+    if (typeof this._dayRolloverCb === 'function') {
+      try { await this._dayRolloverCb(); } catch (e) {
+        console.warn(`[${this._label}] Day rollover callback error:`, e.message);
+      }
+    }
+
     return this._dailyThread;
   }
 
@@ -651,6 +660,55 @@ class LogWatcher {
     return this._sendToThread(embed);
   }
 
+  /**
+   * Send an embed to a specific date's activity thread (e.g. previous day).
+   * Falls back to today's thread if the target thread cannot be found.
+   * @param {EmbedBuilder} embed
+   * @param {string} dateStr  YYYY-MM-DD date for the target thread
+   */
+  async sendToDateThread(embed, dateStr) {
+    const today = this._config.getToday();
+    // If it's today, just use normal sendToThread
+    if (dateStr === today) return this.sendToThread(embed);
+
+    if (!this._config.useActivityThreads || !this.logChannel) {
+      return this.sendToThread(embed);
+    }
+
+    // Build the thread name for the target date
+    const targetDate = new Date(dateStr + 'T12:00:00Z');
+    const dateLabel = this._config.getDateLabel(targetDate);
+    const serverLabel = this._getServerLabel();
+    const serverSuffix = serverLabel ? ` [${serverLabel}]` : '';
+    const threadName = `📋 Activity Log — ${dateLabel}${serverSuffix}`;
+
+    try {
+      // Check active threads
+      const active = await this.logChannel.threads.fetchActive();
+      const match = active.threads.find(t => t.name === threadName);
+      if (match) {
+        return await match.send({ embeds: [embed] });
+      }
+
+      // Check recently archived threads
+      const archived = await this.logChannel.threads.fetchArchived({ limit: 10 });
+      const archiveMatch = archived.threads.find(t => t.name === threadName);
+      if (archiveMatch) {
+        await archiveMatch.setArchived(false);
+        const result = await archiveMatch.send({ embeds: [embed] });
+        // Re-archive after posting to keep it tidy
+        await archiveMatch.setArchived(true).catch(() => {});
+        return result;
+      }
+    } catch (err) {
+      console.warn(`[${this._label}] Could not find thread for ${dateStr}:`, err.message);
+    }
+
+    // Fallback: post to today's thread
+    console.log(`[${this._label}] No thread found for ${dateStr}, using today's thread`);
+    return this.sendToThread(embed);
+  }
+
   /** Clear cached thread reference so it will be re-fetched on next send. */
   resetThreadCache() {
     this._dailyThread = null;
@@ -662,7 +720,7 @@ class LogWatcher {
     try {
       return await thread.send({ embeds: [embed] });
     } catch (err) {
-      // Self-heal: if the thread was deleted/recreated (e.g. NUKE_THREADS), clear cache and retry once
+      // Self-heal: if the thread was deleted/recreated (e.g. NUKE_BOT), clear cache and retry once
       if (err.code === 10003 || err.message?.includes('Unknown Channel')) {
         console.warn(`[${this._label}] Thread gone — clearing cache and retrying...`);
         this.resetThreadCache();

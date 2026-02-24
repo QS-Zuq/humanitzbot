@@ -131,9 +131,10 @@ const config = {
 
   // SFTP file paths
   ftpHost: process.env.FTP_HOST || '',
-  ftpPort: parseInt(process.env.FTP_PORT, 10) || 8821,
+  ftpPort: parseInt(process.env.FTP_PORT, 10) || 2022,
   ftpUser: process.env.FTP_USER || '',
   ftpPassword: process.env.FTP_PASSWORD || '',
+  ftpPrivateKeyPath: process.env.FTP_PRIVATE_KEY_PATH || '',  // path to SSH private key (optional, replaces password auth)
   ftpBasePath: (process.env.FTP_BASE_PATH || '').replace(/\/+$/, ''),  // strip trailing slash
   ftpLogPath: process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log',
   ftpConnectLogPath: process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt',
@@ -167,6 +168,30 @@ const config = {
   // Save-file parser
   savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL, 10) || 300000, 60000),  // min 1 min
 
+  // Agent mode — offloads save parsing to the game server for faster updates.
+  // 'auto' = try agent first, fall back to direct .sav download
+  // 'agent' = agent only (fail if unavailable)
+  // 'direct' = always download full .sav (no agent)
+  agentMode: (process.env.AGENT_MODE || 'auto').toLowerCase(),
+  agentNodePath: process.env.AGENT_NODE_PATH || 'node',     // path to Node.js on game server
+  agentRemoteDir: process.env.AGENT_REMOTE_DIR || '',        // where to upload agent (default: same dir as save)
+  agentCachePath: process.env.AGENT_CACHE_PATH || '',        // explicit path to humanitz-cache.json (for host-managed agents)
+  agentTimeout: Math.max(parseInt(process.env.AGENT_TIMEOUT, 10) || 120000, 10000),  // max wait for agent exec
+
+  // Agent trigger — how the bot tells the game server to run the parser.
+  // 'auto'  = try panel command first (if panel API configured), then SSH, then skip
+  // 'ssh'   = SSH exec only
+  // 'panel' = Pterodactyl panel console command only (for hosts like BisectHosting)
+  // 'none'  = don't trigger — assume host runs the agent externally
+  agentTrigger: (process.env.AGENT_TRIGGER || 'auto').toLowerCase(),
+  agentPanelCommand: process.env.AGENT_PANEL_COMMAND || 'parse-save',  // console command the host wrapper listens for
+  agentPanelDelay: Math.max(parseInt(process.env.AGENT_PANEL_DELAY, 10) || 5000, 1000),  // ms to wait after sending command before checking for cache
+
+  // Agent poll interval — used instead of SAVE_POLL_INTERVAL when agent mode is active.
+  // Agent downloads a ~200-500KB cache vs the full ~60MB .sav, so faster polling is safe.
+  // Default 90s, min 30s.  Set to 0 to use SAVE_POLL_INTERVAL for both modes.
+  agentPollInterval: parseInt(process.env.AGENT_POLL_INTERVAL, 10) || 90000,
+
   // Player-stats channel
   playerStatsChannelId: process.env.PLAYER_STATS_CHANNEL_ID || '',
 
@@ -178,6 +203,15 @@ const config = {
   enableLogWatcher: envBool('ENABLE_LOG_WATCHER', true),
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
   enablePlaytime: envBool('ENABLE_PLAYTIME', true),
+  enablePlayerMap: envBool('ENABLE_PLAYER_MAP', false),
+
+  // Player map settings
+  mapChannelId: process.env.MAP_CHANNEL_ID || '',
+  mapPollInterval: parseInt(process.env.MAP_POLL_INTERVAL, 10) || 300000,  // 5 min default
+  mapWidth: parseInt(process.env.MAP_WIDTH, 10) || 1024,
+  mapShowOffline: envBool('MAP_SHOW_OFFLINE', true),
+  mapShowNames: envBool('MAP_SHOW_NAMES', true),
+  mapImageUrl: process.env.MAP_IMAGE_URL || '',
 
   // Thread mode — when true (default), chat/activity go into daily threads.
   // When false, messages post directly to the channel.
@@ -204,6 +238,18 @@ const config = {
     return days.size > 0 ? days : null;
   })(),
 
+  // Settings overrides when PvP is ON — JSON object of GameServerSettings.ini keys.
+  // These values are applied when PvP enables and reverted when PvP disables.
+  // Example: {"OnDeath":"0","VitalDrain":"1","ZombieDiffDamage":"3"}
+  pvpSettingsOverrides: (() => {
+    const raw = process.env.PVP_SETTINGS_OVERRIDES;
+    if (!raw || !raw.trim()) return null;
+    try { return JSON.parse(raw); } catch (e) {
+      console.error('[CONFIG] Invalid PVP_SETTINGS_OVERRIDES JSON:', e.message);
+      return null;
+    }
+  })(),
+
   // Per-day PvP hour overrides: PVP_HOURS_MON=18:00-22:00, etc.
   // Falls back to PVP_START_TIME / PVP_END_TIME when not set for a day.
   pvpDayHours: (() => {
@@ -224,13 +270,26 @@ const config = {
   // First-run / data repair
   firstRun: envBool('FIRST_RUN', false),
 
-  // Experimental — one-shot thread rebuild on startup
-  nukeThreads: envBool('NUKE_THREADS', false),
+  // Factory reset — wipes all bot messages from Discord, deletes local data,
+  // re-imports from server logs, and rebuilds everything fresh.
+  // Runs once on startup, then automatically sets itself back to false.
+  nukeBot: envBool('NUKE_BOT', false) || envBool('NUKE_THREADS', false),  // backward compat
 
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true),   // post zombie kill batches to activity thread
   enablePvpKillFeed: envBool('ENABLE_PVP_KILL_FEED', true), // post PvP kills to activity thread
   pvpKillWindow: parseInt(process.env.PVP_KILL_WINDOW, 10) || 60000, // ms window to attribute a kill after damage (default 60s; log timestamps are minute-precision)
+
+  // Save-based activity feeds — posted to activity thread from save-file diffs
+  enableFishingFeed: envBool('ENABLE_FISHING_FEED', true),       // "Player caught 3 fish"
+  enableRecipeFeed: envBool('ENABLE_RECIPE_FEED', true),         // "Player learned Firearm, Furnace"
+  enableSkillFeed: envBool('ENABLE_SKILL_FEED', true),           // "Player unlocked Mechanic skill"
+  enableProfessionFeed: envBool('ENABLE_PROFESSION_FEED', true), // "Player unlocked Mechanic"
+  enableLoreFeed: envBool('ENABLE_LORE_FEED', true),             // "Player found 2 lore entries"
+  enableUniqueFeed: envBool('ENABLE_UNIQUE_FEED', true),         // "Player found unique item"
+  enableCompanionFeed: envBool('ENABLE_COMPANION_FEED', true),   // "Player tamed a companion"
+  enableChallengeFeed: envBool('ENABLE_CHALLENGE_FEED', true),    // "Player completed Bear Hunter"
+  enableWorldEventFeed: envBool('ENABLE_WORLD_EVENT_FEED', true), // season/day changes, airdrops
 
   // Feature toggles — auto-message sub-features (all on by default)
   enableAutoMsgLink: envBool('ENABLE_AUTO_MSG_LINK', true),
@@ -248,6 +307,37 @@ const config = {
   showRecipes: envBool('SHOW_RECIPES', true),              // default: on
   showLore: envBool('SHOW_LORE', true),                    // default: on
   showConnections: envBool('SHOW_CONNECTIONS', true),      // default: on
+
+  // Fine-grained sub-toggles (parent section must also be enabled)
+  // Vitals sub-stats
+  showHealth: envBool('SHOW_HEALTH', true),
+  showHunger: envBool('SHOW_HUNGER', true),
+  showThirst: envBool('SHOW_THIRST', true),
+  showStamina: envBool('SHOW_STAMINA', true),
+  showImmunity: envBool('SHOW_IMMUNITY', true),
+  showBattery: envBool('SHOW_BATTERY', true),
+  // Status effects sub-sections
+  showPlayerStates: envBool('SHOW_PLAYER_STATES', true),
+  showBodyConditions: envBool('SHOW_BODY_CONDITIONS', true),
+  showInfectionBuildup: envBool('SHOW_INFECTION_BUILDUP', true),
+  showFatigue: envBool('SHOW_FATIGUE', true),
+  // Inventory sub-sections
+  showEquipment: envBool('SHOW_EQUIPMENT', true),
+  showQuickSlots: envBool('SHOW_QUICK_SLOTS', true),
+  showPockets: envBool('SHOW_POCKETS', true),
+  showBackpack: envBool('SHOW_BACKPACK', true),
+  // Recipes sub-sections
+  showCraftingRecipes: envBool('SHOW_CRAFTING_RECIPES', true),
+  showBuildingRecipes: envBool('SHOW_BUILDING_RECIPES', true),
+  // Connections sub-sections
+  showConnectCount: envBool('SHOW_CONNECT_COUNT', true),
+  showAdminAccess: envBool('SHOW_ADMIN_ACCESS', true),
+  // Raid sub-sections
+  showRaidsOut: envBool('SHOW_RAIDS_OUT', true),          // raids initiated
+  showRaidsIn: envBool('SHOW_RAIDS_IN', true),            // raids received
+  // Coordinates
+  showCoordinates: envBool('SHOW_COORDINATES', false),    // default: off (sensitive)
+  showCoordinatesAdminOnly: envBool('SHOW_COORDINATES_ADMIN_ONLY', true), // admin-only when shown
 
   // Admin-only flags — when true, that section is only shown to Discord users
   // with the Administrator permission. Auto-detected from the server, no role config needed.
@@ -280,6 +370,7 @@ const config = {
   showHostResources: envBool('SHOW_HOST_RESOURCES', true),       // CPU/RAM/disk from panel API or SSH
   showServerDay: envBool('SHOW_SERVER_DAY', true),               // in-game day number
   showSeasonProgress: envBool('SHOW_SEASON_PROGRESS', true),     // day X/Y within current season
+  showWorldStats: envBool('SHOW_WORLD_STATS', true),             // structures, vehicles, zombie kills from save
 
   // Feature toggles — player stats embed extras
   showChallengeDescriptions: envBool('SHOW_CHALLENGE_DESCRIPTIONS', true), // show challenge descriptions alongside progress
@@ -409,6 +500,47 @@ config.parseLogTimestamp = function (year, month, day, hour, min) {
 };
 
 console.log(`[CONFIG] Timezone: ${config.botTimezone}, Log timezone: ${config.logTimezone}`);
+
+// ── SFTP connection config helper ─────────────────────────
+// Builds a connection object for ssh2-sftp-client.
+// Supports both password and SSH key authentication.
+// Used by: log-watcher, player-stats-channel, pvp-scheduler, multi-server
+
+const _fs = require('fs');
+
+config.sftpConnectConfig = function () {
+  const cfg = {
+    host: config.ftpHost,
+    port: config.ftpPort,
+    username: config.ftpUser,
+  };
+  if (config.ftpPrivateKeyPath) {
+    try {
+      cfg.privateKey = _fs.readFileSync(config.ftpPrivateKeyPath);
+      // If a password is also set, use it as the passphrase for the key
+      if (config.ftpPassword) cfg.passphrase = config.ftpPassword;
+    } catch (err) {
+      console.error(`[CONFIG] Could not read SSH private key at ${config.ftpPrivateKeyPath}:`, err.message);
+      // Fall back to password auth
+      cfg.password = config.ftpPassword;
+    }
+  } else {
+    cfg.password = config.ftpPassword;
+  }
+  return cfg;
+};
+
+/**
+ * Get the effective save poll interval based on whether agent mode is active.
+ * When agent mode is not 'direct' and AGENT_POLL_INTERVAL is set (non-zero),
+ * use the faster agent interval since it only downloads a ~200-500KB cache.
+ */
+config.getEffectiveSavePollInterval = function () {
+  if (config.agentMode !== 'direct' && config.agentPollInterval > 0) {
+    return Math.max(config.agentPollInterval, 30000);  // min 30s
+  }
+  return config.savePollInterval;
+};
 
 module.exports = config;
 module.exports.canShow = canShow;

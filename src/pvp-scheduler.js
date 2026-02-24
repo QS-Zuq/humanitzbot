@@ -18,6 +18,7 @@ class PvpScheduler {
     this._currentPvp = null; // true = PvP ON, false = PvP OFF, null = unknown
     this._adminChannel = null;
     this._originalServerName = null; // cached base server name (before PvP suffix)
+    this._originalSettings = null;   // cached original .ini values before PvP overrides
   }
 
   async start() {
@@ -79,17 +80,24 @@ class PvpScheduler {
   async _readCurrentState() {
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
+      await sftp.connect(this._config.sftpConnectConfig());
       const content = (await sftp.get(this._config.ftpSettingsPath)).toString('utf8');
       const match = content.match(/^PVP\s*=\s*(\d)/m);
       this._currentPvp = match ? match[1] === '1' : false;
       console.log(`[${this._label}] Current server PvP state: ${this._currentPvp ? 'ON' : 'OFF'}`);
-    } catch (err) {
+
+      // Pre-cache original values for PvP settings overrides (so we can revert if bot started mid-PvP)
+      const overrides = this._config.pvpSettingsOverrides;
+      if (overrides && !this._originalSettings && !this._currentPvp) {
+        this._originalSettings = {};
+        for (const key of Object.keys(overrides)) {
+          const m = content.match(new RegExp(`^${key}\\s*=\\s*(.+?)\\s*$`, 'm'));
+          if (m) this._originalSettings[key] = m[1];
+        }
+        if (Object.keys(this._originalSettings).length > 0) {
+          console.log(`[${this._label}] Pre-cached ${Object.keys(this._originalSettings).length} PvE setting(s) for PvP override revert`);
+        }
+      }    } catch (err) {
       console.error(`[${this._label}] Failed to read server settings:`, err.message);
       this._currentPvp = null;
     } finally {
@@ -299,12 +307,7 @@ class PvpScheduler {
 
     const sftp = new SftpClient();
     try {
-      await sftp.connect({
-        host: this._config.ftpHost,
-        port: this._config.ftpPort,
-        username: this._config.ftpUser,
-        password: this._config.ftpPassword,
-      });
+      await sftp.connect(this._config.sftpConnectConfig());
 
       // Download current ini
       const content = (await sftp.get(this._config.ftpSettingsPath)).toString('utf8');
@@ -316,6 +319,9 @@ class PvpScheduler {
         return;
       }
       let updated = content.replace(/^(PVP\s*=\s*)\d/m, `$1${targetValue}`);
+
+      // Apply / revert PvP settings overrides
+      updated = this._applySettingsOverrides(updated, targetPvp, content);
 
       // Optionally update the ServerName with PvP schedule info
       if (this._config.pvpUpdateServerName) {
@@ -393,6 +399,64 @@ class PvpScheduler {
         console.error(`[${this._label}] Failed to post to Discord:`, err.message);
       }
     }
+  }
+
+  // ── Settings overrides ─────────────────────────────────────
+
+  /**
+   * Apply or revert PVP_SETTINGS_OVERRIDES to ini content.
+   * When turning PvP ON: cache current values, apply overrides.
+   * When turning PvP OFF: restore cached originals.
+   * @param {string} content - current .ini content (after PVP= toggle)
+   * @param {boolean} targetPvp - true = PvP turning ON, false = OFF
+   * @param {string} rawContent - the original untouched .ini content (for reading current values)
+   * @returns {string} modified content
+   */
+  _applySettingsOverrides(content, targetPvp, rawContent) {
+    const overrides = this._config.pvpSettingsOverrides;
+    if (!overrides || Object.keys(overrides).length === 0) return content;
+
+    let updated = content;
+
+    if (targetPvp) {
+      // Turning ON — cache originals and apply overrides
+      if (!this._originalSettings) {
+        this._originalSettings = {};
+        for (const key of Object.keys(overrides)) {
+          const match = rawContent.match(new RegExp(`^${key}\\s*=\\s*(.+?)\\s*$`, 'm'));
+          if (match) {
+            this._originalSettings[key] = match[1];
+          }
+        }
+        console.log(`[${this._label}] Cached ${Object.keys(this._originalSettings).length} original setting(s) for PvP revert`);
+      }
+
+      for (const [key, value] of Object.entries(overrides)) {
+        const regex = new RegExp(`^(${key}\\s*=\\s*)(.+?)\\s*$`, 'm');
+        if (regex.test(updated)) {
+          updated = updated.replace(regex, `$1${value}`);
+          console.log(`[${this._label}] PvP override: ${key} → ${value}`);
+        } else {
+          console.warn(`[${this._label}] PvP override: ${key} not found in settings file`);
+        }
+      }
+    } else {
+      // Turning OFF — restore originals
+      if (this._originalSettings) {
+        for (const [key, originalValue] of Object.entries(this._originalSettings)) {
+          const regex = new RegExp(`^(${key}\\s*=\\s*)(.+?)\\s*$`, 'm');
+          if (regex.test(updated)) {
+            updated = updated.replace(regex, `$1${originalValue}`);
+            console.log(`[${this._label}] PvP revert: ${key} → ${originalValue}`);
+          }
+        }
+        console.log(`[${this._label}] Restored ${Object.keys(this._originalSettings).length} original setting(s)`);
+      } else {
+        console.warn(`[${this._label}] No cached originals to revert — settings may already be in PvE state`);
+      }
+    }
+
+    return updated;
   }
 
   // ── Server-name helpers ─────────────────────────────────────

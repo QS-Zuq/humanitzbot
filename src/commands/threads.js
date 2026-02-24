@@ -273,7 +273,7 @@ async function _findMatchingThreads(channel, threadName, { dateLabel, serverSuff
 }
 
 /**
- * Core rebuild logic — shared between the /threads command and NUKE_THREADS startup.
+ * Core rebuild logic — shared between the /threads command and NUKE_BOT startup.
  * @param {import('discord.js').Client} discordClient
  * @param {number|null} daysBack  Number of days to rebuild, or null for all.
  * @returns {{ created: number, deleted: number, preserved: number, error?: string }}

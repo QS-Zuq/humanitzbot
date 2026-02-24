@@ -235,3 +235,81 @@ describe('_formatPvpTimeRange', () => {
     assert.match(s._formatPvpTimeRange(), /16:00-23:00/);
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// _applySettingsOverrides — PvP settings overrides
+// ══════════════════════════════════════════════════════════
+
+describe('_applySettingsOverrides', () => {
+  const sampleIni = [
+    'PVP=0',
+    'OnDeath=1',
+    'VitalDrain=0',
+    'ZombieDiffDamage=2',
+    'ZombieDiffSpeed=0',
+    'ServerName="Test Server"',
+  ].join('\n');
+
+  it('returns content unchanged when no overrides configured', () => {
+    const s = makeScheduler({ pvpSettingsOverrides: null });
+    const result = s._applySettingsOverrides(sampleIni, true, sampleIni);
+    assert.equal(result, sampleIni);
+  });
+
+  it('applies overrides when turning PvP ON', () => {
+    const s = makeScheduler({
+      pvpSettingsOverrides: { OnDeath: '0', VitalDrain: '1', ZombieDiffDamage: '3' },
+    });
+    const result = s._applySettingsOverrides(sampleIni, true, sampleIni);
+    assert.match(result, /^OnDeath=0$/m);
+    assert.match(result, /^VitalDrain=1$/m);
+    assert.match(result, /^ZombieDiffDamage=3$/m);
+    // Unchanged keys stay the same
+    assert.match(result, /^ZombieDiffSpeed=0$/m);
+  });
+
+  it('caches original values when turning PvP ON', () => {
+    const s = makeScheduler({
+      pvpSettingsOverrides: { OnDeath: '0', VitalDrain: '1' },
+    });
+    s._applySettingsOverrides(sampleIni, true, sampleIni);
+    assert.deepEqual(s._originalSettings, { OnDeath: '1', VitalDrain: '0' });
+  });
+
+  it('restores originals when turning PvP OFF', () => {
+    const s = makeScheduler({
+      pvpSettingsOverrides: { OnDeath: '0', VitalDrain: '1', ZombieDiffDamage: '3' },
+    });
+    // First: turn ON (caches originals)
+    const pvpOn = s._applySettingsOverrides(sampleIni, true, sampleIni);
+    // Then: turn OFF (restores originals)
+    const result = s._applySettingsOverrides(pvpOn, false, pvpOn);
+    assert.match(result, /^OnDeath=1$/m);
+    assert.match(result, /^VitalDrain=0$/m);
+    assert.match(result, /^ZombieDiffDamage=2$/m);
+  });
+
+  it('does not re-cache if originals already saved', () => {
+    const s = makeScheduler({
+      pvpSettingsOverrides: { OnDeath: '0' },
+    });
+    // Pre-set originals
+    s._originalSettings = { OnDeath: '99' };
+    const result = s._applySettingsOverrides(sampleIni, true, sampleIni);
+    // Should apply the override
+    assert.match(result, /^OnDeath=0$/m);
+    // But original cache should NOT be overwritten
+    assert.equal(s._originalSettings.OnDeath, '99');
+  });
+
+  it('handles missing keys gracefully', () => {
+    const s = makeScheduler({
+      pvpSettingsOverrides: { NonExistentKey: '5', OnDeath: '0' },
+    });
+    const result = s._applySettingsOverrides(sampleIni, true, sampleIni);
+    // Known key still applied
+    assert.match(result, /^OnDeath=0$/m);
+    // Missing key just logged, no crash
+    assert.ok(!result.includes('NonExistentKey'));
+  });
+});

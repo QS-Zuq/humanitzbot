@@ -8,6 +8,12 @@ data/
 .github/
 .dev/
 
+# Personal developer scripts (credentials, diagnostics)
+_*.js
+
+# Web map module — large map images (~40MB). Available on `web-map` branch.
+src/web-map/
+
 # Development / extraction utility scripts & cached data
 tools/
 GameServerSettings.ini

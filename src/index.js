@@ -16,6 +16,10 @@ const PvpScheduler = require('./pvp-scheduler');
 const panelApi = require('./panel-api');
 const PanelChannel = require('./panel-channel');
 const MultiServerManager = require('./multi-server');
+const HumanitZDB = require('./db/database');
+const SaveService = require('./parsers/save-service');
+const gameReference = require('./parsers/game-reference');
+const { writeAgent } = require('./parsers/agent-builder');
 
 // ── Create Discord client ───────────────────────────────────
 const intents = [
@@ -122,6 +126,8 @@ let playerStatsChannel;
 let pvpScheduler;
 let panelChannel;
 let multiServerManager;
+let db;           // HumanitZDB instance
+let saveService;  // SaveService instance
 let adminChannel; // cached for online/offline notifications
 const startedAt = new Date();
 
@@ -184,6 +190,46 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Connect to RCON
   await rcon.connect();
 
+  // ── RCON lifecycle events — log game server restarts ──
+  rcon.on('disconnect', ({ reason }) => {
+    console.log(`[BOT] Game server disconnected: ${reason}`);
+    if (adminChannel) {
+      const embed = new EmbedBuilder()
+        .setTitle('🟡 Game Server Disconnected')
+        .setDescription(reason || 'RCON connection lost')
+        .setColor(0xf39c12)
+        .setTimestamp();
+      adminChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+    // Also post to activity thread if available
+    if (logWatcher) {
+      const embed = new EmbedBuilder()
+        .setDescription('🟡 Game server disconnected — RCON connection lost')
+        .setColor(0xf39c12)
+        .setTimestamp();
+      logWatcher.sendToThread(embed).catch(() => {});
+    }
+  });
+  rcon.on('reconnect', ({ downtime }) => {
+    const downtimeStr = downtime ? _formatUptime(downtime) : 'unknown';
+    console.log(`[BOT] Game server reconnected (downtime: ${downtimeStr})`);
+    if (adminChannel) {
+      const embed = new EmbedBuilder()
+        .setTitle('🟢 Game Server Reconnected')
+        .setDescription(`RCON connection restored after ${downtimeStr} downtime.`)
+        .setColor(0x2ecc71)
+        .setTimestamp();
+      adminChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+    if (logWatcher) {
+      const embed = new EmbedBuilder()
+        .setDescription(`🟢 Game server reconnected (downtime: ${downtimeStr})`)
+        .setColor(0x2ecc71)
+        .setTimestamp();
+      logWatcher.sendToThread(embed).catch(() => {});
+    }
+  });
+
   // Initialize playtime tracker (must be before AutoMessages)
   if (config.enablePlaytime) {
     playtime.init();
@@ -192,22 +238,86 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Initialize player stats tracker (must be before LogWatcher)
   playerStats.init();
 
-  // ── Wipe saved message IDs on FIRST_RUN or NUKE_THREADS ──
-  //    Forces each module to bulk-delete old bot messages in its channel.
-  if (config.firstRun || config.nukeThreads) {
-    const msgIdFile = path.join(__dirname, '..', 'data', 'message-ids.json');
+  // Initialize SQLite database + seed game reference data
+  db = new HumanitZDB();
+  db.init();
+  gameReference.seed(db);
+  console.log('[BOT] SQLite database initialised');
+
+  // Generate/update the standalone agent script so it's always fresh
+  try {
+    writeAgent();
+  } catch (err) {
+    console.warn('[BOT] Could not generate humanitz-agent.js:', err.message);
+  }
+
+  // ── Wipe saved message IDs on FIRST_RUN ──
+  //    Forces each module to re-create its embed from scratch.
+  if (config.firstRun) {
+    const dataDir = path.join(__dirname, '..', 'data');
+    const msgIdFile = path.join(dataDir, 'message-ids.json');
     if (fs.existsSync(msgIdFile)) {
       fs.unlinkSync(msgIdFile);
-      console.log('[BOT] Cleared message-ids.json (FIRST_RUN or NUKE_THREADS)');
+      console.log('[BOT] Cleared message-ids.json (FIRST_RUN)');
     }
-    // Also clear per-server message IDs
-    const serversDir = path.join(__dirname, '..', 'data', 'servers');
+    // Clear transient data files so stale state doesn't persist
+    const transientFiles = ['log-offsets.json', 'day-counts.json', 'pvp-kills.json', 'welcome-stats.json'];
+    for (const f of transientFiles) {
+      const fp = path.join(dataDir, f);
+      if (fs.existsSync(fp)) { fs.unlinkSync(fp); console.log(`[BOT] Cleared ${f}`); }
+    }
+    // Also clear per-server message IDs and orphaned server data directories
+    const serversDir = path.join(dataDir, 'servers');
     if (fs.existsSync(serversDir)) {
+      const { loadServers } = require('./multi-server');
+      const knownIds = new Set(loadServers().map(s => s.id));
       for (const entry of fs.readdirSync(serversDir)) {
-        const fp = path.join(serversDir, entry, 'message-ids.json');
+        const dir = path.join(serversDir, entry);
+        const fp = path.join(dir, 'message-ids.json');
         if (fs.existsSync(fp)) { fs.unlinkSync(fp); }
+        if (!knownIds.has(entry) && fs.statSync(dir).isDirectory()) {
+          fs.rmSync(dir, { recursive: true, force: true });
+          console.log(`[BOT] Removed orphaned server data: ${entry}`);
+        } else {
+          for (const f of transientFiles) {
+            const sfp = path.join(dir, f);
+            if (fs.existsSync(sfp)) { fs.unlinkSync(sfp); }
+          }
+        }
       }
     }
+  }
+
+  // ── NUKE_BOT: factory reset — wipe all bot content from Discord ──
+  //    Cleans every configured channel BEFORE modules start, so all
+  //    threads and embeds are recreated fresh in the correct order.
+  if (config.nukeBot) {
+    console.log('[NUKE] Wiping all bot content from Discord channels...');
+    const channelsToClean = new Set();
+    // Primary server channels
+    if (config.logChannelId)           channelsToClean.add(config.logChannelId);
+    if (config.adminChannelId)         channelsToClean.add(config.adminChannelId);
+    if (config.chatChannelId)          channelsToClean.add(config.chatChannelId);
+    if (config.serverStatusChannelId)  channelsToClean.add(config.serverStatusChannelId);
+    if (config.playerStatsChannelId)   channelsToClean.add(config.playerStatsChannelId);
+    if (config.panelChannelId)         channelsToClean.add(config.panelChannelId);
+    // Additional server channels (including any from removed servers still in servers.json)
+    const { loadServers } = require('./multi-server');
+    const servers = loadServers();
+    for (const sd of servers) {
+      if (sd.channels?.log)    channelsToClean.add(sd.channels.log);
+      if (sd.channels?.chat)   channelsToClean.add(sd.channels.chat);
+      if (sd.channels?.admin)  channelsToClean.add(sd.channels.admin);
+      if (sd.channels?.status) channelsToClean.add(sd.channels.status);
+      if (sd.channels?.stats)  channelsToClean.add(sd.channels.stats);
+      if (sd.channels?.panel)  channelsToClean.add(sd.channels.panel);
+    }
+
+    const botId = readyClient.user?.id;
+    for (const channelId of channelsToClean) {
+      await _nukeChannel(readyClient, channelId, botId);
+    }
+    console.log(`[NUKE] Cleaned ${channelsToClean.size} channel(s)`);
   }
 
   // ── Start modules with dependency checks ──────────────────
@@ -237,6 +347,25 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
   }
 
+  // Log Watcher — SFTP log parsing + daily activity threads
+  // Started BEFORE Chat Relay so activity thread appears first in channel
+  if (config.enableLogWatcher) {
+    if (!hasFtp()) {
+      setStatus('Log Watcher', '🟡 Skipped (FTP credentials not set)');
+      console.log('[BOT] Log watcher skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
+    } else if (!config.logChannelId) {
+      setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
+      console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
+    } else {
+      logWatcher = new LogWatcher(readyClient);
+      await logWatcher.start();
+      setStatus('Log Watcher', '🟢 Active');
+    }
+  } else {
+    setStatus('Log Watcher', '⚫ Disabled');
+    console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
+  }
+
   // Chat Relay — bidirectional chat bridge
   if (config.enableChatRelay) {
     if (!config.adminChannelId) {
@@ -244,6 +373,16 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log('[BOT] Chat relay skipped — ADMIN_CHANNEL_ID not configured');
     } else {
       chatRelay = new ChatRelay(readyClient);
+      if (config.nukeBot) chatRelay._nukeActive = true;
+      // If LogWatcher handles activity threads, coordinate day-rollover ordering
+      if (logWatcher) {
+        chatRelay._awaitActivityThread = true;
+        logWatcher._dayRolloverCb = async () => {
+          try { await chatRelay.createDailyThread(); } catch (e) {
+            console.warn('[BOT] Day-rollover chat thread error:', e.message);
+          }
+        };
+      }
       await chatRelay.start();
       setStatus('Chat Relay', '🟢 Active');
     }
@@ -260,24 +399,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   } else {
     setStatus('Auto-Messages', '⚫ Disabled');
     console.log('[BOT] Auto-messages disabled via ENABLE_AUTO_MESSAGES=false');
-  }
-
-  // Log Watcher — SFTP log parsing + daily activity threads
-  if (config.enableLogWatcher) {
-    if (!hasFtp()) {
-      setStatus('Log Watcher', '🟡 Skipped (FTP credentials not set)');
-      console.log('[BOT] Log watcher skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
-    } else if (!config.logChannelId) {
-      setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
-      console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
-    } else {
-      logWatcher = new LogWatcher(readyClient);
-      await logWatcher.start();
-      setStatus('Log Watcher', '🟢 Active');
-    }
-  } else {
-    setStatus('Log Watcher', '⚫ Disabled');
-    console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
   }
 
   // Kill Feed — sub-feature of Log Watcher
@@ -300,6 +421,39 @@ client.once(Events.ClientReady, async (readyClient) => {
     }
   } else {
     setStatus('PvP Kill Feed', '⚫ Disabled');
+  }
+
+  // Save Service — SFTP save-file polling → SQLite sync (agent or direct)
+  if (hasFtp()) {
+    saveService = new SaveService(db, {
+      sftpConfig: {
+        host: config.ftpHost,
+        port: config.ftpPort,
+        username: config.ftpUser,
+        password: config.ftpPassword,
+      },
+      savePath: config.ftpSavePath,
+      pollInterval: config.savePollInterval,
+      agentMode: config.agentMode,
+      agentNodePath: config.agentNodePath,
+      agentRemoteDir: config.agentRemoteDir,
+      agentCachePath: config.agentCachePath,
+      agentTimeout: config.agentTimeout,
+      agentTrigger: config.agentTrigger,
+      agentPanelCommand: config.agentPanelCommand,
+      agentPanelDelay: config.agentPanelDelay,
+      panelApi: panelApi.available ? panelApi : null,
+    });
+    saveService.on('sync', (result) => {
+      console.log(`[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`);
+    });
+    saveService.on('error', (err) => {
+      console.error('[BOT] Save service error:', err.message);
+    });
+    await saveService.start();
+    setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode)`);
+  } else {
+    setStatus('Save Service', '🟡 Skipped (FTP credentials not set)');
   }
 
   // Player Stats — save-file parsing with full stats embed
@@ -441,17 +595,17 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error('[BOT] Failed to post online notification:', err.message);
   }
 
-  // ── NUKE_THREADS: one-shot thread rebuild on startup ─────────
-  if (config.nukeThreads) {
-    console.log('[BOT] NUKE_THREADS=true — rebuilding all activity threads...');
+  // ── NUKE_BOT phase 2: rebuild activity threads from log history ──
+  if (config.nukeBot) {
+    console.log('[NUKE] Rebuilding activity threads from log history...');
     try {
       const { rebuildThreads } = require('./commands/threads');
       // Primary server
       const result = await rebuildThreads(readyClient);
       if (result.error) {
-        console.error('[BOT] Thread rebuild failed:', result.error);
+        console.error('[NUKE] Thread rebuild failed:', result.error);
       } else {
-        console.log(`[BOT] Thread rebuild complete: ${result.created} created, ${result.deleted} replaced, ${result.preserved} messages preserved, ${result.cleaned} old messages cleaned`);
+        console.log(`[NUKE] Thread rebuild: ${result.created} created, ${result.deleted} replaced, ${result.preserved} preserved, ${result.cleaned} cleaned`);
       }
       // Additional servers
       const { loadServers, createServerConfig } = require('./multi-server');
@@ -459,54 +613,92 @@ client.once(Events.ClientReady, async (readyClient) => {
       for (const serverDef of servers) {
         const label = serverDef.name || serverDef.id;
         if (!serverDef.channels?.log) {
-          console.log(`[BOT] NUKE_THREADS: skipping ${label} (no log channel)`);
+          console.log(`[NUKE] Skipping ${label} thread rebuild (no log channel)`);
           continue;
         }
         const serverConfig = createServerConfig(serverDef);
-        console.log(`[BOT] NUKE_THREADS: rebuilding threads for ${label}...`);
+        console.log(`[NUKE] Rebuilding threads for ${label}...`);
         const srvResult = await rebuildThreads(readyClient, null, serverConfig);
         if (srvResult.error) {
-          console.error(`[BOT] Thread rebuild for ${label} failed:`, srvResult.error);
+          console.error(`[NUKE] Thread rebuild for ${label} failed:`, srvResult.error);
         } else {
-          console.log(`[BOT] Thread rebuild for ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`);
+          console.log(`[NUKE] ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`);
         }
       }
     } catch (err) {
-      console.error('[BOT] Thread rebuild error:', err.message);
+      console.error('[NUKE] Thread rebuild error:', err.message);
     }
 
-    // Invalidate thread caches so modules re-fetch the new threads
+    // Reset thread caches so modules pick up the newly rebuilt threads
+    // Clear nuke suppression first so thread creation works normally again
     if (logWatcher) {
+      logWatcher._nukeActive = false;
       logWatcher.resetThreadCache();
-      console.log('[BOT] Primary LogWatcher thread cache reset');
+      // Send the startup notification that was deferred during nuke
+      const thread = await logWatcher._getOrCreateDailyThread();
+      const { EmbedBuilder } = require('discord.js');
+      const startEmbed = new EmbedBuilder()
+        .setDescription('📋 Log watcher connected. Monitoring game server activity.')
+        .setColor(0x3498db)
+        .setTimestamp();
+      await thread.send({ embeds: [startEmbed] }).catch(() => {});
+      console.log('[NUKE] LogWatcher thread cache reset');
     }
     if (chatRelay && typeof chatRelay.resetThreadCache === 'function') {
+      chatRelay._nukeActive = false;
       chatRelay.resetThreadCache();
-      console.log('[BOT] Primary ChatRelay thread cache reset');
+      // Re-create chat thread so it appears after rebuilt activity threads
+      if (typeof chatRelay._getOrCreateChatThread === 'function') {
+        await chatRelay._getOrCreateChatThread().catch(e =>
+          console.warn('[NUKE] Could not re-create chat thread:', e.message));
+      }
+      console.log('[NUKE] ChatRelay thread cache reset + recreated');
     }
     if (multiServerManager) {
       for (const [, instance] of multiServerManager._instances) {
         if (instance._modules?.logWatcher) {
+          instance._modules.logWatcher._nukeActive = false;
           instance._modules.logWatcher.resetThreadCache();
-          console.log(`[BOT] ${instance.name || instance.id} LogWatcher thread cache reset`);
+          console.log(`[NUKE] ${instance.name || instance.id} LogWatcher thread cache reset`);
         }
         if (instance._modules?.chatRelay && typeof instance._modules.chatRelay.resetThreadCache === 'function') {
+          instance._modules.chatRelay._nukeActive = false;
           instance._modules.chatRelay.resetThreadCache();
-          console.log(`[BOT] ${instance.name || instance.id} ChatRelay thread cache reset`);
+          if (typeof instance._modules.chatRelay._getOrCreateChatThread === 'function') {
+            await instance._modules.chatRelay._getOrCreateChatThread().catch(() => {});
+          }
+          console.log(`[NUKE] ${instance.name || instance.id} ChatRelay thread cache reset + recreated`);
         }
       }
     }
 
-    // Set NUKE_THREADS=false in .env so it doesn't run again
+    // Set NUKE_BOT=false (and NUKE_THREADS + FIRST_RUN for completeness) in .env
     try {
       const envPath = path.join(__dirname, '..', '.env');
       let envContent = fs.readFileSync(envPath, 'utf8');
+      envContent = envContent.replace(/^NUKE_BOT\s*=\s*true$/m, 'NUKE_BOT=false');
       envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
+      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
       fs.writeFileSync(envPath, envContent, 'utf8');
-      console.log('[BOT] NUKE_THREADS set back to false in .env');
+      console.log('[NUKE] NUKE_BOT + FIRST_RUN set back to false in .env');
     } catch (err) {
-      console.warn('[BOT] Could not update .env:', err.message);
-      console.warn('[BOT] Please manually set NUKE_THREADS=false to prevent repeat rebuild.');
+      console.warn('[NUKE] Could not update .env:', err.message);
+      console.warn('[NUKE] Please manually set NUKE_BOT=false to prevent repeat reset.');
+    }
+
+    console.log('[NUKE] Factory reset complete!');
+  }
+
+  // Auto-set FIRST_RUN=false after successful startup
+  if (config.firstRun && !config.nukeBot) {
+    try {
+      const envPath = path.join(__dirname, '..', '.env');
+      let envContent = fs.readFileSync(envPath, 'utf8');
+      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      console.log('[BOT] FIRST_RUN set back to false in .env');
+    } catch (err) {
+      console.warn('[BOT] Could not update .env — please manually set FIRST_RUN=false');
     }
   }
 
@@ -557,9 +749,11 @@ async function shutdown(reason = 'Manual shutdown') {
   if (panelChannel) panelChannel.stop();
   if (logWatcher) logWatcher.stop();
   if (playerStatsChannel) playerStatsChannel.stop();
+  if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
   playerStats.stop();
   playtime.stop();
+  if (db) db.close();
   await rcon.disconnect();
 
   // Remove running flag — signals clean shutdown
@@ -593,10 +787,102 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // ── Login ───────────────────────────────────────────────────
+
+/**
+ * Delete all bot-authored threads and messages from a channel.
+ * Used by NUKE_BOT to factory-reset Discord state before modules start.
+ */
+async function _nukeChannel(client, channelId, botId) {
+  try {
+    const ch = await client.channels.fetch(channelId).catch(() => null);
+    if (!ch) return;
+
+    // Handle bot-authored threads (active + archived)
+    // Chat log threads are preserved (archived with prefix); activity threads are deleted
+    // since they get rebuilt from log history in nuke phase 2.
+    if (ch.threads) {
+      const active = await ch.threads.fetchActive().catch(() => ({ threads: new Map() }));
+      const archived = await ch.threads.fetchArchived({ limit: 100 }).catch(() => ({ threads: new Map() }));
+      const allThreads = [...active.threads.values(), ...archived.threads.values()];
+      for (const thread of allThreads) {
+        if (thread.ownerId !== botId) continue;
+        // Preserve chat log threads — rename + archive them so history isn't lost
+        if (thread.name.includes('Chat Log')) {
+          try {
+            const newName = thread.name.replace(/^💬\s*/, '📁 ');
+            await thread.setName(newName).catch(() => {});
+            if (!thread.archived) await thread.setArchived(true).catch(() => {});
+            console.log(`[NUKE] Archived chat thread "${thread.name}" → "${newName}" in #${ch.name || channelId}`);
+          } catch (e) {
+            console.warn(`[NUKE] Could not archive chat thread "${thread.name}":`, e.message);
+          }
+        } else {
+          await thread.delete('NUKE_BOT factory reset').catch(() => {});
+          console.log(`[NUKE] Deleted thread "${thread.name}" from #${ch.name || channelId}`);
+        }
+      }
+    }
+
+    // Delete bot-authored messages (scan up to 1000)
+    // Skip messages that have a preserved (archived) thread attached
+    let lastId;
+    let deleted = 0;
+    for (let page = 0; page < 10; page++) {
+      const opts = { limit: 100 };
+      if (lastId) opts.before = lastId;
+      const batch = await ch.messages?.fetch(opts).catch(() => new Map());
+      if (!batch || batch.size === 0) break;
+      lastId = batch.last().id;
+      for (const [, msg] of batch) {
+        if (msg.author?.id !== botId) continue;
+        // Don't delete starter messages for preserved chat threads
+        if (msg.hasThread) {
+          try {
+            const thread = await msg.thread?.fetch().catch(() => null);
+            if (thread && thread.name.includes('Chat Log')) continue;
+          } catch { /* thread already gone — safe to delete message */ }
+        }
+        await msg.delete().catch(() => {});
+        deleted++;
+      }
+      if (batch.size < 100) break;
+    }
+    if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${ch.name || channelId}`);
+  } catch (err) {
+    console.warn(`[NUKE] Could not clean channel ${channelId}:`, err.message);
+  }
+}
+
 (async () => {
-  // Run setup/import if FIRST_RUN=true (downloads logs via SFTP and rebuilds data files)
-  if (config.firstRun) {
-    console.log('[BOT] FIRST_RUN=true — running data import before starting bot...');
+  // NUKE_BOT implies FIRST_RUN — wipe local data files first, then re-import
+  if (config.nukeBot) {
+    console.log('[NUKE] NUKE_BOT=true — factory reset starting...');
+    const dataDir = path.join(__dirname, '..', 'data');
+    // Wipe all transient data files (preserves game reference data like dt-*.txt)
+    const filesToWipe = [
+      'message-ids.json', 'player-stats.json', 'playtime.json',
+      'welcome-stats.json', 'server-settings.json', 'bot-running.flag',
+      'log-offsets.json', 'day-counts.json', 'pvp-kills.json',
+      'humanitz.db', 'humanitz.db-wal', 'humanitz.db-shm',
+    ];
+    for (const f of filesToWipe) {
+      const fp = path.join(dataDir, f);
+      if (fs.existsSync(fp)) { fs.unlinkSync(fp); console.log(`[NUKE] Deleted ${f}`); }
+    }
+    // Wipe per-server data directories
+    const serversDir = path.join(dataDir, 'servers');
+    if (fs.existsSync(serversDir)) {
+      fs.rmSync(serversDir, { recursive: true, force: true });
+      console.log('[NUKE] Deleted servers/ directory');
+    }
+    // Wipe removed-server configs (servers.json)
+    const serversJson = path.join(dataDir, 'servers.json');
+    if (fs.existsSync(serversJson)) { fs.unlinkSync(serversJson); console.log('[NUKE] Deleted servers.json'); }
+  }
+
+  // Run setup/import if FIRST_RUN=true or NUKE_BOT=true
+  if (config.firstRun || config.nukeBot) {
+    console.log(`[BOT] ${config.nukeBot ? 'NUKE_BOT' : 'FIRST_RUN'}=true — running data import...`);
     const setupPath = require('path').join(__dirname, '..', 'setup.js');
     try {
       require('fs').accessSync(setupPath);
@@ -608,7 +894,7 @@ process.on('unhandledRejection', (reason) => {
     try {
       const { main: runSetup } = require(setupPath);
       await runSetup();
-      console.log('[BOT] Data import complete. Set FIRST_RUN=false in .env to skip next time.');
+      console.log('[BOT] Data import complete.');
     } catch (err) {
       console.error('[BOT] Setup failed:', err.message);
       console.error('[BOT] Continuing with existing/empty data files...');

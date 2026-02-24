@@ -5,7 +5,7 @@
 const { describe, it, after } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { _parseIni, _cleanItemName } = require('../src/player-stats-channel');
+const { _parseIni, _cleanItemName, _resolveUdsWeather } = require('../src/player-stats-channel');
 
 // Clean up singleton timers that keep the process alive.
 // Requiring player-stats-channel pulls in both player-stats and playtime-tracker
@@ -185,6 +185,34 @@ describe('_isNewWeek', () => {
     const now = new Date('2025-06-09T18:00:00Z'); // Monday Jun 9 evening
     assert.equal(inst._isNewWeek(baseline, now), false);
   });
+
+  it('handles bot timezone ahead of UTC without false reset', () => {
+    // Bug scenario: bot TZ = Europe/Tallinn (UTC+2/+3).
+    // At 23:30 UTC on Sunday the bot TZ date is already Monday (01:30).
+    // With the old setHours(0,0,0,0) approach this caused a spurious reset
+    // because the midnight boundary was computed in UTC not bot TZ.
+    const inst = Object.create(PlayerStatsChannel.prototype);
+    inst._config = { weeklyResetDay: 1, botTimezone: 'Europe/Tallinn' };
+
+    // Baseline created on Wednesday in bot TZ
+    const baseline = '2025-06-11T12:00:00Z'; // Wed Jun 11 15:00 Tallinn
+    // Now is Thursday in bot TZ (no week boundary crossed)
+    const now = new Date('2025-06-12T21:30:00Z'); // Fri Jun 13 00:30 Tallinn
+    assert.equal(inst._isNewWeek(baseline, now), false,
+      'should NOT reset mid-week even when bot TZ is ahead of system TZ');
+  });
+
+  it('correctly resets when bot timezone crosses weekly boundary', () => {
+    const inst = Object.create(PlayerStatsChannel.prototype);
+    inst._config = { weeklyResetDay: 1, botTimezone: 'Europe/Tallinn' };
+
+    // Baseline was last week (Fri Jun 6 in Tallinn)
+    const baseline = '2025-06-06T12:00:00Z'; // Fri Jun 6
+    // Now is Tuesday Jun 10 in Tallinn
+    const now = new Date('2025-06-10T08:00:00Z'); // Tue Jun 10, 11:00 Tallinn
+    assert.equal(inst._isNewWeek(baseline, now), true,
+      'should reset when Mon boundary has passed in bot TZ');
+  });
 });
 
 // ══════════════════════════════════════════════════════════
@@ -220,5 +248,51 @@ describe('_snapshotPlayerStats', () => {
     assert.equal(snap.fish, 0);
     assert.equal(snap.bitten, 0);
     assert.equal(snap.playtimeMs, 0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// _resolveUdsWeather
+// ══════════════════════════════════════════════════════════
+
+describe('_resolveUdsWeather', () => {
+  it('maps known UDS weather enums to readable names', () => {
+    assert.equal(_resolveUdsWeather('UDS_WeatherTypes::NewEnumerator0'), 'Clear Skies');
+    assert.equal(_resolveUdsWeather('UDS_WeatherTypes::NewEnumerator4'), 'Foggy');
+    assert.equal(_resolveUdsWeather('UDS_WeatherTypes::NewEnumerator7'), 'Thunderstorm');
+    assert.equal(_resolveUdsWeather('UDS_WeatherTypes::NewEnumerator10'), 'Blizzard');
+  });
+
+  it('falls back gracefully for unknown enum values', () => {
+    const result = _resolveUdsWeather('UDS_WeatherTypes::NewEnumerator99');
+    assert.equal(result, 'Weather 99');
+  });
+
+  it('returns null for null/empty input', () => {
+    assert.equal(_resolveUdsWeather(null), null);
+    assert.equal(_resolveUdsWeather(''), null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// Challenge snapshot and detection helpers
+// ══════════════════════════════════════════════════════════
+
+describe('Challenge tracking', () => {
+  it('CHALLENGE_KEYS contains all 19 challenge fields', () => {
+    assert.equal(PlayerStatsChannel.CHALLENGE_KEYS.length, 19);
+    assert.ok(PlayerStatsChannel.CHALLENGE_KEYS.includes('challengeKill50'));
+    assert.ok(PlayerStatsChannel.CHALLENGE_KEYS.includes('challengeFindDog'));
+    assert.ok(PlayerStatsChannel.CHALLENGE_KEYS.includes('challengeRepairRadio'));
+  });
+
+  it('_snapshotChallenges captures current values', () => {
+    const save = { challengeKill50: 35, challengeFindDog: 1, challengeCraftFurnace: 0 };
+    const snap = PlayerStatsChannel._snapshotChallenges(save);
+    assert.equal(snap.challengeKill50, 35);
+    assert.equal(snap.challengeFindDog, 1);
+    assert.equal(snap.challengeCraftFurnace, 0);
+    // Missing keys default to 0
+    assert.equal(snap.challengeRepairRadio, 0);
   });
 });
