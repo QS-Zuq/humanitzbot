@@ -973,6 +973,9 @@ class PanelChannel {
       if (id === BTN.DIAGNOSTICS) {
         return this._handleDiagnosticsButton(interaction);
       }
+      if (id === BTN.ENV_SYNC) {
+        return this._handleEnvSyncButton(interaction);
+      }
       if (id === BTN.WELCOME_EDIT) {
         return this._handleWelcomeEditButton(interaction);
       }
@@ -2924,6 +2927,47 @@ class PanelChannel {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // .env synchronization
+  // ═══════════════════════════════════════════════════════════
+
+  async _handleEnvSyncButton(interaction) {
+    if (!await this._requireAdmin(interaction, 'sync .env configuration')) return true;
+    await interaction.deferReply({ ephemeral: true });
+
+    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('./env-sync');
+
+    if (!needsSync()) {
+      await interaction.editReply('✅ Your `.env` is already up to date with `.env.example`.');
+      return true;
+    }
+
+    try {
+      const currentVer = getVersion();
+      const targetVer = getExampleVersion();
+      const result = syncEnv();
+
+      const changes = [];
+      if (result.added > 0) changes.push(`${result.added} new key(s) added`);
+      if (result.deprecated > 0) changes.push(`${result.deprecated} deprecated key(s) commented out`);
+
+      await interaction.editReply(
+        `✅ **.env synchronized!**\n\n` +
+        `**Schema:** v${currentVer} → v${targetVer}\n` +
+        `**Changes:** ${changes.join(', ')}\n\n` +
+        `A backup was created: \`.env.backup.${Date.now()}\`\n\n` +
+        `⚠️ **Restart the bot** to apply new configuration keys.`
+      );
+
+      // Refresh panel to update button state
+      setTimeout(() => this._update(true), 2000);
+    } catch (err) {
+      await interaction.editReply(`❌ Failed to sync .env: ${err.message}`);
+    }
+
+    return true;
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // Welcome message editor
   // ═══════════════════════════════════════════════════════════
 
@@ -3635,7 +3679,14 @@ class PanelChannel {
       .setLabel('System Diagnostics')
       .setStyle(ButtonStyle.Secondary);
 
-    const buttonRow = new ActionRowBuilder().addComponents(restartBtn, nukeBtn, reimportBtn, diagBtn);
+    const { needsSync } = require('./env-sync');
+    const envSyncBtn = new ButtonBuilder()
+      .setCustomId(BTN.ENV_SYNC)
+      .setLabel(needsSync() ? '🔄 Sync .env' : '✓ .env Synced')
+      .setStyle(needsSync() ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setDisabled(!needsSync());
+
+    const buttonRow = new ActionRowBuilder().addComponents(restartBtn, nukeBtn, reimportBtn, diagBtn, envSyncBtn);
 
     // Add server management button if multi-server manager is available
     if (this.multiServerManager) {

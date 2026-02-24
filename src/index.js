@@ -185,6 +185,23 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`[BOT] Logged in as ${readyClient.user.tag}`);
   console.log(`[BOT] Serving guild: ${config.guildId}`);
 
+  // Auto-sync .env with .env.example on startup
+  try {
+    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('./env-sync');
+    if (needsSync()) {
+      const currentVersion = getVersion();
+      const exampleVersion = getExampleVersion();
+      console.log(`[BOT] .env schema outdated (v${currentVersion} → v${exampleVersion}), syncing...`);
+      const result = syncEnv();
+      console.log(`[BOT] .env synced: ${result.added} added, ${result.deprecated} deprecated, ${result.updated} updated`);
+      if (result.backupPath) {
+        console.log(`[BOT] Backup saved: ${result.backupPath}`);
+      }
+    }
+  } catch (err) {
+    console.error('[BOT] .env auto-sync failed:', err.message);
+  }
+
   // Auto-deploy slash commands on startup
   try {
     const rest = new REST({ version: '10' }).setToken(config.discordToken);

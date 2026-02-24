@@ -11,7 +11,9 @@
     "setup:validate": "node setup.js --validate",
     "deploy-commands": "node src/deploy-commands.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "changelog": "node scripts/generate-changelog.js --output README.md",
+    "changelog:json": "node scripts/generate-changelog.js --output CHANGELOG.json --format json"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.94",

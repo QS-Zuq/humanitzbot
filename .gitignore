@@ -9,6 +9,9 @@ data/
 .dev/
 .dev
 
+# Auto-generated changelog (JSON only - README.md is the changelog)
+CHANGELOG.json
+
 # Personal developer scripts (credentials, diagnostics)
 _*.js
 
