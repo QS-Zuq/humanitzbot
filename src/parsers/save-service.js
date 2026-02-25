@@ -669,6 +669,7 @@ class SaveService extends EventEmitter {
           players: parsed.players,
           worldState: parsed.worldState || {},
           vehicles: parsed.vehicles || [],
+          structures: parsed.structures || [],
         };
         const nameResolver = (steamId) => {
           const p = parsed.players.get(steamId);
@@ -776,6 +777,7 @@ class SaveService extends EventEmitter {
       const horses = this._db.getAllWorldHorses ? this._db.getAllWorldHorses() : [];
       const worldState = this._db.getAllWorldState ? this._db.getAllWorldState() : {};
       const vehicles = this._db.getAllVehicles ? this._db.getAllVehicles() : [];
+      const structures = this._db.getStructures ? this._db.getStructures() : [];
 
       // Read player inventories (only the columns we need for diff)
       let players = [];
@@ -783,7 +785,7 @@ class SaveService extends EventEmitter {
         players = this._db.getAllPlayers ? this._db.getAllPlayers() : [];
       } catch { /* empty */ }
 
-      return { containers, horses, players, worldState, vehicles };
+      return { containers, horses, players, worldState, vehicles, structures };
     } catch (err) {
       console.warn(`[${this._label}] Could not read old state for diff:`, err.message);
       return null;

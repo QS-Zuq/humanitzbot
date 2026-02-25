@@ -9,6 +9,7 @@ const playerMap = require('./player-map');
 const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('./parsers/save-parser');
 const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('./game-data');
+const { cleanItemName: _sharedCleanItemName, cleanItemArray, isHexGuid } = require('./ue4-names');
 const os = require('os');
 
 const _DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
@@ -2062,13 +2063,13 @@ class PlayerStatsChannel {
       if (this._config.showPlayerStates && saveData.playerStates?.length > 0) {
         for (const s of saveData.playerStates) {
           if (typeof s !== 'string') continue;
-          statuses.push(s.replace('States.Player.', ''));
+          statuses.push(_cleanItemName(s.replace('States.Player.', '')));
         }
       }
       if (this._config.showBodyConditions && saveData.bodyConditions?.length > 0) {
         for (const s of saveData.bodyConditions) {
           if (typeof s !== 'string') continue;
-          statuses.push(s.replace('Attributes.Health.', ''));
+          statuses.push(_cleanItemName(s.replace('Attributes.Health.', '')));
         }
       }
       if (this._config.showInfectionBuildup && saveData.infectionBuildup > 0) statuses.push(`Infection: ${saveData.infectionBuildup}%`);
@@ -2214,8 +2215,8 @@ class PlayerStatsChannel {
     // ── Unique Items ──
     if (saveData) {
       const uniques = [];
-      const foundItems = (saveData.lootItemUnique || []).map(_cleanItemName).filter(n => n.length > 0);
-      const craftedItems = (saveData.craftedUniques || []).map(_cleanItemName).filter(n => n.length > 0);
+      const foundItems = cleanItemArray(saveData.lootItemUnique || []).map(i => typeof i === 'string' ? i : _cleanItemName(i)).filter(Boolean);
+      const craftedItems = cleanItemArray(saveData.craftedUniques || []).map(i => typeof i === 'string' ? i : _cleanItemName(i)).filter(Boolean);
       if (foundItems.length > 0) uniques.push(`**Found:** ${foundItems.join(', ')}`);
       if (craftedItems.length > 0) uniques.push(`**Crafted:** ${craftedItems.join(', ')}`);
       if (uniques.length > 0) embed.addFields({ name: 'Unique Items', value: uniques.join('\n').substring(0, 1024) });
@@ -2325,16 +2326,14 @@ function _parseIni(text) {
   return result;
 }
 
+/**
+ * Clean an item name using the shared cleaner from ue4-names.js.
+ * Returns '' for null/undefined (not 'Unknown') to preserve .filter(Boolean) patterns.
+ */
 function _cleanItemName(name) {
   if (!name) return '';
-  if (typeof name !== 'string') name = String(name);
-  return name
-    .replace(/([a-z])([A-Z])/g, '$1 $2')           // camelCase → words
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')     // ABCDef → ABC Def
-    .replace(/^BP_|_C$/g, '')                        // strip UE prefixes
-    .replace(/_/g, ' ')
-    .replace(/Lv(\d)/, 'Lvl $1')
-    .trim();
+  const cleaned = _sharedCleanItemName(name);
+  return cleaned === 'Unknown' ? '' : cleaned;
 }
 
 /** Map UDS (Ultra Dynamic Sky) weather enum values to human-readable names */

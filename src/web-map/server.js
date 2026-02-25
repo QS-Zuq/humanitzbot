@@ -17,6 +17,7 @@ const fs = require('fs');
 const config = require('../config');
 const { parseSave, PERK_MAP } = require('../parsers/save-parser');
 const { AFFLICTION_MAP } = require('../game-data');
+const { cleanItemName, cleanItemArray, isHexGuid } = require('../ue4-names');
 const playerStats = require('../player-stats');
 const playtime = require('../playtime-tracker');
 const rcon = require('../rcon');
@@ -354,10 +355,9 @@ class WebMapServer {
         try {
           const { getPlayerList } = require('../server-info');
           const list = await getPlayerList();
-          if (Array.isArray(list)) {
-            for (const p of list) {
-              if (p.steamId) onlineSteamIds.add(p.steamId);
-            }
+          const playerArr = list?.players || (Array.isArray(list) ? list : []);
+          for (const p of playerArr) {
+            if (p.steamId) onlineSteamIds.add(p.steamId);
           }
         } catch { /* RCON unavailable — all players show offline */ }
       }
@@ -443,28 +443,30 @@ class WebMapServer {
           fatigue: data.fatigue,
           infectionBuildup: data.infectionBuildup,
 
-          // Status effects
-          playerStates: data.playerStates || [],
-          bodyConditions: data.bodyConditions || [],
+          // Status effects (cleaned)
+          playerStates: (data.playerStates || []).map(s => cleanItemName(s)),
+          bodyConditions: (data.bodyConditions || []).map(s => cleanItemName(s)),
 
-          // Inventory
-          equipment: data.equipment || [],
-          quickSlots: data.quickSlots || [],
-          inventory: data.inventory || [],
-          backpackItems: data.backpackItems || [],
+          // Inventory (server-side cleaned)
+          equipment: _cleanInventorySlots(data.equipment),
+          quickSlots: _cleanInventorySlots(data.quickSlots),
+          inventory: _cleanInventorySlots(data.inventory),
+          backpackItems: _cleanInventorySlots(data.backpackItems),
 
-          // Recipes & skills
-          craftingRecipes: data.craftingRecipes || [],
-          buildingRecipes: data.buildingRecipes || [],
-          unlockedSkills: data.unlockedSkills || [],
+          // Recipes & skills (cleaned)
+          craftingRecipes: (data.craftingRecipes || []).map(r => cleanItemName(r)),
+          buildingRecipes: (data.buildingRecipes || []).map(r => cleanItemName(r)),
+          unlockedSkills: (data.unlockedSkills || []).map(s => cleanItemName(s)),
 
           // Lore
           lore: data.lore || [],
-          uniqueLoots: data.uniqueLoots || [],
-          craftedUniques: data.craftedUniques || [],
+          uniqueLoots: cleanItemArray(data.uniqueLoots || []),
+          craftedUniques: cleanItemArray(data.craftedUniques || []),
 
-          // Companions
-          companionData: data.companionData || [],
+          // Companions (cleaned)
+          companionData: (data.companionData || []).map(c =>
+            typeof c === 'object' ? { ...c, type: cleanItemName(c.type || '') } : cleanItemName(c)
+          ),
           horses: data.horses || [],
 
           // Log-derived stats
@@ -672,6 +674,27 @@ class WebMapServer {
       console.log('[WEB MAP] Server stopped');
     }
   }
+}
+
+/**
+ * Clean inventory slot items — applies cleanItemName to each item object.
+ * Filters out empty/None items, cleans names, preserves durability/ammo.
+ * @param {Array} slots - Array of { item, amount, durability, ammo } or strings
+ * @returns {Array}
+ */
+function _cleanInventorySlots(slots) {
+  if (!Array.isArray(slots)) return [];
+  return slots.map(slot => {
+    if (!slot) return slot;
+    if (typeof slot === 'string') {
+      if (slot === 'Empty' || slot === 'None') return slot;
+      return cleanItemName(slot);
+    }
+    if (typeof slot === 'object' && slot.item) {
+      return { ...slot, item: cleanItemName(slot.item) };
+    }
+    return slot;
+  });
 }
 
 module.exports = WebMapServer;

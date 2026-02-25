@@ -53,6 +53,11 @@ function diffSaveState(oldState, newState, nameResolver) {
 
   if (oldState.vehicles && newState.vehicles) {
     events.push(...diffVehicleInventories(oldState.vehicles, newState.vehicles));
+    events.push(...diffVehicleState(oldState.vehicles, newState.vehicles));
+  }
+
+  if (oldState.structures && newState.structures) {
+    events.push(...diffStructures(oldState.structures, newState.structures));
   }
 
   // Cross-reference container ↔ player inventory changes for attribution
@@ -403,6 +408,169 @@ function diffVehicleInventories(oldVehicles, newVehicles) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  Vehicle state diffs (health, fuel)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compare vehicle health and fuel between snapshots.
+ * Detects damage, repair, refueling, and fuel consumption.
+ *
+ * @param {Array} oldVehicles - DB vehicle rows
+ * @param {Array} newVehicles - Parsed vehicles
+ * @returns {Array<object>}
+ */
+function diffVehicleState(oldVehicles, newVehicles) {
+  const events = [];
+  const oldByKey = _indexVehicles(oldVehicles);
+  const newByKey = _indexVehicles(newVehicles);
+
+  for (const [key, newV] of newByKey) {
+    const oldV = oldByKey.get(key);
+    if (!oldV) {
+      // New vehicle appeared
+      const vName = newV.display_name || newV.displayName || newV.class || key;
+      events.push({
+        type: 'vehicle_appeared', category: 'vehicle',
+        actor: key, actorName: vName, item: '', amount: 0,
+        details: { health: newV.health, maxHealth: newV.maxHealth, fuel: newV.fuel },
+        x: newV.x ?? newV.pos_x, y: newV.y ?? newV.pos_y, z: newV.z ?? newV.pos_z,
+      });
+      continue;
+    }
+
+    const vName = newV.display_name || newV.displayName || newV.class || key;
+
+    // Health change (threshold: 5 HP)
+    const oldHealth = parseFloat(oldV.health) || 0;
+    const newHealth = parseFloat(newV.health) || 0;
+    const maxHealth = parseFloat(newV.max_health || newV.maxHealth) || 100;
+    if (Math.abs(newHealth - oldHealth) >= 5) {
+      events.push({
+        type: 'vehicle_health_changed', category: 'vehicle',
+        actor: key, actorName: vName, item: '', amount: Math.round(newHealth - oldHealth),
+        details: { oldHealth, newHealth, healthPercent: (newHealth / maxHealth) * 100 },
+        x: newV.x ?? newV.pos_x, y: newV.y ?? newV.pos_y, z: newV.z ?? newV.pos_z,
+      });
+    }
+
+    // Fuel change (threshold: 2 units)
+    const oldFuel = parseFloat(oldV.fuel) || 0;
+    const newFuel = parseFloat(newV.fuel) || 0;
+    if (Math.abs(newFuel - oldFuel) >= 2) {
+      events.push({
+        type: 'vehicle_fuel_changed', category: 'vehicle',
+        actor: key, actorName: vName, item: '', amount: Math.round((newFuel - oldFuel) * 10) / 10,
+        details: { oldFuel, newFuel },
+        x: newV.x ?? newV.pos_x, y: newV.y ?? newV.pos_y, z: newV.z ?? newV.pos_z,
+      });
+    }
+  }
+
+  // Vehicles that disappeared
+  for (const [key, oldV] of oldByKey) {
+    if (!newByKey.has(key)) {
+      const vName = oldV.display_name || oldV.displayName || oldV.class || key;
+      events.push({
+        type: 'vehicle_destroyed', category: 'vehicle',
+        actor: key, actorName: vName, item: '', amount: 0,
+        details: { lastHealth: oldV.health },
+        x: oldV.x ?? oldV.pos_x, y: oldV.y ?? oldV.pos_y, z: oldV.z ?? oldV.pos_z,
+      });
+    }
+  }
+
+  return events;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Structure diffs (health, upgrades, destruction)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compare structures between snapshots.
+ * Detects damage, destruction, and upgrades.
+ *
+ * Structures are identified by actor_class + owner_steam_id + position (approximate).
+ *
+ * @param {Array} oldStructures - DB structure rows
+ * @param {Array} newStructures - Parsed structures
+ * @returns {Array<object>}
+ */
+function diffStructures(oldStructures, newStructures) {
+  const events = [];
+  const oldByKey = _indexStructures(oldStructures);
+  const newByKey = _indexStructures(newStructures);
+
+  for (const [key, newS] of newByKey) {
+    const oldS = oldByKey.get(key);
+    if (!oldS) continue; // New structure — skip (too noisy on first load)
+
+    const sName = newS.display_name || newS.displayName || newS.actor_class || newS.actorClass || key;
+
+    // Health change (threshold: 10 HP — raids cause significant damage)
+    const oldHealth = parseFloat(oldS.current_health || oldS.currentHealth) || 0;
+    const newHealth = parseFloat(newS.current_health || newS.currentHealth) || 0;
+    const maxHealth = parseFloat(newS.max_health || newS.maxHealth) || 100;
+    if (Math.abs(newHealth - oldHealth) >= 10) {
+      if (newHealth <= 0 && oldHealth > 0) {
+        // Structure destroyed
+        events.push({
+          type: 'structure_destroyed', category: 'structure',
+          actor: key, actorName: sName,
+          steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+          item: '', amount: 0,
+          details: { owner: newS.owner_steam_id || newS.ownerSteamId, oldHealth },
+          x: newS.x ?? newS.pos_x, y: newS.y ?? newS.pos_y, z: newS.z ?? newS.pos_z,
+        });
+      } else {
+        events.push({
+          type: 'structure_damaged', category: 'structure',
+          actor: key, actorName: sName,
+          steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+          item: '', amount: Math.round(newHealth - oldHealth),
+          details: { oldHealth, newHealth, healthPercent: (newHealth / maxHealth) * 100, owner: newS.owner_steam_id || newS.ownerSteamId },
+          x: newS.x ?? newS.pos_x, y: newS.y ?? newS.pos_y, z: newS.z ?? newS.pos_z,
+        });
+      }
+    }
+
+    // Upgrade level change
+    const oldLevel = parseInt(oldS.upgrade_level || oldS.upgradeLevel) || 0;
+    const newLevel = parseInt(newS.upgrade_level || newS.upgradeLevel) || 0;
+    if (newLevel > oldLevel) {
+      events.push({
+        type: 'structure_upgraded', category: 'structure',
+        actor: key, actorName: sName,
+        steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+        item: '', amount: newLevel - oldLevel,
+        details: { oldLevel, newLevel, owner: newS.owner_steam_id || newS.ownerSteamId },
+        x: newS.x ?? newS.pos_x, y: newS.y ?? newS.pos_y, z: newS.z ?? newS.pos_z,
+      });
+    }
+  }
+
+  // Structures that disappeared (destruction detected by count drop + health)
+  // Only report significant disappearances (player-owned structures)
+  for (const [key, oldS] of oldByKey) {
+    if (!newByKey.has(key)) {
+      const owner = oldS.owner_steam_id || oldS.ownerSteamId || '';
+      if (!owner) continue; // Skip unowned structures (world props)
+      const sName = oldS.display_name || oldS.displayName || oldS.actor_class || oldS.actorClass || key;
+      events.push({
+        type: 'structure_destroyed', category: 'structure',
+        actor: key, actorName: sName,
+        steam_id: owner,
+        item: '', amount: 0,
+        details: { owner, lastHealth: oldS.current_health || oldS.currentHealth },
+        x: oldS.x ?? oldS.pos_x, y: oldS.y ?? oldS.pos_y, z: oldS.z ?? oldS.pos_z,
+      });
+    }
+  }
+
+  return events;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -509,6 +677,27 @@ function _indexVehicles(vehicles) {
     const n = (counters.get(cls) || 0) + 1;
     counters.set(cls, n);
     map.set(`${cls}::${n}`, v);
+  }
+  return map;
+}
+
+/**
+ * Index structures by actor_class + owner + approximate position.
+ * Position is rounded to the nearest 100 UE4 units to handle minor save-to-save drift.
+ */
+function _indexStructures(structures) {
+  const map = new Map();
+  const counters = new Map();
+  for (const s of structures) {
+    const cls = s.actor_class || s.actorClass || '';
+    const owner = s.owner_steam_id || s.ownerSteamId || '';
+    // Round position to nearest 100 for matching stability
+    const px = Math.round((s.x ?? s.pos_x ?? 0) / 100);
+    const py = Math.round((s.y ?? s.pos_y ?? 0) / 100);
+    const base = `${cls}::${owner}::${px},${py}`;
+    const n = (counters.get(base) || 0) + 1;
+    counters.set(base, n);
+    map.set(n > 1 ? `${base}::${n}` : base, s);
   }
   return map;
 }
@@ -635,6 +824,8 @@ module.exports = {
   diffPlayerInventories,
   diffWorldState,
   diffVehicleInventories,
+  diffVehicleState,
+  diffStructures,
   _crossReferenceContainerAccess,
   // Exported for testing
   _diffItemLists,

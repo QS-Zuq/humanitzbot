@@ -22,7 +22,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const config = require('./config');
-const { cleanName } = require('./ue4-names');
+const { cleanName, cleanItemName } = require('./ue4-names');
 
 // ─── Category colours ───────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ const CATEGORY_COLORS = {
   horse: 0x2ECC71,       // Green
   vehicle: 0x9B59B6,     // Purple
   world: 0xF1C40F,       // Gold
+  structure: 0xE74C3C,   // Red
 };
 
 // ─── Category emoji ─────────────────────────────────────────────────────────
@@ -48,8 +49,18 @@ const EVENT_EMOJI = {
   horse_disappeared: '🐴',
   horse_health_changed: '🐴',
   horse_owner_changed: '🐴',
+  horse_item_added: '🐴',
+  horse_item_removed: '🐴',
   vehicle_item_added: '🚗',
   vehicle_item_removed: '🚗',
+  vehicle_health_changed: '🚗',
+  vehicle_fuel_changed: '⛽',
+  vehicle_appeared: '🚗',
+  vehicle_destroyed: '💥',
+  structure_damaged: '🏚️',
+  structure_destroyed: '💥',
+  structure_upgraded: '🔨',
+  structure_built: '🏗️',
   airdrop_spawned: '🪂',
   airdrop_despawned: '🪂',
   world_day_advanced: '🌅',
@@ -182,6 +193,7 @@ class ActivityLog {
       if (e.category === 'horse')     return config.enableHorseLog !== false;
       if (e.category === 'vehicle')   return config.enableVehicleLog !== false;
       if (e.category === 'world')     return config.enableWorldEventFeed !== false;
+      if (e.category === 'structure') return config.enableStructureLog !== false;
       return true;
     });
   }
@@ -222,32 +234,44 @@ class ActivityLog {
       const emoji = EVENT_EMOJI[e.type] || '•';
       const itemList = batch.items
         .map(i => {
-          let label = i.amount > 1 ? `${i.item} x${i.amount}` : i.item;
+          const cleaned = cleanItemName(i.item);
+          let label = i.amount > 1 ? `${cleaned} x${i.amount}` : cleaned;
           if (i.durability != null && i.durability < 100) label += ` (${Math.round(i.durability)}%)`;
           return label;
         })
         .join(', ');
 
       const actorLabel = _cleanActorName(e.actorName || e.actor || '');
+      const loc = _formatLocation(e);
 
       // Player attribution: prefer cross-referenced data from diff-engine,
       // fall back to log-based container access tracking
       let playerTag = '';
       const crossRefPlayer = e.attributedPlayer || batch.items.find(i => i.attributedPlayer)?.attributedPlayer;
       if (crossRefPlayer) {
-        playerTag = ` (${crossRefPlayer})`;
+        playerTag = ` — **${crossRefPlayer}**`;
       } else if (category === 'container' && this._logWatcher) {
         const access = this._logWatcher.getRecentContainerAccess(e.actorName || e.actor);
-        if (access) playerTag = ` (${access.player})`;
+        if (access) playerTag = ` — **${access.player}**`;
       }
 
       const ts = timeStr ? `\`${timeStr}\` ` : '';
-      if (e.type.includes('added')) {
-        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag} ← ${itemList}`);
-      } else if (e.type.includes('removed')) {
-        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag} → ${itemList}`);
+      if (e.type.includes('removed')) {
+        // Item taken FROM container/vehicle — "Player took items from Container [C4]"
+        if (playerTag) {
+          lines.push(`${ts}${emoji}${playerTag} took ${itemList} from **${actorLabel}**${loc}`);
+        } else {
+          lines.push(`${ts}${emoji} ${itemList} removed from **${actorLabel}**${loc}`);
+        }
+      } else if (e.type.includes('added')) {
+        // Item stored IN container/vehicle — "Player stored items in Container [C4]"
+        if (playerTag) {
+          lines.push(`${ts}${emoji}${playerTag} stored ${itemList} in **${actorLabel}**${loc}`);
+        } else {
+          lines.push(`${ts}${emoji} ${itemList} added to **${actorLabel}**${loc}`);
+        }
       } else {
-        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag}: ${itemList}`);
+        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag}: ${itemList}${loc}`);
       }
     }
 
@@ -304,6 +328,7 @@ function _categoryTitle(category) {
     case 'horse':     return '🐴 Horse Activity';
     case 'vehicle':   return '🚗 Vehicle Activity';
     case 'world':     return '🌍 World Events';
+    case 'structure': return '🏗️ Structure Activity';
     default:          return '📋 Activity';
   }
 }
@@ -312,36 +337,96 @@ function _formatEvent(event, timeStr) {
   const emoji = EVENT_EMOJI[event.type] || '•';
   const name = _cleanActorName(event.actorName || event.actor || '');
   const ts = timeStr ? `\`${timeStr}\` ` : '';
+  const loc = _formatLocation(event);
 
   switch (event.type) {
     case 'container_locked':
-      return `${ts}${emoji} **${name}** was locked`;
+      return `${ts}${emoji} **${name}** was locked${loc}`;
     case 'container_unlocked':
-      return `${ts}${emoji} **${name}** was unlocked`;
-    case 'container_destroyed':
-      return `${ts}${emoji} **${name}** destroyed (had ${event.amount} item${event.amount === 1 ? '' : 's'})`;
+      return `${ts}${emoji} **${name}** was unlocked${loc}`;
+    case 'container_destroyed': {
+      // Show what items were lost (details.items is already captured by diff-engine)
+      const items = event.details?.items;
+      let lostList = '';
+      if (Array.isArray(items) && items.length > 0) {
+        const cleaned = items.slice(0, 5).map(i => cleanItemName(typeof i === 'string' ? i.replace(/ x\d+$/, '') : i));
+        lostList = `: ${cleaned.join(', ')}`;
+        if (items.length > 5) lostList += ` +${items.length - 5} more`;
+      }
+      return `${ts}${emoji} **${name}** destroyed (${event.amount} item${event.amount === 1 ? '' : 's'} lost${lostList})${loc}`;
+    }
     case 'horse_appeared':
-      return `${ts}${emoji} **${name}** appeared in the world`;
+      return `${ts}${emoji} **${name}** appeared${loc}`;
     case 'horse_disappeared':
-      return `${ts}${emoji} **${name}** disappeared (health: ${event.details?.lastHealth ?? '?'})`;
+      return `${ts}${emoji} **${name}** disappeared (health: ${event.details?.lastHealth ?? '?'})${loc}`;
     case 'horse_health_changed': {
       const delta = event.amount;
-      return `${ts}${emoji} **${name}** ${delta > 0 ? 'healed' : 'took damage'} (${delta > 0 ? '+' : ''}${delta} HP)`;
+      return `${ts}${emoji} **${name}** ${delta > 0 ? 'healed' : 'took damage'} (${delta > 0 ? '+' : ''}${delta} HP)${loc}`;
     }
     case 'horse_owner_changed':
-      return `${ts}${emoji} **${name}** ownership changed`;
+      return `${ts}${emoji} **${name}** ownership changed${loc}`;
     case 'airdrop_spawned':
-      return `${ts}${emoji} **Airdrop** has been spotted!`;
+      return `${ts}${emoji} **Airdrop** has been spotted!${loc}`;
     case 'airdrop_despawned':
       return `${ts}${emoji} **Airdrop** has expired`;
     case 'world_day_advanced':
       return `${ts}${emoji} Day **${event.details?.newDay}** has dawned (+${event.amount})`;
     case 'world_season_changed':
       return `${ts}${emoji} Season changed to **${event.item}**`;
+    // ── New diff-engine event types ──
+    case 'structure_damaged': {
+      const pct = event.details?.healthPercent != null ? ` (${Math.round(event.details.healthPercent)}% HP)` : '';
+      return `${ts}🏚️ **${name}** took damage${pct}${loc}`;
+    }
+    case 'structure_destroyed':
+      return `${ts}💥 **${name}** was destroyed${loc}`;
+    case 'structure_upgraded':
+      return `${ts}🔨 **${name}** upgraded to level ${event.details?.newLevel || '?'}${loc}`;
+    case 'structure_built':
+      return `${ts}🏗️ **${name}** was built${loc}`;
+    case 'vehicle_health_changed': {
+      const delta = event.amount;
+      const pct = event.details?.healthPercent != null ? ` (${Math.round(event.details.healthPercent)}% HP)` : '';
+      return `${ts}🚗 **${name}** ${delta > 0 ? 'repaired' : 'damaged'}${pct}${loc}`;
+    }
+    case 'vehicle_fuel_changed': {
+      const delta = event.amount;
+      return `${ts}⛽ **${name}** ${delta > 0 ? 'refueled' : 'fuel consumed'} (${delta > 0 ? '+' : ''}${Math.round(delta)})${loc}`;
+    }
+    case 'vehicle_appeared':
+      return `${ts}🚗 **${name}** appeared${loc}`;
+    case 'vehicle_destroyed':
+      return `${ts}💥 **${name}** was destroyed${loc}`;
     default:
       return `${ts}${emoji} ${event.type}: ${name}`;
   }
 }
 
+/**
+ * Convert UE4 world coordinates to a grid reference string.
+ * Returns " `[C4]`" or empty string if no coordinates.
+ *
+ * Grid: 8x8 (A-H columns, 1-8 rows) mapped to UE4 world bounds.
+ * World bounds approximately: X [-200000, 200000], Y [-200000, 200000]
+ */
+function _formatLocation(event) {
+  const x = event.x ?? event.pos_x;
+  const y = event.y ?? event.pos_y;
+  if (x == null || y == null) return '';
+
+  // UE4 coordinate ranges for HumanitZ map (approximate)
+  const minX = -204800, maxX = 204800;
+  const minY = -204800, maxY = 204800;
+
+  // Clamp to map bounds
+  const nx = Math.max(0, Math.min(7, Math.floor(((x - minX) / (maxX - minX)) * 8)));
+  const ny = Math.max(0, Math.min(7, Math.floor(((y - minY) / (maxY - minY)) * 8)));
+
+  const col = String.fromCharCode(65 + ny);  // A-H
+  const row = nx + 1;                         // 1-8
+  return ` \`[${col}${row}]\``;
+}
+
 module.exports = ActivityLog;
 module.exports._cleanActorName = _cleanActorName;
+module.exports._formatLocation = _formatLocation;

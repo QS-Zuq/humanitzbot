@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { cleanName, cleanItemName } = require('../src/ue4-names');
+const { cleanName, cleanItemName, cleanItemArray, isHexGuid } = require('../src/ue4-names');
 
 describe('cleanName', () => {
   it('handles Door_GEN_VARIABLE_BP_ pattern', () => {
@@ -129,5 +129,121 @@ describe('cleanItemName', () => {
 
   it('handles simple names', () => {
     assert.equal(cleanItemName('Nails'), 'Nails');
+  });
+
+  // ── Screenshot-visible problems fixed ──
+
+  it('cleans concatenated item names from screenshot', () => {
+    assert.equal(cleanItemName('tacticalmachette'), 'Tactical Machete');
+    assert.equal(cleanItemName('22ammo'), '.22 Ammo');
+    assert.equal(cleanItemName('improaxe'), 'Improvised Axe');
+    assert.equal(cleanItemName('improarrow'), 'Improvised Arrow');
+    assert.equal(cleanItemName('drillkit'), 'Drill Kit');
+    assert.equal(cleanItemName('lockpick'), 'Lock Pick');
+    assert.equal(cleanItemName('binos'), 'Binoculars');
+  });
+
+  it('cleans attachment names', () => {
+    assert.equal(cleanItemName('Att_Mag_Extended'), 'Extended Magazine');
+    assert.equal(cleanItemName('Att_Mag_Extended_Uzi'), 'Extended Mag (Uzi)');
+  });
+
+  it('strips trailing digit duplicates', () => {
+    assert.equal(cleanItemName('Energy Drink2'), 'Energy Drink');
+  });
+
+  it('cleans impro compound names', () => {
+    assert.equal(cleanItemName('Impro Backpack'), 'Improvised Backpack');
+  });
+
+  it('preserves already clean names', () => {
+    assert.equal(cleanItemName('Revolver'), 'Revolver');
+    assert.equal(cleanItemName('Bandage'), 'Bandage');
+    assert.equal(cleanItemName('Water'), 'Water');
+    assert.equal(cleanItemName('Fiber'), 'Fiber');
+    assert.equal(cleanItemName('Rope'), 'Rope');
+  });
+
+  // ── Lv → Lvl expansion ──
+
+  it('expands Lv abbreviation', () => {
+    assert.equal(cleanItemName('SwordLv3'), 'Sword Lvl 3');
+    assert.equal(cleanItemName('ShieldLv2'), 'Shield Lvl 2');
+    assert.equal(cleanItemName('ArmorLv1'), 'Armor Lvl 1');
+  });
+
+  // ── ABCDef → ABC Def (consecutive uppercase splitting) ──
+
+  it('splits consecutive uppercase before lowercase', () => {
+    // e.g. "USBDrive" → "USB Drive"
+    assert.equal(cleanItemName('USBDrive'), 'USB Drive');
+    assert.equal(cleanItemName('RPGLauncher'), 'RPG Launcher');
+    assert.equal(cleanItemName('LEDFlashlight'), 'LED Flashlight');
+  });
+
+  // ── Trailing digit precision ──
+
+  it('strips trailing digit glued to word but preserves spaced numbers', () => {
+    // Glued: "Bandage2" → strip → "Bandage"
+    assert.equal(cleanItemName('Bandage2'), 'Bandage');
+    // Spaced (after Lv expansion): "SwordLv3" → "Sword Lvl 3" (number preserved)
+    assert.equal(cleanItemName('SwordLv3'), 'Sword Lvl 3');
+  });
+
+  // ── Status effect patterns (used in player-stats-channel) ──
+
+  it('cleans status effect names after prefix strip', () => {
+    // These come in as the result of stripping "States.Player." prefix
+    assert.equal(cleanItemName('IsExhausted'), 'Is Exhausted');
+    assert.equal(cleanItemName('IsBleeding'), 'Is Bleeding');
+    assert.equal(cleanItemName('HasFever'), 'Has Fever');
+    assert.equal(cleanItemName('BrokenLeg'), 'Broken Leg');
+  });
+});
+
+describe('isHexGuid', () => {
+  it('detects hex GUIDs', () => {
+    assert.ok(isHexGuid('92b0cc283720f24098060a59425d8394'));
+    assert.ok(isHexGuid('58e2e591d493ba458b68a4c2b2404e9e'));
+    assert.ok(isHexGuid('bc2c3bd26b0d254b88ac618295eca7b2'));
+  });
+
+  it('rejects non-GUIDs', () => {
+    assert.ok(!isHexGuid('Bandage'));
+    assert.ok(!isHexGuid('Stone Knife'));
+    assert.ok(!isHexGuid('22ammo'));
+    assert.ok(!isHexGuid(''));
+    assert.ok(!isHexGuid(null));
+  });
+});
+
+describe('cleanItemArray', () => {
+  it('filters out hex GUIDs and cleans names', () => {
+    const input = [
+      '92b0cc283720f24098060a59425d8394',
+      'Bandage',
+      'Water',
+      '58e2e591d493ba458b68a4c2b2404e9e',
+      'Stone Knife',
+      'improaxe',
+    ];
+    const result = cleanItemArray(input);
+    assert.deepEqual(result, [
+      'Bandage',
+      'Water',
+      'Stone Knife',
+      'Improvised Axe',
+    ]);
+  });
+
+  it('handles object items with GUIDs', () => {
+    const input = [
+      { item: '92b0cc283720f24098060a59425d8394', amount: 1 },
+      { item: 'Bandage', amount: 3, durability: 100 },
+    ];
+    const result = cleanItemArray(input);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].item, 'Bandage');
+    assert.equal(result[0].amount, 3);
   });
 });
