@@ -797,3 +797,120 @@ describe('diffSaveState', () => {
     assert.equal(events.length, 2); // container item + day advance
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  _crossReferenceContainerAccess
+// ═══════════════════════════════════════════════════════════════════════════
+
+const { _crossReferenceContainerAccess } = require('../src/db/diff-engine');
+
+describe('_crossReferenceContainerAccess', () => {
+  it('attributes container removal to player who gained the same item', () => {
+    const events = [
+      { type: 'container_item_removed', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Axe', amount: 1, x: 1000, y: 2000 },
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_001', actorName: 'Alice',
+        item: 'Axe', amount: 1, x: 1100, y: 2100 },
+    ];
+    _crossReferenceContainerAccess(events);
+    assert.equal(events[0].attributedPlayer, 'Alice');
+    assert.equal(events[0].attributedSteamId, 'STEAM_001');
+  });
+
+  it('attributes container addition to player who lost the same item', () => {
+    const events = [
+      { type: 'container_item_added', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Bandage', amount: 3, x: 1000, y: 2000 },
+      { type: 'inventory_item_removed', category: 'inventory', actor: 'STEAM_002', actorName: 'Bob',
+        item: 'Bandage', amount: 3, x: 1050, y: 2050 },
+    ];
+    _crossReferenceContainerAccess(events);
+    assert.equal(events[0].attributedPlayer, 'Bob');
+    assert.equal(events[0].attributedSteamId, 'STEAM_002');
+  });
+
+  it('does not attribute when player is too far from container', () => {
+    const events = [
+      { type: 'container_item_removed', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Axe', amount: 1, x: 1000, y: 2000 },
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_001', actorName: 'Alice',
+        item: 'Axe', amount: 1, x: 100000, y: 200000 },
+    ];
+    _crossReferenceContainerAccess(events);
+    assert.equal(events[0].attributedPlayer, undefined);
+  });
+
+  it('picks the player with the best item match when multiple nearby', () => {
+    const events = [
+      { type: 'container_item_removed', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Nail', amount: 10, x: 1000, y: 2000 },
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_001', actorName: 'Alice',
+        item: 'Nail', amount: 3, x: 1100, y: 2100 },
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_002', actorName: 'Bob',
+        item: 'Nail', amount: 8, x: 1200, y: 2200 },
+    ];
+    _crossReferenceContainerAccess(events);
+    // Bob gained 8 nails vs Alice's 3 — Bob is the better match (min(8,10) > min(3,10))
+    assert.equal(events[0].attributedPlayer, 'Bob');
+  });
+
+  it('does not crash with no inventory events', () => {
+    const events = [
+      { type: 'container_item_removed', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Axe', amount: 1, x: 0, y: 0 },
+    ];
+    _crossReferenceContainerAccess(events);
+    assert.equal(events[0].attributedPlayer, undefined);
+  });
+
+  it('does not crash with no container events', () => {
+    const events = [
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_001', actorName: 'Alice',
+        item: 'Axe', amount: 1, x: 0, y: 0 },
+    ];
+    _crossReferenceContainerAccess(events);
+    // No container events to attribute — should not throw
+    assert.ok(true);
+  });
+
+  it('handles events with no coordinates (skips distance check)', () => {
+    const events = [
+      { type: 'container_item_removed', category: 'container', actor: 'Box1', actorName: 'Box1',
+        item: 'Rope', amount: 2, x: null, y: null },
+      { type: 'inventory_item_added', category: 'inventory', actor: 'STEAM_001', actorName: 'Alice',
+        item: 'Rope', amount: 2, x: null, y: null },
+    ];
+    _crossReferenceContainerAccess(events);
+    // No coords — position check is skipped, item match still works
+    assert.equal(events[0].attributedPlayer, 'Alice');
+  });
+
+  it('cross-references through diffSaveState end-to-end', () => {
+    const old = {
+      containers: [{ actorName: 'Crate', items: [{ item: 'Food', amount: 5 }], pos_x: 100, pos_y: 200, pos_z: 0 }],
+      horses: [],
+      players: new Map([['76561100000', { name: 'TestPlayer', x: 120, y: 220, z: 0,
+        inventory: [{ item: 'Knife', amount: 1 }], equipment: [], quick_slots: [], backpack_items: [] }]]),
+      worldState: {},
+      vehicles: [],
+    };
+    const now = {
+      containers: [{ actorName: 'Crate', items: [{ item: 'Food', amount: 2 }], pos_x: 100, pos_y: 200, pos_z: 0 }],
+      horses: [],
+      players: new Map([['76561100000', { name: 'TestPlayer', x: 120, y: 220, z: 0,
+        inventory: [{ item: 'Knife', amount: 1 }, { item: 'Food', amount: 3 }], equipment: [], quick_slots: [], backpack_items: [] }]]),
+      worldState: {},
+      vehicles: [],
+    };
+    const events = diffSaveState(old, now, (id) => id === '76561100000' ? 'TestPlayer' : id);
+    const containerRemoved = events.find(e => e.type === 'container_item_removed');
+    const invAdded = events.find(e => e.type === 'inventory_item_added');
+
+    assert.ok(containerRemoved, 'should have container_item_removed event');
+    assert.ok(invAdded, 'should have inventory_item_added event');
+    assert.equal(containerRemoved.item, 'Food');
+    assert.equal(containerRemoved.amount, 3);
+    assert.equal(containerRemoved.attributedPlayer, 'TestPlayer');
+    assert.equal(containerRemoved.attributedSteamId, '76561100000');
+  });
+});

@@ -55,6 +55,9 @@ function diffSaveState(oldState, newState, nameResolver) {
     events.push(...diffVehicleInventories(oldState.vehicles, newState.vehicles));
   }
 
+  // Cross-reference container ↔ player inventory changes for attribution
+  _crossReferenceContainerAccess(events);
+
   return events;
 }
 
@@ -537,6 +540,94 @@ function _getField(player, slot) {
   return player[slot.parseField] || player[slot.dbField] || player[slot.field] || [];
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  Container ↔ Inventory cross-referencing
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Cross-reference container item changes with player inventory changes from
+ * the same diff cycle to attribute container access to specific players.
+ *
+ * Logic:
+ * - Container lost item X + player gained item X → player took from container
+ * - Container gained item X + player lost item X → player deposited to container
+ * - Position proximity validates the attribution (player must be near container)
+ *
+ * Mutates container events in-place, adding:
+ *   attributedPlayer   — display name of the matched player
+ *   attributedSteamId  — steam ID of the matched player
+ *
+ * @param {Array<object>} events - All events from a single diff cycle
+ */
+function _crossReferenceContainerAccess(events) {
+  // Separate container and inventory events
+  const containerEvents = events.filter(e => e.category === 'container' && e.item);
+  const inventoryEvents = events.filter(e => e.category === 'inventory' && e.item);
+
+  if (containerEvents.length === 0 || inventoryEvents.length === 0) return;
+
+  // Build per-player item maps: steamId → { gained: {item→amount}, lost: {item→amount}, name, x, y, z }
+  const playerChanges = new Map();
+  for (const e of inventoryEvents) {
+    const steamId = e.actor;
+    if (!playerChanges.has(steamId)) {
+      playerChanges.set(steamId, {
+        name: e.actorName, x: e.x, y: e.y, z: e.z,
+        gained: new Map(), lost: new Map(),
+      });
+    }
+    const pc = playerChanges.get(steamId);
+    if (e.type === 'inventory_item_added') {
+      pc.gained.set(e.item, (pc.gained.get(e.item) || 0) + e.amount);
+    } else if (e.type === 'inventory_item_removed') {
+      pc.lost.set(e.item, (pc.lost.get(e.item) || 0) + e.amount);
+    }
+  }
+
+  // Maximum world-unit distance for a player to be "near" a container
+  // UE4 units — ~5000 units ≈ 50 metres, generous to account for save timing
+  const MAX_DISTANCE_SQ = 5000 * 5000;
+
+  // For each container event, find the best player match
+  for (const ce of containerEvents) {
+    if (ce.type !== 'container_item_added' && ce.type !== 'container_item_removed') continue;
+
+    let bestPlayer = null;
+    let bestScore = 0;
+
+    for (const [steamId, pc] of playerChanges) {
+      // Check position proximity (if both have coordinates)
+      if (ce.x != null && pc.x != null) {
+        const dx = (ce.x - pc.x);
+        const dy = (ce.y - pc.y);
+        const distSq = dx * dx + dy * dy;
+        if (distSq > MAX_DISTANCE_SQ) continue; // too far away
+      }
+
+      // Match: container lost item → player gained same item (player took it)
+      // Match: container gained item → player lost same item (player deposited)
+      let matchAmount = 0;
+      if (ce.type === 'container_item_removed') {
+        matchAmount = pc.gained.get(ce.item) || 0;
+      } else if (ce.type === 'container_item_added') {
+        matchAmount = pc.lost.get(ce.item) || 0;
+      }
+
+      // Score by how much overlaps (min of container change and player change)
+      const score = Math.min(matchAmount, ce.amount);
+      if (score > 0 && score > bestScore) {
+        bestScore = score;
+        bestPlayer = { name: pc.name, steamId };
+      }
+    }
+
+    if (bestPlayer) {
+      ce.attributedPlayer = bestPlayer.name;
+      ce.attributedSteamId = bestPlayer.steamId;
+    }
+  }
+}
+
 module.exports = {
   diffSaveState,
   diffContainers,
@@ -544,6 +635,7 @@ module.exports = {
   diffPlayerInventories,
   diffWorldState,
   diffVehicleInventories,
+  _crossReferenceContainerAccess,
   // Exported for testing
   _diffItemLists,
   _normalizeItems,

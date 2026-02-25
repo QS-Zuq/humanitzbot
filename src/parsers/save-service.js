@@ -756,6 +756,7 @@ class SaveService extends EventEmitter {
       steamIds: [...parsed.players.keys()],
       mode,
       diffEvents, // pass to listeners for real-time Discord updates
+      syncTime: new Date(), // timestamp for activity log event display
     };
 
     this.emit('sync', result);

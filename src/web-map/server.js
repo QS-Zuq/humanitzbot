@@ -328,7 +328,7 @@ class WebMapServer {
     });
 
     // ── API: Get all player positions ──
-    app.get('/api/players', (req, res) => {
+    app.get('/api/players', async (req, res) => {
       const serverId = req.query.server || 'primary';
       const isPrimary = !serverId || serverId === 'primary';
 
@@ -347,6 +347,21 @@ class WebMapServer {
         logStatsProvider = this._loadLogStatsFrom(dataDir);
         playtimeProvider = this._loadPlaytimeFrom(dataDir);
       }
+
+      // Query RCON for online players (non-blocking — if it fails, all show offline)
+      let onlineSteamIds = new Set();
+      if (isPrimary) {
+        try {
+          const { getPlayerList } = require('../server-info');
+          const list = await getPlayerList();
+          if (Array.isArray(list)) {
+            for (const p of list) {
+              if (p.steamId) onlineSteamIds.add(p.steamId);
+            }
+          }
+        } catch { /* RCON unavailable — all players show offline */ }
+      }
+
       const result = [];
 
       for (const [steamId, data] of players) {
@@ -376,6 +391,7 @@ class WebMapServer {
           worldX: hasPosition ? Math.round(data.x) : null,
           worldY: hasPosition ? Math.round(data.y) : null,
           worldZ: hasPosition ? Math.round(data.z) : null,
+          isOnline: onlineSteamIds.has(steamId),
 
           // Character
           male: data.male,

@@ -7,8 +7,9 @@ const config = require('../config');
  * date (in BOT_TIMEZONE), and creates one summary thread per day in the
  * activity log channel.
  *
- * Chat threads cannot be rebuilt because chat is polled in real-time via RCON
- * and no historical chat data is stored.
+ * Supports two data sources:
+ *   - 'sftp' (default): Raw log files from game server
+ *   - 'db': Activity and chat data from SQLite database
  */
 
 // ── Log-line parsers (mirror the regexes in log-watcher.js) ──
@@ -488,7 +489,7 @@ module.exports = {
     if (result.preserved > 0) parts.push(`📋 Preserved **${result.preserved}** message(s) from old threads`);
     if (result.cleaned > 0) parts.push(`🧹 Cleaned **${result.cleaned}** old summary message(s)`);
     if (result.created === 0 && result.deleted === 0) parts.push('ℹ️ No events found for the requested date range.');
-    parts.push('\n💬 *Chat threads cannot be rebuilt (chat is polled live via RCON with no stored history).*');
+    parts.push('\n💬 *Chat threads are built from live RCON polling — historic chat can be replayed from the DB using `/threads source:db`.*');
 
     await interaction.editReply(parts.join('\n'));
   },

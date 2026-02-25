@@ -125,7 +125,8 @@ class ActivityLog {
     if (!this._logWatcher && !this._channel) return;
 
     try {
-      const embeds = this._buildEmbeds(result.diffEvents);
+      const syncTime = result.syncTime || new Date();
+      const embeds = this._buildEmbeds(result.diffEvents, syncTime);
       for (const embed of embeds) {
         if (this._logWatcher) {
           await this._logWatcher.sendToThread(embed);
@@ -147,10 +148,13 @@ class ActivityLog {
    * Groups events by category and builds one embed per category.
    * Filters out events based on config toggles.
    */
-  _buildEmbeds(events) {
+  _buildEmbeds(events, syncTime) {
     const embeds = [];
     const filtered = this._filterEvents(events);
     if (filtered.length === 0) return embeds;
+
+    // Format sync timestamp for per-event display
+    const timeStr = _formatTime(syncTime);
 
     // Group by category
     const groups = new Map();
@@ -161,7 +165,7 @@ class ActivityLog {
     }
 
     for (const [category, catEvents] of groups) {
-      const embed = this._buildCategoryEmbed(category, catEvents);
+      const embed = this._buildCategoryEmbed(category, catEvents, timeStr);
       if (embed) embeds.push(embed);
     }
 
@@ -186,7 +190,7 @@ class ActivityLog {
    * Build one embed for a category of events.
    * Events are batched by actor and formatted with clean names.
    */
-  _buildCategoryEmbed(category, events) {
+  _buildCategoryEmbed(category, events, timeStr) {
     const clr = CATEGORY_COLORS[category] || 0x95A5A6;
     const title = _categoryTitle(category);
 
@@ -204,9 +208,11 @@ class ActivityLog {
           item: event.item,
           amount: event.amount,
           durability: event.details?.durability,
+          attributedPlayer: event.attributedPlayer,
+          attributedSteamId: event.attributedSteamId,
         });
       } else {
-        lines.push(_formatEvent(event));
+        lines.push(_formatEvent(event, timeStr));
       }
     }
 
@@ -224,19 +230,24 @@ class ActivityLog {
 
       const actorLabel = _cleanActorName(e.actorName || e.actor || '');
 
-      // Try to attribute container/vehicle events to a player
+      // Player attribution: prefer cross-referenced data from diff-engine,
+      // fall back to log-based container access tracking
       let playerTag = '';
-      if (category === 'container' && this._logWatcher) {
+      const crossRefPlayer = e.attributedPlayer || batch.items.find(i => i.attributedPlayer)?.attributedPlayer;
+      if (crossRefPlayer) {
+        playerTag = ` (${crossRefPlayer})`;
+      } else if (category === 'container' && this._logWatcher) {
         const access = this._logWatcher.getRecentContainerAccess(e.actorName || e.actor);
         if (access) playerTag = ` (${access.player})`;
       }
 
+      const ts = timeStr ? `\`${timeStr}\` ` : '';
       if (e.type.includes('added')) {
-        lines.push(`${emoji} **${actorLabel}**${playerTag} ← ${itemList}`);
+        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag} ← ${itemList}`);
       } else if (e.type.includes('removed')) {
-        lines.push(`${emoji} **${actorLabel}**${playerTag} → ${itemList}`);
+        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag} → ${itemList}`);
       } else {
-        lines.push(`${emoji} **${actorLabel}**${playerTag}: ${itemList}`);
+        lines.push(`${ts}${emoji} **${actorLabel}**${playerTag}: ${itemList}`);
       }
     }
 
@@ -268,6 +279,24 @@ function _cleanActorName(raw) {
   return cleanName(raw);
 }
 
+/**
+ * Format a Date or ISO string into a short HH:MM timestamp string.
+ * Uses the bot's configured timezone.
+ */
+function _formatTime(dateOrIso) {
+  if (!dateOrIso) return '';
+  const d = dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
+  if (isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleTimeString('en-GB', {
+      hour: '2-digit', minute: '2-digit',
+      timeZone: config.botTimezone || 'UTC',
+    });
+  } catch {
+    return d.toISOString().slice(11, 16);
+  }
+}
+
 function _categoryTitle(category) {
   switch (category) {
     case 'container': return '📦 Container Activity';
@@ -279,37 +308,38 @@ function _categoryTitle(category) {
   }
 }
 
-function _formatEvent(event) {
+function _formatEvent(event, timeStr) {
   const emoji = EVENT_EMOJI[event.type] || '•';
   const name = _cleanActorName(event.actorName || event.actor || '');
+  const ts = timeStr ? `\`${timeStr}\` ` : '';
 
   switch (event.type) {
     case 'container_locked':
-      return `${emoji} **${name}** was locked`;
+      return `${ts}${emoji} **${name}** was locked`;
     case 'container_unlocked':
-      return `${emoji} **${name}** was unlocked`;
+      return `${ts}${emoji} **${name}** was unlocked`;
     case 'container_destroyed':
-      return `${emoji} **${name}** destroyed (had ${event.amount} item${event.amount === 1 ? '' : 's'})`;
+      return `${ts}${emoji} **${name}** destroyed (had ${event.amount} item${event.amount === 1 ? '' : 's'})`;
     case 'horse_appeared':
-      return `${emoji} **${name}** appeared in the world`;
+      return `${ts}${emoji} **${name}** appeared in the world`;
     case 'horse_disappeared':
-      return `${emoji} **${name}** disappeared (health: ${event.details?.lastHealth ?? '?'})`;
+      return `${ts}${emoji} **${name}** disappeared (health: ${event.details?.lastHealth ?? '?'})`;
     case 'horse_health_changed': {
       const delta = event.amount;
-      return `${emoji} **${name}** ${delta > 0 ? 'healed' : 'took damage'} (${delta > 0 ? '+' : ''}${delta} HP)`;
+      return `${ts}${emoji} **${name}** ${delta > 0 ? 'healed' : 'took damage'} (${delta > 0 ? '+' : ''}${delta} HP)`;
     }
     case 'horse_owner_changed':
-      return `${emoji} **${name}** ownership changed`;
+      return `${ts}${emoji} **${name}** ownership changed`;
     case 'airdrop_spawned':
-      return `${emoji} **Airdrop** has been spotted!`;
+      return `${ts}${emoji} **Airdrop** has been spotted!`;
     case 'airdrop_despawned':
-      return `${emoji} **Airdrop** has expired`;
+      return `${ts}${emoji} **Airdrop** has expired`;
     case 'world_day_advanced':
-      return `${emoji} Day **${event.details?.newDay}** has dawned (+${event.amount})`;
+      return `${ts}${emoji} Day **${event.details?.newDay}** has dawned (+${event.amount})`;
     case 'world_season_changed':
-      return `${emoji} Season changed to **${event.item}**`;
+      return `${ts}${emoji} Season changed to **${event.item}**`;
     default:
-      return `${emoji} ${event.type}: ${name}`;
+      return `${ts}${emoji} ${event.type}: ${name}`;
   }
 }
 
