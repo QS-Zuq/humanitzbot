@@ -181,9 +181,13 @@ async function discoverFiles(sftp, dir, depth, maxDepth, found) {
   for (const item of items) {
     const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
     if (item.type === 'd') {
-      // Skip obviously irrelevant directories
-      if (/^(\.|node_modules|__pycache__|Engine)$/i.test(item.name)) continue;
-      await discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
+      // Skip obviously irrelevant directories for faster discovery
+      if (/^(\.|node_modules|__pycache__|Engine|proc|sys|dev|run|tmp|lost\+found|snap|boot|usr)$/i.test(item.name)) continue;
+      // Prioritize game server directories (check them first)
+      const isPriority = /^(data|serverfiles|home|opt|root|app)/i.test(item.name);
+      if (isPriority || depth < 4) {
+        await discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
+      }
     } else if (DISCOVERY_TARGETS[item.name] && !found.has(item.name)) {
       found.set(item.name, fullPath);
       console.log(`  Found ${item.name} → ${fullPath}`);
@@ -245,6 +249,16 @@ async function autoDiscoverPaths(sftp) {
     console.log('\n  ✓ All files located!');
   }
 
+  // Auto-detect FTP_BASE_PATH from discovered paths (find common parent directory)
+  if (found.size > 0) {
+    const discoveredPaths = Array.from(found.values());
+    const commonParent = findCommonParent(discoveredPaths);
+    if (commonParent && commonParent !== '/') {
+      results.ftpBasePath = commonParent;
+      console.log(`\n  → Auto-detected FTP_BASE_PATH: ${commonParent}`);
+    }
+  }
+
   // Update .env with discovered paths
   updateEnvFile(results);
 
@@ -257,6 +271,34 @@ async function autoDiscoverPaths(sftp) {
   ftpWelcomePath = results.ftpWelcomePath;
 
   return results;
+}
+
+/**
+ * Find common parent directory from an array of absolute paths.
+ * Returns the deepest common directory, or '/' if no common parent.
+ */
+function findCommonParent(paths) {
+  if (paths.length === 0) return '/';
+  if (paths.length === 1) return path.dirname(paths[0]);
+
+  // Split all paths into segments
+  const segments = paths.map(p => p.split('/').filter(Boolean));
+  
+  // Find common prefix
+  let commonDepth = 0;
+  const minLength = Math.min(...segments.map(s => s.length));
+  
+  for (let i = 0; i < minLength; i++) {
+    const first = segments[0][i];
+    if (segments.every(s => s[i] === first)) {
+      commonDepth = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  if (commonDepth === 0) return '/';
+  return '/' + segments[0].slice(0, commonDepth).join('/');
 }
 
 /**
@@ -274,6 +316,7 @@ function updateEnvFile(paths) {
   let updated = 0;
 
   const mapping = {
+    FTP_BASE_PATH:        paths.ftpBasePath,
     FTP_LOG_PATH:         paths.ftpLogPath,
     FTP_CONNECT_LOG_PATH: paths.ftpConnectLogPath,
     FTP_ID_MAP_PATH:      paths.ftpIdMapPath,
