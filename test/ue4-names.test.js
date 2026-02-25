@@ -104,6 +104,27 @@ describe('cleanName', () => {
   it('strips trailing numeric IDs', () => {
     assert.equal(cleanName('BP_Item_Name_42'), 'Item Name');
   });
+
+  it('handles ContainerEnemyAI (zombie loot drop)', () => {
+    assert.equal(
+      cleanName('BP_ContainerEnemyAI_C_2147478519'),
+      'Zombie Drop'
+    );
+  });
+
+  it('handles ContainerEnemyAI_Pistol (zombie pistol drop)', () => {
+    assert.equal(
+      cleanName('BP_ContainerEnemyAI_Pistol_C_2147478598'),
+      'Zombie Drop (Pistol)'
+    );
+  });
+
+  it('handles WeaponStash', () => {
+    assert.equal(
+      cleanName('BP_WeaponStash_C_2147000000'),
+      'Weapon Stash'
+    );
+  });
 });
 
 describe('cleanItemName', () => {

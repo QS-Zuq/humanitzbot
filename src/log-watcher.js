@@ -1366,6 +1366,13 @@ class LogWatcher {
       }
       if (entries.length > 0) {
         this._playerStats.loadIdMap(entries);
+
+        // Notify external listeners (SaveService, WebMap, etc.) with steamId→name map
+        if (this._onIdMapRefresh) {
+          const idMap = {};
+          for (const { steamId, name } of entries) idMap[steamId] = name;
+          try { this._onIdMapRefresh(idMap); } catch (_) {}
+        }
       }
     } catch (err) {
       // Not critical — file may not exist yet

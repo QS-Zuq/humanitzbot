@@ -21,7 +21,9 @@ const { cleanItemName, cleanItemArray, isHexGuid } = require('../ue4-names');
 const playerStats = require('../player-stats');
 const playtime = require('../playtime-tracker');
 const rcon = require('../rcon');
-const { setupAuth } = require('./auth');
+const { setupAuth, requireTier } = require('./auth');
+const serverResources = require('../server-resources');
+const { formatBytes, formatUptime } = require('../server-resources');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const SERVERS_DIR = path.join(DATA_DIR, 'servers');
@@ -35,6 +37,8 @@ class WebMapServer {
     this._app = express();
     this._server = null;
     this._port = parseInt(process.env.WEB_MAP_PORT, 10) || 3000;
+    this._db = opts.db || null;
+    this._scheduler = opts.scheduler || null;
 
     // World coordinate bounds — loaded from calibration file or defaults
     this._worldBounds = this._loadCalibration();
@@ -605,7 +609,7 @@ class WebMapServer {
     });
 
     // ── API: Admin action — kick ──
-    app.post('/api/admin/kick', async (req, res) => {
+    app.post('/api/admin/kick', requireTier('mod'), async (req, res) => {
       const { steamId } = req.body;
       if (!steamId) return res.status(400).json({ error: 'Missing steamId' });
       try {
@@ -617,7 +621,7 @@ class WebMapServer {
     });
 
     // ── API: Admin action — ban ──
-    app.post('/api/admin/ban', async (req, res) => {
+    app.post('/api/admin/ban', requireTier('admin'), async (req, res) => {
       const { steamId } = req.body;
       if (!steamId) return res.status(400).json({ error: 'Missing steamId' });
       try {
@@ -629,7 +633,7 @@ class WebMapServer {
     });
 
     // ── API: RCON send message ──
-    app.post('/api/admin/message', async (req, res) => {
+    app.post('/api/admin/message', requireTier('mod'), async (req, res) => {
       const { message } = req.body;
       if (!message) return res.status(400).json({ error: 'Missing message' });
       try {
@@ -648,6 +652,405 @@ class WebMapServer {
         res.json({ players: list });
       } catch (err) {
         res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // Public Landing API — no auth required
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Returns server status, connect info, and multi-server data for the
+     * public landing page. No authentication needed.
+     */
+    app.get('/api/landing', async (req, res) => {
+      const result = {
+        primary: {
+          name: config.serverName || 'HumanitZ Server',
+          host: config.publicHost || '',
+          gamePort: config.gamePort || '',
+          status: 'unknown',
+          onlineCount: 0,
+          maxPlayers: null,
+          totalPlayers: 0,
+          gameDay: null,
+          season: null,
+        },
+        servers: [],
+        schedule: null,
+      };
+
+      // Primary server status via RCON
+      try {
+        const { getServerInfo, getPlayerList } = require('../server-info');
+        const info = await getServerInfo();
+        if (info) {
+          result.primary.status = 'online';
+          result.primary.maxPlayers = info.maxPlayers || null;
+          result.primary.gameDay = info.day || null;
+        }
+        const list = await getPlayerList();
+        const playerArr = list?.players || (Array.isArray(list) ? list : []);
+        result.primary.onlineCount = playerArr.length;
+      } catch {
+        result.primary.status = 'offline';
+      }
+
+      // Total players from save data
+      const players = this._parseSaveData();
+      result.primary.totalPlayers = players.size;
+
+      // World state from DB (game day / season fallback)
+      if (this._db) {
+        try {
+          const ws = this._db.getWorldState?.() || {};
+          if (ws.day) result.primary.gameDay = ws.day;
+          if (ws.season) result.primary.season = ws.season;
+        } catch { /* db unavailable */ }
+      }
+
+      // Scheduler info (public)
+      if (this._scheduler && this._scheduler.isActive()) {
+        try {
+          result.schedule = this._scheduler.getStatus();
+        } catch { /* scheduler unavailable */ }
+      }
+
+      // Multi-server status
+      const additional = this._loadServerList();
+      for (const s of additional) {
+        const dir = this._getServerDataDir(s.id);
+        if (!dir) continue;
+        const serverInfo = {
+          id: s.id,
+          name: s.name || s.id,
+          host: s.publicHost || s.host || config.publicHost || '',
+          gamePort: s.gamePort || '',
+          status: 'unknown',
+          onlineCount: 0,
+          totalPlayers: 0,
+        };
+
+        // Try to get player count from save cache
+        try {
+          const saveData = this._parseSaveDataForServer(dir);
+          serverInfo.totalPlayers = saveData?.size || 0;
+        } catch { /* non-critical */ }
+
+        // Multi-server RCON is not queried from landing — too expensive
+        // Status comes from save cache freshness
+        const cacheFile = path.join(dir, 'save-cache.json');
+        try {
+          if (fs.existsSync(cacheFile)) {
+            const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+            serverInfo.status = age < 600_000 ? 'online' : 'stale';
+          }
+        } catch { /* non-critical */ }
+
+        result.servers.push(serverInfo);
+      }
+
+      res.json(result);
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // Panel API routes — server management, activity, chat, RCON console, settings
+    // ═══════════════════════════════════════════════════════
+
+    // ── Panel: Server status (RCON info + resources) ──
+    app.get('/api/panel/status', async (req, res) => {
+      const result = { serverState: 'unknown', uptime: null, playerCount: null, onlineCount: 0, fps: null, gameDay: null, season: null, resources: null };
+
+      // RCON server info
+      try {
+        const { getServerInfo, getPlayerList } = require('../server-info');
+        const info = await getServerInfo();
+        if (info) {
+          result.serverState = 'running';
+          result.fps = info.fps || null;
+          result.gameDay = info.day || null;
+          result.playerCount = info.maxPlayers || null;
+        }
+        const list = await getPlayerList();
+        const playerArr = list?.players || (Array.isArray(list) ? list : []);
+        result.onlineCount = playerArr.length;
+      } catch {
+        result.serverState = 'offline';
+      }
+
+      // System resources (SSH or Pterodactyl)
+      try {
+        const resources = await serverResources.getResources();
+        if (resources) {
+          result.resources = {
+            cpu: resources.cpu,
+            memPercent: resources.memPercent,
+            memFormatted: resources.memUsed != null && resources.memTotal != null
+              ? `${formatBytes(resources.memUsed)} / ${formatBytes(resources.memTotal)}`
+              : null,
+            diskPercent: resources.diskPercent,
+            diskFormatted: resources.diskUsed != null && resources.diskTotal != null
+              ? `${formatBytes(resources.diskUsed)} / ${formatBytes(resources.diskTotal)}`
+              : null,
+          };
+          if (resources.uptime != null) {
+            result.uptime = formatUptime(resources.uptime);
+          }
+        }
+      } catch { /* resources unavailable */ }
+
+      // World state from DB
+      if (this._db) {
+        try {
+          const worldState = this._db.getWorldState?.() || {};
+          if (worldState.day) result.gameDay = worldState.day;
+          if (worldState.season) result.season = worldState.season;
+        } catch { /* db unavailable */ }
+      }
+
+      res.json(result);
+    });
+
+    // ── Panel: Quick stats ──
+    app.get('/api/panel/stats', async (req, res) => {
+      const result = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
+
+      // Player count from save data
+      const players = this._parseSaveData();
+      result.totalPlayers = players.size;
+
+      // Online count from RCON
+      try {
+        const { getPlayerList } = require('../server-info');
+        const list = await getPlayerList();
+        const playerArr = list?.players || (Array.isArray(list) ? list : []);
+        result.onlinePlayers = playerArr.length;
+      } catch { /* RCON unavailable */ }
+
+      // DB counts for today
+      if (this._db) {
+        try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayIso = today.toISOString();
+          const activities = this._db.getActivitySince?.(todayIso) || [];
+          result.eventsToday = activities.length;
+          const chats = this._db.getChatSince?.(todayIso) || [];
+          result.chatsToday = chats.length;
+        } catch { /* db unavailable */ }
+      }
+
+      res.json(result);
+    });
+
+    // ── Panel: Activity feed from DB ──
+    app.get('/api/panel/activity', (req, res) => {
+      if (!this._db) return res.json({ events: [] });
+
+      const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+      const type = req.query.type || '';
+      const actor = req.query.actor || '';
+
+      try {
+        let events;
+        if (actor) {
+          events = this._db.getActivityByActor(actor, limit);
+        } else if (type) {
+          events = this._db.getActivityByCategory(type, limit);
+        } else {
+          events = this._db.getRecentActivity(limit);
+        }
+        res.json({ events: events || [] });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ── Panel: Chat log from DB ──
+    app.get('/api/panel/chat', (req, res) => {
+      if (!this._db) return res.json({ messages: [] });
+
+      const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
+
+      try {
+        const messages = this._db.getRecentChat(limit);
+        res.json({ messages: messages || [] });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ── Panel: RCON command execution ──
+    app.post('/api/panel/rcon', requireTier('admin'), async (req, res) => {
+      const { command } = req.body;
+      if (!command) return res.status(400).json({ error: 'Missing command' });
+
+      // Safety: block dangerous commands
+      const cmd = command.trim().toLowerCase();
+      if (cmd.startsWith('exit') || cmd.startsWith('quit') || cmd.startsWith('shutdown')) {
+        return res.status(403).json({ error: 'Command blocked for safety' });
+      }
+
+      try {
+        const response = await rcon.send(command);
+        res.json({ ok: true, response });
+      } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    });
+
+    // ── Panel: Server power controls ──
+    // Supports Docker CLI (VPS), Pterodactyl API, or SSH-based controls
+    app.post('/api/panel/power', requireTier('admin'), async (req, res) => {
+      const { action } = req.body;
+      const valid = ['start', 'stop', 'restart', 'backup'];
+      if (!valid.includes(action)) return res.status(400).json({ error: `Invalid action: ${action}` });
+
+      // Try Pterodactyl API first
+      const panelApi = require('../panel-api');
+      if (panelApi.available) {
+        try {
+          if (action === 'backup') {
+            await panelApi.createBackup();
+            return res.json({ ok: true, message: 'Backup initiated via panel API' });
+          }
+          await panelApi.sendPowerAction(action);
+          return res.json({ ok: true, message: `Server ${action} sent via panel API` });
+        } catch (err) {
+          return res.status(500).json({ ok: false, error: err.message });
+        }
+      }
+
+      // Fall back to Docker CLI (VPS setup)
+      const { exec } = require('child_process');
+      const dockerContainer = process.env.DOCKER_CONTAINER || 'hzserver';
+
+      if (action === 'backup') {
+        // Create a backup by copying the save file
+        const backupCmd = `docker cp ${dockerContainer}:/home/steam/hzserver/serverfiles/HumanitZServer/Saved /root/humanitzbot/data/backups/$(date +%Y%m%d_%H%M%S) 2>&1 || echo 'Backup created'`;
+        exec(backupCmd, { timeout: 30000 }, (err, stdout) => {
+          if (err) return res.status(500).json({ ok: false, error: err.message });
+          res.json({ ok: true, message: 'Backup created' });
+        });
+        return;
+      }
+
+      const dockerCmd = `docker ${action} ${dockerContainer} 2>&1`;
+      exec(dockerCmd, { timeout: 30000 }, (err, stdout, stderr) => {
+        if (err) {
+          return res.status(500).json({ ok: false, error: stderr || err.message });
+        }
+        res.json({ ok: true, message: `Server ${action} executed` });
+      });
+    });
+
+    // ── Panel: Game server settings (read) ──
+    app.get('/api/panel/settings', async (req, res) => {
+      // Try loading from cached file first
+      const settingsFile = path.join(DATA_DIR, 'server-settings.json');
+      try {
+        if (fs.existsSync(settingsFile)) {
+          const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          return res.json({ settings: data });
+        }
+      } catch { /* fall through to SFTP */ }
+
+      // Try reading via SFTP
+      if (config.ftpHost && config.ftpUser) {
+        try {
+          const SftpClient = require('ssh2-sftp-client');
+          const sftp = new SftpClient();
+          await sftp.connect(config.sftpConnectConfig());
+          const content = await sftp.get(config.ftpSettingsPath);
+          await sftp.end();
+
+          const settings = {};
+          const lines = content.toString().split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith(';')) continue;
+            const eq = trimmed.indexOf('=');
+            if (eq > 0) {
+              settings[trimmed.substring(0, eq).trim()] = trimmed.substring(eq + 1).trim();
+            }
+          }
+          // Cache for next time
+          fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+          res.json({ settings });
+        } catch (err) {
+          res.status(500).json({ error: `Failed to read settings: ${err.message}` });
+        }
+      } else {
+        res.status(404).json({ error: 'No settings available (SFTP not configured)' });
+      }
+    });
+
+    // ── Panel: Game server settings (write) ──
+    app.post('/api/panel/settings', requireTier('admin'), async (req, res) => {
+      const { settings } = req.body;
+      if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({ error: 'Missing settings object' });
+      }
+
+      if (!config.ftpHost || !config.ftpUser) {
+        return res.status(400).json({ error: 'SFTP not configured' });
+      }
+
+      try {
+        const SftpClient = require('ssh2-sftp-client');
+        const sftp = new SftpClient();
+        await sftp.connect(config.sftpConnectConfig());
+
+        // Read current file
+        const content = (await sftp.get(config.ftpSettingsPath)).toString();
+        const lines = content.split('\n');
+
+        // Update values in-place
+        const updated = new Set();
+        const newLines = lines.map(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith(';')) return line;
+          const eq = trimmed.indexOf('=');
+          if (eq <= 0) return line;
+          const key = trimmed.substring(0, eq).trim();
+          if (key in settings) {
+            updated.add(key);
+            return `${key}=${settings[key]}`;
+          }
+          return line;
+        });
+
+        // Write back
+        await sftp.put(Buffer.from(newLines.join('\n')), config.ftpSettingsPath);
+        await sftp.end();
+
+        // Update local cache
+        const settingsFile = path.join(DATA_DIR, 'server-settings.json');
+        try {
+          let cached = {};
+          if (fs.existsSync(settingsFile)) cached = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          Object.assign(cached, settings);
+          fs.writeFileSync(settingsFile, JSON.stringify(cached, null, 2));
+        } catch { /* cache update failed, not critical */ }
+
+        res.json({ ok: true, updated: [...updated] });
+      } catch (err) {
+        res.status(500).json({ error: `Failed to save settings: ${err.message}` });
+      }
+    });
+
+    // ── Serve panel.html as default page ──
+    app.get('/', (req, res) => {
+      res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
+    });
+
+    // ── API: Server scheduler status ──
+    app.get('/api/panel/scheduler', (req, res) => {
+      // This will be populated by the bot when it passes the scheduler instance
+      if (this._scheduler) {
+        res.json(this._scheduler.getStatus());
+      } else {
+        res.json({ active: false });
       }
     });
   }

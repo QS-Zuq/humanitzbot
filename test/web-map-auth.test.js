@@ -258,7 +258,7 @@ describe('Web Map Auth', () => {
       delete process.env.WEB_MAP_CALLBACK_URL;
     });
 
-    it('auth middleware returns 401 for unauthenticated API requests', () => {
+    it('auth middleware sets public tier for unauthenticated requests and calls next()', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
@@ -271,47 +271,39 @@ describe('Web Map Auth', () => {
 
       const middleware = setup(app);
 
+      let nextCalled = false;
+      const req = { path: '/api/players', headers: {} };
+      const res = {
+        status: () => res,
+        json: () => {},
+        redirect: () => {},
+      };
+
+      middleware(req, res, () => { nextCalled = true; });
+      assert.equal(nextCalled, true);
+      assert.equal(req.tier, 'public');
+      assert.equal(req.tierLevel, 0);
+
+      delete process.env.DISCORD_OAUTH_SECRET;
+      delete process.env.WEB_MAP_CALLBACK_URL;
+    });
+
+    it('requireTier blocks unauthenticated API requests with 401', () => {
+      const { requireTier: rt } = require('../src/web-map/auth');
+      const guard = rt('survivor');
+
       let statusCode = null;
       let jsonBody = null;
+      const req = { path: '/api/players', tier: 'public', tierLevel: 0 };
       const res = {
         status: (code) => { statusCode = code; return res; },
         json: (body) => { jsonBody = body; },
         redirect: () => {},
       };
 
-      middleware({ path: '/api/players', headers: {} }, res, () => {});
+      guard(req, res, () => {});
       assert.equal(statusCode, 401);
       assert.ok(jsonBody.error);
-
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-    });
-
-    it('auth middleware redirects unauthenticated browser requests', () => {
-      process.env.DISCORD_OAUTH_SECRET = 'test-secret';
-      process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
-
-      const { setupAuth: setup } = require('../src/web-map/auth');
-      const app = {
-        get: () => {},
-        post: () => {},
-        use: () => {},
-      };
-
-      const middleware = setup(app);
-
-      let redirectUrl = null;
-      const res = {
-        status: () => res,
-        json: () => {},
-        redirect: (url) => { redirectUrl = url; },
-      };
-
-      middleware({ path: '/', headers: {} }, res, () => {});
-      assert.equal(redirectUrl, '/auth/login');
-
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
     });
   });
 });

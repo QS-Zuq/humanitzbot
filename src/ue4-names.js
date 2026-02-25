@@ -18,6 +18,9 @@
 // ─── Common container aliases ────────────────────────────────────────────────
 // These fire first to catch well-known patterns before generic cleanup.
 const CONTAINER_ALIASES = [
+  [/ContainerEnemyAI_Pistol/i, 'Zombie Drop (Pistol)'],
+  [/ContainerEnemyAI/i, 'Zombie Drop'],
+  [/WeaponStash/i, 'Weapon Stash'],
   [/VehicleStorage/i, 'Vehicle Storage'],
   [/CupboardContainer/i, 'Cupboard'],
   [/StorageContainer/i, 'Storage Container'],

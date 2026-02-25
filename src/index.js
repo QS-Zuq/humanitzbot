@@ -24,6 +24,7 @@ const playtime = require('./playtime-tracker');
 const playerStats = require('./player-stats');
 const PlayerStatsChannel = require('./player-stats-channel');
 const PvpScheduler = require('./pvp-scheduler');
+const ServerScheduler = require('./server-scheduler');
 const panelApi = require('./panel-api');
 const PanelChannel = require('./panel-channel');
 const MultiServerManager = require('./multi-server');
@@ -145,6 +146,7 @@ let autoMessages;
 let logWatcher;
 let playerStatsChannel;
 let pvpScheduler;
+let serverScheduler;
 let panelChannel;
 let multiServerManager;
 let webMapServer;  // Web map server instance
@@ -511,6 +513,11 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
     await saveService.start();
     setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode)`);
+
+    // Wire LogWatcher → SaveService ID map sharing
+    if (logWatcher) {
+      logWatcher._onIdMapRefresh = (idMap) => saveService.setIdMap(idMap);
+    }
   } else {
     setStatus('Save Service', '🟡 Skipped (FTP credentials not set)');
   }
@@ -570,6 +577,23 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
   }
 
+  // Server Scheduler — timed restarts with dynamic difficulty profiles
+  if (config.enableServerScheduler) {
+    if (!hasFtp()) {
+      setStatus('Server Scheduler', '🟡 Skipped (FTP credentials not set)');
+      console.log('[BOT] Server scheduler skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
+    } else {
+      serverScheduler = new ServerScheduler(readyClient, logWatcher);
+      await serverScheduler.start();
+      const status = serverScheduler.getStatus();
+      const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
+      setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
+    }
+  } else {
+    setStatus('Server Scheduler', '⚫ Disabled');
+    console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
+  }
+
   // Panel — admin dashboard channel + /qspanel command
   if (config.enablePanel) {
     // Multi-server manager (before panel, so panel can reference it)
@@ -600,7 +624,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   const webMapPort = parseInt(process.env.WEB_MAP_PORT, 10);
   if (webMapPort && config.discordClientSecret) {
     try {
-      webMapServer = new WebMapServer(readyClient, { db });
+      webMapServer = new WebMapServer(readyClient, { db, scheduler: serverScheduler });
       await webMapServer.start();
       setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
       console.log(`[BOT] Web map server started: http://localhost:${webMapPort}`);

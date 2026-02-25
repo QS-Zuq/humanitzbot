@@ -225,6 +225,12 @@ const config = {
   // PvP scheduler
   enablePvpScheduler: envBool('ENABLE_PVP_SCHEDULER', false),
 
+  // Server scheduler — timed restarts with dynamic difficulty profiles
+  enableServerScheduler: envBool('ENABLE_SERVER_SCHEDULER', false),
+  restartTimes: process.env.RESTART_TIMES || '',          // comma-separated HH:MM times in BOT_TIMEZONE
+  restartProfiles: process.env.RESTART_PROFILES || '',    // comma-separated profile names (cycle order)
+  restartDelay: parseInt(process.env.RESTART_DELAY, 10) || 10, // countdown minutes before restart
+
   // Activity log — tracks item movements, horse changes, world events from save diffs
   enableActivityLog: envBool('ENABLE_ACTIVITY_LOG', true),
   activityLogChannelId: process.env.ACTIVITY_LOG_CHANNEL_ID || '',

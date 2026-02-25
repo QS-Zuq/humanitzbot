@@ -1,15 +1,23 @@
 /**
- * Discord OAuth2 middleware for the web map server.
+ * Discord OAuth2 middleware for the web panel.
+ *
+ * Four access tiers:
+ *   1. public   — No login required: landing page, Discord link, basic server stats
+ *   2. survivor — Discord guild member with survivor role: community stats, leaderboards
+ *   3. mod      — Mod role: kick, player locations, send messages
+ *   4. admin    — Admin role or Administrator permission: everything (power, RCON, settings, DB)
+ *
+ * Role configuration via .env:
+ *   WEB_PANEL_SURVIVOR_ROLES=role_id_1,role_id_2   (if empty, any guild member gets survivor)
+ *   WEB_PANEL_MOD_ROLES=role_id_3
+ *   WEB_PANEL_ADMIN_ROLES=role_id_4                 (if empty, falls back to Administrator permission)
  *
  * Flow:
- *   1. Unauthenticated request → redirect to Discord OAuth2
- *   2. User authorises → Discord redirects to /auth/callback
- *   3. Server exchanges code for access token
- *   4. Server checks: user is in the guild AND has allowed role/permission
- *   5. Session stored in a signed cookie (HMAC-SHA256)
- *   6. Subsequent requests validated via cookie → in-memory session store
- *
- * No npm dependencies beyond Express — uses Node 18+ built-in fetch and crypto.
+ *   1. Unauthenticated request → public tier (landing page)
+ *   2. User clicks "Login with Discord" → Discord OAuth2
+ *   3. Server checks guild membership + roles → assigns highest tier
+ *   4. Session stored in signed cookie (HMAC-SHA256)
+ *   5. API routes check req.tier for access control
  */
 
 const crypto = require('crypto');
@@ -20,7 +28,10 @@ const config = require('../config');
 const DISCORD_API = 'https://discord.com/api/v10';
 const OAUTH_SCOPES = 'identify guilds guilds.members.read';
 
-// In-memory session store: sessionId → { userId, username, avatar, roles, expiresAt }
+// Access tier levels (higher = more access)
+const TIER = { public: 0, survivor: 1, mod: 2, admin: 3 };
+
+// In-memory session store: sessionId → { userId, username, avatar, roles, tier, expiresAt }
 const sessions = new Map();
 const SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const COOKIE_NAME = 'hmz_session';
@@ -34,7 +45,12 @@ function getAuthConfig() {
     guildId: config.guildId,
     callbackUrl: process.env.WEB_MAP_CALLBACK_URL || '',
     sessionSecret: process.env.WEB_MAP_SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    // Legacy single-tier role list (backwards compat)
     allowedRoles: (process.env.WEB_MAP_ALLOWED_ROLES || '').split(',').map(s => s.trim()).filter(Boolean),
+    // Multi-tier role lists
+    survivorRoles: (process.env.WEB_PANEL_SURVIVOR_ROLES || '').split(',').map(s => s.trim()).filter(Boolean),
+    modRoles: (process.env.WEB_PANEL_MOD_ROLES || '').split(',').map(s => s.trim()).filter(Boolean),
+    adminRoles: (process.env.WEB_PANEL_ADMIN_ROLES || '').split(',').map(s => s.trim()).filter(Boolean),
   };
 }
 
@@ -49,7 +65,6 @@ function verifySession(signedValue, secret) {
   if (dot === -1) return null;
   const sessionId = signedValue.substring(0, dot);
   const expected = signSession(sessionId, secret);
-  // Constant-time comparison
   if (signedValue.length !== expected.length) return null;
   if (crypto.timingSafeEqual(Buffer.from(signedValue), Buffer.from(expected))) {
     return sessionId;
@@ -74,7 +89,6 @@ function pruneExpiredSessions() {
   }
 }
 
-// Prune every 10 minutes
 setInterval(pruneExpiredSessions, 10 * 60 * 1000).unref();
 
 // ── Discord API helpers ──────────────────────────────────────────────────────
@@ -114,63 +128,83 @@ async function getGuildMember(accessToken, guildId) {
   const res = await fetch(`${DISCORD_API}/users/@me/guilds/${guildId}/member`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (res.status === 404) return null; // not in guild
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch guild member (${res.status})`);
   return res.json();
 }
 
-// ── Authorization check ──────────────────────────────────────────────────────
+// ── Tier Resolution ──────────────────────────────────────────────────────────
 
 /**
- * Check if a guild member is authorised to access the web map.
+ * Determine the highest access tier for a guild member.
  *
- * Logic:
- *   1. If WEB_MAP_ALLOWED_ROLES is set → user must have at least one of those roles
- *   2. If WEB_MAP_ALLOWED_ROLES is empty → user must have Administrator permission
- *      (checks guild-level permissions via the member's roles' permission bits)
+ * Priority: admin > mod > survivor > public
  *
- * @param {object} member - Discord guild member object
- * @param {string[]} allowedRoles - Role IDs from config
- * @returns {boolean}
+ * - Admin: has adminRoles OR Administrator permission (0x8)
+ * - Mod: has modRoles
+ * - Survivor: has survivorRoles, OR if no survivorRoles configured, any guild member
+ * - Public: not in guild or no qualifying roles
  */
+function resolveTier(member, authCfg) {
+  if (!member) return 'public';
+
+  const memberRoles = member.roles || [];
+  const permissions = BigInt(member.permissions || '0');
+  const isDiscordAdmin = (permissions & 0x8n) !== 0n;
+
+  // Check admin tier
+  if (isDiscordAdmin) return 'admin';
+  if (authCfg.adminRoles.length > 0 && memberRoles.some(r => authCfg.adminRoles.includes(r))) {
+    return 'admin';
+  }
+
+  // Check mod tier
+  if (authCfg.modRoles.length > 0 && memberRoles.some(r => authCfg.modRoles.includes(r))) {
+    return 'mod';
+  }
+
+  // Check survivor tier
+  if (authCfg.survivorRoles.length > 0) {
+    if (memberRoles.some(r => authCfg.survivorRoles.includes(r))) return 'survivor';
+    // Has specific survivor roles configured but user doesn't have them
+    return 'public';
+  }
+
+  // No survivor roles configured — any guild member gets survivor
+  return 'survivor';
+}
+
+// Legacy compatibility
 function isAuthorised(member, allowedRoles) {
   if (!member) return false;
-
-  // If specific roles are configured, check those
   if (allowedRoles.length > 0) {
     return member.roles.some(roleId => allowedRoles.includes(roleId));
   }
-
-  // Default: require Administrator permission
-  // Discord permission bit 0x8 = Administrator
   const permissions = BigInt(member.permissions || '0');
   return (permissions & 0x8n) !== 0n;
 }
 
 // ── Middleware & Routes ──────────────────────────────────────────────────────
 
-/**
- * Check if Discord OAuth2 is configured.
- * Returns true if the minimum required env vars are set.
- */
 function isEnabled() {
   return !!(process.env.DISCORD_OAUTH_SECRET && process.env.WEB_MAP_CALLBACK_URL);
 }
 
 /**
- * Register auth routes and return the auth middleware.
- *
- * @param {import('express').Application} app
- * @returns {import('express').RequestHandler} middleware that gates all other routes
+ * Register auth routes and return the tier-aware middleware.
+ * Public routes (landing page, basic stats) are always accessible.
+ * Higher-tier routes require authentication + appropriate role.
  */
 function setupAuth(app) {
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
-    console.warn('[WEB MAP AUTH] Discord OAuth not configured — DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL are required');
-    console.warn('[WEB MAP AUTH] All routes are UNPROTECTED. Set these env vars to enable authentication.');
-    // Return a no-op middleware
-    return (_req, _res, next) => next();
+    console.warn('[WEB AUTH] Discord OAuth not configured — all routes UNPROTECTED');
+    return (_req, _res, next) => {
+      _req.tier = 'admin'; // no auth = full access (dev mode)
+      _req.tierLevel = TIER.admin;
+      next();
+    };
   }
 
   const authorizeUrl = `${DISCORD_API}/oauth2/authorize?` + new URLSearchParams({
@@ -180,14 +214,13 @@ function setupAuth(app) {
     scope: OAUTH_SCOPES,
   }).toString();
 
-  console.log(`[WEB MAP AUTH] Discord OAuth enabled — callback: ${authCfg.callbackUrl}`);
-  if (authCfg.allowedRoles.length > 0) {
-    console.log(`[WEB MAP AUTH] Allowed roles: ${authCfg.allowedRoles.join(', ')}`);
-  } else {
-    console.log(`[WEB MAP AUTH] No WEB_MAP_ALLOWED_ROLES set — requiring Administrator permission`);
-  }
+  console.log(`[WEB AUTH] Discord OAuth enabled — callback: ${authCfg.callbackUrl}`);
+  if (authCfg.adminRoles.length > 0) console.log(`[WEB AUTH] Admin roles: ${authCfg.adminRoles.join(', ')}`);
+  if (authCfg.modRoles.length > 0) console.log(`[WEB AUTH] Mod roles: ${authCfg.modRoles.join(', ')}`);
+  if (authCfg.survivorRoles.length > 0) console.log(`[WEB AUTH] Survivor roles: ${authCfg.survivorRoles.join(', ')}`);
+  else console.log(`[WEB AUTH] No survivor roles set — any guild member gets survivor access`);
 
-  // ── Auth routes (unprotected) ──
+  // ── Auth routes (always accessible) ──
 
   app.get('/auth/login', (_req, res) => {
     res.redirect(authorizeUrl);
@@ -198,100 +231,106 @@ function setupAuth(app) {
     if (!code) return res.status(400).send('Missing authorization code');
 
     try {
-      // Exchange code for token
       const tokenData = await exchangeCode(code, authCfg);
       const accessToken = tokenData.access_token;
-
-      // Get user info
       const user = await getUser(accessToken);
-
-      // Check guild membership + role/permission
       const member = await getGuildMember(accessToken, authCfg.guildId);
-      if (!member) {
-        return res.status(403).send(`
-          <h2>Access Denied</h2>
-          <p>You are not a member of the required Discord server.</p>
-          <a href="/auth/login">Try again</a>
-        `);
-      }
 
-      if (!isAuthorised(member, authCfg.allowedRoles)) {
-        const requirement = authCfg.allowedRoles.length > 0
-          ? 'a required Discord role'
-          : 'the Administrator permission';
-        return res.status(403).send(`
-          <h2>Access Denied</h2>
-          <p>You don't have ${requirement} in the Discord server.</p>
-          <a href="/auth/login">Try again</a>
-        `);
-      }
+      const tier = resolveTier(member, authCfg);
 
-      // Create session
+      // Create session even for public tier (so we know they tried)
       const sessionId = crypto.randomBytes(32).toString('hex');
       sessions.set(sessionId, {
         userId: user.id,
         username: user.username,
+        displayName: user.global_name || user.username,
         avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
-        roles: member.roles,
+        roles: member?.roles || [],
+        tier,
+        tierLevel: TIER[tier],
+        inGuild: !!member,
         expiresAt: Date.now() + SESSION_TTL,
       });
 
-      // Set signed cookie
       const signed = signSession(sessionId, authCfg.sessionSecret);
       res.setHeader('Set-Cookie', `${COOKIE_NAME}=${signed}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}`);
       res.redirect('/');
 
     } catch (err) {
-      console.error('[WEB MAP AUTH] OAuth callback error:', err.message);
-      res.status(500).send(`
-        <h2>Authentication Error</h2>
-        <p>${err.message}</p>
-        <a href="/auth/login">Try again</a>
-      `);
+      console.error('[WEB AUTH] OAuth callback error:', err.message);
+      res.status(500).send(`<h2>Authentication Error</h2><p>${err.message}</p><a href="/auth/login">Try again</a>`);
     }
   });
 
   app.get('/auth/logout', (_req, res) => {
-    // Clear cookie
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-    res.send('<h2>Logged out</h2><a href="/auth/login">Log in again</a>');
+    res.redirect('/');
   });
 
   app.get('/auth/me', (req, res) => {
     const session = getSession(req, authCfg.sessionSecret);
-    if (!session) return res.status(401).json({ authenticated: false });
+    if (!session) {
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0 });
+    }
     res.json({
       authenticated: true,
       userId: session.userId,
       username: session.username,
+      displayName: session.displayName,
       avatar: session.avatar,
+      tier: session.tier,
+      tierLevel: session.tierLevel,
+      inGuild: session.inGuild,
     });
   });
 
-  // ── Auth middleware (applied to all other routes) ──
+  // ── Tier-aware middleware ──
+  // Sets req.tier and req.tierLevel on every request.
+  // Does NOT block public routes — individual routes check tier.
 
-  return (req, res, next) => {
+  return (req, _res, next) => {
     // Skip auth routes
     if (req.path.startsWith('/auth/')) return next();
 
     const session = getSession(req, authCfg.sessionSecret);
-    if (!session) {
-      // API requests get 401, browser requests get redirected
-      if (req.path.startsWith('/api/')) {
-        return res.status(401).json({ error: 'Not authenticated', login: '/auth/login' });
-      }
-      return res.redirect('/auth/login');
+    if (session) {
+      req.session = session;
+      req.tier = session.tier;
+      req.tierLevel = session.tierLevel;
+    } else {
+      req.tier = 'public';
+      req.tierLevel = TIER.public;
     }
-
-    // Attach session to request for downstream use
-    req.session = session;
     next();
   };
 }
 
 /**
- * Extract and validate session from request cookies.
+ * Express middleware factory: require minimum tier for a route.
+ * Usage: app.get('/api/admin/kick', requireTier('mod'), handler)
  */
+function requireTier(minTier) {
+  const minLevel = TIER[minTier] || 0;
+  return (req, res, next) => {
+    const level = req.tierLevel || 0;
+    if (level >= minLevel) return next();
+
+    if (req.tier === 'public') {
+      // Not logged in
+      if (req.path.startsWith('/api/')) {
+        return res.status(401).json({ error: 'Authentication required', login: '/auth/login' });
+      }
+      return res.redirect('/auth/login');
+    }
+
+    // Logged in but insufficient tier
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ error: `Requires ${minTier} access or higher` });
+    }
+    return res.status(403).send(`<h2>Access Denied</h2><p>You need <strong>${minTier}</strong> access or higher.</p><a href="/">Back</a>`);
+  };
+}
+
 function getSession(req, secret) {
   const cookies = parseCookies(req.headers.cookie);
   const signed = cookies[COOKIE_NAME];
@@ -311,4 +350,4 @@ function getSession(req, secret) {
   return session;
 }
 
-module.exports = { setupAuth, isEnabled, isAuthorised, _test: { signSession, verifySession, parseCookies } };
+module.exports = { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER, _test: { signSession, verifySession, parseCookies } };

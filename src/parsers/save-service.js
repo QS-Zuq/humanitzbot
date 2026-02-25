@@ -66,6 +66,11 @@ class SaveService extends EventEmitter {
     this._idMap = options.idMap || {};
     this._label = options.label || 'SaveService';
 
+    // Auto-load cached PlayerIDMapped.txt if no idMap provided
+    if (!options.idMap || Object.keys(this._idMap).length === 0) {
+      this._loadLocalIdMap();
+    }
+
     // Agent mode
     this._agentMode = options.agentMode || 'auto';     // 'auto' | 'agent' | 'direct'
     this._agentNodePath = options.agentNodePath || 'node';
@@ -109,6 +114,10 @@ class SaveService extends EventEmitter {
    */
   async start() {
     this._resolvePaths();
+
+    // One-time DB repair: fix activity_log rows where actor_name is a raw SteamID
+    this._repairSteamIdNames();
+
     const modeLabel = this._agentMode === 'direct' ? 'direct' : `${this._agentMode} (agent-capable: ${this._agentCapable ?? 'unknown'})`;
     console.log(`[${this._label}] Starting save service — mode: ${modeLabel}, poll every ${this._pollInterval / 1000}s`);
     await this._poll();
@@ -131,6 +140,68 @@ class SaveService extends EventEmitter {
   /** Update the ID map (called externally when PlayerIDMapped.txt is refreshed). */
   setIdMap(idMap) {
     this._idMap = idMap;
+  }
+
+  /**
+   * Load PlayerIDMapped.txt from the local data/ cache.
+   * Called on construction so names resolve from the very first sync.
+   */
+  _loadLocalIdMap() {
+    try {
+      const filePath = path.join(__dirname, '..', '..', 'data', 'PlayerIDMapped.txt');
+      if (!fs.existsSync(filePath)) return;
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const map = {};
+      let count = 0;
+      for (const line of raw.split(/\r?\n/)) {
+        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
+        if (m) {
+          map[m[1]] = m[2].trim();
+          count++;
+        }
+      }
+      if (count > 0) {
+        this._idMap = map;
+        console.log(`[${this._label}] Loaded ${count} name(s) from cached PlayerIDMapped.txt`);
+      }
+    } catch (err) {
+      // Non-critical — file may not exist yet
+      console.warn(`[${this._label}] Could not load cached ID map:`, err.message);
+    }
+  }
+
+  /**
+   * One-time repair: update activity_log rows where actor_name is a raw SteamID
+   * (17-digit number) and we now have a proper name from the ID map.
+   */
+  _repairSteamIdNames() {
+    if (!this._db || Object.keys(this._idMap).length === 0) return;
+    try {
+      const db = this._db.db || this._db._db || this._db;
+      if (typeof db.prepare !== 'function') return;
+
+      const rows = db.prepare(
+        `SELECT DISTINCT actor FROM activity_log
+         WHERE actor_name = actor AND actor GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'`
+      ).all();
+
+      let fixed = 0;
+      const stmt = db.prepare('UPDATE activity_log SET actor_name = ? WHERE actor = ? AND actor_name = actor');
+
+      for (const row of rows) {
+        const name = this._idMap[row.actor];
+        if (name) {
+          const info = stmt.run(name, row.actor);
+          fixed += info.changes;
+        }
+      }
+
+      if (fixed > 0) {
+        console.log(`[${this._label}] Repaired ${fixed} activity_log row(s) with resolved player names`);
+      }
+    } catch (err) {
+      console.warn(`[${this._label}] DB name repair failed (non-fatal):`, err.message);
+    }
   }
 
   get stats() {
