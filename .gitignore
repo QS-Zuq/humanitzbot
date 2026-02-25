@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.backup*
 data/
 *.7z
 *.sav
