@@ -227,8 +227,12 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   console.log('[BOT] Ready!');
 
-  // Connect to RCON
-  await rcon.connect();
+  // Connect to RCON (non-fatal — auto-reconnect handles recovery)
+  try {
+    await rcon.connect();
+  } catch (err) {
+    console.warn(`[BOT] Initial RCON connection failed: ${err.message} — will auto-reconnect`);
+  }
 
   // ── RCON lifecycle events — log game server restarts ──
   rcon.on('disconnect', ({ reason }) => {
@@ -336,6 +340,20 @@ client.once(Events.ClientReady, async (readyClient) => {
   //    Cleans every configured channel BEFORE modules start, so all
   //    threads and embeds are recreated fresh in the correct order.
   if (config.nukeBot) {
+    // Immediately clear NUKE_BOT in .env FIRST to prevent infinite nuke loops
+    // if anything crashes during the wipe/rebuild process.
+    try {
+      const envPath = path.join(__dirname, '..', '.env');
+      let envContent = fs.readFileSync(envPath, 'utf8');
+      envContent = envContent.replace(/^NUKE_BOT\s*=\s*true$/m, 'NUKE_BOT=false');
+      envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
+      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      console.log('[NUKE] NUKE_BOT set to false in .env (prevents repeat nuke on crash)');
+    } catch (err) {
+      console.warn('[NUKE] Could not update .env:', err.message);
+    }
+
     console.log('[NUKE] Wiping all bot content from Discord channels...');
     const channelsToClean = new Set();
     // Primary server channels
@@ -582,7 +600,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   const webMapPort = parseInt(process.env.WEB_MAP_PORT, 10);
   if (webMapPort && config.discordClientSecret) {
     try {
-      webMapServer = new WebMapServer(readyClient);
+      webMapServer = new WebMapServer(readyClient, { db });
       await webMapServer.start();
       setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
       console.log(`[BOT] Web map server started: http://localhost:${webMapPort}`);
@@ -746,20 +764,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       }
     }
 
-    // Set NUKE_BOT=false (and NUKE_THREADS + FIRST_RUN for completeness) in .env
-    try {
-      const envPath = path.join(__dirname, '..', '.env');
-      let envContent = fs.readFileSync(envPath, 'utf8');
-      envContent = envContent.replace(/^NUKE_BOT\s*=\s*true$/m, 'NUKE_BOT=false');
-      envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
-      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
-      fs.writeFileSync(envPath, envContent, 'utf8');
-      console.log('[NUKE] NUKE_BOT + FIRST_RUN set back to false in .env');
-    } catch (err) {
-      console.warn('[NUKE] Could not update .env:', err.message);
-      console.warn('[NUKE] Please manually set NUKE_BOT=false to prevent repeat reset.');
-    }
-
+    // NUKE_BOT was already set to false at the start of the nuke process
     console.log('[NUKE] Factory reset complete!');
   }
 

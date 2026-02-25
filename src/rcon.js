@@ -99,6 +99,10 @@ class RconManager extends EventEmitter {
           this.emit('disconnect', { reason: err.message });
         }
         this._cleanup();
+        // Reject the connect promise so callers don't hang forever
+        if (!this._everConnected) {
+          reject(new Error(err.message));
+        }
         this._scheduleReconnect();
       });
 
