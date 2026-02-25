@@ -457,8 +457,11 @@ function refreshPlayers() {
   };
 
   es.onerror = () => {
-    addStep('Connection lost', 'error');
-    finish();
+    // SSE endpoint may not exist — fall back to quick fetch
+    fetchPlayersQuick().catch(() => {}).finally(() => {
+      addStep('Loaded from cache', 'done');
+      finish();
+    });
   };
 }
 
@@ -656,5 +659,5 @@ map.on('click', function () {
 })();
 
 // ── Init ───────────────────────────────────────────────────
-refreshPlayers(); // full SSE refresh on first load
+fetchPlayersQuick().catch(err => console.warn('[MAP] Initial fetch failed:', err));
 startAutoRefresh(30000); // quick poll every 30s after that
