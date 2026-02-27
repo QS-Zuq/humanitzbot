@@ -3,6 +3,7 @@ const SftpClient = require('ssh2-sftp-client');
 const fs = require('fs');
 const path = require('path');
 const _defaultConfig = require('../config');
+const { cleanOwnMessages, embedContentKey } = require('./discord-utils');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('../parsers/save-parser');
@@ -773,7 +774,7 @@ class PlayerStatsChannel {
       const components = [...this._buildPlayerRow(), ...this._buildClanRow()];
 
       // Skip Discord API call if content hasn't changed since last edit
-      const contentKey = JSON.stringify(embed.data) + JSON.stringify(components.map(c => c.toJSON()));
+      const contentKey = embedContentKey(embed, components);
       if (contentKey === this._lastEmbedKey) return;
       this._lastEmbedKey = contentKey;
 
@@ -804,37 +805,7 @@ class PlayerStatsChannel {
 
   async _cleanOwnMessage() {
     const savedId = this._loadMessageId();
-    if (savedId) {
-      // Have a saved ID — delete only that specific message
-      try {
-        const msg = await this.channel.messages.fetch(savedId);
-        if (msg && msg.author.id === this.client.user.id) {
-          await msg.delete();
-          console.log(`[${this._label}] Cleaned previous message ${savedId}`);
-          return; // success — no need for bulk sweep
-        }
-      } catch (err) {
-        if (err.code !== 10008) {
-          console.log(`[${this._label}] Could not clean saved message:`, err.message);
-          return;
-        }
-        // 10008 = message gone — fall through to bulk sweep
-        console.log(`[${this._label}] Saved message ${savedId} already gone, sweeping channel...`);
-      }
-    }
-    // No saved ID, or saved message was already deleted — sweep ALL old bot messages
-    try {
-      const messages = await this.channel.messages.fetch({ limit: 20 });
-      const botMessages = messages.filter(m => m.author.id === this.client.user.id);
-      if (botMessages.size > 0) {
-        console.log(`[${this._label}] Cleaning ${botMessages.size} old bot message(s)`);
-        for (const [, msg] of botMessages) {
-          try { await msg.delete(); } catch (_) {}
-        }
-      }
-    } catch (err) {
-      console.log(`[${this._label}] Could not clean old messages:`, err.message);
-    }
+    await cleanOwnMessages(this.channel, this.client, { savedIds: savedId, label: this._label });
   }
 
   _loadMessageId() {

@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const _defaultConfig = require('../config');
+const { cleanOwnMessages, embedContentKey, safeEditMessage } = require('./discord-utils');
 const { getServerInfo, getPlayerList } = require('../rcon/server-info');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
@@ -184,37 +185,7 @@ class ServerStatus {
 
   async _cleanOwnMessage() {
     const savedId = this._loadMessageId();
-    if (savedId) {
-      // Have a saved ID — delete only that specific message
-      try {
-        const msg = await this.channel.messages.fetch(savedId);
-        if (msg && msg.author.id === this.client.user.id) {
-          await msg.delete();
-          console.log(`[${this._label}] Cleaned previous message ${savedId}`);
-          return; // success — no need for bulk sweep
-        }
-      } catch (err) {
-        if (err.code !== 10008) {
-          console.log(`[${this._label}] Could not clean saved message:`, err.message);
-          return;
-        }
-        // 10008 = message gone — fall through to bulk sweep
-        console.log(`[${this._label}] Saved message ${savedId} already gone, sweeping channel...`);
-      }
-    }
-    // No saved ID, or saved message was already deleted — sweep ALL old bot messages
-    try {
-      const messages = await this.channel.messages.fetch({ limit: 20 });
-      const botMessages = messages.filter(m => m.author.id === this.client.user.id);
-      if (botMessages.size > 0) {
-        console.log(`[${this._label}] Cleaning ${botMessages.size} old bot message(s)`);
-        for (const [, msg] of botMessages) {
-          try { await msg.delete(); } catch (_) {}
-        }
-      }
-    } catch (err) {
-      console.log(`[${this._label}] Could not clean old messages:`, err.message);
-    }
+    await cleanOwnMessages(this.channel, this.client, { savedIds: savedId, label: this._label });
   }
 
   _loadMessageId() {
@@ -263,26 +234,14 @@ class ServerStatus {
 
       if (this.statusMessage) {
         // Skip Discord API call if embed content hasn't changed
-        const contentKey = JSON.stringify(embed.data);
+        const contentKey = embedContentKey(embed);
         if (contentKey === this._lastEmbedKey) return;
         this._lastEmbedKey = contentKey;
 
-        try {
-          await this.statusMessage.edit({ embeds: [embed] });
-        } catch (editErr) {
-          // Message was deleted — re-create it
-          if (editErr.code === 10008 || editErr.message?.includes('Unknown Message')) {
-            console.log(`[${this._label}] Status message was deleted, re-creating...`);
-            try {
-              this.statusMessage = await this.channel.send({ embeds: [embed] });
-              this._saveMessageId();
-            } catch (createErr) {
-              console.error(`[${this._label}] Failed to re-create message:`, createErr.message);
-            }
-          } else {
-            throw editErr;
-          }
-        }
+        this.statusMessage = await safeEditMessage(this.statusMessage, this.channel, { embeds: [embed] }, {
+          label: this._label,
+          onRecreate: (msg) => { this.statusMessage = msg; this._saveMessageId(); },
+        });
       }
     } catch (err) {
       if (err.message.includes('RCON not connected')) {
@@ -296,18 +255,15 @@ class ServerStatus {
 
         const embed = await this._buildOfflineEmbed();
         if (this.statusMessage) {
-          const contentKey = JSON.stringify(embed.data);
+          const contentKey = embedContentKey(embed);
           if (contentKey !== this._lastEmbedKey) {
             this._lastEmbedKey = contentKey;
             try {
-              await this.statusMessage.edit({ embeds: [embed] });
-            } catch (editErr) {
-              if (editErr.code === 10008 || editErr.message?.includes('Unknown Message')) {
-                try {
-                  this.statusMessage = await this.channel.send({ embeds: [embed] });
-                } catch (_) { /* ignore */ }
-              }
-            }
+              this.statusMessage = await safeEditMessage(this.statusMessage, this.channel, { embeds: [embed] }, {
+                label: this._label,
+                onRecreate: (msg) => { this.statusMessage = msg; },
+              });
+            } catch (_) { /* ignore */ }
           }
         }
       } else {

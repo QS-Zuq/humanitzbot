@@ -3803,46 +3803,12 @@ class PanelChannel {
   async _cleanOwnMessages() {
     const ids = this._loadMessageIds();
     const savedIds = [ids.panelBot, ids.panelServer].filter(Boolean);
-    // Include per-server embed message IDs
     if (ids.servers) {
       for (const msgId of Object.values(ids.servers)) {
         if (msgId) savedIds.push(msgId);
       }
     }
-    let allFound = savedIds.length > 0;
-    if (savedIds.length > 0) {
-      // Have saved IDs — try to delete those specific messages
-      for (const savedId of savedIds) {
-        try {
-          const msg = await this.channel.messages.fetch(savedId);
-          if (msg && msg.author.id === this.client.user.id) {
-            await msg.delete();
-            console.log(`[PANEL CH] Cleaned previous message ${savedId}`);
-          }
-        } catch (err) {
-          if (err.code === 10008) {
-            allFound = false; // message gone — need bulk sweep
-          } else {
-            console.log('[PANEL CH] Could not clean saved message:', err.message);
-          }
-        }
-      }
-      if (allFound) return; // all saved messages found and deleted — no sweep needed
-      console.log('[PANEL CH] Some saved messages already gone, sweeping channel...');
-    }
-    // No saved IDs, or some were stale — sweep ALL old bot messages
-    try {
-      const messages = await this.channel.messages.fetch({ limit: 20 });
-      const botMessages = messages.filter(m => m.author.id === this.client.user.id);
-      if (botMessages.size > 0) {
-        console.log(`[PANEL CH] Cleaning ${botMessages.size} old bot message(s)`);
-        for (const [, msg] of botMessages) {
-          try { await msg.delete(); } catch (_) {}
-        }
-      }
-    } catch (err) {
-      console.log('[PANEL CH] Could not clean old messages:', err.message);
-    }
+    await cleanOwnMessages(this.channel, this.client, { savedIds, label: 'PANEL CH' });
   }
 
   _loadMessageIds() {
@@ -3871,7 +3837,7 @@ class PanelChannel {
       if (!this.panelMessage) return;
 
       const { embeds, components } = await this._buildUnifiedPanel();
-      const contentKey = JSON.stringify(embeds.map(e => e.data)) + JSON.stringify(components.map(r => r.toJSON()));
+      const contentKey = embedContentKey(embeds, components);
 
       if (force || contentKey !== this._lastBotKey) {
         this._lastBotKey = contentKey;

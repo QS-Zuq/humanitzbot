@@ -235,6 +235,12 @@ const config = {
   enablePlaytime: envBool('ENABLE_PLAYTIME', true),
   enableMilestones: envBool('ENABLE_MILESTONES', false),
   enableRecaps: envBool('ENABLE_RECAPS', false),
+
+  // Howyagarn — dev-only feature incubator (all default off)
+  enableDidYouKnow: envBool('ENABLE_DID_YOU_KNOW', false),
+  enablePlayerCards: envBool('ENABLE_PLAYER_CARDS', false),
+  enableNewspaper: envBool('ENABLE_NEWSPAPER', false),
+
   // Thread mode — when true (default), chat/activity go into daily threads.
   // When false, messages post directly to the channel.
   useChatThreads: envBool('USE_CHAT_THREADS', true),
