@@ -20,6 +20,7 @@ const SftpClient = require('ssh2-sftp-client');
 const { formatBytes, formatUptime } = require('../server/server-resources');
 const MultiServerManager = require('../server/multi-server');
 const { loadServers, saveServers, createServerConfig } = require('../server/multi-server');
+const { blockBar: _progressBar } = require('../server/server-display');
 
 // ── State colour map ────────────────────────────────────────
 const STATE_DISPLAY = {
@@ -31,14 +32,6 @@ const STATE_DISPLAY = {
 
 function _stateInfo(state) {
   return STATE_DISPLAY[state] || { emoji: '⚪', label: state || 'Unknown', color: 0x95a5a6 };
-}
-
-/** Visual progress bar: ████████░░░░ */
-function _progressBar(ratio, width = 12) {
-  const clamped = Math.max(0, Math.min(1, ratio));
-  const filled = Math.round(clamped * width);
-  const empty = width - filled;
-  return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
 /** Find common parent directory from an array of absolute paths. */

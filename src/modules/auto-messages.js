@@ -5,21 +5,8 @@ const _defaultPlayerStats = require('../tracking/player-stats');
 const SftpClient = require('ssh2-sftp-client');
 const { getDayOffset, getRotatedProfileIndex } = require('./schedule-utils');
 
-// Difficulty index → label (same as server-status.js)
-const DIFFICULTY_LABELS = ['Very Easy', 'Easy', 'Default', 'Hard', 'Very Hard', 'Nightmare'];
-function diffLabel(val) {
-  if (val == null) return null;
-  const idx = Math.round(parseFloat(val));
-  return DIFFICULTY_LABELS[idx] || val;
-}
-function spawnLabel(val) {
-  if (val == null) return null;
-  const n = parseFloat(val);
-  if (n === 0) return 'Low';
-  if (n === 1) return 'Medium';
-  if (n === 2) return 'High';
-  return `x${n}`;
-}
+// Shared formatting helpers (single source of truth in server-display.js)
+const { difficultyLabel: diffLabel, spawnLabel, DIFFICULTY_LABELS } = require('../server/server-display');
 
 // ── Color tag helpers for RCON messages ──────────────────
 const { COLOR, color, rconColor, colorOpen, white } = require('../rcon/rcon-colors');
