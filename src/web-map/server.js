@@ -90,10 +90,9 @@ class WebMapServer {
       res.setHeader('X-XSS-Protection', '1; mode=block');
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       // CSP: allow self + CDN scripts/styles + Google Fonts used by the panel frontend
-      // unsafe-inline required for Tailwind config block
       res.setHeader('Content-Security-Policy', [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net",
+        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net",
         "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
         "img-src 'self' https://cdn.discordapp.com data: blob:",
         "connect-src 'self'",

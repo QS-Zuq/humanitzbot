@@ -1,7 +1,10 @@
-/* HumanitZ Panel — Tailwind CSS Configuration */
-/* Post-outbreak field station: worn earth, dried blood, functional severity */
-tailwind.config = {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   darkMode: 'class',
+  content: [
+    './src/web-map/public/panel.html',
+    './src/web-map/public/panel.js',
+  ],
   theme: {
     extend: {
       colors: {
@@ -11,13 +14,13 @@ tailwind.config = {
         /* Primary accent — warm amber/copper (field radio dial) */
         accent: { DEFAULT: '#d4915c', hover: '#e0a472', dim: 'rgba(212,145,92,0.12)' },
         /* Semantic — survival palette */
-        calm: '#6dba82',    /* faded green — alive, safe */
-        surge: '#d4a843',   /* ochre/gold — warning */
-        horde: '#c45a4a',   /* brick red — danger, death */
-        blood: '#8b3a3a',   /* dried blood — severity accent */
-        rust: '#9c6844',    /* oxidised metal — wear, age */
-        ash: '#3a3633',     /* burned residue */
-        muted: '#7a746c',   /* warm gray */
+        calm: '#6dba82',
+        surge: '#d4a843',
+        horde: '#c45a4a',
+        blood: '#8b3a3a',
+        rust: '#9c6844',
+        ash: '#3a3633',
+        muted: '#7a746c',
         text: { DEFAULT: '#c8c2b8', bright: '#e8e3db', dim: '#5c574f' },
       },
       fontFamily: {
@@ -31,4 +34,5 @@ tailwind.config = {
       },
     },
   },
+  plugins: [],
 };

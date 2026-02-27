@@ -12,6 +12,8 @@
     "deploy-commands": "node src/deploy-commands.js",
     "dev": "node --watch src/index.js",
     "test": "node --test test/*.test.js",
+    "build:css": "tailwindcss -i src/web-map/public/tailwind-input.css -o src/web-map/public/tailwind.css --minify",
+    "dev:css": "tailwindcss -i src/web-map/public/tailwind-input.css -o src/web-map/public/tailwind.css --watch",
     "build:template": "node src/db/build-template-db.js",
     "changelog": "node tools/generate-changelog.js --output README.md",
     "changelog:json": "node tools/generate-changelog.js --output CHANGELOG.json --format json"
@@ -25,5 +27,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
   }
 }
