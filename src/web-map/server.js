@@ -68,6 +68,7 @@ class WebMapServer {
   constructor(client, opts = {}) {
     this._client = client;
     this._app = express();
+    this._app.set('trust proxy', 'loopback'); // Trust Caddy reverse proxy on localhost
     this._server = null;
     this._port = parseInt(process.env.WEB_MAP_PORT, 10) || 3000;
     this._db = opts.db || null;
