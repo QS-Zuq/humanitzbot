@@ -1130,17 +1130,19 @@ class PanelChannel {
         retries: 0,
       });
 
-      // Auto-discover game files
+      // Auto-discover game files via recursive search
       const targets = ['HMZLog.log', 'PlayerConnectedLog.txt', 'PlayerIDMapped.txt', 'Save_DedicatedSaveMP.sav', 'GameServerSettings.ini', 'WelcomeMessage.txt'];
       const found = new Map();
 
-      // Quick search in common game server paths
+      // Quick check: common game server paths first (fast path)
       const searchDirs = [
         '/home/steam/hzserver/serverfiles/HumanitZServer',
         '/home/steam/HumanitZServer',
         '/HumanitZServer',
         '/serverfiles/HumanitZServer',
         '/home/container/HumanitZServer',
+        '/app/serverfiles/HumanitZServer',
+        '/app/HumanitZServer',
       ];
 
       for (const dir of searchDirs) {
@@ -1165,6 +1167,30 @@ class PanelChannel {
             } catch { /* save dir doesn't exist here */ }
           }
         } catch { /* dir doesn't exist */ }
+      }
+
+      // If quick check didn't find everything, do a full recursive search
+      if (found.size < targets.length) {
+        const _skip = /^(\.|node_modules|__pycache__|Engine|Content|Binaries|linux64|steamapps|proc|sys|run|tmp|lost\+found|snap|boot|usr)$/i;
+        const _priority = /^(data|serverfiles|home|opt|root|app|HumanitZServer|hzserver|humanitz|container)/i;
+        const _recurse = async (dir, depth) => {
+          if (depth >= 8 || found.size >= targets.length) return;
+          let items;
+          try { items = await sftp.list(dir); } catch { return; }
+          for (const item of items) {
+            if (found.size >= targets.length) return;
+            const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
+            if (item.type === 'd') {
+              if (_skip.test(item.name)) continue;
+              if (_priority.test(item.name) || depth < 6) {
+                await _recurse(fullPath, depth + 1);
+              }
+            } else if (targets.includes(item.name) && !found.has(item.name)) {
+              found.set(item.name, fullPath);
+            }
+          }
+        };
+        await _recurse('/', 0);
       }
 
       await sftp.end();
@@ -2033,7 +2059,8 @@ class PanelChannel {
     } else if (results.sftp.status === 'ok' && !results.sftp.hasLog) {
       tips.push(
         '📁 **Log file not found** — `FTP_LOG_PATH` does not exist on the server. ' +
-        'Log Watcher needs this file. Check that `FTP_LOG_PATH` points to `HMZLog.log` (default: `/HumanitZServer/HMZLog.log`).'
+        'Log Watcher needs this file. Set `FTP_LOG_PATH` in `.env` to the full path of `HMZLog.log` on your server ' +
+        '(e.g. `/home/steam/hzserver/serverfiles/HumanitZServer/HMZLog.log`). If you\'re unsure, run `npm run setup` to auto-discover.'
       );
     } else if (results.sftp.status === 'unconfigured' && skippedModules.some(([n]) => /log|save|stats|pvp/i.test(n))) {
       tips.push(

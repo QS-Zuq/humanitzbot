@@ -92,7 +92,7 @@ async function _discoverFiles(sftp, dir, depth, maxDepth, found) {
   for (const item of items) {
     const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
     if (item.type === 'd') {
-      if (/^(\.|node_modules|__pycache__|Engine|Content|Binaries|linux64|steamapps)$/i.test(item.name)) continue;
+      if (/^(\.|node_modules|__pycache__|Engine|Content|Binaries|linux64|steamapps|proc|sys|run|tmp|lost\+found|snap|boot|usr)$/i.test(item.name)) continue;
       await _discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
     } else if (DISCOVERY_TARGETS.includes(item.name) && !found.has(item.name)) {
       found.set(item.name, fullPath);

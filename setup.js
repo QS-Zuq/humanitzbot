@@ -186,10 +186,10 @@ async function discoverFiles(sftp, dir, depth, maxDepth, found) {
     const fullPath = dir === '/' ? `/${item.name}` : `${dir}/${item.name}`;
     if (item.type === 'd') {
       // Skip obviously irrelevant directories for faster discovery
-      if (/^(\.|node_modules|__pycache__|Engine|proc|sys|dev|run|tmp|lost\+found|snap|boot|usr)$/i.test(item.name)) continue;
+      if (/^(\.|node_modules|__pycache__|Engine|Content|Binaries|proc|sys|run|tmp|lost\+found|snap|boot|usr)$/i.test(item.name)) continue;
       // Prioritize game server directories (check them first)
-      const isPriority = /^(data|serverfiles|home|opt|root|app)/i.test(item.name);
-      if (isPriority || depth < 4) {
+      const isPriority = /^(data|serverfiles|home|opt|root|app|HumanitZServer|hzserver|humanitz|container)/i.test(item.name);
+      if (isPriority || depth < 6) {
         await discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
       }
     } else if (DISCOVERY_TARGETS[item.name] && !found.has(item.name)) {
