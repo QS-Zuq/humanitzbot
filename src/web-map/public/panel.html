@@ -268,12 +268,12 @@
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <div class="stat-card"><div class="stat-label">Status</div><div id="d-status" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Online</div><div id="d-online" class="stat-value">-</div><canvas id="spark-online" height="24" class="mt-1 w-full"></canvas></div>
+            <div class="stat-card"><div class="stat-label">Online</div><div id="d-online" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-online"></canvas></div></div>
             <div class="stat-card"><div class="stat-label">Total Players</div><div id="d-total" class="stat-value">-</div></div>
             <div class="stat-card"><div class="stat-label">World</div><div id="d-world" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Events Today</div><div id="d-events" class="stat-value">-</div><canvas id="spark-events" height="24" class="mt-1 w-full"></canvas></div>
+            <div class="stat-card"><div class="stat-label">Events Today</div><div id="d-events" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-events"></canvas></div></div>
           </div>
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div id="dash-cards" class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr))">
             <div id="schedule-card" class="hidden card"><h3 class="card-title">Difficulty Schedule</h3><div id="schedule-info" class="space-y-2"></div></div>
             <div id="resources-card" class="hidden card" data-min-tier="3"><h3 class="card-title">Server Resources</h3><div id="resources-info" class="space-y-3"></div></div>
           </div>

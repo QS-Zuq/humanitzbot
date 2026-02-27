@@ -104,7 +104,7 @@ body { background: #12100e; color: #c8c2b8; }
 /* ── Stat Cards ── */
 .stat-card {
   background: #191614; border: 1px solid #302a25;
-  border-radius: 0.5rem; padding: 0.875rem 1rem; min-width: 0;
+  border-radius: 0.5rem; padding: 0.875rem 1rem; min-width: 0; overflow: hidden;
 }
 .stat-label { font-size: 0.6875rem; color: #7a746c; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; white-space: nowrap; }
 .stat-value { font-size: 1.125rem; font-weight: 600; color: #e8e3db; margin-top: 0.25rem; font-feature-settings: 'tnum' 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

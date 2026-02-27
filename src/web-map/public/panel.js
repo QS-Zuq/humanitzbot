@@ -548,6 +548,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        resizeDelay: 0,
         animation: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: {
