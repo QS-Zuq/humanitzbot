@@ -132,15 +132,31 @@
     S.tier = S.user.tierLevel || 0;
     if (!S.user.authenticated || S.tier < 1) {
       showLanding();
-      // Swap sign-in button for authenticated non-guild members
+      // Non-guild member: swap button to open invite in new tab + poll for join
       if (S.user.authenticated && S.tier < 1) {
         var authBtn = $('#landing-auth-btn');
         if (authBtn) {
           authBtn.innerHTML = '<svg width="18" height="14" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.7 40.7 0 00-1.8 3.7c-5.5-.8-11-.8-16.3 0A37.3 37.3 0 0025.3.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.4 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32 .3 45.1v.1a58.8 58.8 0 0017.8 9 .2.2 0 00.3-.1c1.4-1.9 2.6-3.9 3.6-6a.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 010-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .3 36.4 36.4 0 01-5.5 2.7.2.2 0 00-.1.3c1.1 2.1 2.3 4.1 3.7 6a.2.2 0 00.2.1 58.6 58.6 0 0017.9-9v-.1c1.4-15-2.3-28-9.8-39.6a.2.2 0 00-.1-.1zM23.7 37c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7zm23.2 0c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7z"/></svg> Join our Discord for full access';
-          authBtn.href = '#';
           authBtn.classList.replace('bg-[#5865F2]', 'bg-accent/80');
           authBtn.classList.replace('hover:bg-[#4752C4]', 'hover:bg-accent');
+          authBtn.target = '_blank';
+          authBtn.rel = 'noopener';
+          // href gets set below when landing API returns the invite URL
         }
+        // Poll /auth/refresh every 5s — bot checks guild membership server-side
+        // When user joins Discord and we detect it, auto-redirect to panel
+        S._refreshPoll = setInterval(async function() {
+          try {
+            var r = await fetch('/auth/refresh');
+            var d = await r.json();
+            if (d.tierLevel >= 1) {
+              clearInterval(S._refreshPoll);
+              S.user = d;
+              S.tier = d.tierLevel;
+              showPanel();
+            }
+          } catch (e) { /* ignore */ }
+        }, 5000);
       }
     }
     else showPanel();
@@ -253,6 +269,7 @@
   }
 
   function showPanel() {
+    if (S._refreshPoll) { clearInterval(S._refreshPoll); S._refreshPoll = null; }
     $('#landing').classList.add('hidden');
     $('#panel').classList.remove('hidden');
     const skyBg = $('#skyline-bg');

@@ -209,7 +209,7 @@ function isEnabled() {
  * Public routes (landing page, basic stats) are always accessible.
  * Higher-tier routes require authentication + appropriate role.
  */
-function setupAuth(app) {
+function setupAuth(app, client) {
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
@@ -318,6 +318,48 @@ function setupAuth(app) {
     const session = getSession(req, authCfg.sessionSecret);
     if (!session) {
       return res.json({ authenticated: false, tier: 'public', tierLevel: 0 });
+    }
+    res.json({
+      authenticated: true,
+      userId: session.userId,
+      username: session.username,
+      displayName: session.displayName,
+      avatar: session.avatar,
+      tier: session.tier,
+      tierLevel: session.tierLevel,
+      inGuild: session.inGuild,
+    });
+  });
+
+  // Re-check guild membership via the bot client (no re-auth needed).
+  // Used by the frontend to detect when a non-guild user joins the Discord server.
+  app.get('/auth/refresh', async (req, res) => {
+    const session = getSession(req, authCfg.sessionSecret);
+    if (!session) {
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0 });
+    }
+    // Only attempt refresh if we have the bot client and a guild ID
+    if (client && authCfg.guildId && session.userId) {
+      try {
+        const guild = client.guilds?.cache?.get(authCfg.guildId);
+        if (guild) {
+          const member = await guild.members.fetch(session.userId).catch(() => null);
+          if (member) {
+            // Convert to the format resolveTier expects
+            const memberData = {
+              roles: member.roles.cache.map(r => r.id),
+              permissions: member.permissions.bitfield.toString(),
+            };
+            const newTier = resolveTier(memberData, authCfg);
+            session.tier = newTier;
+            session.tierLevel = TIER[newTier];
+            session.inGuild = true;
+            session.roles = memberData.roles;
+          }
+        }
+      } catch (err) {
+        console.warn('[WEB AUTH] Refresh guild check failed:', err.message);
+      }
     }
     res.json({
       authenticated: true,

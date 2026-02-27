@@ -370,7 +370,7 @@ class WebMapServer {
 
     // Discord OAuth2 authentication (must be registered before static/API routes)
     // Returns no-op middleware if DISCORD_OAUTH_SECRET / WEB_MAP_CALLBACK_URL are not set
-    const authMiddleware = setupAuth(app);
+    const authMiddleware = setupAuth(app, this._client);
     app.use(authMiddleware);
 
     // ── Root page → panel.html (must come before static middleware) ──
