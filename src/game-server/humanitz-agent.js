@@ -2256,12 +2256,13 @@ const CLAN_FILENAME = 'Save_ClanData.sav';
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { save: '', output: '', watch: false, interval: 30, help: false, discover: false };
+  const opts = { save: '', output: '', watch: false, interval: 30, help: false, discover: false, pretty: false };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg === '--watch' || arg === '-w') opts.watch = true;
+    else if (arg === '--pretty' || arg === '-p') opts.pretty = true;
     else if (arg === '--discover') opts.discover = true;
     else if ((arg === '--save' || arg === '-s') && args[i + 1]) opts.save = args[++i];
     else if ((arg === '--output' || arg === '-o') && args[i + 1]) opts.output = args[++i];
@@ -2283,6 +2284,7 @@ Options:
   --output, -o <path>    Output path for cache JSON
   --watch, -w            Watch mode: re-parse when save changes
   --interval, -i <sec>   Poll interval in seconds (default: 30)
+  --pretty, -p           Pretty-print JSON output (human-readable)
   --discover             Search for save file in common locations
   --help, -h             Show this help
 
@@ -2334,7 +2336,7 @@ function _deepSearch(dir, target, depth, maxDepth) {
 
 // ── Parse and write cache ──
 
-function parseAndWrite(savePath, outputPath) {
+function parseAndWrite(savePath, outputPath, pretty) {
   const startTime = Date.now();
 
   const buf = _fs.readFileSync(savePath);
@@ -2375,7 +2377,7 @@ function parseAndWrite(savePath, outputPath) {
     clans: clans,
   };
 
-  const json = JSON.stringify(cache);
+  const json = pretty ? JSON.stringify(cache, null, 2) : JSON.stringify(cache);
   _fs.writeFileSync(outputPath, json);
 
   const elapsed = Date.now() - startTime;
@@ -2393,7 +2395,7 @@ function parseAndWrite(savePath, outputPath) {
 
 // ── Watch mode ──
 
-function watchMode(savePath, outputPath, intervalSec) {
+function watchMode(savePath, outputPath, intervalSec, pretty) {
   let lastMtime = 0;
 
   function check() {
@@ -2401,7 +2403,7 @@ function watchMode(savePath, outputPath, intervalSec) {
       const stat = _fs.statSync(savePath);
       if (stat.mtimeMs !== lastMtime) {
         lastMtime = stat.mtimeMs;
-        parseAndWrite(savePath, outputPath);
+        parseAndWrite(savePath, outputPath, pretty);
       }
     } catch (err) {
       console.error('[Agent] Error:', err.message);
@@ -2444,9 +2446,9 @@ function main() {
   const outputPath = opts.output || _path.join(_path.dirname(savePath), CACHE_FILENAME);
 
   if (opts.watch) {
-    watchMode(savePath, outputPath, opts.interval);
+    watchMode(savePath, outputPath, opts.interval, opts.pretty);
   } else {
-    parseAndWrite(savePath, outputPath);
+    parseAndWrite(savePath, outputPath, opts.pretty);
   }
 }
 
