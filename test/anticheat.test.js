@@ -1564,8 +1564,8 @@ describe('AnticheatEngine (Phase AC-2)', () => {
     engine.shutdown();
   });
 
-  it('version is 0.2.0', () => {
-    assert.equal(engine.version, '0.2.0');
+  it('version is 0.3.0', () => {
+    assert.equal(engine.version, '0.3.0');
   });
 
   it('diagnostics includes fingerprint field', () => {
@@ -1646,5 +1646,614 @@ describe('AnticheatEngine (Phase AC-2)', () => {
     assert.ok(engine._fingerprint);
     engine.shutdown();
     assert.equal(engine._fingerprint, null);
+  });
+});
+
+// ============================================================================
+// Phase AC-3: Intelligence Layer
+// ============================================================================
+
+describe('detectors/behavioral-clustering', () => {
+  const bc = AnticheatEngine.behavioralClustering;
+
+  it('exports detect, train, and constants', () => {
+    assert.equal(typeof bc.detect, 'function');
+    assert.equal(typeof bc.train, 'function');
+    assert.equal(bc.DETECTOR_NAME, 'behavioral_deviation');
+    assert.equal(bc.MIN_SAMPLES, 20);
+    assert.equal(bc.ZSCORE_THRESHOLD, 3.0);
+    assert.ok(Array.isArray(bc.BEHAVIOR_METRICS));
+    assert.ok(bc.BEHAVIOR_METRICS.length >= 4);
+  });
+
+  it('returns empty array when no features provided', () => {
+    const flags = bc.detect(new Map(), null);
+    assert.deepStrictEqual(flags, []);
+  });
+
+  it('returns empty array when no baseline modeler', () => {
+    const features = new Map([['steam1', { killFeatures: { killsPerMinute: 100 } }]]);
+    const flags = bc.detect(features, null);
+    assert.deepStrictEqual(flags, []);
+  });
+
+  it('returns empty when baseline is not ready', () => {
+    const modeler = {
+      scorePlayer: () => ({ ready: false }),
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', { killFeatures: { killsPerMinute: 50 } }]]);
+    const flags = bc.detect(features, modeler);
+    assert.deepStrictEqual(flags, []);
+  });
+
+  it('flags player whose behavior deviates from own baseline', () => {
+    const modeler = {
+      scorePlayer: (steamId, metric, value) => {
+        if (metric === 'behavior_kills_per_minute') {
+          return { ready: true, zScore: 5.0, median: 2.0 };
+        }
+        return { ready: false };
+      },
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 50, headshotRatio: 0.3 },
+      positionFeatures: { speed: 5 },
+    }]]);
+    const flags = bc.detect(features, modeler);
+    assert.ok(flags.length >= 1);
+    assert.equal(flags[0].steamId, 'steam1');
+    assert.equal(flags[0].detector, 'behavioral_deviation');
+    assert.ok(flags[0].details.deviations.length >= 1);
+    assert.equal(flags[0].details.deviations[0].metric, 'kills_per_minute');
+  });
+
+  it('does not flag player within normal z-score range', () => {
+    const modeler = {
+      scorePlayer: () => ({ ready: true, zScore: 1.5, median: 5.0 }),
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 6 },
+    }]]);
+    const flags = bc.detect(features, modeler);
+    assert.equal(flags.length, 0);
+  });
+
+  it('train records metrics to baseline modeler', () => {
+    const recorded = [];
+    const modeler = {
+      recordPlayer: (steamId, metric, value, ts) => {
+        recorded.push({ steamId, metric, value });
+      },
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 5, headshotRatio: 0.4 },
+      positionFeatures: { speed: 8.0 },
+      structureFeatures: { buildsPerMinute: 2 },
+    }]]);
+    bc.train(features, modeler);
+    assert.ok(recorded.length >= 4);
+    assert.ok(recorded.some(r => r.metric === 'behavior_kills_per_minute'));
+    assert.ok(recorded.some(r => r.metric === 'behavior_headshot_ratio'));
+    assert.ok(recorded.some(r => r.metric === 'behavior_movement_speed'));
+    assert.ok(recorded.some(r => r.metric === 'behavior_builds_per_minute'));
+  });
+
+  it('train ignores null/undefined metric values', () => {
+    const recorded = [];
+    const modeler = {
+      recordPlayer: (steamId, metric, value) => { recorded.push(metric); },
+    };
+    const features = new Map([['steam1', {
+      killFeatures: null,
+      positionFeatures: { speed: 5 },
+    }]]);
+    bc.train(features, modeler);
+    assert.ok(recorded.includes('behavior_movement_speed'));
+    assert.ok(!recorded.includes('behavior_kills_per_minute'));
+  });
+
+  it('flags multiple deviating metrics and picks highest severity', () => {
+    const modeler = {
+      scorePlayer: (steamId, metric) => {
+        if (metric === 'behavior_kills_per_minute') return { ready: true, zScore: 7, median: 2 };
+        if (metric === 'behavior_movement_speed') return { ready: true, zScore: 6, median: 5 };
+        return { ready: false };
+      },
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 80 },
+      positionFeatures: { speed: 50 },
+    }]]);
+    const flags = bc.detect(features, modeler);
+    assert.equal(flags.length, 1);
+    assert.equal(flags[0].details.deviationCount, 2);
+    assert.equal(flags[0].severity, 'high'); // kills z=7 → high
+  });
+
+  it('normalizes score from z-score average', () => {
+    const modeler = {
+      scorePlayer: () => ({ ready: true, zScore: 5, median: 1 }),
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 40 },
+    }]]);
+    const flags = bc.detect(features, modeler);
+    assert.equal(flags.length, 1);
+    // avgZ = 5, normalized = min(1.0, 5/10) = 0.5
+    assert.equal(flags[0].score, 0.5);
+  });
+
+  it('caps score at 1.0 for very high z-scores', () => {
+    const modeler = {
+      scorePlayer: () => ({ ready: true, zScore: 15, median: 1 }),
+      recordPlayer: () => {},
+    };
+    const features = new Map([['steam1', {
+      killFeatures: { killsPerMinute: 200 },
+    }]]);
+    const flags = bc.detect(features, modeler);
+    assert.equal(flags.length, 1);
+    assert.equal(flags[0].score, 1.0);
+  });
+});
+
+describe('detectors/pattern-matcher', () => {
+  const pm = AnticheatEngine.patternMatcher;
+
+  it('exports detect, matchSequence, and constants', () => {
+    assert.equal(typeof pm.detect, 'function');
+    assert.equal(typeof pm.matchSequence, 'function');
+    assert.equal(pm.DETECTOR_NAME, 'pattern_match');
+    assert.ok(Array.isArray(pm.PATTERNS));
+    assert.ok(pm.PATTERNS.length >= 5);
+  });
+
+  it('returns empty array when no events', () => {
+    assert.deepStrictEqual(pm.detect([], 'steam1'), []);
+    assert.deepStrictEqual(pm.detect(null, 'steam1'), []);
+  });
+
+  it('returns empty when steamId is falsy', () => {
+    const events = [
+      { steamId: 'steam1', type: 'player_connect', timestamp: '2025-01-01T00:00:00Z' },
+      { steamId: 'steam1', type: 'player_disconnect', timestamp: '2025-01-01T00:01:00Z' },
+    ];
+    assert.deepStrictEqual(pm.detect(events, ''), []);
+  });
+
+  it('detects save_editor_cycle pattern', () => {
+    const t = Date.now();
+    const events = [
+      { steamId: 'cheater', type: 'player_disconnect', timestamp: new Date(t).toISOString() },
+      { steamId: 'cheater', type: 'stat_regression', timestamp: new Date(t + 30_000).toISOString() },
+      { steamId: 'cheater', type: 'player_connect', timestamp: new Date(t + 60_000).toISOString() },
+    ];
+    const flags = pm.detect(events, 'cheater');
+    assert.ok(flags.length >= 1);
+    const saveEditorFlag = flags.find(f => f.details.pattern === 'save_editor_cycle');
+    assert.ok(saveEditorFlag);
+    assert.equal(saveEditorFlag.severity, 'high');
+  });
+
+  it('detects rapid_dupe_cycle pattern (3 reconnect cycles)', () => {
+    const t = Date.now();
+    const events = [];
+    // Need 3 full connect-disconnect-connect matches within 60s
+    // Each C,D,C consumes the first C and D, second C starts next match
+    // So we need: C D C D C D C D C = 9 events for 3 matches
+    for (let i = 0; i < 4; i++) {
+      events.push(
+        { steamId: 'duper', type: 'player_connect', timestamp: new Date(t + i * 10_000).toISOString() },
+        { steamId: 'duper', type: 'player_disconnect', timestamp: new Date(t + i * 10_000 + 3000).toISOString() },
+      );
+    }
+    // Final connect to complete the 4th pair, giving us C D C D C D C D = 8 events
+    // matchSequence walks: (C0,D1,C2)=match1, D3 skip, (C4,D5,C6)=match2, D7 skip = only 2
+    // Actually need the pattern to overlap: after match C,D,C the next scan starts from D
+    // So we need interleaved events: C D C D C D C D C D C (11 events for 3 non-overlapping matches at positions 0-2, 4-6, 8-10)
+    // Simpler: just produce enough C/D pairs. With alternating C D, positions:
+    // C0 D1 C2 D3 C4 D5 C6 D7 C8 D9 C10
+    // Matches: (C0,D1,C2), skip D3, (C4,D5,C6), skip D7, (C8,D9,C10) = 3 matches
+    events.length = 0;
+    for (let i = 0; i < 11; i++) {
+      const type = i % 2 === 0 ? 'player_connect' : 'player_disconnect';
+      events.push({ steamId: 'duper', type, timestamp: new Date(t + i * 5000).toISOString() });
+    }
+    const flags = pm.detect(events, 'duper');
+    const dupeFlag = flags.find(f => f.details.pattern === 'rapid_dupe_cycle');
+    assert.ok(dupeFlag);
+    assert.equal(dupeFlag.severity, 'high');
+  });
+
+  it('detects combat_teleport pattern', () => {
+    const t = Date.now();
+    const events = [
+      { steamId: 'tp', type: 'teleportation', timestamp: new Date(t).toISOString() },
+      { steamId: 'tp', type: 'player_death_pvp', timestamp: new Date(t + 5000).toISOString() },
+      { steamId: 'tp', type: 'teleportation', timestamp: new Date(t + 10_000).toISOString() },
+      { steamId: 'tp', type: 'player_death_pvp', timestamp: new Date(t + 15_000).toISOString() },
+    ];
+    const flags = pm.detect(events, 'tp');
+    const tpFlag = flags.find(f => f.details.pattern === 'combat_teleport');
+    assert.ok(tpFlag);
+    assert.equal(tpFlag.severity, 'high');
+    assert.ok(tpFlag.score >= 0.9);
+  });
+
+  it('does not flag when pattern count below minMatches', () => {
+    const t = Date.now();
+    // Only 1 teleport+kill — needs 2 for combat_teleport
+    const events = [
+      { steamId: 'tp', type: 'teleportation', timestamp: new Date(t).toISOString() },
+      { steamId: 'tp', type: 'player_death_pvp', timestamp: new Date(t + 5000).toISOString() },
+    ];
+    const flags = pm.detect(events, 'tp');
+    const tpFlag = flags.find(f => f.details.pattern === 'combat_teleport');
+    assert.equal(tpFlag, undefined);
+  });
+
+  it('does not match events outside the time window', () => {
+    const t = Date.now();
+    const events = [
+      { steamId: 'slow', type: 'player_disconnect', timestamp: new Date(t).toISOString() },
+      { steamId: 'slow', type: 'stat_regression', timestamp: new Date(t + 600_000).toISOString() }, // 10 min later — outside 5 min window
+      { steamId: 'slow', type: 'player_connect', timestamp: new Date(t + 700_000).toISOString() },
+    ];
+    const flags = pm.detect(events, 'slow');
+    const saveFlag = flags.find(f => f.details.pattern === 'save_editor_cycle');
+    assert.equal(saveFlag, undefined);
+  });
+
+  it('filters events to target steamId only', () => {
+    const t = Date.now();
+    const events = [
+      { steamId: 'innocent', type: 'player_disconnect', timestamp: new Date(t).toISOString() },
+      { steamId: 'cheater', type: 'stat_regression', timestamp: new Date(t + 10_000).toISOString() },
+      { steamId: 'innocent', type: 'player_connect', timestamp: new Date(t + 20_000).toISOString() },
+    ];
+    // For 'innocent', disconnect + connect exists but no stat_regression in between
+    const flags = pm.detect(events, 'innocent');
+    const saveFlag = flags.find(f => f.details.pattern === 'save_editor_cycle');
+    assert.equal(saveFlag, undefined);
+  });
+
+  it('matchSequence counts multiple occurrences', () => {
+    const pattern = { sequence: ['a', 'b'], windowMs: 60_000, minMatches: 1 };
+    const events = [
+      { type: 'a', timestamp: '2025-01-01T00:00:00Z' },
+      { type: 'b', timestamp: '2025-01-01T00:00:10Z' },
+      { type: 'a', timestamp: '2025-01-01T00:00:20Z' },
+      { type: 'b', timestamp: '2025-01-01T00:00:30Z' },
+    ];
+    assert.equal(pm.matchSequence(events, pattern), 2);
+  });
+
+  it('requiresFlags check skips pattern when required flag types are absent', () => {
+    const t = Date.now();
+    // stat_pump_cycle requires 'stat_regression' type in events
+    const events = [
+      { steamId: 'p1', type: 'player_disconnect', timestamp: new Date(t).toISOString() },
+      { steamId: 'p1', type: 'player_connect', timestamp: new Date(t + 30_000).toISOString() },
+    ];
+    const flags = pm.detect(events, 'p1');
+    const pumpFlag = flags.find(f => f.details.pattern === 'stat_pump_cycle');
+    assert.equal(pumpFlag, undefined);
+  });
+
+  it('score increases with match count above minMatches', () => {
+    const t = Date.now();
+    // 3 combat_teleport cycles (min is 2)
+    const events = [];
+    for (let i = 0; i < 3; i++) {
+      events.push(
+        { steamId: 's', type: 'teleportation', timestamp: new Date(t + i * 8000).toISOString() },
+        { steamId: 's', type: 'player_death_pvp', timestamp: new Date(t + i * 8000 + 3000).toISOString() },
+      );
+    }
+    const flags = pm.detect(events, 's');
+    const tpFlag = flags.find(f => f.details.pattern === 'combat_teleport');
+    assert.ok(tpFlag);
+    assert.ok(tpFlag.score > 0.9); // base 0.9 + (3-2)*0.05 = 0.95
+  });
+});
+
+describe('extractors/item-provenance', () => {
+  const { extractItemFlows, extractContainerAccess } = (() => {
+    try {
+      return require('@humanitzbot/qs-anticheat');
+    } catch {
+      return { extractItemFlows: () => ({ edges: new Map(), playerNodes: new Map() }), extractContainerAccess: () => new Map() };
+    }
+  })();
+
+  it('extractItemFlows returns empty maps on DB error', () => {
+    const db = { db: { prepare: () => { throw new Error('no table'); } } };
+    const result = extractItemFlows(db);
+    assert.ok(result.edges instanceof Map);
+    assert.ok(result.playerNodes instanceof Map);
+    assert.equal(result.edges.size, 0);
+    assert.equal(result.playerNodes.size, 0);
+  });
+
+  it('extractItemFlows builds edges from player-to-player movements', () => {
+    const fakeRows = [
+      { from_type: 'player', from_id: 'A', to_type: 'player', to_id: 'B', attributed_steam_id: 'A', created_at: '2025-01-01T00:01:00Z', item_name: 'Axe', fingerprint: 'fp1' },
+      { from_type: 'player', from_id: 'A', to_type: 'player', to_id: 'B', attributed_steam_id: 'A', created_at: '2025-01-01T00:02:00Z', item_name: 'Hammer', fingerprint: 'fp2' },
+      { from_type: 'player', from_id: 'B', to_type: 'player', to_id: 'A', attributed_steam_id: 'B', created_at: '2025-01-01T00:03:00Z', item_name: 'Food', fingerprint: 'fp3' },
+    ];
+    const db = { db: { prepare: () => ({ all: () => fakeRows }) } };
+    const result = extractItemFlows(db);
+
+    assert.equal(result.edges.size, 2); // A→B and B→A
+    const edgeAB = result.edges.get('A→B');
+    assert.ok(edgeAB);
+    assert.equal(edgeAB.count, 2);
+    assert.equal(edgeAB.from, 'A');
+    assert.equal(edgeAB.to, 'B');
+
+    const edgeBA = result.edges.get('B→A');
+    assert.ok(edgeBA);
+    assert.equal(edgeBA.count, 1);
+
+    assert.equal(result.playerNodes.get('A').given, 2);
+    assert.equal(result.playerNodes.get('A').received, 1);
+    assert.equal(result.playerNodes.get('B').given, 1);
+    assert.equal(result.playerNodes.get('B').received, 2);
+  });
+
+  it('extractItemFlows caps item detail list at 50', () => {
+    const fakeRows = [];
+    for (let i = 0; i < 60; i++) {
+      fakeRows.push({ from_type: 'player', from_id: 'A', to_type: 'player', to_id: 'B', attributed_steam_id: 'A', created_at: `2025-01-01T00:${String(i).padStart(2, '0')}:00Z`, item_name: `Item${i}`, fingerprint: `fp${i}` });
+    }
+    const db = { db: { prepare: () => ({ all: () => fakeRows }) } };
+    const result = extractItemFlows(db);
+    const edge = result.edges.get('A→B');
+    assert.equal(edge.count, 60);
+    assert.equal(edge.items.length, 50); // capped
+  });
+
+  it('extractContainerAccess returns empty map on DB error', () => {
+    const db = { db: { prepare: () => { throw new Error('no table'); } } };
+    const result = extractContainerAccess(db);
+    assert.ok(result instanceof Map);
+    assert.equal(result.size, 0);
+  });
+
+  it('extractContainerAccess aggregates per player', () => {
+    const fakeRows = [
+      { steam_id: 'A', target_name: 'Chest_1', cnt: 5 },
+      { steam_id: 'A', target_name: 'Chest_2', cnt: 3 },
+      { steam_id: 'B', target_name: 'Chest_1', cnt: 2 },
+    ];
+    const db = { db: { prepare: () => ({ all: () => fakeRows }) } };
+    const result = extractContainerAccess(db);
+    assert.equal(result.size, 2);
+    assert.equal(result.get('A').totalAccesses, 8);
+    assert.equal(result.get('A').containers.get('Chest_1'), 5);
+    assert.equal(result.get('B').totalAccesses, 2);
+  });
+});
+
+describe('detectors/network-analysis', () => {
+  const na = AnticheatEngine.networkAnalysis;
+
+  it('exports detect and constants', () => {
+    assert.equal(typeof na.detect, 'function');
+    assert.equal(na.DETECTOR_NAME, 'network_anomaly');
+    assert.equal(na.MIN_EDGE_TRANSFERS, 5);
+    assert.equal(na.ONE_WAY_RATIO, 0.9);
+    assert.equal(na.MIN_MULE_ITEMS, 10);
+  });
+
+  it('returns empty array when no flow data', () => {
+    assert.deepStrictEqual(na.detect(null, []), []);
+    assert.deepStrictEqual(na.detect({}, []), []);
+    assert.deepStrictEqual(na.detect({ edges: null, playerNodes: null }, []), []);
+  });
+
+  it('detects mule account with one-way item flow', () => {
+    const edges = new Map();
+    edges.set('mule→receiver', {
+      from: 'mule', to: 'receiver', count: 20,
+      items: [], firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    const playerNodes = new Map();
+    playerNodes.set('mule', { given: 20, received: 0, uniquePartners: 1 });
+    playerNodes.set('receiver', { given: 0, received: 20, uniquePartners: 1 });
+
+    const flags = na.detect({ edges, playerNodes }, []);
+    const muleFlag = flags.find(f => f.details.subType === 'mule_account');
+    assert.ok(muleFlag);
+    assert.equal(muleFlag.steamId, 'mule');
+    assert.equal(muleFlag.details.recipientSteamId, 'receiver');
+    assert.equal(muleFlag.details.itemsGiven, 20);
+    assert.equal(muleFlag.details.itemsReturned, 0);
+  });
+
+  it('does not flag mule when items are below minimum', () => {
+    const edges = new Map();
+    edges.set('player→friend', {
+      from: 'player', to: 'friend', count: 8, // below MIN_EDGE_TRANSFERS threshold for edge, but given=8 < MIN_MULE_ITEMS=10
+      items: [], firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    const playerNodes = new Map();
+    playerNodes.set('player', { given: 8, received: 0, uniquePartners: 1 });
+    const flags = na.detect({ edges, playerNodes }, []);
+    const muleFlag = flags.find(f => f.details?.subType === 'mule_account');
+    assert.equal(muleFlag, undefined);
+  });
+
+  it('does not flag mule when reciprocation is high', () => {
+    const edges = new Map();
+    edges.set('A→B', {
+      from: 'A', to: 'B', count: 15,
+      items: [], firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    edges.set('B→A', {
+      from: 'B', to: 'A', count: 10, // >10% return = not mule
+      items: [], firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    const playerNodes = new Map();
+    playerNodes.set('A', { given: 15, received: 10, uniquePartners: 1 });
+    playerNodes.set('B', { given: 10, received: 15, uniquePartners: 1 });
+
+    const flags = na.detect({ edges, playerNodes }, []);
+    const muleFlag = flags.find(f => f.details?.subType === 'mule_account');
+    assert.equal(muleFlag, undefined);
+  });
+
+  it('detects coordinated anomaly between flagged connected players', () => {
+    const edges = new Map();
+    edges.set('cheater1→cheater2', {
+      from: 'cheater1', to: 'cheater2', count: 10,
+      items: [], firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    const playerNodes = new Map();
+    playerNodes.set('cheater1', { given: 10, received: 0, uniquePartners: 1 });
+    playerNodes.set('cheater2', { given: 0, received: 10, uniquePartners: 1 });
+
+    const recentFlags = [
+      { steamId: 'cheater1', detector: 'speed_hack', severity: 'medium', score: 0.6 },
+      { steamId: 'cheater2', detector: 'kill_rate', severity: 'medium', score: 0.5 },
+    ];
+
+    const flags = na.detect({ edges, playerNodes }, recentFlags);
+    const coordFlag = flags.find(f => f.details?.subType === 'coordinated_anomaly');
+    assert.ok(coordFlag);
+    assert.equal(coordFlag.details.partnerSteamId, 'cheater2');
+  });
+
+  it('does not detect coordination when flagged players are not connected', () => {
+    const edges = new Map(); // no edges between flagged players
+    const playerNodes = new Map();
+
+    const recentFlags = [
+      { steamId: 'p1', detector: 'speed_hack', severity: 'medium', score: 0.6 },
+      { steamId: 'p2', detector: 'kill_rate', severity: 'medium', score: 0.5 },
+    ];
+
+    const flags = na.detect({ edges, playerNodes }, recentFlags);
+    const coordFlag = flags.find(f => f.details?.subType === 'coordinated_anomaly');
+    assert.equal(coordFlag, undefined);
+  });
+
+  it('detects item chain A→B→C with overlapping fingerprints', () => {
+    const edges = new Map();
+    edges.set('A→B', {
+      from: 'A', to: 'B', count: 5,
+      items: [
+        { fingerprint: 'fp1' }, { fingerprint: 'fp2' }, { fingerprint: 'fp3' },
+        { fingerprint: 'fp4' }, { fingerprint: 'fp5' },
+      ],
+      firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    edges.set('B→C', {
+      from: 'B', to: 'C', count: 4,
+      items: [
+        { fingerprint: 'fp1' }, { fingerprint: 'fp2' }, { fingerprint: 'fp6' },
+        { fingerprint: 'fp7' },
+      ],
+      firstTransfer: '2025-01-01T00:00:00Z', lastTransfer: '2025-01-01T01:00:00Z',
+    });
+    const playerNodes = new Map();
+
+    const flags = na.detect({ edges, playerNodes }, []);
+    const chainFlag = flags.find(f => f.details?.subType === 'item_chain');
+    assert.ok(chainFlag);
+    assert.deepStrictEqual(chainFlag.details.chain, ['A', 'B', 'C']);
+    assert.equal(chainFlag.details.itemOverlap, 2); // fp1, fp2
+  });
+
+  it('does not flag item chain when fingerprint overlap is insufficient', () => {
+    const edges = new Map();
+    edges.set('A→B', {
+      from: 'A', to: 'B', count: 3,
+      items: [{ fingerprint: 'fp1' }, { fingerprint: 'fp2' }, { fingerprint: 'fp3' }],
+    });
+    edges.set('B→C', {
+      from: 'B', to: 'C', count: 3,
+      items: [{ fingerprint: 'fp4' }, { fingerprint: 'fp1' }, { fingerprint: 'fp5' }],
+    });
+    const playerNodes = new Map();
+
+    const flags = na.detect({ edges, playerNodes }, []);
+    const chainFlag = flags.find(f => f.details?.subType === 'item_chain');
+    assert.equal(chainFlag, undefined); // only 1 overlap (fp1), need 2
+  });
+
+  it('skips simple reciprocation in item chain detection', () => {
+    const edges = new Map();
+    edges.set('A→B', {
+      from: 'A', to: 'B', count: 5,
+      items: [{ fingerprint: 'fp1' }, { fingerprint: 'fp2' }, { fingerprint: 'fp3' }, { fingerprint: 'fp4' }, { fingerprint: 'fp5' }],
+    });
+    // B→A is reciprocation, should be skipped (edgeBC.to === edgeAB.from)
+    edges.set('B→A', {
+      from: 'B', to: 'A', count: 5,
+      items: [{ fingerprint: 'fp1' }, { fingerprint: 'fp2' }, { fingerprint: 'fp3' }, { fingerprint: 'fp4' }, { fingerprint: 'fp5' }],
+    });
+    const playerNodes = new Map();
+    const flags = na.detect({ edges, playerNodes }, []);
+    const chainFlag = flags.find(f => f.details?.subType === 'item_chain');
+    assert.equal(chainFlag, undefined);
+  });
+});
+
+describe('AnticheatEngine (Phase AC-3)', () => {
+  it('exposes AC-3 static exports', () => {
+    assert.ok(AnticheatEngine.behavioralClustering);
+    assert.ok(AnticheatEngine.patternMatcher);
+    assert.ok(AnticheatEngine.networkAnalysis);
+    assert.equal(typeof AnticheatEngine.extractItemFlows, 'function');
+    assert.equal(typeof AnticheatEngine.extractContainerAccess, 'function');
+  });
+
+  it('version is 0.3.0', () => {
+    const engine = new AnticheatEngine();
+    assert.equal(engine.version, '0.3.0');
+  });
+
+  it('analyze integrates behavioral clustering (no crash on empty)', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) }, prepare: () => ({ all: () => [], get: () => null }) };
+    engine.init(fakeDb);
+    const flags = engine.analyze({ players: new Map(), elapsed: 30000, saveData: {} });
+    assert.ok(Array.isArray(flags));
+    engine.shutdown();
+  });
+
+  it('analyze integrates pattern matcher (no crash on empty)', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) }, prepare: () => ({ all: () => [], get: () => null }) };
+    engine.init(fakeDb);
+    // Two calls to establish previousStats
+    engine.analyze({ players: new Map([['steam1', { zeeksKilled: 10 }]]), elapsed: 30000 });
+    const flags = engine.analyze({ players: new Map([['steam1', { zeeksKilled: 15 }]]), elapsed: 30000 });
+    assert.ok(Array.isArray(flags));
+    engine.shutdown();
+  });
+
+  it('analyze integrates network analysis (no crash on empty)', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) }, prepare: () => ({ all: () => [], get: () => null }) };
+    engine.init(fakeDb);
+    const flags = engine.analyze({ players: new Map(), elapsed: 30000 });
+    assert.ok(Array.isArray(flags));
+    engine.shutdown();
+  });
+
+  it('analyze does not crash when db.prepare throws', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => { throw new Error('no table'); } }, prepare: () => { throw new Error('no table'); } };
+    engine.init(fakeDb);
+    const flags = engine.analyze({ players: new Map(), elapsed: 30000 });
+    assert.ok(Array.isArray(flags));
+    engine.shutdown();
   });
 });
