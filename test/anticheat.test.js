@@ -1564,8 +1564,8 @@ describe('AnticheatEngine (Phase AC-2)', () => {
     engine.shutdown();
   });
 
-  it('version is 0.3.0', () => {
-    assert.equal(engine.version, '0.3.0');
+  it('version is 0.4.0', () => {
+    assert.equal(engine.version, '0.4.0');
   });
 
   it('diagnostics includes fingerprint field', () => {
@@ -2214,9 +2214,9 @@ describe('AnticheatEngine (Phase AC-3)', () => {
     assert.equal(typeof AnticheatEngine.extractContainerAccess, 'function');
   });
 
-  it('version is 0.3.0', () => {
+  it('version is 0.4.0', () => {
     const engine = new AnticheatEngine();
-    assert.equal(engine.version, '0.3.0');
+    assert.equal(engine.version, '0.4.0');
   });
 
   it('analyze integrates behavioral clustering (no crash on empty)', () => {
@@ -2255,5 +2255,550 @@ describe('AnticheatEngine (Phase AC-3)', () => {
     const flags = engine.analyze({ players: new Map(), elapsed: 30000 });
     assert.ok(Array.isArray(flags));
     engine.shutdown();
+  });
+});
+
+// ============================================================================
+// Phase AC-4: Feedback & Telemetry
+// ============================================================================
+
+describe('feedback/weight-adjuster', () => {
+  const { WeightAdjuster, DEFAULT_MULTIPLIER, MIN_MULTIPLIER, MAX_MULTIPLIER,
+          CONFIRM_DELTA, DISMISS_DELTA, MIN_FEEDBACK_FOR_TUNING } = (() => {
+    try {
+      const AC = require('@humanitzbot/qs-anticheat');
+      return {
+        WeightAdjuster: AC.WeightAdjuster,
+        ...require(require('path').join(
+          require.resolve('@humanitzbot/qs-anticheat'),
+          '..', 'src', 'feedback', 'weight-adjuster'
+        )),
+      };
+    } catch {
+      return { WeightAdjuster: null, DEFAULT_MULTIPLIER: 1.0, MIN_MULTIPLIER: 0.3,
+               MAX_MULTIPLIER: 2.0, CONFIRM_DELTA: 0.02, DISMISS_DELTA: 0.03,
+               MIN_FEEDBACK_FOR_TUNING: 5 };
+    }
+  })();
+
+  it('exports WeightAdjuster class and constants', () => {
+    assert.ok(WeightAdjuster);
+    assert.equal(DEFAULT_MULTIPLIER, 1.0);
+    assert.equal(MIN_MULTIPLIER, 0.3);
+    assert.equal(MAX_MULTIPLIER, 2.0);
+    assert.equal(CONFIRM_DELTA, 0.02);
+    assert.equal(DISMISS_DELTA, 0.03);
+    assert.equal(MIN_FEEDBACK_FOR_TUNING, 5);
+  });
+
+  it('new adjuster returns default multiplier for unknown detectors', () => {
+    const adj = new WeightAdjuster();
+    assert.equal(adj.getMultiplier('teleportation'), DEFAULT_MULTIPLIER);
+    assert.equal(adj.getMultiplier('nonexistent'), DEFAULT_MULTIPLIER);
+  });
+
+  it('recordConfirm increases multiplier after min feedback', () => {
+    const adj = new WeightAdjuster();
+    for (let i = 0; i < MIN_FEEDBACK_FOR_TUNING + 1; i++) {
+      adj.recordConfirm('teleportation', 1.0);
+    }
+    assert.ok(adj.getMultiplier('teleportation') > DEFAULT_MULTIPLIER);
+  });
+
+  it('recordDismiss decreases multiplier after min feedback', () => {
+    const adj = new WeightAdjuster();
+    for (let i = 0; i < MIN_FEEDBACK_FOR_TUNING + 1; i++) {
+      adj.recordDismiss('teleportation', 1.0);
+    }
+    assert.ok(adj.getMultiplier('teleportation') < DEFAULT_MULTIPLIER);
+  });
+
+  it('multiplier does not change before min feedback threshold', () => {
+    const adj = new WeightAdjuster();
+    for (let i = 0; i < MIN_FEEDBACK_FOR_TUNING - 1; i++) {
+      adj.recordDismiss('speed_hack', 1.0);
+    }
+    assert.equal(adj.getMultiplier('speed_hack'), DEFAULT_MULTIPLIER);
+  });
+
+  it('multiplier is bounded by MIN and MAX', () => {
+    const adj = new WeightAdjuster();
+    // Many dismissals should not go below MIN
+    for (let i = 0; i < 200; i++) adj.recordDismiss('bad_detector', 1.0);
+    assert.ok(adj.getMultiplier('bad_detector') >= MIN_MULTIPLIER);
+
+    // Many confirms should not go above MAX
+    for (let i = 0; i < 200; i++) adj.recordConfirm('good_detector', 1.0);
+    assert.ok(adj.getMultiplier('good_detector') <= MAX_MULTIPLIER);
+  });
+
+  it('admin weight scales the delta', () => {
+    const adj1 = new WeightAdjuster();
+    const adj2 = new WeightAdjuster();
+    // Same number of dismissals, different admin weight
+    for (let i = 0; i < 10; i++) {
+      adj1.recordDismiss('det', 1.0);
+      adj2.recordDismiss('det', 0.3);
+    }
+    // Higher weight admin should have moved multiplier more
+    assert.ok(adj1.getMultiplier('det') < adj2.getMultiplier('det'));
+  });
+
+  it('applyMultipliers adjusts flag scores', () => {
+    const adj = new WeightAdjuster();
+    // Force a known multiplier
+    for (let i = 0; i < 10; i++) adj.recordConfirm('kill_rate', 1.0);
+    const mult = adj.getMultiplier('kill_rate');
+    assert.ok(mult > 1.0);
+
+    const flags = [{ detector: 'kill_rate', score: 0.5, steamId: 'test' }];
+    const tuned = adj.applyMultipliers(flags);
+    assert.equal(tuned.length, 1);
+    assert.ok(tuned[0].score > 0.5);
+    assert.equal(tuned[0].confidenceMultiplier, mult);
+  });
+
+  it('applyMultipliers does not modify flags with default multiplier', () => {
+    const adj = new WeightAdjuster();
+    const flags = [{ detector: 'unknown', score: 0.5, steamId: 'test' }];
+    const tuned = adj.applyMultipliers(flags);
+    assert.equal(tuned[0].score, 0.5);
+    assert.equal(tuned[0].confidenceMultiplier, undefined);
+  });
+
+  it('recalibrateFromHistory sets multiplier from TP rate', () => {
+    const adj = new WeightAdjuster();
+    adj.recalibrateFromHistory('det_a', 10, 0); // 100% TP → MAX
+    assert.ok(adj.getMultiplier('det_a') >= 1.9);
+
+    adj.recalibrateFromHistory('det_b', 0, 10); // 0% TP → MIN
+    assert.equal(adj.getMultiplier('det_b'), MIN_MULTIPLIER);
+
+    adj.recalibrateFromHistory('det_c', 5, 5); // 50% TP → ~1.15
+    const mid = adj.getMultiplier('det_c');
+    assert.ok(mid > 1.0 && mid < 1.5);
+  });
+
+  it('recalibrateFromHistory resets to default below min feedback', () => {
+    const adj = new WeightAdjuster();
+    adj.recalibrateFromHistory('det', 2, 1); // only 3 total, below threshold
+    assert.equal(adj.getMultiplier('det'), DEFAULT_MULTIPLIER);
+  });
+
+  it('recalibrateAll processes a full effectiveness map', () => {
+    const adj = new WeightAdjuster();
+    const effectMap = new Map([
+      ['teleportation', { confirmed: 8, dismissed: 2 }],
+      ['speed_hack', { confirmed: 1, dismissed: 9 }],
+    ]);
+    adj.recalibrateAll(effectMap);
+    assert.ok(adj.getMultiplier('teleportation') > adj.getMultiplier('speed_hack'));
+  });
+
+  it('getDiagnostics returns array of detector states', () => {
+    const adj = new WeightAdjuster();
+    adj.recordConfirm('det1');
+    adj.recordDismiss('det2');
+    const diag = adj.getDiagnostics();
+    assert.ok(Array.isArray(diag));
+    assert.equal(diag.length, 2);
+    assert.ok(diag[0].detector);
+    assert.ok(typeof diag[0].multiplier === 'number');
+  });
+
+  it('toJSON / fromJSON round-trips correctly', () => {
+    const adj = new WeightAdjuster();
+    for (let i = 0; i < 10; i++) adj.recordConfirm('kill_rate', 1.0);
+    for (let i = 0; i < 10; i++) adj.recordDismiss('speed_hack', 1.0);
+    const json = adj.toJSON();
+    const restored = WeightAdjuster.fromJSON(json);
+    assert.equal(restored.getMultiplier('kill_rate'), adj.getMultiplier('kill_rate'));
+    assert.equal(restored.getMultiplier('speed_hack'), adj.getMultiplier('speed_hack'));
+  });
+
+  it('fromJSON handles null/undefined gracefully', () => {
+    const adj = WeightAdjuster.fromJSON(null);
+    assert.ok(adj instanceof WeightAdjuster);
+    assert.equal(adj.getMultiplier('anything'), DEFAULT_MULTIPLIER);
+  });
+});
+
+describe('telemetry/payload-builder', () => {
+  const tp = AnticheatEngine.telemetryPayload;
+
+  it('exports buildPayload, signPayload, verifySignature, generateServerId', () => {
+    assert.equal(typeof tp.buildPayload, 'function');
+    assert.equal(typeof tp.signPayload, 'function');
+    assert.equal(typeof tp.verifySignature, 'function');
+    assert.equal(typeof tp.generateServerId, 'function');
+  });
+
+  it('buildPayload returns structured payload with no PII', () => {
+    const payload = tp.buildPayload({
+      baseline: null,
+      weightAdjuster: null,
+      detectorEffectiveness: null,
+      engineVersion: '0.4.0',
+      serverId: 'test-uuid',
+    });
+    assert.equal(payload.version, 1);
+    assert.equal(payload.engineVersion, '0.4.0');
+    assert.equal(payload.serverId, 'test-uuid');
+    assert.ok(payload.generatedAt);
+    assert.ok(typeof payload.baselineDistributions === 'object');
+    assert.ok(typeof payload.detectorStats === 'object');
+    assert.ok(typeof payload.modelWeights === 'object');
+  });
+
+  it('buildPayload includes detector stats from effectiveness map', () => {
+    const effMap = new Map([
+      ['teleportation', { confirmed: 8, dismissed: 2, tpRate: 0.8 }],
+    ]);
+    const payload = tp.buildPayload({
+      detectorEffectiveness: effMap,
+      engineVersion: '0.4.0',
+    });
+    assert.ok(payload.detectorStats.teleportation);
+    assert.equal(payload.detectorStats.teleportation.tpRate, 0.8);
+    assert.equal(payload.detectorStats.teleportation.total, 10);
+  });
+
+  it('buildPayload skips detectors with insufficient data', () => {
+    const effMap = new Map([
+      ['weak', { confirmed: 1, dismissed: 1, tpRate: 0.5 }], // total 2 < 3
+    ]);
+    const payload = tp.buildPayload({ detectorEffectiveness: effMap });
+    assert.equal(payload.detectorStats.weak, undefined);
+  });
+
+  it('signPayload produces HMAC-SHA256 signature', () => {
+    const payload = { test: 'data' };
+    const { payload: body, signature } = tp.signPayload(payload, 'secret-key');
+    assert.ok(typeof body === 'string');
+    assert.ok(typeof signature === 'string');
+    assert.equal(signature.length, 64); // SHA256 hex = 64 chars
+  });
+
+  it('verifySignature validates correct signature', () => {
+    const payload = { test: 'data' };
+    const { payload: body, signature } = tp.signPayload(payload, 'my-secret');
+    assert.equal(tp.verifySignature(body, signature, 'my-secret'), true);
+  });
+
+  it('verifySignature rejects tampered data', () => {
+    const { payload: body, signature } = tp.signPayload({ a: 1 }, 'key');
+    assert.equal(tp.verifySignature(body + 'tampered', signature, 'key'), false);
+  });
+
+  it('verifySignature rejects wrong key', () => {
+    const { payload: body, signature } = tp.signPayload({ a: 1 }, 'key1');
+    assert.equal(tp.verifySignature(body, signature, 'key2'), false);
+  });
+
+  it('generateServerId returns a valid UUID', () => {
+    const id = tp.generateServerId();
+    assert.ok(typeof id === 'string');
+    assert.ok(id.length >= 32);
+    assert.ok(id.includes('-')); // UUID format
+  });
+});
+
+describe('telemetry/client', () => {
+  const { TelemetryClient } = AnticheatEngine;
+
+  it('defaults to disabled', () => {
+    const client = new TelemetryClient();
+    assert.equal(client.enabled, false);
+    const check = client.canSend();
+    assert.equal(check.ready, false);
+    assert.equal(check.reason, 'telemetry_disabled');
+  });
+
+  it('requires serverKey to send', () => {
+    const client = new TelemetryClient({ enabled: true, serverId: 'test' });
+    const check = client.canSend();
+    assert.equal(check.ready, false);
+    assert.equal(check.reason, 'no_server_key');
+  });
+
+  it('requires serverId to send', () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key' });
+    const check = client.canSend();
+    assert.equal(check.ready, false);
+    assert.equal(check.reason, 'no_server_id');
+  });
+
+  it('canSend returns ready when fully configured', () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key', serverId: 'id' });
+    const check = client.canSend();
+    assert.equal(check.ready, true);
+  });
+
+  it('enforces minimum send interval', async () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key', serverId: 'id' });
+    // Mock: make it think it just sent
+    client._lastSendTime = Date.now();
+    const check = client.canSend();
+    assert.equal(check.ready, false);
+    assert.equal(check.reason, 'too_soon');
+    assert.ok(check.nextSendIn > 0);
+  });
+
+  it('send returns error when disabled', async () => {
+    const client = new TelemetryClient();
+    const result = await client.send({ test: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'telemetry_disabled');
+  });
+
+  it('getDiagnostics shows client state', () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key', serverId: 'abc-123' });
+    const diag = client.getDiagnostics();
+    assert.equal(diag.enabled, true);
+    assert.ok(diag.serverId.startsWith('abc-123'.slice(0, 8)));
+    assert.equal(diag.hasServerKey, true);
+    assert.equal(diag.sendCount, 0);
+    assert.equal(diag.errorCount, 0);
+  });
+
+  it('send increments counters on mock success', async () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key', serverId: 'id' });
+    // Mock the HTTPS call
+    client._httpsPost = async () => ({ status: 200, body: '{"ok":true}' });
+    const result = await client.send({ engineVersion: '0.4.0' });
+    assert.equal(result.ok, true);
+    assert.ok(result.response);
+    assert.equal(client._sendCount, 1);
+    assert.equal(client._errorCount, 0);
+  });
+
+  it('send increments error count on failure', async () => {
+    const client = new TelemetryClient({ enabled: true, serverKey: 'key', serverId: 'id' });
+    client._httpsPost = async () => { throw new Error('network error'); };
+    const result = await client.send({ engineVersion: '0.4.0' });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'network error');
+    assert.equal(client._errorCount, 1);
+  });
+});
+
+describe('telemetry/model-receiver', () => {
+  const mr = AnticheatEngine.modelReceiver;
+
+  it('exports expected functions', () => {
+    assert.equal(typeof mr.calcGlobalWeight, 'function');
+    assert.equal(typeof mr.applyToWeightAdjuster, 'function');
+    assert.equal(typeof mr.applyToBaseline, 'function');
+    assert.equal(typeof mr.applyGlobalUpdate, 'function');
+  });
+
+  it('calcGlobalWeight returns 0.5 for new servers', () => {
+    assert.equal(mr.calcGlobalWeight(0), 0.5);
+    assert.equal(mr.calcGlobalWeight(10), 0.5);
+    assert.equal(mr.calcGlobalWeight(mr.MIN_LOCAL_SAMPLES), 0.5);
+  });
+
+  it('calcGlobalWeight returns ~0.05 for established servers', () => {
+    assert.ok(mr.calcGlobalWeight(mr.MAX_LOCAL_SAMPLES) <= 0.05);
+    assert.ok(mr.calcGlobalWeight(1000) <= 0.05);
+  });
+
+  it('calcGlobalWeight interpolates linearly between min and max', () => {
+    const mid = (mr.MIN_LOCAL_SAMPLES + mr.MAX_LOCAL_SAMPLES) / 2;
+    const w = mr.calcGlobalWeight(mid);
+    assert.ok(w > 0.05 && w < 0.5);
+  });
+
+  it('applyToWeightAdjuster returns counts', () => {
+    const { WeightAdjuster } = AnticheatEngine;
+    const adj = new WeightAdjuster();
+    const result = mr.applyToWeightAdjuster(adj, {
+      teleportation: { multiplier: 1.5, tpRate: 0.8, sampleSize: 20 },
+    });
+    assert.ok(result.applied >= 0);
+    assert.ok(result.skipped >= 0);
+    assert.equal(result.applied + result.skipped, 1);
+  });
+
+  it('applyToWeightAdjuster skips invalid global data', () => {
+    const { WeightAdjuster } = AnticheatEngine;
+    const adj = new WeightAdjuster();
+    const result = mr.applyToWeightAdjuster(adj, {
+      bad: null,
+      worse: { noMultiplier: true },
+    });
+    assert.equal(result.skipped, 2);
+    assert.equal(result.applied, 0);
+  });
+
+  it('applyToWeightAdjuster handles null inputs', () => {
+    const result = mr.applyToWeightAdjuster(null, null);
+    assert.equal(result.applied, 0);
+    assert.equal(result.skipped, 0);
+  });
+
+  it('applyGlobalUpdate processes complete response', () => {
+    const { WeightAdjuster, BaselineModeler } = AnticheatEngine;
+    const adj = new WeightAdjuster();
+    const baseline = new BaselineModeler();
+    const result = mr.applyGlobalUpdate({
+      modelWeights: { teleportation: { multiplier: 1.2, tpRate: 0.7, sampleSize: 30 } },
+      baselineDistributions: { kill_rate: { median: 5, mad: 2, samples: 30 } },
+    }, { weightAdjuster: adj, baseline });
+    assert.ok(result.weights);
+    assert.ok(result.baseline);
+  });
+
+  it('applyGlobalUpdate handles null response', () => {
+    const result = mr.applyGlobalUpdate(null, {});
+    assert.equal(result.weights.applied, 0);
+    assert.equal(result.baseline.seeded, 0);
+  });
+
+  it('applyToBaseline seeds new metrics from global distributions', () => {
+    const { BaselineModeler } = AnticheatEngine;
+    const baseline = new BaselineModeler();
+    assert.equal(baseline.isReady('new_metric'), false);
+    const result = mr.applyToBaseline(baseline, {
+      new_metric: { median: 10, mad: 2, samples: 50 },
+    });
+    assert.equal(result.seeded, 1);
+    assert.equal(result.skipped, 0);
+  });
+
+  it('applyToBaseline skips already-ready metrics', () => {
+    const { BaselineModeler } = AnticheatEngine;
+    const baseline = new BaselineModeler();
+    // Seed enough data to make it ready
+    for (let i = 0; i < 100; i++) baseline.recordServer('established', i);
+    assert.equal(baseline.isReady('established'), true);
+    const result = mr.applyToBaseline(baseline, {
+      established: { median: 999, mad: 1, samples: 50 },
+    });
+    assert.equal(result.seeded, 0);
+    assert.equal(result.skipped, 1);
+  });
+});
+
+describe('AnticheatEngine (Phase AC-4)', () => {
+  it('version is 0.4.0', () => {
+    const engine = new AnticheatEngine();
+    assert.equal(engine.version, '0.4.0');
+  });
+
+  it('exposes AC-4 static exports', () => {
+    assert.ok(AnticheatEngine.WeightAdjuster);
+    assert.ok(AnticheatEngine.TelemetryClient);
+    assert.ok(AnticheatEngine.telemetryPayload);
+    assert.ok(AnticheatEngine.modelReceiver);
+  });
+
+  it('init accepts opts with savedTuning', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    const tuningData = { kill_rate: { multiplier: 1.3, confirmed: 8, dismissed: 2, lastAdjusted: 0 } };
+    engine.init(fakeDb, { savedTuning: tuningData });
+    assert.ok(engine._weightAdjuster.getMultiplier('kill_rate') === 1.3);
+    engine.shutdown();
+  });
+
+  it('init backwards compat: raw baseline object still works', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    // AC-2 style: init(db, baselineObj)
+    engine.init(fakeDb, { server: {}, players: {} });
+    assert.ok(engine._initialised);
+    engine.shutdown();
+  });
+
+  it('init accepts telemetry config', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb, { telemetry: { enabled: true, serverKey: 'key', serverId: 'id' } });
+    assert.ok(engine._telemetry);
+    assert.equal(engine._telemetry.enabled, true);
+    engine.shutdown();
+    assert.equal(engine._telemetry, null); // cleaned up
+  });
+
+  it('recordFeedback adjusts weight adjuster', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb);
+    for (let i = 0; i < 10; i++) engine.recordFeedback('confirm', 'kill_rate', 1.0);
+    assert.ok(engine._weightAdjuster.getMultiplier('kill_rate') > 1.0);
+    for (let i = 0; i < 10; i++) engine.recordFeedback('dismiss', 'speed_hack', 1.0);
+    assert.ok(engine._weightAdjuster.getMultiplier('speed_hack') < 1.0);
+    engine.shutdown();
+  });
+
+  it('exportTuning returns serializable object', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb);
+    engine.recordFeedback('confirm', 'det1');
+    const exported = engine.exportTuning();
+    assert.ok(typeof exported === 'object');
+    assert.ok(exported.det1);
+    engine.shutdown();
+  });
+
+  it('recalibrateTuning processes effectiveness map', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb);
+    engine.recalibrateTuning(new Map([
+      ['teleportation', { confirmed: 9, dismissed: 1 }],
+      ['speed_hack', { confirmed: 1, dismissed: 9 }],
+    ]));
+    assert.ok(engine._weightAdjuster.getMultiplier('teleportation') > engine._weightAdjuster.getMultiplier('speed_hack'));
+    engine.shutdown();
+  });
+
+  it('sendTelemetry returns error when not configured', async () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb);
+    const result = await engine.sendTelemetry();
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'telemetry_not_configured');
+    engine.shutdown();
+  });
+
+  it('analyze applies confidence multipliers to output flags', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = {
+      db: { prepare: () => ({ all: () => [], get: () => null }) },
+      prepare: () => ({ all: () => [], get: () => null }),
+    };
+    engine.init(fakeDb);
+    // Pre-tune: lots of dismissals for item_duplication → lower multiplier
+    for (let i = 0; i < 15; i++) engine.recordFeedback('dismiss', 'item_duplication');
+    const mult = engine._weightAdjuster.getMultiplier('item_duplication');
+    assert.ok(mult < 1.0);
+    engine.shutdown();
+  });
+
+  it('getDiagnostics includes tuning and telemetry sections', () => {
+    const engine = new AnticheatEngine();
+    const fakeDb = { db: { prepare: () => ({ all: () => [], get: () => null }) } };
+    engine.init(fakeDb, { telemetry: { enabled: false } });
+    const diag = engine.getDiagnostics();
+    assert.ok(Array.isArray(diag.tuning));
+    assert.ok(typeof diag.telemetry === 'object');
+    assert.equal(diag.telemetry.enabled, false);
+    engine.shutdown();
+  });
+
+  it('no Discord notification code exists in the engine', () => {
+    // Verify the engine has no functional Discord integration (comments are fine)
+    const engineSrc = require('fs').readFileSync(
+      require.resolve('@humanitzbot/qs-anticheat'), 'utf8'
+    );
+    assert.equal(engineSrc.includes('discord.js'), false, 'Engine must not import discord.js');
+    assert.equal(engineSrc.includes("require('discord"), false, 'Engine must not require discord');
+    assert.equal(engineSrc.includes('TextChannel'), false, 'Engine must not reference TextChannel');
+    assert.equal(engineSrc.includes('WebhookClient'), false, 'Engine must not reference WebhookClient');
+    assert.equal(engineSrc.includes('EmbedBuilder'), false, 'Engine must not reference EmbedBuilder');
   });
 });
