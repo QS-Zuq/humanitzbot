@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const {
   median, mad, modifiedZScore, calcPercentiles,
   normaliseSigmoid, distance2d, distance3d,
-} = require('../qs-anticheat/src/baseline/statistics');
+} = require('@humanitzbot/qs-anticheat/src/baseline/statistics');
 
 describe('statistics', () => {
   describe('median', () => {
@@ -101,7 +101,7 @@ describe('statistics', () => {
 
 // ── Baseline: rolling-window ────────────────────────────────────────
 
-const RollingWindow = require('../qs-anticheat/src/baseline/rolling-window');
+const RollingWindow = require('@humanitzbot/qs-anticheat/src/baseline/rolling-window');
 
 describe('RollingWindow', () => {
   it('tracks size correctly', () => {
@@ -179,7 +179,7 @@ describe('RollingWindow', () => {
 
 // ── Baseline: modeler ───────────────────────────────────────────────
 
-const { BaselineModeler, MetricBaseline } = require('../qs-anticheat/src/baseline/modeler');
+const { BaselineModeler, MetricBaseline } = require('@humanitzbot/qs-anticheat/src/baseline/modeler');
 
 describe('MetricBaseline', () => {
   it('is not ready before minSamples', () => {
@@ -289,8 +289,8 @@ describe('BaselineModeler', () => {
 
 // ── Extractors ──────────────────────────────────────────────────────
 
-const { extractKillFeatures, safePositiveDelta } = require('../qs-anticheat/src/extractors/kills');
-const { extractStatRegressions, extractVitalAnomalies, CUMULATIVE_FIELDS } = require('../qs-anticheat/src/extractors/stats');
+const { extractKillFeatures, safePositiveDelta } = require('@humanitzbot/qs-anticheat/src/extractors/kills');
+const { extractStatRegressions, extractVitalAnomalies, CUMULATIVE_FIELDS } = require('@humanitzbot/qs-anticheat/src/extractors/stats');
 
 describe('extractors/kills', () => {
   it('safePositiveDelta returns 0 for nulls', () => {
@@ -376,10 +376,10 @@ describe('extractors/stats', () => {
 
 // ── Detectors ───────────────────────────────────────────────────────
 
-const teleportDetector = require('../qs-anticheat/src/detectors/teleportation');
-const speedHackDetector = require('../qs-anticheat/src/detectors/speed-hack');
-const killRateDetector = require('../qs-anticheat/src/detectors/kill-rate');
-const statRegressionDetector = require('../qs-anticheat/src/detectors/stat-regression');
+const teleportDetector = require('@humanitzbot/qs-anticheat/src/detectors/teleportation');
+const speedHackDetector = require('@humanitzbot/qs-anticheat/src/detectors/speed-hack');
+const killRateDetector = require('@humanitzbot/qs-anticheat/src/detectors/kill-rate');
+const statRegressionDetector = require('@humanitzbot/qs-anticheat/src/detectors/stat-regression');
 
 describe('detectors/teleportation', () => {
   it('flags large position jump', () => {
@@ -436,7 +436,7 @@ describe('detectors/teleportation', () => {
   });
 
   it('trains baseline without crashing', () => {
-    const { BaselineModeler } = require('../qs-anticheat/src/baseline/modeler');
+    const { BaselineModeler } = require('@humanitzbot/qs-anticheat/src/baseline/modeler');
     const model = new BaselineModeler();
     const features = new Map([['S1', {
       distance2d: 500, distance3d: 500, speed: 100,
@@ -533,7 +533,7 @@ describe('detectors/kill-rate', () => {
   });
 
   it('trains baseline without crashing', () => {
-    const { BaselineModeler } = require('../qs-anticheat/src/baseline/modeler');
+    const { BaselineModeler } = require('@humanitzbot/qs-anticheat/src/baseline/modeler');
     const model = new BaselineModeler();
     const features = new Map([['S1', {
       killsPerMinute: 5, totalKillDelta: 5, lifetimeKillDelta: 5,
@@ -579,8 +579,8 @@ describe('detectors/stat-regression', () => {
 
 // ── Scoring ─────────────────────────────────────────────────────────
 
-const { sortFlags, computeRawRisk, normaliseRisk, deduplicateFlags, SEVERITY_WEIGHTS } = require('../qs-anticheat/src/scoring/scorer');
-const { checkEscalation, escalateOne } = require('../qs-anticheat/src/scoring/escalation');
+const { sortFlags, computeRawRisk, normaliseRisk, deduplicateFlags, SEVERITY_WEIGHTS } = require('@humanitzbot/qs-anticheat/src/scoring/scorer');
+const { checkEscalation, escalateOne } = require('@humanitzbot/qs-anticheat/src/scoring/escalation');
 
 describe('scoring/scorer', () => {
   it('sortFlags puts highest severity first', () => {
@@ -686,7 +686,7 @@ describe('scoring/escalation', () => {
 
 // ── AnticheatEngine (integration) ──────────────────────────────────
 
-const AnticheatEngine = require('../qs-anticheat/index');
+const AnticheatEngine = require('@humanitzbot/qs-anticheat');
 
 describe('AnticheatEngine', () => {
   let engine;

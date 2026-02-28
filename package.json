@@ -30,5 +30,8 @@
   },
   "devDependencies": {
     "tailwindcss": "^3.4.19"
+  },
+  "optionalDependencies": {
+    "@humanitzbot/qs-anticheat": "git+ssh://git@github-qs-anticheat:QS-Zuq/qs-anticheat.git#main"
   }
 }

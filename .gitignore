@@ -30,6 +30,9 @@ _*.js
 # Web map generated tile cache only
 src/web-map/public/tiles/
 
+# Private anticheat engine (separate repo: QS-Zuq/qs-anticheat)
+qs-anticheat/
+
 # Development / extraction utility scripts & cached data
 tools/
 GameServerSettings.ini
