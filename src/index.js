@@ -45,10 +45,13 @@ const StdinConsole = require('./stdin-console');
 const intents = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.MessageContent,  // needed for admin chat bridge
 ];
+// Privileged intents — only request when needed (must be enabled in Developer Portal)
+if (config.enableChatRelay) {
+  intents.push(GatewayIntentBits.MessageContent);  // needed for Discord → game chat bridge
+}
 if (config.adminRoleIds.length > 0) {
-  intents.push(GatewayIntentBits.GuildMembers); // privileged — enable in Developer Portal
+  intents.push(GatewayIntentBits.GuildMembers);    // needed for ADMIN_ROLE_IDS resolution
 }
 const client = new Client({ intents });
 
@@ -1290,5 +1293,35 @@ async function _nukeChannel(client, channelId, botId) {
       console.error('[BOT] Continuing with existing/empty data files...');
     }
   }
-  client.login(config.discordToken);
+  client.login(config.discordToken).catch(err => {
+    if (/disallowed intents/i.test(err.message) || err.code === 4014) {
+      const requested = [];
+      if (config.enableChatRelay) requested.push('Message Content (ENABLE_CHAT_RELAY=true)');
+      if (config.adminRoleIds.length > 0) requested.push('Server Members (ADMIN_ROLE_IDS set)');
+      console.error('');
+      console.error('══════════════════════════════════════════════════════════');
+      console.error('  Discord rejected the bot — "disallowed intents"');
+      console.error('');
+      console.error('  Your bot is requesting privileged intents that must be');
+      console.error('  enabled in the Discord Developer Portal:');
+      console.error('    https://discord.com/developers/applications');
+      console.error('');
+      console.error('  Go to: Your Application → Bot → Privileged Gateway Intents');
+      if (requested.length > 0) {
+        console.error('  Enable:');
+        requested.forEach(r => console.error('    ✦ ' + r));
+      } else {
+        console.error('  Enable: Message Content Intent');
+      }
+      console.error('');
+      console.error('  Or disable the feature that needs it:');
+      console.error('    • Set ENABLE_CHAT_RELAY=false in .env to skip Message Content');
+      console.error('    • Remove ADMIN_ROLE_IDS from .env to skip Server Members');
+      console.error('══════════════════════════════════════════════════════════');
+      console.error('');
+    } else {
+      console.error('[BOT] Login failed:', err.message);
+    }
+    process.exit(1);
+  });
 })();
