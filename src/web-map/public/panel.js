@@ -1465,9 +1465,17 @@
   }
 
   function initMap() {
-    if (S.mapReady) return;
+    if (S.mapReady && S.map) return;
     var container = $('#map-container');
     if (!container || !window.L) return;
+    // Destroy existing map instance before creating a new one (e.g. after server switch)
+    if (S.map) {
+      clearMapWorldLayers();
+      for (var id in S.mapMarkers) { S.map.removeLayer(S.mapMarkers[id]); }
+      S.mapMarkers = {};
+      S.map.remove();
+      S.map = null;
+    }
     S.map = L.map(container, { crs: L.CRS.Simple, minZoom: -2, maxZoom: 3, zoomControl: true, attributionControl: false });
     var bounds = [[0, 0], [4096, 4096]];
     L.imageOverlay('/terrain.png', bounds, { className: 'map-terrain' }).addTo(S.map);

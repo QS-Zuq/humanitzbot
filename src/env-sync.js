@@ -102,7 +102,8 @@ function parseEnv(filePath, { includeCommented = false } = {}) {
 function extractSections(examplePath) {
   const content = fs.readFileSync(examplePath, 'utf8');
   const sections = [];
-  let currentSection = null;
+  // Virtual preamble section for keys before the first real section header
+  let currentSection = { title: null, startKey: null, keys: [] };
   let lastKey = null;
   
   for (const line of content.split('\n')) {
@@ -181,17 +182,29 @@ function syncEnv() {
   
   // Process each section from .env.example
   for (const section of sections) {
-    output.push(section.title);
-    output.push('');
+    if (section.title) {
+      output.push(section.title);
+      output.push('');
+    }
     
     for (const key of section.keys) {
       const exampleEntry = example.entries.get(key);
       const envEntry = env.entries.get(key);
       if (!exampleEntry) continue; // safety
       
-      // Add comment block from example
+      // Add comment block from example, but strip the section header line
+      // (parseEnv accumulates # lines as comments — section headers get captured too)
       if (exampleEntry.comment) {
-        output.push(exampleEntry.comment);
+        let commentBlock = exampleEntry.comment;
+        // Strip leading section header line(s) since we already wrote section.title
+        if (section.title) {
+          const commentLines = commentBlock.split('\n');
+          while (commentLines.length > 0 && /^#\s*──/.test(commentLines[0].trim())) {
+            commentLines.shift();
+          }
+          commentBlock = commentLines.join('\n').replace(/^\n+/, '');
+        }
+        if (commentBlock) output.push(commentBlock);
       }
       
       if (envEntry) {
