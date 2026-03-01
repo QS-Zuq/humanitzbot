@@ -46,7 +46,7 @@
 | **Server Status** | Live embed with player count, game day, season, server health, and system resources |
 | **Player Stats** | Per-player kill stats, playtime, profession, lifetime records, and progression tracking |
 | **Chat Relay** | Bidirectional chat bridge between Discord and in-game with rich formatting |
-| **Activity Log** | Real-time feeds for connects, deaths, builds, looting, raids, PvP kills, and anti-cheat flags |
+| **Activity Log** | Real-time feeds for connects, deaths, builds, looting, raids, and PvP kills |
 | **Kill Feed** | PvP kill attribution with damage tracking, death cause classification, and death loop detection |
 | **Auto Messages** | Welcome messages, Discord link broadcasts, and SFTP-hosted welcome files with leaderboard templates |
 | **Milestones** | Automatic announcements when players hit kill milestones |
@@ -67,7 +67,6 @@
 | **Chat History** | Full searchable chat log with Discord ↔ in-game indicators |
 | **Database Browser** | Direct SQL queries against 60+ game data tables |
 | **Clan Viewer** | Clan membership, territories, and member details |
-| **Anti-Cheat Dashboard** | Flag browser, risk scores, and review/whitelist workflow |
 | **Bot Config Editor** | Edit `.env` settings from the browser with validation |
 | **Server Scheduler** | Visual restart schedule with profile rotation |
 | **Discord OAuth2** | Role-based access tiers: public landing, survivor, mod, admin |
@@ -281,7 +280,6 @@ SQLite with **60+ tables** covering:
 - **Activity** — event log, chat log, kill tracking, item movements
 - **Game Reference** — items, recipes, professions, skills, buildings, vehicles, loot pools, afflictions
 - **Timeline** — periodic snapshots of all entity positions for playback
-- **Anti-Cheat** — flags, risk scores, review status
 - **Server** — settings, peaks, scheduler state
 
 ---
