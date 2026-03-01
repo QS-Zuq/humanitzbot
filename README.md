@@ -1,21 +1,39 @@
-<div align="center">
+<p align="center">
+  <img src="src/web-map/public/favicon.svg" width="80" height="80" alt="HumanitZ Bot" />
+</p>
 
-# 🧟 HumanitZ Discord Bot
+<h1 align="center">HumanitZ Bot</h1>
 
-**The ultimate Discord bot and web dashboard for HumanitZ dedicated servers**
+<p align="center">
+  Discord bot and web panel for HumanitZ dedicated servers.
+  <br />
+  Player stats, chat relay, live map, activity logging, and full server management.
+</p>
 
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)](https://discord.js.org/)
-[![SQLite](https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white)](https://github.com/WiseLibs/better-sqlite3)
-[![Express](https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white)](https://expressjs.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-767%20passing-brightgreen)](#development)
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+" />
+  <img src="https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white" alt="discord.js v14" />
+  <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
+  <img src="https://img.shields.io/badge/Tests-767_passing-brightgreen" alt="Tests" />
+</p>
 
-*Monitor players, track stats, relay chat, manage settings, and visualise your world — all from Discord and the browser.*
+<p align="center">
+  Want to support the project?
+  <br />
+  <a href="https://buymeacoffee.com/qszuq">
+    <img src="https://img.shields.io/badge/%E2%80%8B-Buy_Me_a_Coffee-FF6D00?logo=buymeacoffee&logoColor=white" alt="Buy Me a Coffee" />
+  </a>
+</p>
 
-[Features](#features) · [Quick Start](#quick-start) · [Web Dashboard](#web-dashboard) · [Commands](#slash-commands) · [Multi-Server](#multi-server) · [Contributing](#contributing)
+<p align="center">
+  <a href="https://play.qs-zuq.com/"><strong>🌐 See it in action</strong></a> — public web panel on a live server (survivor permissions)
+</p>
 
-</div>
+<p align="center">
+  <a href="#features">Features</a> · <a href="#quick-start">Quick Start</a> · <a href="#web-dashboard">Web Dashboard</a> · <a href="#slash-commands">Commands</a> · <a href="#multi-server">Multi-Server</a> · <a href="#contributing">Contributing</a>
+</p>
 
 ---
 
@@ -326,4 +344,4 @@ npm run build:template   # Rebuild template database
 
 ## License
 
-[MIT](LICENSE) © QS-Zuq
+[MIT](LICENSE)
