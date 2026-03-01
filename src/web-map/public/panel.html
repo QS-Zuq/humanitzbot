@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HumanitZ Server Panel</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,79 +35,146 @@
         <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <radialGradient id="fire1" cx="30%" cy="85%" r="18%">
-              <stop offset="0%" stop-color="#c45a4a" stop-opacity="0.14"/>
+              <stop offset="0%" stop-color="#c45a4a" stop-opacity="0.25"/>
+              <stop offset="60%" stop-color="#9c4030" stop-opacity="0.10"/>
               <stop offset="100%" stop-color="transparent"/>
             </radialGradient>
             <radialGradient id="fire2" cx="72%" cy="82%" r="15%">
-              <stop offset="0%" stop-color="#9c6844" stop-opacity="0.12"/>
+              <stop offset="0%" stop-color="#d4915c" stop-opacity="0.22"/>
+              <stop offset="60%" stop-color="#9c6844" stop-opacity="0.08"/>
               <stop offset="100%" stop-color="transparent"/>
             </radialGradient>
             <radialGradient id="fire3" cx="50%" cy="88%" r="22%">
-              <stop offset="0%" stop-color="#8b3a3a" stop-opacity="0.10"/>
+              <stop offset="0%" stop-color="#8b3a3a" stop-opacity="0.18"/>
+              <stop offset="60%" stop-color="#6b2a2a" stop-opacity="0.06"/>
               <stop offset="100%" stop-color="transparent"/>
             </radialGradient>
             <linearGradient id="skyFade" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#12100e"/>
-              <stop offset="55%" stop-color="#12100e"/>
+              <stop offset="0%" stop-color="#0d0b09"/>
+              <stop offset="40%" stop-color="#100e0c"/>
               <stop offset="100%" stop-color="#1a1510"/>
             </linearGradient>
             <!-- Smoke wisp gradient -->
             <linearGradient id="smokeG" x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stop-color="#1a1614" stop-opacity="0.3"/>
+              <stop offset="0%" stop-color="#2a2420" stop-opacity="0.4"/>
               <stop offset="100%" stop-color="#1a1614" stop-opacity="0"/>
             </linearGradient>
+            <!-- Moon glow -->
+            <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#e8e3db" stop-opacity="0.08"/>
+              <stop offset="40%" stop-color="#c8c2b8" stop-opacity="0.03"/>
+              <stop offset="100%" stop-color="transparent"/>
+            </radialGradient>
+            <!-- Window glow -->
+            <radialGradient id="windowGlow" cx="50%" cy="50%" r="60%">
+              <stop offset="0%" stop-color="#d4915c" stop-opacity="0.6"/>
+              <stop offset="100%" stop-color="#d4915c" stop-opacity="0"/>
+            </radialGradient>
           </defs>
 
           <!-- Sky -->
           <rect width="1440" height="900" fill="url(#skyFade)"/>
 
-          <!-- Fire glow between buildings -->
+          <!-- Stars — tiny dim dots scattered in the sky -->
+          <g opacity="0.5">
+            <circle cx="120" cy="80" r="0.8" fill="#e8e3db"/><circle cx="340" cy="45" r="0.6" fill="#c8c2b8"/>
+            <circle cx="520" cy="110" r="0.7" fill="#e8e3db"/><circle cx="680" cy="35" r="0.5" fill="#c8c2b8"/>
+            <circle cx="890" cy="75" r="0.8" fill="#e8e3db"/><circle cx="1050" cy="55" r="0.6" fill="#c8c2b8"/>
+            <circle cx="1200" cy="95" r="0.7" fill="#e8e3db"/><circle cx="1380" cy="40" r="0.5" fill="#c8c2b8"/>
+            <circle cx="200" cy="160" r="0.5" fill="#c8c2b8"/><circle cx="450" cy="180" r="0.6" fill="#e8e3db"/>
+            <circle cx="750" cy="150" r="0.5" fill="#c8c2b8"/><circle cx="980" cy="140" r="0.7" fill="#e8e3db"/>
+            <circle cx="1150" cy="170" r="0.5" fill="#c8c2b8"/><circle cx="1320" cy="120" r="0.6" fill="#e8e3db"/>
+            <circle cx="60" cy="220" r="0.4" fill="#c8c2b8"/><circle cx="620" cy="200" r="0.5" fill="#e8e3db"/>
+            <circle cx="1000" cy="210" r="0.4" fill="#c8c2b8"/><circle cx="270" cy="250" r="0.6" fill="#e8e3db"/>
+            <circle cx="830" cy="240" r="0.5" fill="#c8c2b8"/><circle cx="1100" cy="260" r="0.4" fill="#e8e3db"/>
+          </g>
+
+          <!-- Moon — crescent in upper right -->
+          <circle cx="1180" cy="120" r="60" fill="url(#moonGlow)"/>
+          <circle cx="1180" cy="120" r="12" fill="#c8c2b8" opacity="0.12"/>
+          <circle cx="1185" cy="117" r="10" fill="#0d0b09" opacity="0.9"/>
+
+          <!-- Fire glow between buildings — brighter -->
           <ellipse class="fire-glow" cx="420" cy="750" rx="200" ry="120" fill="url(#fire1)"/>
           <ellipse class="fire-glow-slow" cx="1030" cy="730" rx="160" ry="100" fill="url(#fire2)"/>
           <ellipse class="fire-glow" cx="720" cy="780" rx="250" ry="100" fill="url(#fire3)" style="animation-delay:-2s"/>
           <ellipse class="fire-glow-slow" cx="180" cy="760" rx="120" ry="80" fill="url(#fire1)" style="animation-delay:-3s"/>
 
-          <!-- Back skyline — tall ruins, faint -->
-          <g fill="#151310" opacity="0.45">
-            <!-- Crumbled tower left -->
-            <polygon points="80,900 80,530 90,528 100,520 105,500 115,498 120,510 130,525 140,520 140,900"/>
-            <!-- Tall office block, jagged top -->
-            <polygon points="200,900 200,555 210,548 215,560 240,540 260,555 275,545 280,560 280,900"/>
-            <!-- Skyscraper with antenna -->
-            <polygon points="350,900 350,490 355,480 360,460 365,455 370,465 375,478 380,485 395,480 400,495 400,900"/>
-            <!-- Wide mid block -->
-            <polygon points="500,900 500,545 510,540 520,530 540,535 560,520 575,530 585,538 590,540 590,900"/>
-            <!-- Tall narrow ruin -->
-            <polygon points="680,900 680,510 690,500 695,490 700,480 705,495 710,505 715,500 745,510 750,900"/>
-            <!-- Damaged office -->
-            <polygon points="830,900 830,540 840,535 850,525 860,520 870,510 880,520 900,530 910,535 915,540 915,900"/>
-            <!-- Tower with broken top -->
-            <polygon points="1000,900 1000,500 1008,495 1015,478 1020,470 1028,475 1035,490 1040,485 1055,500 1060,900"/>
-            <!-- Wide ruin -->
-            <polygon points="1140,900 1140,555 1150,550 1165,540 1180,548 1200,538 1215,550 1215,900"/>
-            <!-- Far right tower -->
-            <polygon points="1290,900 1290,520 1298,515 1305,500 1310,490 1318,500 1325,510 1340,520 1345,900"/>
+          <!-- Back skyline — tall ruins, varied rooftops with antenna and pointed features -->
+          <g fill="#1a1714" opacity="0.65">
+            <!-- Crumbled tower left with jagged peak -->
+            <polygon points="80,900 80,530 88,520 92,505 96,490 100,480 104,488 108,502 114,510 118,520 125,528 130,525 140,530 140,900"/>
+            <!-- Tall office block with antenna -->
+            <polygon points="200,900 200,555 208,548 216,540 222,535 226,530 230,520 232,465 234,455 236,465 238,520 244,530 252,535 260,540 270,548 278,555 280,900"/>
+            <!-- Skyscraper with pointed roof and dual antenna -->
+            <polygon points="350,900 350,495 356,488 360,480 364,470 368,440 370,420 372,440 376,470 380,478 384,486 386,474 388,455 389,445 390,455 392,474 396,485 400,495 400,900"/>
+            <!-- Wide block with sawtooth roofline -->
+            <polygon points="500,900 500,545 508,538 516,528 520,520 524,530 530,524 536,518 542,525 548,520 554,528 560,532 568,526 574,535 582,538 590,540 590,900"/>
+            <!-- Tall narrow ruin with broken spire -->
+            <polygon points="680,900 680,510 686,502 690,490 694,475 697,458 699,440 700,425 701,440 703,458 706,475 710,488 714,498 718,505 725,510 740,515 750,900"/>
+            <!-- Damaged office with uneven top -->
+            <polygon points="830,900 830,542 838,535 844,528 850,520 856,515 862,510 870,518 876,512 882,520 888,526 896,530 904,535 912,540 915,542 915,900"/>
+            <!-- Tower with antenna mast -->
+            <polygon points="1000,900 1000,505 1006,498 1010,490 1016,480 1020,475 1024,460 1026,435 1027,415 1028,405 1029,415 1030,435 1032,460 1036,475 1040,480 1048,490 1055,500 1060,505 1060,900"/>
+            <!-- Wide ruin with peaked center -->
+            <polygon points="1140,900 1140,555 1148,548 1156,540 1162,534 1168,528 1172,522 1176,515 1178,510 1180,515 1184,522 1188,530 1194,536 1200,542 1208,550 1215,555 1215,900"/>
+            <!-- Far right tower with antenna and crooked peak -->
+            <polygon points="1290,900 1290,525 1296,518 1300,510 1304,502 1308,492 1311,478 1313,460 1314,445 1315,430 1316,445 1317,460 1319,478 1322,492 1326,504 1332,514 1338,520 1345,525 1345,900"/>
           </g>
 
-          <!-- Smoke wisps rising from ruins -->
-          <g class="smoke-drift" opacity="0.15">
-            <path d="M370,480 Q365,430 380,380 Q390,340 375,300" stroke="url(#smokeG)" stroke-width="12" fill="none" stroke-linecap="round"/>
-            <path d="M870,510 Q860,460 875,410 Q885,370 870,330" stroke="url(#smokeG)" stroke-width="10" fill="none" stroke-linecap="round" style="animation-delay:-2s"/>
-            <path d="M1310,490 Q1300,440 1315,390 Q1325,350 1310,310" stroke="url(#smokeG)" stroke-width="8" fill="none" stroke-linecap="round" style="animation-delay:-4s"/>
+          <!-- Window glows — flickering lights in back buildings -->
+          <g class="fire-glow-slow" opacity="0.6">
+            <rect x="234" y="468" width="3" height="5" rx="1" fill="#d4915c" opacity="0.4"/>
+            <rect x="368" y="435" width="3" height="5" rx="1" fill="#d4915c" opacity="0.5"/>
+            <rect x="374" y="480" width="4" height="6" rx="1" fill="#c45a4a" opacity="0.3"/>
+            <rect x="540" y="530" width="4" height="5" rx="1" fill="#d4915c" opacity="0.4"/>
+            <rect x="870" y="518" width="3" height="6" rx="1" fill="#d4915c" opacity="0.35"/>
+            <rect x="1027" y="425" width="3" height="5" rx="1" fill="#c45a4a" opacity="0.45"/>
+            <rect x="1024" y="475" width="4" height="5" rx="1" fill="#d4915c" opacity="0.3"/>
+            <rect x="1314" y="455" width="3" height="4" rx="1" fill="#d4915c" opacity="0.35"/>
           </g>
 
-          <!-- Mid skyline — shorter ruins, more defined -->
-          <g fill="#181512" opacity="0.6">
-            <polygon points="30,900 30,630 45,625 55,615 70,620 90,610 110,620 125,625 130,630 130,900"/>
-            <polygon points="150,900 150,655 160,650 170,645 180,650 200,640 215,650 220,658 220,900"/>
-            <polygon points="280,900 280,610 290,605 295,598 300,590 310,600 320,605 330,610 335,900"/>
-            <polygon points="420,900 420,640 430,635 445,625 460,630 480,620 500,630 510,638 515,640 515,900"/>
-            <polygon points="590,900 590,665 600,660 610,655 620,650 635,658 645,660 655,665 655,900"/>
-            <polygon points="730,900 730,625 740,620 755,612 765,615 780,610 795,618 805,625 810,900"/>
-            <polygon points="880,900 880,650 890,645 900,638 910,642 920,640 935,648 945,650 950,900"/>
-            <polygon points="1020,900 1020,620 1030,615 1045,605 1060,610 1075,600 1090,610 1100,618 1110,620 1110,900"/>
-            <polygon points="1180,900 1180,660 1190,655 1200,648 1210,652 1225,658 1235,660 1240,900"/>
-            <polygon points="1310,900 1310,640 1320,635 1335,625 1350,632 1365,628 1380,635 1390,640 1390,900"/>
+          <!-- Smoke wisps rising from ruins — more visible -->
+          <g class="smoke-drift" opacity="0.22">
+            <path d="M370,480 Q365,430 380,380 Q390,340 375,300" stroke="url(#smokeG)" stroke-width="14" fill="none" stroke-linecap="round"/>
+            <path d="M870,510 Q860,460 875,410 Q885,370 870,330" stroke="url(#smokeG)" stroke-width="12" fill="none" stroke-linecap="round" style="animation-delay:-2s"/>
+            <path d="M1310,490 Q1300,440 1315,390 Q1325,350 1310,310" stroke="url(#smokeG)" stroke-width="9" fill="none" stroke-linecap="round" style="animation-delay:-4s"/>
+            <path d="M420,700 Q410,650 425,600 Q435,560 420,520" stroke="url(#smokeG)" stroke-width="16" fill="none" stroke-linecap="round" style="animation-delay:-1s"/>
+            <path d="M1040,680 Q1030,630 1045,580 Q1055,540 1040,500" stroke="url(#smokeG)" stroke-width="11" fill="none" stroke-linecap="round" style="animation-delay:-3s"/>
+          </g>
+
+          <!-- Mid skyline — shorter ruins, varied rooftops: pointed, flat, antenna, gabled -->
+          <g fill="#1c1916" opacity="0.75">
+            <!-- Left cluster — peaked A-frame roof -->
+            <polygon points="30,900 30,640 40,632 50,622 60,612 68,602 72,592 76,602 84,612 94,622 104,632 114,638 125,640 130,900"/>
+            <!-- Small flat-top with antenna -->
+            <polygon points="150,900 150,660 158,655 164,650 170,646 174,642 176,625 177,610 178,600 179,610 180,625 184,642 190,646 198,650 206,655 214,660 220,900"/>
+            <!-- Tall narrow ruin — pointed like a church steeple -->
+            <polygon points="280,900 280,620 286,614 290,605 294,595 298,582 302,568 304,555 306,545 307,535 308,545 310,555 312,568 316,582 320,596 324,608 328,616 335,620 335,900"/>
+            <!-- Wide warehouse with sawtooth roof -->
+            <polygon points="420,900 420,645 428,640 434,632 440,626 446,634 452,628 458,622 464,630 470,624 476,632 482,626 488,634 494,630 500,638 508,642 515,645 515,900"/>
+            <!-- Small block — flat with chimney stub -->
+            <polygon points="590,900 590,668 596,665 602,660 608,656 612,652 616,648 618,636 620,625 621,618 622,625 624,636 628,648 634,652 640,656 646,660 652,665 655,668 655,900"/>
+            <!-- Medium with gabled peak -->
+            <polygon points="730,900 730,632 738,626 746,618 752,612 758,606 764,600 768,594 770,588 772,594 776,600 782,606 788,612 794,618 802,626 810,632 810,900"/>
+            <!-- Small shed — flat asymmetric -->
+            <polygon points="880,900 880,656 888,650 894,644 900,640 908,636 916,640 924,644 932,648 940,652 950,656 950,900"/>
+            <!-- Tall office ruin with antenna mast -->
+            <polygon points="1020,900 1020,628 1026,622 1032,614 1038,608 1042,600 1046,592 1050,580 1052,560 1054,540 1055,525 1056,540 1058,560 1060,580 1064,592 1068,600 1074,608 1080,614 1088,622 1096,628 1110,632 1110,900"/>
+            <!-- Short flat-top block -->
+            <polygon points="1180,900 1180,665 1188,660 1196,655 1202,650 1208,648 1214,650 1220,655 1228,660 1236,665 1240,900"/>
+            <!-- Right cluster — peaked with asymmetric slope -->
+            <polygon points="1310,900 1310,646 1318,640 1326,632 1332,624 1338,616 1342,608 1346,600 1350,610 1354,618 1362,626 1368,632 1376,638 1386,644 1390,646 1390,900"/>
+          </g>
+
+          <!-- Window glows in mid-layer buildings -->
+          <g class="fire-glow" opacity="0.5">
+            <rect x="178" y="608" width="3" height="4" rx="1" fill="#d4915c" opacity="0.4"/>
+            <rect x="306" y="548" width="3" height="5" rx="1" fill="#d4915c" opacity="0.45"/>
+            <rect x="620" y="630" width="3" height="4" rx="1" fill="#c45a4a" opacity="0.35"/>
+            <rect x="770" y="596" width="4" height="5" rx="1" fill="#d4915c" opacity="0.4"/>
+            <rect x="1054" y="535" width="3" height="5" rx="1" fill="#d4915c" opacity="0.4"/>
+            <rect x="1050" y="585" width="4" height="5" rx="1" fill="#c45a4a" opacity="0.3"/>
           </g>
 
           <!-- Front skyline — closest, darkest, most damaged -->
@@ -123,87 +191,82 @@
             <polygon points="1290,900 1290,710 1300,705 1315,695 1330,700 1345,694 1360,702 1375,708 1395,710 1440,720 1440,900"/>
           </g>
 
-          <!-- Ember particles — tiny glowing dots floating up from fires -->
-          <circle class="ember" cx="400" cy="720" r="1.5" fill="#c45a4a" opacity="0.6"/>
-          <circle class="ember" cx="415" cy="730" r="1" fill="#d4915c" opacity="0.4" style="animation-delay:-1s;animation-duration:5s"/>
-          <circle class="ember" cx="385" cy="725" r="1.2" fill="#c45a4a" opacity="0.5" style="animation-delay:-2s;animation-duration:3.5s"/>
-          <circle class="ember" cx="430" cy="715" r="0.8" fill="#d4915c" opacity="0.3" style="animation-delay:-3.5s;animation-duration:4s"/>
-          <circle class="ember" cx="1020" cy="710" r="1.5" fill="#9c6844" opacity="0.5" style="animation-delay:-0.5s;animation-duration:4.5s"/>
-          <circle class="ember" cx="1040" cy="720" r="1" fill="#c45a4a" opacity="0.4" style="animation-delay:-3s"/>
-          <circle class="ember" cx="1005" cy="725" r="0.8" fill="#d4915c" opacity="0.35" style="animation-delay:-4s;animation-duration:5.5s"/>
-          <circle class="ember" cx="700" cy="750" r="1.2" fill="#d4915c" opacity="0.3" style="animation-delay:-1.5s;animation-duration:6s"/>
-          <circle class="ember" cx="720" cy="740" r="1" fill="#8b3a3a" opacity="0.5" style="animation-delay:-2.5s;animation-duration:3s"/>
-          <circle class="ember" cx="180" cy="735" r="1.3" fill="#c45a4a" opacity="0.4" style="animation-delay:-1s;animation-duration:4.2s"/>
-          <circle class="ember" cx="195" cy="745" r="0.9" fill="#9c6844" opacity="0.35" style="animation-delay:-2.8s;animation-duration:5s"/>
+          <!-- Ember particles — more, brighter, varied -->
+          <circle class="ember" cx="400" cy="720" r="1.8" fill="#c45a4a" opacity="0.7"/>
+          <circle class="ember" cx="415" cy="730" r="1.2" fill="#d4915c" opacity="0.6" style="animation-delay:-1s;animation-duration:5s"/>
+          <circle class="ember" cx="385" cy="725" r="1.4" fill="#c45a4a" opacity="0.65" style="animation-delay:-2s;animation-duration:3.5s"/>
+          <circle class="ember" cx="430" cy="715" r="1" fill="#d4915c" opacity="0.5" style="animation-delay:-3.5s;animation-duration:4s"/>
+          <circle class="ember" cx="440" cy="735" r="0.8" fill="#e8a060" opacity="0.5" style="animation-delay:-0.8s;animation-duration:4.8s"/>
+          <circle class="ember" cx="1020" cy="710" r="1.8" fill="#9c6844" opacity="0.65" style="animation-delay:-0.5s;animation-duration:4.5s"/>
+          <circle class="ember" cx="1040" cy="720" r="1.2" fill="#c45a4a" opacity="0.55" style="animation-delay:-3s"/>
+          <circle class="ember" cx="1005" cy="725" r="1" fill="#d4915c" opacity="0.5" style="animation-delay:-4s;animation-duration:5.5s"/>
+          <circle class="ember" cx="1055" cy="705" r="0.8" fill="#e8a060" opacity="0.45" style="animation-delay:-1.2s;animation-duration:3.8s"/>
+          <circle class="ember" cx="700" cy="750" r="1.5" fill="#d4915c" opacity="0.5" style="animation-delay:-1.5s;animation-duration:6s"/>
+          <circle class="ember" cx="720" cy="740" r="1.2" fill="#c45a4a" opacity="0.6" style="animation-delay:-2.5s;animation-duration:3s"/>
+          <circle class="ember" cx="735" cy="755" r="0.9" fill="#e8a060" opacity="0.4" style="animation-delay:-0.3s;animation-duration:5.2s"/>
+          <circle class="ember" cx="180" cy="735" r="1.5" fill="#c45a4a" opacity="0.55" style="animation-delay:-1s;animation-duration:4.2s"/>
+          <circle class="ember" cx="195" cy="745" r="1.1" fill="#9c6844" opacity="0.5" style="animation-delay:-2.8s;animation-duration:5s"/>
+          <circle class="ember" cx="165" cy="740" r="0.7" fill="#d4915c" opacity="0.4" style="animation-delay:-3.3s;animation-duration:4.5s"/>
         </svg>
       </div>
 
     <!-- ═══════════════════════════ LANDING ═══════════════════════════ -->
-    <div id="landing" class="hidden h-screen flex flex-col overflow-y-auto">
+    <div id="landing" class="hidden min-h-screen flex flex-col">
 
-      <div class="landing-content flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12">
-        <div class="w-full max-w-2xl space-y-5 min-w-0">
-          <div class="text-center">
-            <h1 class="font-heading font-bold tracking-tight text-text-bright mb-4 px-2 text-center" style="font-size:clamp(1.25rem,4vw,2.25rem);line-height:1.2">
-              <span id="landing-server-name">HumanitZ Server</span>
-            </h1>
-            <div id="landing-status-badge" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm bg-surface-100 border border-border">
-              <span id="ls-status-dot" class="w-2 h-2 rounded-full bg-muted"></span>
-              <span id="ls-status-text" class="text-muted text-sm">Checking...</span>
+      <div class="landing-content flex-1 flex flex-col items-center justify-center px-4 py-10 sm:py-14">
+        <div class="landing-card w-full">
+
+          <!-- Header -->
+          <div class="landing-header">
+            <div class="landing-title-row">
+              <h1 class="font-heading font-bold text-text-bright" style="font-size:clamp(1.6rem,4.5vw,2.2rem);line-height:1">Howyagarn</h1>
             </div>
-          </div>
-
-          <div id="landing-connect" class="hidden">
-            <div class="flex items-center justify-center gap-2">
-              <code id="landing-address" class="bg-surface-100 border border-border rounded-lg px-4 py-2.5 text-accent font-mono text-sm select-all tracking-wide break-all">-</code>
-              <button id="copy-address-btn" class="p-2 rounded-lg text-muted hover:text-white hover:bg-surface-50 transition-all" data-tippy-content="Copy IP">
-                <i data-lucide="copy" class="w-4 h-4"></i>
-              </button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div class="stat-chip"><span class="stat-chip-label">Players</span><span id="ls-players" class="stat-chip-value">-</span></div>
-            <div class="stat-chip"><span class="stat-chip-label">World</span><span id="ls-world" class="stat-chip-value">-</span></div>
-          </div>
-
-          <div id="landing-servers" class="hidden space-y-3">
-            <h3 class="text-xs font-medium text-muted uppercase tracking-wider">All Servers</h3>
-            <div id="server-cards" class="space-y-2"></div>
-          </div>
-
-          <div id="landing-schedule" class="hidden">
-            <div class="bg-surface-100 border border-border rounded-xl overflow-hidden">
-              <div class="px-5 py-3 border-b border-border flex items-center justify-between">
-                <h3 class="text-sm font-heading font-semibold text-text-bright">Difficulty Schedule</h3>
-                <span id="ls-tz" class="text-[11px] text-muted font-mono"></span>
-              </div>
-              <div class="px-5 py-3">
-                <div id="ls-schedule-list" class="space-y-1"></div>
-                <div id="ls-next-restart" class="text-xs text-muted mt-3"></div>
-                <div id="ls-rotate-note" class="hidden text-xs text-muted/60 mt-1">Schedule rotates daily</div>
+            <div class="landing-status-row">
+              <div id="landing-status-badge" class="landing-status-pill">
+                <span id="ls-status-dot" class="w-2 h-2 rounded-full bg-muted"></span>
+                <span id="ls-status-text" class="text-muted text-xs">Checking...</span>
               </div>
             </div>
           </div>
 
-          <div class="text-center" id="landing-auth">
-            <a id="landing-auth-btn" href="/auth/login" class="inline-flex items-center gap-2.5 bg-[#5865F2] hover:bg-[#4752C4] text-white font-medium px-6 py-2.5 rounded-lg transition-colors text-sm">
+          <!-- Server cards -->
+          <div id="server-cards" class="landing-server-grid"></div>
+
+          <!-- Auth -->
+          <div class="landing-auth-section" id="landing-auth">
+            <a id="landing-auth-btn" href="/auth/login" class="landing-discord-btn">
               <svg width="18" height="14" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.7 40.7 0 00-1.8 3.7c-5.5-.8-11-.8-16.3 0A37.3 37.3 0 0025.3.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.4 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32 .3 45.1v.1a58.8 58.8 0 0017.8 9 .2.2 0 00.3-.1c1.4-1.9 2.6-3.9 3.6-6a.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 010-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .3 36.4 36.4 0 01-5.5 2.7.2.2 0 00-.1.3c1.1 2.1 2.3 4.1 3.7 6a.2.2 0 00.2.1 58.6 58.6 0 0017.9-9v-.1c1.4-15-2.3-28-9.8-39.6a.2.2 0 00-.1-.1zM23.7 37c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7zm23.2 0c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7z"/></svg>
               Sign in with Discord
             </a>
           </div>
 
-          <div id="landing-links" class="hidden flex items-center justify-center gap-4 text-xs">
-            <a id="link-discord" href="#" target="_blank" class="text-muted hover:text-accent transition-colors">Our Discord</a>
-            <span class="text-border">·</span>
-            <a href="https://discord.gg/humanitz" target="_blank" class="text-muted hover:text-accent transition-colors">HumanitZ Discord</a>
-            <span class="text-border">·</span>
+          <!-- Community links -->
+          <div id="landing-links" class="hidden landing-links-row">
+            <a href="https://discord.gg/GKAyNdJ2Fh " target="_blank" class="text-muted hover:text-accent transition-colors">HumanitZ Discord</a>
+            <span class="text-border">&middot;</span>
             <a href="https://store.steampowered.com/app/1534530/HumanitZ/" target="_blank" class="text-muted hover:text-accent transition-colors">Steam</a>
           </div>
+
         </div>
       </div>
-      <footer class="py-4 text-center text-[11px] text-muted/30 landing-content">
-        HumanitZ by Yodubzz Studios · Community tool
+
+      <footer class="landing-footer landing-content">
+        <div class="landing-footer-main">
+          <a href="https://github.com/QS-Zuq/humanitzbot" target="_blank" rel="noopener noreferrer" class="landing-footer-repo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 00-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.8.1-.7.1-.7 1.2.1 1.9 1.3 1.9 1.3 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.3-3.2-.1-.3-.6-1.5.1-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 016.2 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.3 1.9 1.3 3.2 0 4.7-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0012 .3"/></svg>
+            <span>QS-Zuq/humanitzbot</span>
+          </a>
+          <span class="landing-footer-sep">&middot;</span>
+          <a href="https://github.com/QS-Zuq/humanitzbot/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="landing-footer-link">MIT License</a>
+        </div>
+        <div class="landing-footer-attr">
+          HumanitZ by <a href="https://humanitzgame.com/" target="_blank" rel="noopener noreferrer">Yodubzz Studios</a>
+          &middot; Map by <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">Leaflet</a>
+          &middot; Icons by <a href="https://lucide.dev" target="_blank" rel="noopener noreferrer">Lucide</a>
+          &middot; Tooltips by <a href="https://atomiks.github.io/tippyjs/" target="_blank" rel="noopener noreferrer">Tippy.js</a>
+          &middot; Charts by <a href="https://www.chartjs.org" target="_blank" rel="noopener noreferrer">Chart.js</a>
+          &middot; Animation by <a href="https://gsap.com" target="_blank" rel="noopener noreferrer">GSAP</a>
+        </div>
       </footer>
     </div>
 
@@ -215,6 +278,12 @@
         <div class="px-4 py-4 border-b border-border sidebar-header">
           <h2 class="text-base font-heading font-bold text-text-bright sidebar-full tracking-wide truncate">HumanitZ</h2>
           <span class="text-base sidebar-mini hidden font-heading font-bold text-text-bright">H</span>
+        </div>
+        <!-- Server selector (multi-server) -->
+        <div id="server-selector" class="hidden px-3 py-2 border-b border-border">
+          <select id="server-select" class="w-full text-xs bg-surface-100 border border-border rounded px-2 py-1.5 text-text-bright cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent truncate">
+            <option value="primary">Primary Server</option>
+          </select>
         </div>
         <ul class="flex-1 py-2 overflow-y-auto space-y-0.5">
           <li><a href="#" class="nav-link active" data-tab="dashboard"><i data-lucide="layout-dashboard" class="nav-ico"></i><span class="nav-txt">Dashboard</span></a></li>
@@ -251,9 +320,9 @@
       <main class="flex-1 overflow-y-auto bg-surface-300 flex flex-col">
 
         <!-- DASHBOARD -->
-        <section id="tab-dashboard" class="tab-content p-6 space-y-5">
+        <section id="tab-dashboard" class="tab-content p-6 space-y-4">
           <div class="flex items-center justify-between">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Dashboard</h1>
+            <h1 class="page-title">Dashboard</h1>
             <div class="flex items-center gap-3">
               <span id="d-tz" class="text-[11px] text-muted font-mono"></span>
               <span class="text-[11px] text-muted/40 flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3 animate-spin" style="animation-duration:30s"></i> 30s</span>
@@ -286,7 +355,7 @@
         <!-- MAP -->
         <section id="tab-map" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center gap-3 px-5 py-2.5 border-b border-border bg-surface-200 flex-shrink-0 flex-wrap">
-            <h1 class="text-sm font-heading font-semibold text-text-bright mr-auto">Live Map</h1>
+            <h1 class="page-title mr-auto">Live Map</h1>
             <input type="text" id="map-search" placeholder="Search..." class="input-field w-32 text-xs py-1">
             <label class="flex items-center gap-1 text-[11px] text-muted cursor-pointer select-none"><input type="checkbox" id="map-show-offline" checked class="accent-accent rounded w-3 h-3"> Offline</label>
             <label class="flex items-center gap-1 text-[11px] text-emerald-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-players" checked class="accent-emerald-400 rounded w-3 h-3"> Players</label>
@@ -320,7 +389,7 @@
         <!-- TIMELINE -->
         <section id="tab-timeline" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center gap-3 px-5 py-2.5 border-b border-border bg-surface-200 flex-shrink-0 flex-wrap">
-            <h1 class="text-sm font-heading font-semibold text-text-bright mr-2">Timeline</h1>
+            <h1 class="page-title mr-auto">Timeline</h1>
             <button id="tl-step-back" class="tl-btn" data-tippy-content="Previous (←)"><i data-lucide="skip-back" class="w-3.5 h-3.5"></i></button>
             <button id="tl-play" class="tl-btn" data-tippy-content="Play/Pause (Space)"><i data-lucide="play" class="w-3.5 h-3.5"></i></button>
             <button id="tl-step-fwd" class="tl-btn" data-tippy-content="Next (→)"><i data-lucide="skip-forward" class="w-3.5 h-3.5"></i></button>
@@ -354,10 +423,11 @@
         <section id="tab-players" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
+            <h1 class="page-title">Players</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="player-search" placeholder="Search..." class="input-field w-48 pl-8">
+                <input type="text" id="player-search" placeholder="Search..." class="input-field has-icon w-48">
               </div>
               <select id="player-sort" class="input-field w-40">
                 <option value="online">Online First</option>
@@ -385,11 +455,11 @@
         <!-- CLANS -->
         <section id="tab-clans" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Clans</h1>
+            <h1 class="page-title">Clans</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="clan-search" placeholder="Search clans..." class="input-field w-48 pl-8">
+                <input type="text" id="clan-search" placeholder="Search clans..." class="input-field has-icon w-48">
               </div>
               <select id="clan-sort" class="input-field w-40">
                 <option value="members">Most Members</option>
@@ -411,29 +481,115 @@
 
         <!-- ACTIVITY -->
         <section id="tab-activity" class="tab-content hidden p-6 space-y-4">
+          <!-- Header -->
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Activity Log</h1>
+            <h1 class="page-title">Activity Log</h1>
             <div class="flex items-center gap-2">
-              <select id="activity-filter" class="input-field">
-                <option value="">All Events</option>
-                <option value="player_connect">Connections</option>
-                <option value="player_disconnect">Disconnections</option>
-                <option value="player_death">Deaths</option>
-                <option value="player_death_pvp">PvP</option>
-                <option value="player_build">Building</option>
-                <option value="container_loot">Looting</option>
-                <option value="raid_damage">Raids</option>
-                <option value="damage_taken">Damage</option>
-                <option value="admin_access">Admin</option>
-                <option value="anticheat_flag">Anticheat</option>
-              </select>
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="activity-search" placeholder="Filter by player..." class="input-field w-40 pl-8">
+                <input type="text" id="activity-search" placeholder="Player or Item#fingerprint..." class="input-field has-icon w-48">
               </div>
               <input type="date" id="activity-date" class="input-field w-36">
+              <button id="activity-toggle-charts" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" title="Toggle charts">
+                <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Charts
+              </button>
             </div>
           </div>
+
+          <!-- Stats summary cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="activity-stat-cards">
+            <div class="stat-card"><div class="stat-label">Total Events</div><div id="act-total" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label">Event Types</div><div id="act-types-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label">Date Range</div><div id="act-date-range" class="stat-value text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label">Top Actor</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
+          </div>
+
+          <!-- Charts panel (collapsible) -->
+          <div id="activity-charts-panel" class="hidden space-y-4">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <!-- Daily activity trend -->
+              <div class="card">
+                <div class="card-title">Daily Activity (30 days)</div>
+                <div style="height: 200px; position: relative;">
+                  <canvas id="chart-daily-activity"></canvas>
+                </div>
+              </div>
+              <!-- Hourly distribution -->
+              <div class="card">
+                <div class="card-title">Hourly Distribution (7 days)</div>
+                <div style="height: 200px; position: relative;">
+                  <canvas id="chart-hourly-activity"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <!-- Category breakdown (doughnut) -->
+              <div class="card">
+                <div class="card-title">By Category</div>
+                <div style="height: 220px; position: relative;" class="flex items-center justify-center">
+                  <canvas id="chart-category-activity"></canvas>
+                </div>
+              </div>
+              <!-- Top actors -->
+              <div class="card">
+                <div class="card-title">Most Active Players (7 days)</div>
+                <div style="height: 220px; position: relative;">
+                  <canvas id="chart-top-actors"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category filter pills -->
+          <div class="flex items-center gap-1.5 flex-wrap" id="activity-category-pills">
+            <button class="activity-pill active" data-category="">All</button>
+            <button class="activity-pill" data-category="session"><i data-lucide="log-in" class="w-3 h-3"></i> Sessions</button>
+            <button class="activity-pill" data-category="combat"><i data-lucide="swords" class="w-3 h-3"></i> Combat</button>
+            <button class="activity-pill" data-category="structure"><i data-lucide="building" class="w-3 h-3"></i> Structures</button>
+            <button class="activity-pill" data-category="container"><i data-lucide="box" class="w-3 h-3"></i> Containers</button>
+            <button class="activity-pill" data-category="inventory"><i data-lucide="backpack" class="w-3 h-3"></i> Inventory</button>
+            <button class="activity-pill" data-category="vehicle"><i data-lucide="car" class="w-3 h-3"></i> Vehicles</button>
+            <button class="activity-pill" data-category="horse"><i data-lucide="heart" class="w-3 h-3"></i> Horses</button>
+            <button class="activity-pill" data-category="admin"><i data-lucide="shield" class="w-3 h-3"></i> Admin</button>
+          </div>
+
+          <!-- Fingerprint tracker panel (hidden by default, shown when search has item#fingerprint format) -->
+          <div id="fingerprint-tracker" class="hidden">
+            <div class="card border border-emerald-500/20 bg-emerald-500/5">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="scan-search" class="w-4 h-4 text-emerald-400"></i>
+                  <span class="text-sm font-semibold text-emerald-400">Item Tracker</span>
+                  <span id="fp-item-name" class="text-sm text-gray-300"></span>
+                  <span id="fp-hash" class="font-mono text-[10px] text-muted bg-surface-300 px-1.5 py-0.5 rounded"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select id="fp-limit" class="input-field text-xs py-0.5 w-20">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                  </select>
+                  <button id="fp-close" class="text-muted hover:text-red-400 transition-colors" title="Close tracker">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              </div>
+              <!-- Instance info row -->
+              <div id="fp-instance-info" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs"></div>
+              <!-- Ownership chain -->
+              <div id="fp-ownership" class="mb-3 hidden">
+                <div class="text-[10px] text-muted font-medium mb-1">CHAIN OF CUSTODY</div>
+                <div id="fp-ownership-chain" class="flex items-center gap-1 flex-wrap text-xs"></div>
+              </div>
+              <!-- Movement timeline -->
+              <div id="fp-movements" class="space-y-0.5 max-h-[400px] overflow-y-auto scrollbar-thin"></div>
+              <div id="fp-loading" class="text-xs text-muted text-center py-4">Loading tracker data…</div>
+              <div id="fp-empty" class="hidden text-xs text-muted text-center py-4">No movements recorded for this item.</div>
+            </div>
+          </div>
+
+          <!-- Event feed -->
           <div id="activity-feed" class="space-y-0.5"></div>
           <div id="activity-load-more" class="hidden text-center py-4">
             <button onclick="window.__loadMoreActivity && window.__loadMoreActivity()" class="btn-secondary text-xs px-4 py-1.5">Load More</button>
@@ -443,17 +599,17 @@
         <!-- CHAT -->
         <section id="tab-chat" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center justify-between px-5 py-2.5 border-b border-border bg-surface-200 flex-shrink-0">
-            <h1 class="text-sm font-heading font-semibold text-text-bright flex items-center gap-2">Chat</h1>
+            <h1 class="page-title">Chat</h1>
             <div class="flex items-center gap-3">
               <div class="relative">
-                <i data-lucide="search" class="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="chat-search" placeholder="Search messages..." class="input-field w-40 text-xs pl-7 py-1">
+                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
+                <input type="text" id="chat-search" placeholder="Search messages..." class="input-field has-icon w-40 text-xs py-1">
               </div>
               <span id="chat-count" class="text-xs text-muted"></span>
             </div>
           </div>
           <div id="chat-feed" class="flex-1 overflow-y-auto px-5 py-3 space-y-0.5 min-h-0"></div>
-          <div class="px-5 py-3 border-t border-border bg-surface-200 flex gap-2 flex-shrink-0" data-min-tier="3">
+          <div class="px-5 py-3 border-t border-border bg-surface-200 flex gap-2 flex-shrink-0" data-min-tier="2">
             <input type="text" id="chat-msg-input" placeholder="Send message to server..." class="input-field flex-1">
             <button id="chat-send-btn" class="btn-primary flex items-center gap-1.5"><i data-lucide="send" class="w-3.5 h-3.5"></i> Send</button>
           </div>
@@ -463,11 +619,11 @@
         <section id="tab-items" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Item Tracker</h1>
+            <h1 class="page-title">Item Tracker</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="items-search" placeholder="Search items..." class="input-field w-48 pl-8">
+                <input type="text" id="items-search" placeholder="Search items..." class="input-field has-icon w-48">
               </div>
               <select id="items-view" class="input-field w-36">
                 <option value="all">All Items</option>
@@ -489,7 +645,7 @@
           </div>
           <div id="items-content" class="space-y-2"></div>
           <div id="item-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div class="bg-surface-100 border border-border rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl relative">
+            <div class="bg-surface-100 border border-border rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
               <button id="item-detail-close" class="modal-close" title="Close (Esc)"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
               <div class="p-6" id="item-detail-content"></div>
             </div>
@@ -499,17 +655,49 @@
         <!-- CONSOLE -->
         <section id="tab-console" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center justify-between px-5 py-2.5 border-b border-border bg-surface-200 flex-shrink-0">
-            <h1 class="text-sm font-heading font-semibold text-text-bright flex items-center gap-2">RCON Console</h1>
+            <h1 class="page-title">RCON Console</h1>
             <div class="flex items-center gap-3">
               <div class="relative" id="cmd-helper-wrap">
                 <button id="cmd-helper-btn" class="text-xs text-muted hover:text-accent transition-colors flex items-center gap-1"><i data-lucide="help-circle" class="w-3.5 h-3.5"></i> Commands</button>
-                <div id="cmd-helper-list" class="hidden absolute right-0 top-full mt-1 w-56 bg-surface-100 border border-border rounded-lg shadow-xl z-50 py-1 max-h-64 overflow-y-auto">
+                <div id="cmd-helper-list" class="hidden absolute right-0 top-full mt-1 w-72 bg-surface-100 border border-border rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mb-0.5">Server Info</div>
                   <div class="cmd-item" data-cmd="info">info <span class="cmd-desc">Server info</span></div>
                   <div class="cmd-item" data-cmd="players">players <span class="cmd-desc">Online list</span></div>
                   <div class="cmd-item" data-cmd="save">save <span class="cmd-desc">Save world</span></div>
+                  <div class="cmd-item" data-cmd="fetchbanned">fetchbanned <span class="cmd-desc">List bans</span></div>
+                  <div class="cmd-item" data-cmd="fetchwhitelist">fetchwhitelist <span class="cmd-desc">List whitelist</span></div>
+                  <div class="cmd-item" data-cmd="fetchadmins">fetchadmins <span class="cmd-desc">List admins</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Communication</div>
                   <div class="cmd-item" data-cmd="say ">say &lt;msg&gt; <span class="cmd-desc">Broadcast</span></div>
+                  <div class="cmd-item" data-cmd="admin ">admin &lt;msg&gt; <span class="cmd-desc">Admin message</span></div>
+                  <div class="cmd-item" data-cmd="servermsg ">servermsg &lt;msg&gt; <span class="cmd-desc">Server popup</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Player Management</div>
                   <div class="cmd-item" data-cmd="kick ">kick &lt;id&gt; <span class="cmd-desc">Kick player</span></div>
                   <div class="cmd-item" data-cmd="ban ">ban &lt;id&gt; <span class="cmd-desc">Ban player</span></div>
+                  <div class="cmd-item" data-cmd="unban ">unban &lt;id&gt; <span class="cmd-desc">Unban player</span></div>
+                  <div class="cmd-item" data-cmd="whitelist ">whitelist &lt;id&gt; <span class="cmd-desc">Add whitelist</span></div>
+                  <div class="cmd-item" data-cmd="removewhitelist ">removewhitelist &lt;id&gt; <span class="cmd-desc">Remove whitelist</span></div>
+                  <div class="cmd-item" data-cmd="addadmin ">addadmin &lt;id&gt; <span class="cmd-desc">Add admin</span></div>
+                  <div class="cmd-item" data-cmd="removeadmin ">removeadmin &lt;id&gt; <span class="cmd-desc">Remove admin</span></div>
+                  <div class="cmd-item" data-cmd="teleport ">teleport &lt;id&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; <span class="cmd-desc">Teleport</span></div>
+                  <div class="cmd-item" data-cmd="unstuck ">unstuck &lt;id&gt; <span class="cmd-desc">Unstuck player</span></div>
+                  <div class="cmd-item" data-cmd="giveitem ">giveitem &lt;id&gt; &lt;item&gt; &lt;qty&gt; <span class="cmd-desc">Give item</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">World Settings</div>
+                  <div class="cmd-item" data-cmd="weather ">weather &lt;type&gt; <span class="cmd-desc">Set weather</span></div>
+                  <div class="cmd-item" data-cmd="season ">season &lt;type&gt; <span class="cmd-desc">Set season</span></div>
+                  <div class="cmd-item" data-cmd="settime ">settime &lt;hours&gt; <span class="cmd-desc">Set time</span></div>
+                  <div class="cmd-item" data-cmd="setday">setday <span class="cmd-desc">Set daytime</span></div>
+                  <div class="cmd-item" data-cmd="setnight">setnight <span class="cmd-desc">Set nighttime</span></div>
+                  <div class="cmd-item" data-cmd="setzombiemultiplier ">setzombiemultiplier &lt;n&gt; <span class="cmd-desc">Zombie density</span></div>
+                  <div class="cmd-item" data-cmd="setanimalmultiplier ">setanimalmultiplier &lt;n&gt; <span class="cmd-desc">Animal density</span></div>
+                  <div class="cmd-item" data-cmd="setzombies ">setzombies &lt;on/off&gt; <span class="cmd-desc">Toggle zombies</span></div>
+                  <div class="cmd-item" data-cmd="setanimals ">setanimals &lt;on/off&gt; <span class="cmd-desc">Toggle animals</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Server Control</div>
+                  <div class="cmd-item" data-cmd="restart ">restart &lt;seconds&gt; <span class="cmd-desc">Timed restart</span></div>
+                  <div class="cmd-item" data-cmd="QuickRestart">QuickRestart <span class="cmd-desc">Quick restart</span></div>
+                  <div class="cmd-item" data-cmd="RestartNow">RestartNow <span class="cmd-desc">Restart now</span></div>
+                  <div class="cmd-item" data-cmd="CancelRestart">CancelRestart <span class="cmd-desc">Cancel restart</span></div>
+                  <div class="cmd-item" data-cmd="shutdown ">shutdown &lt;seconds&gt; <span class="cmd-desc">Shutdown server</span></div>
                 </div>
               </div>
               <button id="console-clear-btn" class="text-xs text-muted hover:text-gray-300 transition-colors flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear</button>
@@ -529,14 +717,25 @@
         <!-- SETTINGS -->
         <section id="tab-settings" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Server Settings</h1>
+            <div class="flex items-center gap-3">
+              <h1 class="page-title">Settings</h1>
+              <div class="flex items-center bg-surface-200 rounded-lg p-0.5 border border-border">
+                <button id="settings-mode-game" class="settings-mode-btn active" data-mode="game">
+                  <i data-lucide="server" class="w-3 h-3"></i> Game Server
+                </button>
+                <button id="settings-mode-bot" class="settings-mode-btn" data-mode="bot">
+                  <i data-lucide="bot" class="w-3 h-3"></i> Bot Config
+                </button>
+              </div>
+            </div>
             <div class="flex items-center gap-3">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="settings-search" placeholder="Search settings..." class="input-field w-48 pl-8">
+                <input type="text" id="settings-search" placeholder="Search settings..." class="input-field has-icon w-48">
               </div>
               <span id="settings-count" class="text-xs text-muted"></span>
               <span id="settings-change-count" class="hidden text-xs font-medium text-surge bg-surge/10 border border-surge/20 px-2 py-0.5 rounded-full"></span>
+              <span id="settings-restart-badge" class="hidden text-xs font-medium text-horde bg-horde/10 border border-horde/20 px-2 py-0.5 rounded-full flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Restart Required</span>
               <button id="settings-save-btn" class="btn-primary opacity-50 cursor-not-allowed flex items-center gap-1.5" disabled><i data-lucide="save" class="w-3.5 h-3.5"></i> Save Changes</button>
               <button id="settings-reset-btn" class="hidden text-xs text-muted hover:text-horde transition-colors" title="Discard all changes"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5 inline-block align-middle mr-0.5"></i>Reset</button>
             </div>
@@ -565,8 +764,10 @@
         </section>
 
         <!-- CONTROLS -->
-        <section id="tab-controls" class="tab-content hidden p-6 space-y-5">
-          <h1 class="text-xl font-heading font-bold text-text-bright">Server Controls</h1>
+        <section id="tab-controls" class="tab-content hidden p-6 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <h1 class="page-title">Server Controls</h1>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div class="card">
               <h3 class="card-title">Power</h3>
@@ -605,24 +806,103 @@
         <section id="tab-database" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-xl font-heading font-bold text-text-bright">Database</h1>
+            <h1 class="page-title">Database</h1>
             <div class="flex items-center gap-2">
-              <select id="db-table" class="input-field"><option value="activity_log">Activity Log</option><option value="chat_log">Chat Log</option></select>
-              <div class="relative">
-                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="db-search" placeholder="Search..." class="input-field w-48 pl-8">
+              <!-- Mode toggle: Browse / Query -->
+              <div class="flex items-center bg-surface-200 rounded-lg p-0.5 border border-border">
+                <button id="db-mode-browse" class="settings-mode-btn active" data-mode="browse">
+                  <i data-lucide="table" class="w-3 h-3"></i> Browse
+                </button>
+                <button id="db-mode-query" class="settings-mode-btn" data-mode="query">
+                  <i data-lucide="terminal" class="w-3 h-3"></i> Query
+                </button>
               </div>
-              <select id="db-limit" class="input-field w-24"><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select>
-              <button id="db-export-csv" class="btn-secondary flex items-center gap-1.5 text-xs" title="Export current results as CSV"><i data-lucide="download" class="w-3.5 h-3.5"></i> CSV</button>
             </div>
           </div>
-          <div id="db-results" class="overflow-x-auto"></div>
+
+          <!-- Browse mode -->
+          <div id="db-browse-panel">
+            <div class="flex items-center gap-2 flex-wrap mb-3">
+              <select id="db-table" class="input-field w-56"></select>
+              <span id="db-table-info" class="text-xs text-muted"></span>
+              <div class="ml-auto flex items-center gap-2">
+                <div class="relative">
+                  <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
+                  <input type="text" id="db-search" placeholder="Search..." class="input-field has-icon w-48">
+                </div>
+                <select id="db-limit" class="input-field w-24"><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select>
+                <button id="db-export-csv" class="btn-secondary flex items-center gap-1.5 text-xs" title="Export current results as CSV"><i data-lucide="download" class="w-3.5 h-3.5"></i> CSV</button>
+              </div>
+            </div>
+            <!-- Table schema preview (collapsible) -->
+            <details id="db-schema-details" class="mb-3">
+              <summary class="text-xs text-muted cursor-pointer hover:text-text transition-colors flex items-center gap-1">
+                <i data-lucide="columns" class="w-3 h-3"></i> Schema
+              </summary>
+              <div id="db-schema-info" class="mt-2 overflow-x-auto"></div>
+            </details>
+            <div id="db-results" class="overflow-x-auto"></div>
+          </div>
+
+          <!-- Query mode -->
+          <div id="db-query-panel" class="hidden space-y-3">
+            <!-- Visual query builder -->
+            <div class="card">
+              <div class="card-title flex items-center gap-2">
+                <i data-lucide="wand" class="w-3.5 h-3.5"></i> Query Builder
+              </div>
+              <div class="space-y-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-muted font-mono">SELECT</span>
+                  <input type="text" id="qb-columns" value="*" placeholder="* or column names" class="input-field flex-1 font-mono text-xs">
+                  <span class="text-xs text-muted font-mono">FROM</span>
+                  <select id="qb-table" class="input-field w-56 font-mono text-xs"></select>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap" id="qb-where-row">
+                  <span class="text-xs text-muted font-mono">WHERE</span>
+                  <select id="qb-where-col" class="input-field w-40 font-mono text-xs"><option value="">--</option></select>
+                  <select id="qb-where-op" class="input-field w-20 font-mono text-xs">
+                    <option value="=">=</option><option value="!=">!=</option>
+                    <option value="LIKE">LIKE</option><option value=">">></option>
+                    <option value="<"><</option><option value=">=">>=</option><option value="<="><=</option>
+                    <option value="IS NULL">IS NULL</option><option value="IS NOT NULL">IS NOT NULL</option>
+                  </select>
+                  <input type="text" id="qb-where-val" placeholder="value" class="input-field w-40 font-mono text-xs">
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-muted font-mono">ORDER BY</span>
+                  <select id="qb-order-col" class="input-field w-40 font-mono text-xs"><option value="">--</option></select>
+                  <select id="qb-order-dir" class="input-field w-20 font-mono text-xs"><option value="DESC">DESC</option><option value="ASC">ASC</option></select>
+                  <span class="text-xs text-muted font-mono">LIMIT</span>
+                  <input type="number" id="qb-limit" value="100" min="1" max="1000" class="input-field w-20 font-mono text-xs">
+                </div>
+                <div class="flex items-center gap-2">
+                  <button id="qb-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> Run Query</button>
+                  <button id="qb-copy-sql" class="btn-secondary flex items-center gap-1.5 text-xs"><i data-lucide="copy" class="w-3 h-3"></i> Copy SQL</button>
+                  <span id="qb-preview" class="text-xs text-muted font-mono truncate flex-1"></span>
+                </div>
+              </div>
+            </div>
+            <!-- Raw SQL (admin) -->
+            <div class="card">
+              <div class="card-title flex items-center gap-2">
+                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Raw SQL <span class="text-xs font-normal text-muted">(SELECT only)</span>
+              </div>
+              <div class="flex gap-2">
+                <input type="text" id="db-raw-sql" placeholder="SELECT * FROM players LIMIT 10" class="input-field flex-1 font-mono text-xs">
+                <button id="db-raw-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> Run</button>
+              </div>
+            </div>
+            <!-- Query results -->
+            <div id="db-query-results" class="overflow-x-auto"></div>
+            <div id="db-query-status" class="text-xs text-muted"></div>
+          </div>
         </section>
 
         <!-- ═══ Anticheat ═══ -->
         <section id="tab-anticheat" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h2 class="text-lg font-heading font-bold text-text-bright flex items-center gap-2"><i data-lucide="shield-alert" class="w-5 h-5 text-red-400"></i> Anticheat Dashboard</h2>
+            <h1 class="page-title">Anticheat</h1>
             <div class="flex items-center gap-2">
               <select id="ac-status-filter" class="input-field w-32"><option value="open">Open</option><option value="confirmed">Confirmed</option><option value="dismissed">Dismissed</option><option value="whitelisted">Whitelisted</option><option value="">All</option></select>
               <select id="ac-severity-filter" class="input-field w-28"><option value="">All Severity</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select>

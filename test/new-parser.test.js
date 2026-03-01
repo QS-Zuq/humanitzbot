@@ -335,7 +335,7 @@ describe('save-parser', () => {
     it('extracts SteamID and basic player fields', () => {
       const buf = Buffer.concat([
         buildGvasHeader(),
-        buildStrProperty('SteamID', '76561198055916841'),
+        buildStrProperty('SteamID', '76561198000000001'),
         buildBoolProperty('Male', false),
         buildIntProperty('DayzSurvived', 7),
         buildFloatProperty('CurrentHealth', 85.5),
@@ -344,7 +344,7 @@ describe('save-parser', () => {
       ]);
       const { players } = parseSave(buf);
       assert.equal(players.size, 1);
-      const p = players.get('76561198055916841');
+      const p = players.get('76561198000000001');
       assert.ok(p);
       assert.equal(p.male, false);
       assert.equal(p.daysSurvived, 7);
@@ -507,7 +507,7 @@ describe('HumanitZDB', () => {
 
     it('sets schema version', () => {
       const version = db._getMeta('schema_version');
-      assert.equal(version, '12');
+      assert.equal(version, '13');
     });
 
     it('creates player_aliases table', () => {

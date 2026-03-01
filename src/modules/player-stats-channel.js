@@ -137,6 +137,7 @@ class PlayerStatsChannel {
     this._db = deps.db || null;
     this._label = deps.label || 'PLAYER STATS CH';
     this._serverId = deps.serverId || '';  // unique suffix for select menu IDs
+    this._dataDir = deps.dataDir || null;  // for writing save-cache.json (multi-server)
 
     this.client = client;
     this._logWatcher = logWatcher || null; // for posting kill feed to activity thread
@@ -351,10 +352,44 @@ class PlayerStatsChannel {
         this._detectWorldEvents(prevWorldState, this._worldState);
       }
 
+      // Write save-cache.json for web panel (multi-server instances)
+      this._writeSaveCache();
+
       return true;
     } catch (err) {
       console.error(`[${this._label}] DB load error:`, err.message);
       return false;
+    }
+  }
+
+  /**
+   * Write save-cache.json for the web panel landing page.
+   * Only writes for multi-server instances (that have _dataDir set).
+   * Primary server's cache is written by SaveService in index.js.
+   */
+  _writeSaveCache() {
+    if (!this._dataDir) return;
+    try {
+      const cacheData = {
+        updatedAt: new Date().toISOString(),
+        playerCount: this._saveData.size,
+        worldState: this._worldState || {},
+        players: {},
+        structures: this._structures || [],
+        vehicles: this._vehicles || [],
+        horses: this._horses || [],
+        containers: this._containers || [],
+        companions: this._companions || [],
+      };
+      if (this._saveData instanceof Map) {
+        for (const [steamId, pData] of this._saveData) {
+          cacheData.players[steamId] = pData;
+        }
+      }
+      const cachePath = path.join(this._dataDir, 'save-cache.json');
+      fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
+    } catch (err) {
+      console.error(`[${this._label}] Failed to write save-cache.json:`, err.message);
     }
   }
 
@@ -469,6 +504,9 @@ class PlayerStatsChannel {
 
       // Cache leaderboard data
       this._cacheWelcomeStats();
+
+      // Write save-cache.json for web panel (multi-server instances)
+      this._writeSaveCache();
 
       // Welcome file
       if (this._config.enableWelcomeFile) {

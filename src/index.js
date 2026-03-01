@@ -446,7 +446,8 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Status Channels — voice channel dashboard
   if (config.enableStatusChannels) {
-    statusChannels = new StatusChannels(readyClient);
+    const categoryHint = config.serverName || '';
+    statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
     await statusChannels.start();
     setStatus('Status Channels', '🟢 Active');
   } else {
@@ -835,7 +836,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         if (!config.discordClientSecret) {
           console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
         }
-        webMapServer = new WebMapServer(readyClient, { db, scheduler: serverScheduler, saveService });
+        webMapServer = new WebMapServer(readyClient, { db, scheduler: serverScheduler, saveService, multiServerManager });
         await webMapServer.start();
         setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
         console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);

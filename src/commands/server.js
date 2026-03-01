@@ -1,12 +1,16 @@
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+/**
+ * /server — Show server info, world state, and difficulty schedule.
+ *
+ * DB-first: reads from RCON for live data, cached settings from DB.
+ * Schedule is the lead feature.
+ */
+
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getServerInfo, getPlayerList } = require('../rcon/server-info');
 const gameData = require('../parsers/game-data');
-const fs = require('fs');
-const path = require('path');
+const { buildScheduleField } = require('../server/server-display');
+const config = require('../config');
 
-const SETTINGS_FILE = path.join(__dirname, '..', '..', 'data', 'server-settings.json');
-
-// Pick a random loading tip for the footer
 function _randomTip() {
   const tips = gameData.LOADING_TIPS.filter(t => t.length > 20 && t.length < 120);
   return tips.length > 0 ? tips[Math.floor(Math.random() * tips.length)] : null;
@@ -15,7 +19,7 @@ function _randomTip() {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('server')
-    .setDescription('Show HumanitZ server world info and player count'),
+    .setDescription('Show server info, world state, and difficulty schedule'),
 
   async execute(interaction) {
     await interaction.deferReply();
@@ -27,56 +31,42 @@ module.exports = {
       ]);
 
       const tip = _randomTip();
-
       const embed = new EmbedBuilder()
         .setTitle('🖥️ Server Info')
         .setColor(0x2ecc71)
         .setFooter({ text: tip ? `💡 ${tip}` : 'HumanitZ Server' })
         .setTimestamp();
 
-      // If the `info` command returned structured fields, display them all
+      // ── 1. Schedule — always first ──
+      const schedField = buildScheduleField(config);
+      if (schedField) embed.addFields(schedField);
+
+      // ── 2. Server fields from RCON ──
       if (info.fields && Object.keys(info.fields).length > 0) {
         for (const [key, value] of Object.entries(info.fields)) {
           embed.addFields({ name: key, value: value, inline: true });
         }
       }
 
-      // Always show player count from the Players command
+      // Player count
       const playerCount = info.players != null
         ? (info.maxPlayers ? `${info.players} / ${info.maxPlayers}` : `${info.players}`)
         : `${playerList.count}`;
-      embed.addFields({ name: '👥 Online Players', value: playerCount, inline: true });
+      embed.addFields({ name: '👥 Online', value: playerCount, inline: true });
 
-      // If the raw response didn't parse to any fields, show it as-is
+      // Online player names
+      if (playerList.players?.length > 0) {
+        const names = playerList.players.map(p => p.name).join(', ');
+        embed.addFields({ name: '🎮 Players', value: names.substring(0, 1024) });
+      }
+
+      // If no structured fields, show raw
       if (!info.fields || Object.keys(info.fields).length === 0) {
-        const rawText = info.raw && info.raw.trim()
+        const rawText = info.raw?.trim()
           ? `\`\`\`\n${info.raw.substring(0, 1000)}\n\`\`\``
           : '_No data returned from server._';
         embed.setDescription(rawText);
       }
-
-      // Show server settings from cached INI if available
-      try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-          const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-          const interestingKeys = [
-            'MaxPlayers', 'ZombiePopulation', 'ZombieDifficulty', 'LootRespawnTime',
-            'PvPEnabled', 'FriendlyFire', 'DropItemsOnDeath', 'XPMultiplier',
-            'PlayerDamageMultiplier', 'ZombieDamageMultiplier', 'StaminaDrain',
-            'HungerDrain', 'ThirstDrain', 'DayNightCycle',
-          ];
-          const settingLines = [];
-          for (const key of interestingKeys) {
-            if (settings[key] !== undefined) {
-              const label = gameData.SERVER_SETTING_DESCRIPTIONS[key] || key.replace(/([a-z])([A-Z])/g, '$1 $2');
-              settingLines.push(`**${label}:** ${settings[key]}`);
-            }
-          }
-          if (settingLines.length > 0) {
-            embed.addFields({ name: '⚙️ Server Settings', value: settingLines.join('\n').substring(0, 1024) });
-          }
-        }
-      } catch (_) { /* settings not available yet */ }
 
       await interaction.editReply({ embeds: [embed] });
     } catch (err) {

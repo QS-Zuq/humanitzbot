@@ -251,7 +251,19 @@ function setupAuth(app, client) {
   });
 
   app.get('/auth/callback', async (req, res) => {
-    const { code, state } = req.query;
+    const { code, state, error, error_description } = req.query;
+
+    // Handle OAuth errors (e.g. user denied access, expired link)
+    if (error) {
+      // Clear state cookie on error
+      res.setHeader('Set-Cookie', 'hmz_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+      if (error === 'access_denied') {
+        // User clicked "Cancel" on Discord's authorization page — just redirect home
+        return res.redirect('/');
+      }
+      const safeDesc = (error_description || error || 'Unknown error').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      return res.status(400).send(`<h2>Authorization Error</h2><p>${safeDesc}</p><a href="/auth/login">Try again</a>`);
+    }
     if (!code) return res.status(400).send('Missing authorization code');
 
     // Verify CSRF state parameter (timing-safe comparison)

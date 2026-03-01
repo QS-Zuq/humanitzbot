@@ -196,6 +196,18 @@ class PlaytimeTracker {
     };
   }
 
+  /** Return active sessions as { playerName: loginTimestamp, ... } */
+  getActiveSessions() {
+    this._ensureInit();
+    const result = {};
+    for (const [id, loginTime] of this._activeSessions) {
+      const record = this._data.players[id];
+      const name = record ? record.name : id;
+      result[name] = loginTime;
+    }
+    return result;
+  }
+
   hasHistory(id) {
     return !!this._data.players[id];
   }
@@ -481,7 +493,7 @@ class PlaytimeTracker {
     try {
       const text = fs.readFileSync(logPath, 'utf8');
       const dayMap = new Map(); // 'D/M/YYYY' → Set of steamIds
-      // Format: Player Connected Name NetID(76561198055916841_+_|...) (13/2/2026 11:13)
+      // Format: Player Connected Name NetID(76561198000000001_+_|...) (13/2/2026 11:13)
       const RE = /Player Connected .+ NetID\((\d{17})_\+_\|[^)]+\) \((\d{1,2}\/\d{1,2}\/\d{4}) /;
 
       for (const line of text.split('\n')) {

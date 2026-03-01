@@ -288,11 +288,16 @@ class ServerScheduler {
       parts.push(labels[difficulty] || `Difficulty ${difficulty}`);
     }
 
+    // PVP indicator — show when PVP is explicitly enabled for this profile
+    const pvpEnabled = settings.PVP === '1' || settings.PVP === 'true';
+    const capName = name.charAt(0).toUpperCase() + name.slice(1);
+    const pvpSuffix = pvpEnabled ? ' - PVP!' : '';
+
     if (parts.length > 0) {
-      return `${name.charAt(0).toUpperCase() + name.slice(1)} (${parts.join(', ')})`;
+      return `${capName}${pvpSuffix} (${parts.join(', ')})`;
     }
 
-    return name.charAt(0).toUpperCase() + name.slice(1);
+    return `${capName}${pvpSuffix}`;
   }
 
   /** Get profile name and description as separate strings for colored RCON output. */
@@ -587,11 +592,22 @@ class ServerScheduler {
 
     // Build per-profile settings map for external consumers (web panel hover)
     const profileSettings = {};
+    const profileDisplayNames = {};
     for (const name of this._profiles) {
       if (this._profileSettings[name]) {
         profileSettings[name] = { ...this._profileSettings[name] };
       }
+      profileDisplayNames[name] = this._getProfileDisplayName(name);
     }
+
+    // Enrich schedule slots with display names
+    const enrichSlots = (slots) => {
+      if (!slots) return null;
+      return slots.map(s => ({
+        ...s,
+        profileDisplayName: profileDisplayNames[s.profileName] || s.profileName,
+      }));
+    };
 
     return {
       active: this._restartTimes.length > 0,
@@ -603,8 +619,9 @@ class ServerScheduler {
       restartTimes: timeStrs,
       profiles: this._profiles,
       profileSettings,
-      todaySchedule,
-      tomorrowSchedule,
+      profileDisplayNames,
+      todaySchedule: enrichSlots(todaySchedule),
+      tomorrowSchedule: enrichSlots(tomorrowSchedule),
       rotateDaily: this._config.restartRotateDaily,
       transitioning: this._transitioning,
       timezone: this._config.botTimezone || 'UTC',

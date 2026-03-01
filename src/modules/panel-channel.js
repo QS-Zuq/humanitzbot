@@ -20,6 +20,7 @@ const MultiServerManager = require('../server/multi-server');
 const { blockBar: _progressBar } = require('../server/server-display');
 const { BTN, SELECT, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES } = require('./panel-constants');
 const { buildDiagnostics } = require('./panel-diagnostics');
+const { cleanOwnMessages, embedContentKey } = require('./discord-utils');
 
 // ── State colour map ────────────────────────────────────────
 const STATE_DISPLAY = {

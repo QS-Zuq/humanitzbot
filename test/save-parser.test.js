@@ -197,7 +197,7 @@ function buildStrProperty(name, value) {
 describe('parseSave — player coordinates', () => {
   it('extracts position from Transform after SteamID', () => {
     const header = buildGvasHeader();
-    const steamIdProp = buildStrProperty('SteamID', '76561198055916841');
+    const steamIdProp = buildStrProperty('SteamID', '76561198000000001');
     const transformProp = buildTransformStruct('SavedTransform', 37377.63, -292189.0, 5014.04, 0, 0, -0.5, 0.866);
     const noneTerm = writeFString('None');
     
@@ -205,7 +205,7 @@ describe('parseSave — player coordinates', () => {
     const { players } = parseSave(buf);
     
     assert.equal(players.size, 1);
-    const p = players.get('76561198055916841');
+    const p = players.get('76561198000000001');
     assert.ok(p);
     assert.ok(Math.abs(p.x - 37377.63) < 0.1);
     assert.ok(Math.abs(p.y - (-292189.0)) < 1);

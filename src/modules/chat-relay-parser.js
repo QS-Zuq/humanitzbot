@@ -19,7 +19,8 @@ const LEFT_RE = /^Player Left \(<PN>(.+?)<\/>\)$/;
 // Player died:   Player Died (<PN>PlayerName</>)
 const DIED_RE = /^Player Died \(<PN>(.+?)<\/>\)$/;
 // Plain chat fallback — admin player lines may lack <PN> tags
-const PLAIN_CHAT_RE = /^([^:<>\n]{1,32}):\s*(.+)$/;
+// Must NOT match timestamp-prefixed lines like "[28/2/2,026 - 23:18] ..."
+const PLAIN_CHAT_RE = /^([^\[:<>\n][^:<>\n]{0,31}):\s*(.+)$/;
 
 /** Strip [Admin] prefix from admin player lines so the other regexes can match. */
 function stripAdminPrefix(line) {

@@ -27,13 +27,27 @@ CHANGELOG.json
 # Personal developer scripts (credentials, diagnostics)
 _*.js
 
-# Web map generated tile cache only
+# Web map: generated tiles, dev tools, old map images
 src/web-map/public/tiles/
+src/web-map/public/calibrate.html
+src/web-map/public/map-standalone.html
+src/web-map/public/island-shape.svg
+src/web-map/public/map-*.png
+src/web-map/public/map-*.jpg
 
 # Private anticheat engine (separate repo: QS-Zuq/qs-anticheat)
 qs-anticheat/
+src/modules/anticheat-integration.js
+test/anticheat.test.js
+
+# Howyagarn RCON mod (private — separate project)
+src/modules/howyagarn/
+test/howyagarn.test.js
 
 # Development / extraction utility scripts & cached data
 tools/
 GameServerSettings.ini
 .tmp-*
+
+# Backup files from dev edits
+*.bak

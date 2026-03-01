@@ -6,6 +6,8 @@
     user: null,
     tier: 0,
     currentTab: 'dashboard',
+    currentServer: 'primary',
+    multiServer: false,
     players: [],
     toggles: {},
     worldBounds: null,
@@ -15,6 +17,10 @@
     scheduleData: null,
     settingsOriginal: {},
     settingsChanged: {},
+    settingsMode: 'game',
+    botConfigOriginal: {},
+    botConfigChanged: {},
+    botConfigSections: [],
     consoleBuf: [],
     viewMode: 'admin',
     pollTimers: [],
@@ -23,11 +29,30 @@
     dashHistory: { online: [], events: [] },
     sparkCharts: {},
     dbLastResult: null,
+    activityCategory: '',
+    activityChartsLoaded: false,
+    activityCharts: {},
+    activityStats: null,
+    dbMode: 'browse',
+    dbTablesLive: [],
+    dbSchemaCache: {},
   };
 
   const $ = (sel, ctx) => (ctx || document).querySelector(sel);
   const $$ = (sel, ctx) => [...(ctx || document).querySelectorAll(sel)];
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+  /** Build API URL with server query param appended */
+  function apiUrl(path) {
+    if (S.currentServer === 'primary') return path;
+    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+    return path + sep + 'server=' + encodeURIComponent(S.currentServer);
+  }
+
+  /** Fetch wrapper that auto-appends server param to /api/ URLs */
+  function apiFetch(url, opts) {
+    return fetch(apiUrl(url), opts);
+  }
 
   const SETTING_CATEGORIES = {
     Server: ['ServerName', 'MaxPlayers', 'SaveName', 'SearchID', 'Version', 'NoJoinFeedback', 'NoDeathFeedback', 'LimitedSpawns', 'Voip'],
@@ -86,6 +111,145 @@
     Weather_LightSnow: 'Light snow weight', Weather_Snow: 'Snow weight',
     Weather_Blizzard: 'Blizzard weight',
   };
+
+  // ── Bot .env configuration descriptions ──
+  const ENV_DESCS = {
+    DISCORD_TOKEN: 'Discord bot token from the Developer Portal',
+    DISCORD_CLIENT_ID: 'Application ID from the Developer Portal',
+    DISCORD_GUILD_ID: 'The Discord server (guild) ID',
+    DISCORD_OAUTH_SECRET: 'OAuth2 client secret for web panel login',
+    DISCORD_INVITE_LINK: 'Discord invite link broadcast to players in-game',
+    RCON_HOST: 'Game server IP or hostname for RCON connection',
+    RCON_PORT: 'RCON TCP port (default 8888)',
+    RCON_PASSWORD: 'RCON authentication password',
+    GAME_PORT: 'Game connection port shown in status embeds',
+    PUBLIC_HOST: 'Public IP/hostname for connect address (if different from RCON_HOST)',
+    SERVER_NAME: 'Short display name for this server',
+    FTP_HOST: 'SFTP server hostname',
+    FTP_PORT: 'SFTP port (default 2022)',
+    FTP_USER: 'SFTP username',
+    FTP_PASSWORD: 'SFTP password',
+    FTP_PRIVATE_KEY_PATH: 'Path to SSH private key (optional, replaces password auth)',
+    FTP_BASE_PATH: 'Base path prefix for all SFTP file paths',
+    FTP_LOG_PATH: 'Path to HMZLog.log on the game server',
+    FTP_CONNECT_LOG_PATH: 'Path to PlayerConnectedLog.txt',
+    FTP_ID_MAP_PATH: 'Path to PlayerIDMapped.txt',
+    FTP_SAVE_PATH: 'Path to Save_DedicatedSaveMP.sav',
+    FTP_SETTINGS_PATH: 'Path to GameServerSettings.ini',
+    FTP_WELCOME_PATH: 'Path to WelcomeMessage.txt',
+    PANEL_CHANNEL_ID: 'Discord channel for the bot admin panel (required)',
+    ADMIN_CHANNEL_ID: 'Discord channel for admin alerts',
+    CHAT_CHANNEL_ID: 'Discord channel for chat relay',
+    LOG_CHANNEL_ID: 'Discord channel for activity log',
+    SERVER_STATUS_CHANNEL_ID: 'Discord channel for the server status embed',
+    PLAYER_STATS_CHANNEL_ID: 'Discord channel for player stats embed',
+    ACTIVITY_LOG_CHANNEL_ID: 'Discord channel for the activity log feed',
+    BOT_TIMEZONE: 'Timezone for daily threads and summaries (IANA format, e.g. America/New_York)',
+    LOG_TIMEZONE: 'Timezone the game server writes log timestamps in (default UTC)',
+    ADMIN_USER_IDS: 'Comma-separated Discord user IDs with admin access',
+    ADMIN_ROLE_IDS: 'Comma-separated Discord role IDs with admin access',
+    ADMIN_ALERT_CHANNEL_IDS: 'Comma-separated channel IDs for admin alerts',
+    ADMIN_VIEW_PERMISSIONS: 'Discord permissions that grant admin view (default: Administrator)',
+    ENABLE_STATUS_CHANNELS: 'Voice channel dashboard showing player count and time',
+    ENABLE_SERVER_STATUS: 'Auto-updating server status embed',
+    ENABLE_CHAT_RELAY: 'Bidirectional Discord ↔ in-game chat bridge',
+    ENABLE_AUTO_MESSAGES: 'Welcome messages and periodic broadcasts',
+    ENABLE_PLAYTIME: 'Session tracking and playtime leaderboards',
+    ENABLE_LOG_WATCHER: 'SFTP log polling and activity feed',
+    ENABLE_PLAYER_STATS: 'Player stats embed with save file data',
+    ENABLE_MILESTONES: 'Player milestone announcements (kills, playtime, etc.)',
+    ENABLE_RECAPS: 'Daily and weekly recap embeds',
+    ENABLE_ANTICHEAT: 'Anticheat analysis system',
+    ENABLE_KILL_FEED: 'Post zombie kill batches to activity thread',
+    ENABLE_PVP_KILL_FEED: 'Post PvP kills to activity thread',
+    PVP_KILL_WINDOW: 'Time window (ms) to attribute a kill after damage event',
+    ENABLE_DEATH_LOOP_DETECTION: 'Collapse rapid-fire death messages',
+    DEATH_LOOP_THRESHOLD: 'Deaths within window to trigger collapse',
+    DEATH_LOOP_WINDOW: 'Time window (ms) for death loop detection',
+    USE_CHAT_THREADS: 'Post chat messages in daily threads',
+    USE_ACTIVITY_THREADS: 'Post activity events in daily threads',
+    ENABLE_AUTO_MSG_LINK: 'Periodic Discord invite link broadcast',
+    ENABLE_AUTO_MSG_PROMO: 'Periodic promo message broadcast',
+    ENABLE_WELCOME_MSG: 'RCON welcome message on player join',
+    ENABLE_WELCOME_FILE: 'SFTP-managed WelcomeMessage.txt',
+    AUTO_MSG_LINK_TEXT: 'Custom Discord link broadcast text',
+    AUTO_MSG_PROMO_TEXT: 'Custom promo broadcast text',
+    WELCOME_FILE_LINES: 'Custom welcome file lines (pipe-separated)',
+    ENABLE_PVP_SCHEDULER: 'Timed PvP on/off via SFTP settings edit',
+    PVP_START_TIME: 'PvP enable time (HH:MM)',
+    PVP_END_TIME: 'PvP disable time (HH:MM)',
+    PVP_RESTART_DELAY: 'Countdown minutes before PvP restart',
+    PVP_UPDATE_SERVER_NAME: 'Append PvP status to server name',
+    PVP_DAYS: 'Days PvP is active (e.g. Mon,Wed,Fri)',
+    PVP_SETTINGS_OVERRIDES: 'JSON: game settings applied when PvP enables',
+    ENABLE_SERVER_SCHEDULER: 'Timed restarts with difficulty profiles',
+    RESTART_TIMES: 'Comma-separated HH:MM restart times',
+    RESTART_DELAY: 'Countdown minutes before scheduled restart',
+    RESTART_PROFILES: 'Comma-separated difficulty profile names',
+    RESTART_ROTATE_DAILY: 'Shift profile order each day',
+    DOCKER_CONTAINER: 'Docker container name for restart commands',
+    ENABLE_ACTIVITY_LOG: 'Save-diff activity logging (containers, horses, vehicles)',
+    ENABLE_CONTAINER_LOG: 'Container item add/remove tracking',
+    ENABLE_HORSE_LOG: 'Horse appeared/disappeared/health tracking',
+    ENABLE_VEHICLE_LOG: 'Vehicle trunk change tracking',
+    SHOW_INVENTORY_LOG: 'Player inventory change tracking (sensitive)',
+    SHOW_INVENTORY_LOG_ADMIN_ONLY: 'Restrict inventory log to admins',
+    SAVE_POLL_INTERVAL: 'Save file poll interval in ms (min 60000)',
+    LOG_POLL_INTERVAL: 'Log file poll interval in ms (min 10000)',
+    CHAT_POLL_INTERVAL: 'Chat poll interval in ms (min 5000)',
+    SERVER_STATUS_INTERVAL: 'Server status poll interval in ms (min 15000)',
+    PANEL_SERVER_URL: 'Pterodactyl panel server URL (for power/backups)',
+    PANEL_API_KEY: 'Pterodactyl panel API key',
+    ENABLE_PANEL: 'Panel API integration (power, backups, resources)',
+    ENABLE_GAME_SETTINGS_EDITOR: 'Game settings editor in panel channel',
+    ENABLE_SSH_RESOURCES: 'SSH-based resource monitoring',
+    SSH_PORT: 'SSH port for resource monitoring (default: FTP_PORT)',
+    RESOURCE_CACHE_TTL: 'Resource metrics cache TTL in ms',
+    AGENT_MODE: 'Save parser mode: auto, agent, or direct',
+    AGENT_TRIGGER: 'How to trigger agent: auto, ssh, panel, or none',
+    AGENT_NODE_PATH: 'Path to Node.js binary on the game server',
+    AGENT_REMOTE_DIR: 'Remote directory for agent upload',
+    AGENT_CACHE_PATH: 'Path to humanitz-cache.json',
+    AGENT_TIMEOUT: 'Max wait time (ms) for agent execution',
+    AGENT_POLL_INTERVAL: 'Agent poll interval in ms (default 90000)',
+    WEB_MAP_PORT: 'Port for the web panel (default: auto)',
+    ENABLE_STDIN_CONSOLE: 'Interactive stdin console for headless hosts',
+    STDIN_CONSOLE_WRITABLE: 'Allow stdin console to execute commands',
+    FIRST_RUN: 'Run first-time setup on next start',
+    ENV_SCHEMA_VERSION: 'Configuration schema version (managed by bot)',
+    SHOW_RAID_STATS: 'Show raid stats in player embeds',
+    SHOW_PVP_KILLS: 'Show PvP kills in overview embed',
+    SHOW_VITALS: 'Show vitals in player embeds',
+    SHOW_STATUS_EFFECTS: 'Show status effects in player embeds',
+    SHOW_INVENTORY: 'Show inventory in player embeds',
+    SHOW_RECIPES: 'Show recipes in player embeds',
+    SHOW_LORE: 'Show lore in player embeds',
+    SHOW_SKILLS: 'Show skills in player embeds',
+    SHOW_CONNECTIONS: 'Show connection history in player embeds',
+    SHOW_COORDINATES: 'Show player coordinates (sensitive)',
+    SHOW_COORDINATES_ADMIN_ONLY: 'Restrict coordinates to admins',
+  };
+
+  // Boolean env keys — render as toggles instead of text inputs
+  const ENV_BOOLEANS = new Set([
+    'FIRST_RUN', 'ENABLE_STATUS_CHANNELS', 'ENABLE_SERVER_STATUS', 'ENABLE_CHAT_RELAY',
+    'ENABLE_AUTO_MESSAGES', 'ENABLE_PLAYTIME', 'ENABLE_LOG_WATCHER', 'ENABLE_PLAYER_STATS',
+    'ENABLE_MILESTONES', 'ENABLE_RECAPS', 'ENABLE_ANTICHEAT', 'ENABLE_KILL_FEED',
+    'ENABLE_PVP_KILL_FEED', 'ENABLE_DEATH_LOOP_DETECTION', 'USE_CHAT_THREADS',
+    'USE_ACTIVITY_THREADS', 'ENABLE_AUTO_MSG_LINK', 'ENABLE_AUTO_MSG_PROMO',
+    'ENABLE_WELCOME_MSG', 'ENABLE_WELCOME_FILE', 'ENABLE_PVP_SCHEDULER',
+    'PVP_UPDATE_SERVER_NAME', 'ENABLE_SERVER_SCHEDULER', 'RESTART_ROTATE_DAILY',
+    'ENABLE_ACTIVITY_LOG', 'ENABLE_CONTAINER_LOG', 'ENABLE_HORSE_LOG',
+    'ENABLE_VEHICLE_LOG', 'SHOW_INVENTORY_LOG', 'SHOW_INVENTORY_LOG_ADMIN_ONLY',
+    'ENABLE_PANEL', 'ENABLE_GAME_SETTINGS_EDITOR', 'ENABLE_SSH_RESOURCES',
+    'ENABLE_STDIN_CONSOLE', 'STDIN_CONSOLE_WRITABLE', 'SHOW_RAID_STATS',
+    'SHOW_PVP_KILLS', 'SHOW_VITALS', 'SHOW_STATUS_EFFECTS', 'SHOW_INVENTORY',
+    'SHOW_RECIPES', 'SHOW_LORE', 'SHOW_SKILLS', 'SHOW_CONNECTIONS',
+    'SHOW_COORDINATES', 'SHOW_COORDINATES_ADMIN_ONLY',
+    'ENABLE_FISHING_FEED', 'ENABLE_RECIPE_FEED', 'ENABLE_SKILL_FEED',
+    'ENABLE_PROFESSION_FEED', 'ENABLE_LORE_FEED', 'ENABLE_UNIQUE_FEED',
+    'ENABLE_COMPANION_FEED', 'ENABLE_CHALLENGE_FEED', 'ENABLE_WORLD_EVENT_FEED',
+  ]);
 
   const DB_TABLES = [
     { value: 'activity_log', label: 'Activity Log' },
@@ -170,7 +334,7 @@
     loadLanding();
     
     if (typeof gsap !== 'undefined') {
-      gsap.fromTo('#landing > div', { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' });
+      gsap.fromTo('.landing-card', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' });
     }
   }
 
@@ -180,70 +344,113 @@
       const d = await r.json();
       const p = d.primary;
 
-      $('#landing-server-name').textContent = p.rconName || p.name || 'HumanitZ Server';
-
-      const isOn = p.status === 'online';
+      // Hero header — combined status across all servers
+      var anyOnline = p.status === 'online';
+      if (d.servers) for (var ci = 0; ci < d.servers.length; ci++) { if (d.servers[ci].status === 'online') anyOnline = true; }
       const dot = $('#ls-status-dot');
       const txt = $('#ls-status-text');
-      dot.className = 'w-2 h-2 rounded-full ' + (isOn ? 'bg-calm pulse-dot' : 'bg-muted');
-      txt.textContent = isOn ? 'Online' : 'Offline';
-      txt.className = 'text-sm ' + (isOn ? 'text-calm' : 'text-muted');
+      dot.className = 'landing-status-dot ' + (anyOnline ? 'online' : 'offline');
+      txt.textContent = anyOnline ? 'Online' : 'Offline';
+      txt.className = 'text-xs ' + (anyOnline ? 'text-calm' : 'text-muted');
 
-      if (p.host) {
-        const addr = p.gamePort ? p.host + ':' + p.gamePort : p.host;
-        $('#landing-address').textContent = addr;
-        $('#landing-connect').classList.remove('hidden');
+      // Build unified server list: primary first, then additional
+      var allServers = [];
+      allServers.push({
+        name: p.name || 'Primary Server',
+        status: p.status,
+        onlineCount: p.onlineCount,
+        maxPlayers: p.maxPlayers,
+        totalPlayers: p.totalPlayers,
+        gameDay: p.gameDay,
+        season: p.season,
+        gameTime: p.gameTime,
+        host: p.host,
+        gamePort: p.gamePort,
+        schedule: d.schedule || null,
+      });
+      if (d.servers) {
+        for (var ai = 0; ai < d.servers.length; ai++) allServers.push(d.servers[ai]);
       }
 
-      const onlineStr = isOn ? p.onlineCount + ' / ' + (p.maxPlayers || '?') : 'Offline';
-      const offlineCount = (p.totalPlayers || 0) - (p.onlineCount || 0);
-      $('#ls-players').textContent = onlineStr + ' online \u00b7 ' + offlineCount + ' offline \u00b7 ' + p.totalPlayers + ' total';
+      // Render server cards
+      var container = $('#server-cards');
+      container.innerHTML = '';
+      for (var si = 0; si < allServers.length; si++) {
+        var s = allServers[si];
+        var sOn = s.status === 'online';
+        var stale = s.status === 'stale';
+        var statusLabel = sOn ? 'Online' : stale ? 'Stale' : 'Offline';
+        var statusColor = sOn ? 'bg-calm' : stale ? 'bg-yellow-500' : 'bg-muted';
+        var statusText = sOn ? 'text-calm' : stale ? 'text-yellow-500' : 'text-muted';
+        var addr = s.host ? (s.gamePort ? s.host + ':' + s.gamePort : s.host) : '';
+        var card = el('div', 'server-card');
 
-      const worldParts = [];
-      if (p.gameTime) worldParts.push(p.gameTime);
-      if (p.gameDay != null) {
-        const dps = 28;
-        const seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
-        const seasonNum = Math.floor((p.gameDay % (dps * 4)) / dps);
-        const dayInSeason = (p.gameDay % dps) + 1;
-        const year = Math.floor(p.gameDay / (dps * 4)) + 1;
-        worldParts.push('Day ' + dayInSeason + ' of ' + (p.season || seasonNames[seasonNum]));
-        worldParts.push('Year ' + year);
-      }
-      $('#ls-world').textContent = worldParts.length ? worldParts.join(' \u00b7 ') : '-';
+        var html = '<div class="server-card-header">';
+        html += '<span class="server-card-dot ' + statusColor + (sOn ? ' pulse-dot' : '') + '"></span>';
+        html += '<span class="server-card-name">' + esc(s.name) + '</span>';
+        html += '<span class="server-card-status ' + statusText + '">' + statusLabel + '</span>';
+        html += '</div>';
 
-      if (d.schedule && d.schedule.active) {
-        S.scheduleData = d.schedule;
-        $('#landing-schedule').classList.remove('hidden');
-        var tzEl = $('#ls-tz');
-        if (tzEl) tzEl.textContent = d.schedule.timezone || '';
-        renderSchedule($('#ls-schedule-list'), d.schedule, 'landing');
-        if (d.schedule.nextRestart) {
-          var mins = d.schedule.minutesUntilRestart;
-          var hrs = Math.floor(mins / 60);
-          var m = mins % 60;
-          var untilStr = hrs > 0 ? hrs + 'h ' + m + 'm' : m + 'm';
-          $('#ls-next-restart').textContent = 'Next transition in ' + untilStr + ' at ' + d.schedule.nextRestart;
+        // Stats row
+        html += '<div class="server-card-stats">';
+        html += '<span>' + (sOn ? s.onlineCount : '-') + '</span><span class="text-muted/50">/</span><span>' + (s.maxPlayers || '?') + '</span>';
+        html += '<span class="text-muted/50">players</span>';
+        html += '<span class="text-border">&middot;</span><span>' + (s.totalPlayers || 0) + ' total</span>';
+        html += '</div>';
+
+        // World info
+        if (s.gameDay != null) {
+          var wp = [];
+          if (s.gameTime) wp.push(s.gameTime);
+          var dps = s.daysPerSeason || 28, seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
+          var seasonNum = Math.floor((s.gameDay % (dps * 4)) / dps);
+          var dayInSeason = (s.gameDay % dps) + 1;
+          var year = Math.floor(s.gameDay / (dps * 4)) + 1;
+          wp.push('Day ' + dayInSeason + ' ' + (s.season || seasonNames[seasonNum]) + ', Year ' + year);
+          html += '<div class="server-card-world">' + wp.join(' · ') + '</div>';
         }
-        if (d.schedule.rotateDaily) {
-          var rn = $('#ls-rotate-note');
-          if (rn) rn.classList.remove('hidden');
-          if (d.schedule.tomorrowSchedule) {
-            renderTomorrowSchedule($('#ls-schedule-list'), d.schedule);
+
+        // Address
+        if (addr) html += '<div class="server-card-addr">' + esc(addr) + '</div>';
+
+        // Schedule (embedded in card)
+        var sched = s.schedule;
+        if (sched && sched.active) {
+          html += '<div class="server-card-schedule">';
+          html += '<div class="server-card-schedule-header">';
+          html += '<span class="text-[10px] font-heading font-semibold text-text-bright uppercase tracking-wider">Schedule</span>';
+          if (sched.timezone) html += '<span class="text-[9px] text-muted font-mono">' + esc(sched.timezone) + '</span>';
+          html += '</div>';
+          html += '<div class="server-card-schedule-list" data-server-idx="' + si + '"></div>';
+          if (sched.nextRestart) {
+            var mins = sched.minutesUntilRestart;
+            var hrs = Math.floor(mins / 60);
+            var m = mins % 60;
+            var untilStr = hrs > 0 ? hrs + 'h ' + m + 'm' : m + 'm';
+            html += '<div class="text-[10px] text-muted mt-1.5">Next transition in ' + untilStr + ' at ' + sched.nextRestart + '</div>';
+          }
+          if (sched.rotateDaily) {
+            html += '<div class="text-[9px] text-muted/40 mt-0.5">Schedule rotates daily</div>';
+          }
+          html += '</div>';
+        }
+
+        card.innerHTML = html;
+        container.appendChild(card);
+
+        // Render schedule slots into the card's schedule list container (needs DOM element)
+        if (sched && sched.active) {
+          var schedList = card.querySelector('.server-card-schedule-list');
+          if (schedList) {
+            renderSchedule(schedList, sched, 'landing');
+            if (sched.rotateDaily && sched.tomorrowSchedule) {
+              renderTomorrowSchedule(schedList, sched);
+            }
           }
         }
-      }
 
-      if (d.servers && d.servers.length) {
-        var container = $('#server-cards');
-        container.innerHTML = '';
-        for (var si = 0; si < d.servers.length; si++) {
-          var s = d.servers[si];
-          var card = el('div', 'stat-chip flex items-center justify-between');
-          card.innerHTML = '<div><div class="text-sm text-white font-medium">' + esc(s.name) + '</div><div class="text-xs text-muted">' + s.totalPlayers + ' players</div></div><span class="status-dot ' + (s.status === 'online' ? 'online' : 'offline') + '"></span>';
-          container.appendChild(card);
-        }
-        $('#landing-servers').classList.remove('hidden');
+        // Store primary schedule for dashboard reuse
+        if (si === 0 && sched && sched.active) S.scheduleData = sched;
       }
 
       var discordLink = $('#link-discord');
@@ -367,7 +574,7 @@
     $$('.quick-cmd[data-cmd]').forEach(function(btn) {
       btn.addEventListener('click', async function() {
         try {
-          var r = await fetch('/api/panel/rcon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: btn.dataset.cmd }) });
+          var r = await apiFetch('/api/panel/rcon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: btn.dataset.cmd }) });
           var d = await r.json();
           appendConsole(btn.dataset.cmd, 'cmd');
           appendConsole(d.response || d.error || 'No response', d.ok ? 'resp' : 'err');
@@ -413,12 +620,53 @@
       if (cb) cb.addEventListener('change', function() { loadMapData(); });
     });
 
-    var af = $('#activity-filter');
-    if (af) af.addEventListener('change', function() { resetActivityPaging(); loadActivity(); });
+    // Activity category pills
+    var pills = $$('.activity-pill');
+    pills.forEach(function(pill) {
+      pill.addEventListener('click', function() {
+        pills.forEach(function(p) { p.classList.remove('active'); });
+        pill.classList.add('active');
+        S.activityCategory = pill.dataset.category || '';
+        resetActivityPaging();
+        loadActivity();
+      });
+    });
     var as = $('#activity-search');
     if (as) as.addEventListener('input', debounce(function() { resetActivityPaging(); loadActivity(); }, 300));
     var ad = $('#activity-date');
     if (ad) ad.addEventListener('change', function() { resetActivityPaging(); loadActivity(); });
+    // Charts toggle
+    var actChartToggle = $('#activity-toggle-charts');
+    if (actChartToggle) actChartToggle.addEventListener('click', function() {
+      var panel = $('#activity-charts-panel');
+      if (panel) {
+        var show = panel.classList.toggle('hidden');
+        if (!show && !S.activityChartsLoaded) { loadActivityStats(); S.activityChartsLoaded = true; }
+      }
+    });
+
+    // Fingerprint tracker controls
+    var fpClose = $('#fp-close');
+    if (fpClose) fpClose.addEventListener('click', function() {
+      hideFingerprintTracker();
+      var searchEl = $('#activity-search');
+      if (searchEl) {
+        // Strip the #fingerprint part, keep just the item name
+        var val = searchEl.value;
+        var hashIdx = val.indexOf('#');
+        if (hashIdx > -1) { searchEl.value = val.slice(0, hashIdx); resetActivityPaging(); loadActivity(); }
+      }
+    });
+    var fpLimit = $('#fp-limit');
+    if (fpLimit) fpLimit.addEventListener('change', function() {
+      // Re-trigger the tracker with updated limit
+      var searchEl = $('#activity-search');
+      if (searchEl) {
+        var val = searchEl.value;
+        var fpMatch = val.match(/^(.+)#([a-f0-9]{6,})$/i);
+        if (fpMatch) showFingerprintTracker(fpMatch[1].trim(), fpMatch[2].trim());
+      }
+    });
 
     var cs = $('#clan-search');
     if (cs) cs.addEventListener('input', debounce(loadClans, 300));
@@ -441,8 +689,24 @@
     var sdModal = $('#settings-diff-modal');
     if (sdModal) sdModal.addEventListener('click', function(e) { if (e.target === sdModal) sdModal.classList.add('hidden'); });
 
+    // Settings mode toggle (Game Server / Bot Config)
+    $$('.settings-mode-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var mode = btn.dataset.mode;
+        if (mode === S.settingsMode) return;
+        S.settingsMode = mode;
+        $$('.settings-mode-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
+        var searchEl = $('#settings-search');
+        if (searchEl) searchEl.value = '';
+        var restartBadge = $('#settings-restart-badge');
+        if (restartBadge) restartBadge.classList.add('hidden');
+        if (mode === 'game') { loadSettings(); }
+        else { loadBotConfig(); }
+      });
+    });
+
     var dbt = $('#db-table');
-    if (dbt) dbt.addEventListener('change', loadDatabase);
+    if (dbt) dbt.addEventListener('change', function() { loadDatabase(); showDbSchema(); });
     var dbs = $('#db-search');
     if (dbs) dbs.addEventListener('input', debounce(loadDatabase, 300));
     var dbl = $('#db-limit');
@@ -450,6 +714,46 @@
     var dbCsv = $('#db-export-csv');
     if (dbCsv) dbCsv.addEventListener('click', exportDbCsv);
 
+    // DB mode toggle (Browse / Query)
+    $$('#db-mode-browse, #db-mode-query').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var mode = btn.dataset.mode;
+        S.dbMode = mode;
+        $$('#db-mode-browse, #db-mode-query').forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
+        var browsePanel = $('#db-browse-panel');
+        var queryPanel = $('#db-query-panel');
+        if (browsePanel) browsePanel.classList.toggle('hidden', mode !== 'browse');
+        if (queryPanel) queryPanel.classList.toggle('hidden', mode !== 'query');
+      });
+    });
+
+    // Query builder event wiring
+    var qbTable = $('#qb-table');
+    if (qbTable) qbTable.addEventListener('change', function() { updateQbColumns(); updateQbPreview(); });
+    var qbCols = $('#qb-columns');
+    if (qbCols) qbCols.addEventListener('input', updateQbPreview);
+    var qbWhereCol = $('#qb-where-col');
+    if (qbWhereCol) qbWhereCol.addEventListener('change', updateQbPreview);
+    var qbWhereOp = $('#qb-where-op');
+    if (qbWhereOp) qbWhereOp.addEventListener('change', updateQbPreview);
+    var qbWhereVal = $('#qb-where-val');
+    if (qbWhereVal) qbWhereVal.addEventListener('input', updateQbPreview);
+    var qbOrderCol = $('#qb-order-col');
+    if (qbOrderCol) qbOrderCol.addEventListener('change', updateQbPreview);
+    var qbOrderDir = $('#qb-order-dir');
+    if (qbOrderDir) qbOrderDir.addEventListener('change', updateQbPreview);
+    var qbLimit = $('#qb-limit');
+    if (qbLimit) qbLimit.addEventListener('input', updateQbPreview);
+    var qbRun = $('#qb-run');
+    if (qbRun) qbRun.addEventListener('click', runQueryBuilder);
+    var qbCopy = $('#qb-copy-sql');
+    if (qbCopy) qbCopy.addEventListener('click', function() { var sql = buildQbSql(); navigator.clipboard.writeText(sql).then(function() { showToast('SQL copied'); }); });
+    var rawRun = $('#db-raw-run');
+    if (rawRun) rawRun.addEventListener('click', runRawSql);
+    var rawInput = $('#db-raw-sql');
+    if (rawInput) rawInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') runRawSql(); });
+
+    // Populate DB table dropdowns
     var dbSelect = $('#db-table');
     if (dbSelect) {
       dbSelect.innerHTML = '';
@@ -460,15 +764,69 @@
         dbSelect.appendChild(opt);
       }
     }
+    var qbTableSelect = $('#qb-table');
+    if (qbTableSelect) {
+      qbTableSelect.innerHTML = '';
+      for (var i = 0; i < DB_TABLES.length; i++) {
+        var opt2 = document.createElement('option');
+        opt2.value = DB_TABLES[i].value;
+        opt2.textContent = DB_TABLES[i].label;
+        qbTableSelect.appendChild(opt2);
+      }
+    }
+    // Try to fetch live table list with row counts (overrides static list)
+    fetchDbTableList();
 
     loadPlayersInBackground();
+    loadServerList();
 
     switchTab('dashboard');
   }
 
+  /** Load server list and populate the server selector dropdown */
+  async function loadServerList() {
+    try {
+      var r = await fetch('/api/servers');
+      if (!r.ok) return;
+      var d = await r.json();
+      S.multiServer = d.multiServer || false;
+      if (!S.multiServer || !d.servers || d.servers.length <= 1) return;
+
+      var sel = $('#server-select');
+      var wrap = $('#server-selector');
+      if (!sel || !wrap) return;
+
+      sel.innerHTML = '';
+      for (var i = 0; i < d.servers.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = d.servers[i].id;
+        opt.textContent = d.servers[i].name;
+        sel.appendChild(opt);
+      }
+      sel.value = S.currentServer;
+      wrap.classList.remove('hidden');
+
+      sel.addEventListener('change', function() {
+        S.currentServer = sel.value;
+        // Reset cached data
+        S.players = [];
+        S.dashHistory = { online: [], events: [] };
+        Object.keys(S.sparkCharts).forEach(function(k) {
+          if (S.sparkCharts[k]) { S.sparkCharts[k].destroy(); delete S.sparkCharts[k]; }
+        });
+        S.settingsOriginal = {};
+        S.settingsChanged = {};
+        S.mapReady = false;
+        // Reload current tab
+        loadPlayersInBackground();
+        switchTab(S.currentTab);
+      });
+    } catch (e) { /* non-critical */ }
+  }
+
   async function loadPlayersInBackground() {
     try {
-      var r = await fetch('/api/players');
+      var r = await apiFetch('/api/players');
       if (!r.ok) return;
       var d = await r.json();
       S.players = d.players || [];
@@ -549,9 +907,9 @@
       case 'map': initMap(); loadMapData(); S.pollTimers.push(setInterval(loadMapData, 15000)); break;
       case 'players': loadPlayers(); break;
       case 'clans': loadClans(); break;
-      case 'activity': loadActivity(); break;
+      case 'activity': loadActivity(); if (!S.activityChartsLoaded) { loadActivityStats(); S.activityChartsLoaded = true; } break;
       case 'chat': loadChat(); S.pollTimers.push(setInterval(loadChat, 8000)); break;
-      case 'settings': loadSettings(); break;
+      case 'settings': if (S.settingsMode === 'bot') loadBotConfig(); else loadSettings(); break;
       case 'controls': loadBackupList(); break;
       case 'database': loadDatabase(); break;
       case 'items': loadItems(); break;
@@ -600,7 +958,7 @@
 
   async function loadDashboard() {
     try {
-      var results = await Promise.all([fetch('/api/panel/status'), fetch('/api/panel/stats')]);
+      var results = await Promise.all([apiFetch('/api/panel/status'), apiFetch('/api/panel/stats')]);
       var status = results[0].ok ? await results[0].json() : {};
       var stats = results[1].ok ? await results[1].json() : {};
 
@@ -627,7 +985,7 @@
         var parts = [];
         if (status.gameTime) parts.push(status.gameTime);
         if (status.gameDay != null) {
-          var dps = 28;
+          var dps = status.daysPerSeason || 28;
           var dayInSeason = (status.gameDay % dps) + 1;
           var year = Math.floor(status.gameDay / (dps * 4)) + 1;
           var seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
@@ -657,8 +1015,18 @@
       try {
         var landing = await fetch('/api/landing');
         var ld = await landing.json();
-        if (ld.primary.host) {
-          var addr = ld.primary.gamePort ? ld.primary.host + ':' + ld.primary.gamePort : ld.primary.host;
+        // Find the correct server's connect info based on current selection
+        var srvData = null;
+        if (S.currentServer === 'primary') {
+          srvData = ld.primary;
+        } else if (ld.servers) {
+          for (var si = 0; si < ld.servers.length; si++) {
+            if (ld.servers[si].id === S.currentServer) { srvData = ld.servers[si]; break; }
+          }
+        }
+        if (!srvData) srvData = ld.primary;
+        if (srvData.host) {
+          var addr = srvData.gamePort ? srvData.host + ':' + srvData.gamePort : srvData.host;
           var dAddr = $('#d-address');
           if (dAddr) dAddr.textContent = addr;
           var dc = $('#dashboard-connect');
@@ -667,7 +1035,7 @@
       } catch (e) {  }
 
       try {
-        var schedRes = await fetch('/api/panel/scheduler');
+        var schedRes = await apiFetch('/api/panel/scheduler');
         var sched = await schedRes.json();
         if (sched.active) {
           S.scheduleData = sched;
@@ -687,7 +1055,7 @@
       }
 
       try {
-        var feeds = await Promise.all([fetch('/api/panel/activity?limit=15'), fetch('/api/panel/chat?limit=15')]);
+        var feeds = await Promise.all([apiFetch('/api/panel/activity?limit=15'), apiFetch('/api/panel/chat?limit=15')]);
         var act = await feeds[0].json();
         var chat = await feeds[1].json();
         renderActivityFeed($('#d-activity'), act.events, true);
@@ -717,7 +1085,10 @@
 
       var pn = slot.profileName || '';
       var colorCls = pn.includes('calm') ? 'calm' : pn.includes('surge') ? 'surge' : pn.includes('horde') ? 'horde' : '';
-      var displayName = pn.charAt(0).toUpperCase() + pn.slice(1);
+      // Use short label (name + PVP if applicable) for slot, full display name goes to tooltip
+      var fullDisplayName = slot.profileDisplayName || pn.charAt(0).toUpperCase() + pn.slice(1);
+      var parenIdx = fullDisplayName.indexOf(' (');
+      var displayName = parenIdx >= 0 ? fullDisplayName.substring(0, parenIdx) : fullDisplayName;
 
       var inner = '<span class="sched-time">' + esc(slot.startTime) + '</span>';
       inner += '<span class="sched-name ' + colorCls + '">' + esc(displayName) + '</span>';
@@ -734,13 +1105,7 @@
       container.appendChild(div);
 
       if (ps && Object.keys(ps).length > 0 && typeof tippy !== 'undefined') {
-        var tipContent = '<div style="font-size:0.6875rem"><div style="font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:#c8c2b8;margin-bottom:4px">' + esc(displayName) + '</div>';
-        for (var k in ps) {
-          if (!ps.hasOwnProperty(k)) continue;
-          tipContent += '<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0"><span style="color:#5c574f">' + esc(humanizeSettingKey(k)) + '</span><span style="color:#c8c2b8;font-family:JetBrains Mono,monospace">' + esc(String(ps[k])) + '</span></div>';
-        }
-        tipContent += '</div>';
-        tippy(div, { content: tipContent, allowHTML: true, theme: 'translucent', placement: 'bottom-start', maxWidth: 280, delay: [200, 0] });
+        tippy(div, { content: buildScheduleTip(fullDisplayName, colorCls, ps), allowHTML: true, theme: 'translucent', placement: 'bottom', popperOptions: { modifiers: [{ name: 'flip', enabled: true }, { name: 'preventOverflow', options: { boundary: 'viewport' } }] }, maxWidth: 320, delay: [150, 0], appendTo: document.body });
       }
     }
   }
@@ -758,21 +1123,51 @@
       var div = el('div', 'sched-slot tomorrow');
       var pn = slot.profileName || '';
       var colorCls = pn.includes('calm') ? 'calm' : pn.includes('surge') ? 'surge' : pn.includes('horde') ? 'horde' : '';
-      var displayName = pn.charAt(0).toUpperCase() + pn.slice(1);
+      var fullDisplayName = slot.profileDisplayName || pn.charAt(0).toUpperCase() + pn.slice(1);
+      var parenIdx = fullDisplayName.indexOf(' (');
+      var displayName = parenIdx >= 0 ? fullDisplayName.substring(0, parenIdx) : fullDisplayName;
       div.innerHTML = '<span class="sched-time">' + esc(slot.startTime) + '</span><span class="sched-name ' + colorCls + '">' + esc(displayName) + '</span>';
 
       var ps = profileSettings[pn];
       container.appendChild(div);
       if (ps && Object.keys(ps).length > 0 && typeof tippy !== 'undefined') {
-        var tipContent = '<div style="font-size:0.6875rem"><div style="font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:#c8c2b8;margin-bottom:4px">' + esc(displayName) + '</div>';
-        for (var k in ps) {
-          if (!ps.hasOwnProperty(k)) continue;
-          tipContent += '<div style="display:flex;justify-content:space-between;gap:12px;padding:1px 0"><span style="color:#5c574f">' + esc(humanizeSettingKey(k)) + '</span><span style="color:#c8c2b8;font-family:JetBrains Mono,monospace">' + esc(String(ps[k])) + '</span></div>';
-        }
-        tipContent += '</div>';
-        tippy(div, { content: tipContent, allowHTML: true, theme: 'translucent', placement: 'bottom-start', maxWidth: 280, delay: [200, 0] });
+        tippy(div, { content: buildScheduleTip(fullDisplayName, colorCls, ps), allowHTML: true, theme: 'translucent', placement: 'bottom', popperOptions: { modifiers: [{ name: 'flip', enabled: true }, { name: 'preventOverflow', options: { boundary: 'viewport' } }] }, maxWidth: 320, delay: [150, 0], appendTo: document.body });
       }
     }
+  }
+
+  // Difficulty tooltip builder — filters noise, shows human-friendly values
+  var SCHED_SKIP_KEYS = { ServerName:1, MaxPlayers:1, PVP:1 };
+  var SCHED_LABELS = {
+    ZombieAmountMulti: 'Zombies', ZombieDiffHealth: 'Zombie HP', ZombieDiffDamage: 'Zombie Damage',
+    ZombieDiffSpeed: 'Zombie Speed', HumanAmountMulti: 'Bandits', AnimalMulti: 'Animals',
+    AIEvent: 'AI Events', XpMultiplier: 'XP Multiplier', OnDeath: 'On Death',
+    RarityFood: 'Food Loot', RarityDrink: 'Drink Loot', RarityMelee: 'Melee Loot',
+    RarityRanged: 'Ranged Loot', RarityAmmo: 'Ammo Loot', RarityArmor: 'Armor Loot',
+    RarityResources: 'Resource Loot', RarityOther: 'Other Loot',
+  };
+  var DIFF_LEVELS = { '1': 'Low', '2': 'Normal', '3': 'High', '4': 'Very High' };
+  var RARITY_LEVELS = { '1': 'Scarce', '2': 'Normal', '3': 'Plenty', '4': 'Abundant' };
+  function formatSettingVal(key, val) {
+    var s = String(val).replace(/^"|"$/g, '');
+    if (/^ZombieDiff/.test(key)) return DIFF_LEVELS[s] || s;
+    if (/^Rarity/.test(key)) return RARITY_LEVELS[s] || s;
+    if (/Multi$|Multiplier$/.test(key)) return parseFloat(s) !== 1 ? s + 'x' : '1x (default)';
+    if (key === 'AIEvent') return DIFF_LEVELS[s] || s;
+    if (key === 'OnDeath') { var od = { '0': 'Keep Items', '1': 'Drop Items', '2': 'Destroy Items' }; return od[s] || s; }
+    return s;
+  }
+  function buildScheduleTip(name, colorCls, ps) {
+    var accent = colorCls === 'calm' ? '#6dba82' : colorCls === 'surge' ? '#d4a843' : colorCls === 'horde' ? '#c45a4a' : '#c8c2b8';
+    var h = '<div class="sched-tip"><div class="sched-tip-title" style="color:' + accent + '">' + esc(name) + '</div>';
+    for (var k in ps) {
+      if (!ps.hasOwnProperty(k) || SCHED_SKIP_KEYS[k]) continue;
+      var label = SCHED_LABELS[k] || humanizeSettingKey(k);
+      var val = formatSettingVal(k, ps[k]);
+      h += '<div class="sched-tip-row"><span class="sched-tip-key">' + esc(label) + '</span><span class="sched-tip-val">' + esc(val) + '</span></div>';
+    }
+    h += '</div>';
+    return h;
   }
 
   function getRelativeHint(slot, sched) {
@@ -836,14 +1231,14 @@
     if (!container || !window.L) return;
     S.map = L.map(container, { crs: L.CRS.Simple, minZoom: -2, maxZoom: 3, zoomControl: true, attributionControl: false });
     var bounds = [[0, 0], [4096, 4096]];
-    L.imageOverlay('/map-4096.png', bounds).addTo(S.map);
+    L.imageOverlay('/terrain.png', bounds, { className: 'map-terrain' }).addTo(S.map);
     S.map.fitBounds(bounds);
     S.mapReady = true;
   }
 
   async function loadMapData() {
     try {
-      var r = await fetch('/api/players');
+      var r = await apiFetch('/api/players');
       if (!r.ok) return;
       var d = await r.json();
       S.players = d.players || [];
@@ -859,7 +1254,7 @@
       });
       if (wantLayers.length > 0) {
         try {
-          var lr = await fetch('/api/panel/mapdata?layers=' + wantLayers.join(','));
+          var lr = await apiFetch('/api/panel/mapdata?layers=' + wantLayers.join(','));
           if (lr.ok) {
             var ld = await lr.json();
             updateMapWorldLayers(ld, wantLayers);
@@ -1069,7 +1464,7 @@
     if (window.lucide) lucide.createIcons({ nodes: [btn] });
     btn.disabled = true;
     try {
-      var r = await (typeof authFetch === 'function' ? authFetch : fetch)('/api/panel/refresh-snapshot', { method: 'POST' });
+      var r = await (typeof authFetch === 'function' ? authFetch : apiFetch)('/api/panel/refresh-snapshot', { method: 'POST' });
       if (r.ok) {
         btn.innerHTML = '<i data-lucide="check" class="w-3 h-3"></i> Done';
         if (window.lucide) lucide.createIcons({ nodes: [btn] });
@@ -1098,7 +1493,7 @@
 
   async function loadPlayers() {
     try {
-      var r = await fetch('/api/players');
+      var r = await apiFetch('/api/players');
       if (!r.ok) return;
       var d = await r.json();
       S.players = d.players || [];
@@ -1215,7 +1610,11 @@
     }
     table.appendChild(tbody);
     container.innerHTML = '';
-    container.appendChild(table);
+    if (list.length === 0) {
+      container.innerHTML = '<p class="text-muted text-center py-8">No players found</p>';
+    } else {
+      container.appendChild(table);
+    }
   }
 
   function renderPlayerCards() {
@@ -1354,18 +1753,19 @@
     }
 
     html += '<div class="mb-4"><h3 class="text-xs font-medium text-muted uppercase tracking-wider mb-2">Survival</h3>';
-    html += '<div class="grid grid-cols-3 gap-2 text-xs">';
+    html += '<div class="grid grid-cols-4 gap-2">';
     var survStats = [
-      ['Days Survived', p.daysSurvived], ['Lifetime Days', p.lifetimeDaysSurvived], ['Times Bitten', p.timesBitten],
-      ['Fish Caught', p.fishCaught], ['Level', p.level || 0], ['Deaths', p.deaths],
-      ['PvP Kills', p.pvpKills], ['PvP Deaths', p.pvpDeaths], ['Builds', fmtNum(p.builds)],
-      ['Containers Looted', fmtNum(p.containersLooted)], ['Raids Out', p.raidsOut], ['Raids In', p.raidsIn],
-      ['Connections', p.connects], ['Playtime', formatPlaytime(p.totalPlaytime)],
-      ['Last Seen', p.lastSeen ? new Date(p.lastSeen).toLocaleDateString() : '-'],
+      ['Days Survived', p.daysSurvived], ['Lifetime Days', p.lifetimeDaysSurvived], ['Times Bitten', p.timesBitten], ['Fish Caught', p.fishCaught],
+      ['Deaths', p.deaths], ['PvP Kills', p.pvpKills], ['PvP Deaths', p.pvpDeaths], ['Builds', p.builds],
+      ['Containers', p.containersLooted], ['Raids Out', p.raidsOut], ['Raids In', p.raidsIn], ['Connects', p.connects],
     ];
     for (var si = 0; si < survStats.length; si++) {
-      html += '<div><span class="text-muted">' + survStats[si][0] + ':</span> <span class="text-gray-300">' + (survStats[si][1] != null ? survStats[si][1] : 0) + '</span></div>';
+      html += '<div class="text-center"><div class="text-sm font-semibold text-white">' + fmtNum(survStats[si][1] || 0) + '</div><div class="text-[10px] text-muted">' + survStats[si][0] + '</div></div>';
     }
+    html += '</div>';
+    html += '<div class="flex items-center justify-between mt-2 pt-2 border-t border-border/30 text-xs">';
+    html += '<div><span class="text-muted">Playtime:</span> <span class="text-white font-medium">' + formatPlaytime(p.totalPlaytime) + '</span></div>';
+    html += '<div><span class="text-muted">Last Seen:</span> <span class="text-white">' + (p.lastSeen ? new Date(p.lastSeen).toLocaleDateString() : '-') + '</span></div>';
     html += '</div></div>';
 
     if (S.toggles.showVitals !== false) {
@@ -1476,7 +1876,7 @@
     var allClans = [];
 
     try {
-      var r = await fetch('/api/panel/clans');
+      var r = await apiFetch('/api/panel/clans');
       if (r.ok) {
         var d = await r.json();
         allClans = d.clans || [];
@@ -1486,7 +1886,7 @@
     if (allClans.length === 0) {
       if (!S.players.length) {
         try {
-          var r2 = await fetch('/api/players');
+          var r2 = await apiFetch('/api/players');
           if (r2.ok) { var d2 = await r2.json(); S.players = d2.players || []; }
         } catch (e) {  }
       }
@@ -1676,15 +2076,29 @@
   async function loadActivity(append) {
     var container = $('#activity-feed');
     if (!container) return;
-    var type = $('#activity-filter') ? $('#activity-filter').value : '';
-    var search = ($('#activity-search') ? $('#activity-search').value : '').toLowerCase();
+    var category = S.activityCategory || '';
+    var rawSearch = ($('#activity-search') ? $('#activity-search').value : '');
+    var search = rawSearch.toLowerCase();
     var date = $('#activity-date') ? $('#activity-date').value : '';
+
+    // Detect fingerprint search pattern: ItemName#abcdef123456
+    var fpMatch = rawSearch.match(/^(.+)#([a-f0-9]{6,})$/i);
+    if (fpMatch) {
+      var fpItem = fpMatch[1].trim();
+      var fpHash = fpMatch[2].trim();
+      showFingerprintTracker(fpItem, fpHash);
+      // Also load normal activity filtered by item name
+      search = fpItem.toLowerCase();
+    } else {
+      hideFingerprintTracker();
+    }
+
     if (!append) { activityOffset = 0; }
     var params = new URLSearchParams({ limit: String(ACTIVITY_PAGE_SIZE), offset: String(activityOffset) });
-    if (type) params.set('type', type);
+    if (category) params.set('type', category);
     if (search) params.set('actor', search);
     try {
-      var r = await fetch('/api/panel/activity?' + params);
+      var r = await apiFetch('/api/panel/activity?' + params);
       var d = await r.json();
       var events = d.events || [];
       if (date) events = events.filter(function(e) { return (e.created_at || '').startsWith(date); });
@@ -1698,13 +2112,205 @@
     }
   }
 
+  // ── Fingerprint Tracker ──
+  function hideFingerprintTracker() {
+    var panel = $('#fingerprint-tracker');
+    if (panel) panel.classList.add('hidden');
+  }
+
+  async function showFingerprintTracker(itemName, fingerprint) {
+    var panel = $('#fingerprint-tracker');
+    if (!panel) return;
+
+    // Show panel + loading state
+    panel.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons({ nodes: [panel] });
+    var nameEl = $('#fp-item-name');
+    var hashEl = $('#fp-hash');
+    var infoEl = $('#fp-instance-info');
+    var ownershipEl = $('#fp-ownership');
+    var chainEl = $('#fp-ownership-chain');
+    var movementsEl = $('#fp-movements');
+    var loadingEl = $('#fp-loading');
+    var emptyEl = $('#fp-empty');
+
+    if (nameEl) nameEl.textContent = itemName;
+    if (hashEl) hashEl.textContent = '#' + fingerprint;
+    if (infoEl) infoEl.innerHTML = '';
+    if (chainEl) chainEl.innerHTML = '';
+    if (movementsEl) movementsEl.innerHTML = '';
+    if (ownershipEl) ownershipEl.classList.add('hidden');
+    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    var limit = parseInt(($('#fp-limit') || {}).value || '50', 10);
+
+    try {
+      var params = new URLSearchParams({ fingerprint: fingerprint, item: itemName });
+      var r = await apiFetch('/api/panel/items/lookup?' + params);
+      if (!r.ok) throw new Error('API error');
+      var data = await r.json();
+
+      if (loadingEl) loadingEl.classList.add('hidden');
+
+      var match = data.match;
+      var movements = data.movements || [];
+      var ownership = data.ownershipChain || [];
+
+      if (!match && movements.length === 0) {
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      // Render instance info badges
+      if (match && infoEl) {
+        var infoBadges = '';
+
+        // Current location
+        var locLabel = _fpFormatLocation(match.location_type, match.location_id);
+        infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Location</div><div class="fp-info-value">' + locLabel + '</div></div>';
+
+        // Durability
+        if (match.durability != null && match.durability > 0) {
+          var durPct = match.max_dur > 0 ? Math.round((match.durability / match.max_dur) * 100) : Math.round(match.durability);
+          var durCol = durPct > 60 ? 'text-emerald-400' : durPct > 25 ? 'text-amber-400' : 'text-red-400';
+          infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Durability</div><div class="fp-info-value ' + durCol + '">' + durPct + '%</div></div>';
+        }
+
+        // Amount
+        if (match.amount > 1) {
+          infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Amount</div><div class="fp-info-value">' + match.amount + '</div></div>';
+        }
+
+        // Total movements
+        infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Movements</div><div class="fp-info-value">' + fmtNum(data.totalMovements || movements.length) + '</div></div>';
+
+        // Status
+        var status = match.lost ? '<span class="text-red-400">Lost</span>' : '<span class="text-emerald-400">Active</span>';
+        infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Status</div><div class="fp-info-value">' + status + '</div></div>';
+
+        // First seen
+        if (match.first_seen) {
+          infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">First Seen</div><div class="fp-info-value text-xs">' + _fpShortDate(match.first_seen) + '</div></div>';
+        }
+
+        // Last seen
+        if (match.last_seen) {
+          infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Last Seen</div><div class="fp-info-value text-xs">' + _fpShortDate(match.last_seen) + '</div></div>';
+        }
+
+        // Ammo
+        if (match.ammo > 0) {
+          infoBadges += '<div class="fp-info-badge"><div class="fp-info-label">Ammo</div><div class="fp-info-value">' + match.ammo + '</div></div>';
+        }
+
+        infoEl.innerHTML = infoBadges;
+      }
+
+      // Render ownership chain
+      if (ownership.length > 0 && ownershipEl && chainEl) {
+        ownershipEl.classList.remove('hidden');
+        var chainHtml = '';
+        for (var ci = 0; ci < ownership.length; ci++) {
+          if (ci > 0) chainHtml += '<span class="fp-custody-arrow">\u2192</span>';
+          chainHtml += '<span class="fp-custody-player player-link" data-steam-id="' + esc(ownership[ci].steamId || '') + '">' + esc(ownership[ci].name || ownership[ci].steamId) + '</span>';
+          chainHtml += '<span class="fp-custody-time">' + _fpShortDate(ownership[ci].at) + '</span>';
+        }
+        chainEl.innerHTML = chainHtml;
+      }
+
+      // Render movement timeline (limited)
+      var limited = movements.slice(0, limit);
+      if (limited.length > 0 && movementsEl) {
+        var movHtml = '';
+        for (var mi = 0; mi < limited.length; mi++) {
+          var m = limited[mi];
+          movHtml += _fpRenderMovementRow(m);
+        }
+        if (movements.length > limit) {
+          movHtml += '<div class="text-[10px] text-muted text-center py-2">' + (movements.length - limit) + ' older movements not shown. Increase limit to see more.</div>';
+        }
+        movementsEl.innerHTML = movHtml;
+      } else if (emptyEl) {
+        emptyEl.classList.remove('hidden');
+      }
+
+    } catch (err) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (movementsEl) movementsEl.innerHTML = '<div class="text-xs text-red-400 text-center py-2">Failed to load tracker data</div>';
+    }
+  }
+
+  function _fpFormatLocation(type, id, resolvedName) {
+    if (!type) return '<span class="text-muted">Unknown</span>';
+    if (type === 'player') {
+      // Use resolved name from API, or try to look up from player list, or fallback to steam ID
+      var pName = resolvedName || id;
+      var steamId = id;
+      if (!resolvedName) {
+        for (var pi = 0; pi < S.players.length; pi++) {
+          if (S.players[pi].steamId === id) { pName = S.players[pi].name; break; }
+        }
+      }
+      return '<span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="' + esc(steamId) + '">' + esc(pName) + '</span>';
+    }
+    if (type === 'container') {
+      var cleanId = id.replace(/ChildActor_GEN_VARIABLE_|_C_CAT_\d+|BP_/g, '').replace(/_/g, ' ').trim();
+      return '<span class="text-gray-300" title="' + esc(id) + '">' + esc(cleanId || id) + '</span>';
+    }
+    if (type === 'world_drop') {
+      return '<span class="text-amber-400">World Drop</span>';
+    }
+    if (type === 'global_container') {
+      return '<span class="text-blue-400">Global Container</span>';
+    }
+    return '<span class="text-gray-300">' + esc(type) + ': ' + esc(id) + '</span>';
+  }
+
+  function _fpShortDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+      var d = new Date(dateStr + 'Z');
+      var now = new Date();
+      var diff = now - d;
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      var month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+      return month + ' ' + d.getDate() + ', ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    } catch (e) {
+      return dateStr.slice(0, 16);
+    }
+  }
+
+  function _fpRenderMovementRow(m) {
+    var fromLoc = _fpFormatLocation(m.from_type, m.from_id, m.from_name);
+    var toLoc = _fpFormatLocation(m.to_type, m.to_id, m.to_name);
+    var time = _fpShortDate(m.created_at);
+    var attrName = m.attributed_name || '';
+
+    var html = '<div class="fp-movement-row">';
+    html += '<span class="fp-time">' + esc(time) + '</span>';
+    html += '<span class="fp-loc">' + fromLoc + '</span>';
+    html += '<span class="fp-arrow">\u2192</span>';
+    html += '<span class="fp-loc">' + toLoc + '</span>';
+    if (attrName) {
+      html += '<span class="text-muted text-[10px] ml-auto">by ' + esc(attrName) + '</span>';
+    }
+    if (m.amount > 1) {
+      html += '<span class="text-muted text-[10px]">\u00d7' + m.amount + '</span>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function groupActivityEvents(events) {
     if (!events || !events.length) return [];
     var grouped = [];
     var i = 0;
     while (i < events.length) {
       var e = events[i];
-      var groupable = e.type === 'container_loot' || e.type === 'player_build' || e.type === 'container_item_added' || e.type === 'container_item_removed' || e.type === 'structure_placed' || e.type === 'structure_destroyed';
+      var groupable = e.type === 'container_loot' || e.type === 'player_build' || e.type === 'container_item_added' || e.type === 'container_item_removed' || e.type === 'structure_placed' || e.type === 'structure_destroyed' || e.type === 'inventory_item_added' || e.type === 'inventory_item_removed' || e.type === 'container_destroyed';
       if (!groupable) { grouped.push({ events: [e], count: 1 }); i++; continue; }
       var batch = [e];
       var j = i + 1;
@@ -1745,15 +2351,15 @@
         var items = {};
         for (var k = 0; k < group.events.length; k++) {
           var ev = group.events[k];
-          var name = ev.item || ev.type;
+          var name = stripRconTags(ev.item || ev.type);
           items[name] = (items[name] || 0) + (ev.amount || 1);
         }
         var summary = Object.keys(items).map(function(n) { var t = /built|placed|destroyed/.test(e.type) ? 'structure' : 'item'; return entityLink(n, t) + (items[n] > 1 ? ' \u00d7' + items[n] : ''); }).join(', ');
         var fmt0 = formatActivityEvent(e);
-        var actor = e.actor_name || e.actor || e.steam_id || 'Unknown';
+        var actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
         var actorHtml = '<span class="player-link" data-steam-id="' + esc(e.steam_id || e.actor || '') + '">' + esc(actor) + '</span>';
         var time0 = e.created_at ? new Date(e.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-        var actionWord = { container_loot: 'looted', player_build: 'built', container_item_added: 'added', container_item_removed: 'removed', structure_placed: 'placed', structure_destroyed: 'destroyed' }[e.type] || 'did';
+        var actionWord = { container_loot: 'looted', player_build: 'built', container_item_added: 'added', container_item_removed: 'removed', structure_placed: 'placed', structure_destroyed: 'destroyed', inventory_item_added: 'picked up', inventory_item_removed: 'dropped', container_destroyed: 'destroyed' }[e.type] || 'did';
         var groupEl = el('div', 'feed-item feed-group fade-in');
         groupEl.innerHTML = '<span class="feed-time">' + time0 + '</span><span class="feed-ico">' + fmt0.icon + '</span><span class="feed-txt">' + actorHtml + ' <strong>' + actionWord + '</strong> ' + group.count + ' items: ' + summary + '</span>';
         groupEl.title = 'Click to expand ' + group.count + ' events';
@@ -1794,16 +2400,16 @@
   }
 
   function formatActivityEvent(e) {
-    var actor = e.actor_name || e.actor || e.steam_id || 'Unknown';
-    var target = e.target_name || e.target_steam_id || '';
+    var actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
+    var target = stripRconTags(e.target_name || e.target_steam_id || '');
     var actorHtml = '<span class="player-link" data-steam-id="' + esc(e.steam_id || e.actor || '') + '">' + esc(actor) + '</span>';
     var targetHtml = target ? '<span class="player-link" data-steam-id="' + esc(e.target_steam_id || '') + '">' + esc(target) + '</span>' : '';
-    var itemName = e.item || '';
+    var itemName = stripRconTags(e.item || '');
     
     var _itype = 'item';
-    if (e.type === 'player_build' || e.type === 'structure_placed' || e.type === 'structure_destroyed' || e.type === 'building_destroyed') _itype = 'structure';
-    else if (e.type === 'vehicle_change') _itype = 'vehicle';
-    else if (e.type === 'container_loot' || e.type === 'container_item_added' || e.type === 'container_item_removed') _itype = 'item';
+    if (e.type === 'player_build' || e.type === 'structure_placed' || e.type === 'structure_destroyed' || e.type === 'structure_damaged' || e.type === 'building_destroyed') _itype = 'structure';
+    else if (e.type === 'vehicle_change' || e.type === 'vehicle_fuel_changed' || e.type === 'vehicle_health_changed' || e.type === 'vehicle_appeared' || e.type === 'vehicle_destroyed') _itype = 'vehicle';
+    else if (e.type === 'container_loot' || e.type === 'container_item_added' || e.type === 'container_item_removed' || e.type === 'container_destroyed') _itype = 'item';
     else if (e.type === 'raid_damage') _itype = 'structure';
     var itemHtml = itemName ? entityLink(itemName, _itype) : '';
 
@@ -1821,14 +2427,235 @@
       anticheat_flag:    { icon: '\u2691', text: actorHtml + ' <strong>flagged</strong>' + (itemName ? ' \u2014 ' + itemHtml : '') },
       container_item_added:  { icon: '+', text: (itemHtml || esc(itemName)) + ' <strong>added</strong> to container' + (actor !== 'Unknown' ? ' (' + actorHtml + ')' : '') },
       container_item_removed:{ icon: '\u2212', text: (itemHtml || esc(itemName)) + ' <strong>removed</strong> from container' + (actor !== 'Unknown' ? ' (' + actorHtml + ')' : '') },
+      container_destroyed:   { icon: '\u2715', text: (itemHtml || entityLink('Container', 'item')) + ' <strong>destroyed</strong>' + (e.amount > 1 ? ' \u00d7' + e.amount : '') },
       structure_destroyed:   { icon: '\u2715', text: (itemHtml || entityLink('Structure', 'structure')) + ' <strong>destroyed</strong>' + (e.amount > 1 ? ' \u00d7' + e.amount : '') },
+      structure_damaged:     { icon: '\u26A0', text: (itemHtml || entityLink('Structure', 'structure')) + ' <strong>damaged</strong>' + (target ? ' by ' + targetHtml : '') },
       structure_placed:      { icon: '\u25AA', text: (itemHtml || entityLink('Structure', 'structure')) + ' <strong>placed</strong>' + (e.amount > 1 ? ' \u00d7' + e.amount : '') },
+      inventory_item_added:  { icon: '+', text: actorHtml + ' <strong>picked up</strong> ' + (itemHtml || 'item') + (e.amount > 1 ? ' \u00d7' + e.amount : '') },
+      inventory_item_removed:{ icon: '\u2212', text: actorHtml + ' <strong>dropped</strong> ' + (itemHtml || 'item') + (e.amount > 1 ? ' \u00d7' + e.amount : '') },
+      vehicle_fuel_changed:  { icon: '\u26FD', text: entityLink('Vehicle' + (itemName ? ' ' + itemName : ''), 'vehicle') + ' <strong>fuel changed</strong>' + (e.amount ? ' (' + e.amount + ')' : '') },
+      vehicle_health_changed:{ icon: '\u2695', text: entityLink('Vehicle' + (itemName ? ' ' + itemName : ''), 'vehicle') + ' <strong>health changed</strong>' + (e.amount ? ' (' + e.amount + ')' : '') },
+      vehicle_appeared:      { icon: '\u25CE', text: entityLink('Vehicle' + (itemName ? ' ' + itemName : ''), 'vehicle') + ' <strong>appeared</strong>' },
+      vehicle_destroyed:     { icon: '\u2715', text: entityLink('Vehicle' + (itemName ? ' ' + itemName : ''), 'vehicle') + ' <strong>destroyed</strong>' },
       vehicle_change:        { icon: '\u25CE', text: entityLink('Vehicle' + (itemName ? ' ' + itemName : ''), 'vehicle') + ' <strong>state changed</strong>' },
+      horse_appeared:        { icon: '\u25CE', text: 'Horse <strong>appeared</strong>' + (itemName ? ' (' + itemHtml + ')' : '') },
+      horse_disappeared:     { icon: '\u2715', text: 'Horse <strong>disappeared</strong>' + (itemName ? ' (' + itemHtml + ')' : '') },
       horse_change:          { icon: '\u25CE', text: 'Horse <strong>status changed</strong>' + (itemName ? ': ' + itemHtml : '') },
       world_change:          { icon: '\u25CE', text: 'World <strong>' + esc(itemName || 'updated') + '</strong>' },
     };
 
     return map[e.type] || { icon: '\u00b7', text: actorHtml + ' \u2014 ' + esc(e.type || 'event') + (itemName ? ' (' + itemHtml + ')' : '') };
+  }
+
+  // ── Activity Stats & Charts ──
+
+  const CHART_COLORS = {
+    container: '#60a5fa',   // blue
+    inventory: '#34d399',   // green
+    vehicle: '#fbbf24',     // yellow
+    session: '#a78bfa',     // purple
+    combat: '#f87171',      // red
+    structure: '#fb923c',   // orange
+    horse: '#2dd4bf',       // teal
+    admin: '#f472b6',       // pink
+  };
+
+  async function loadActivityStats() {
+    try {
+      var r = await apiFetch('/api/panel/activity-stats');
+      var d = await r.json();
+      S.activityStats = d;
+
+      // Populate stat cards
+      var totalEl = $('#act-total');
+      if (totalEl) totalEl.textContent = (d.total || 0).toLocaleString();
+      var typesEl = $('#act-types-count');
+      if (typesEl) typesEl.textContent = Object.keys(d.types || {}).length;
+      var rangeEl = $('#act-date-range');
+      if (rangeEl && d.dateRange) {
+        var e0 = d.dateRange.earliest ? d.dateRange.earliest.split('T')[0] : '?';
+        var e1 = d.dateRange.latest ? d.dateRange.latest.split('T')[0] : '?';
+        rangeEl.textContent = e0 + ' \u2014 ' + e1;
+      }
+      var topEl = $('#act-top-actor');
+      if (topEl && d.topActors && d.topActors.length) {
+        topEl.textContent = d.topActors[0].actor + ' (' + d.topActors[0].count.toLocaleString() + ')';
+      }
+
+      // Update pill counts
+      var pills = $$('.activity-pill');
+      for (var i = 0; i < pills.length; i++) {
+        var pill = pills[i];
+        var cat = pill.dataset.category || '';
+        var badge = pill.querySelector('.pill-count');
+        var count = 0;
+        if (cat === '') count = d.total || 0;
+        else count = (d.categories || {})[cat] || 0;
+        if (badge) {
+          badge.textContent = formatCompact(count);
+        } else if (count > 0) {
+          var span = document.createElement('span');
+          span.className = 'pill-count';
+          span.textContent = formatCompact(count);
+          pill.appendChild(span);
+        }
+      }
+
+      // Render charts
+      renderDailyChart(d.daily || []);
+      renderHourlyChart(d.hourly || []);
+      renderCategoryChart(d.categories || {});
+      renderTopActorsChart(d.topActors || []);
+
+    } catch (e) {
+      console.error('Failed to load activity stats:', e);
+    }
+  }
+
+  function formatCompact(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function destroyChart(key) {
+    if (S.activityCharts[key]) { S.activityCharts[key].destroy(); S.activityCharts[key] = null; }
+  }
+
+  function chartDefaults() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: 'rgba(15,15,20,0.95)', titleColor: '#e2e8f0', bodyColor: '#94a3b8', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, cornerRadius: 6, padding: 8 },
+      },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', font: { size: 10 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', font: { size: 10 } }, beginAtZero: true },
+      },
+    };
+  }
+
+  function renderDailyChart(daily) {
+    var canvas = $('#chart-daily-activity');
+    if (!canvas) return;
+    destroyChart('daily');
+    var labels = daily.map(function(d) { return d.day ? d.day.slice(5) : ''; });
+    var data = daily.map(function(d) { return d.count; });
+    S.activityCharts.daily = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.15)',
+          fill: true,
+          tension: 0.35,
+          borderWidth: 2,
+          pointRadius: 1.5,
+          pointHoverRadius: 4,
+          pointBackgroundColor: '#60a5fa',
+        }]
+      },
+      options: chartDefaults(),
+    });
+  }
+
+  function renderHourlyChart(hourly) {
+    var canvas = $('#chart-hourly-activity');
+    if (!canvas) return;
+    destroyChart('hourly');
+    var labels = [];
+    var data = [];
+    var hourMap = {};
+    for (var i = 0; i < hourly.length; i++) hourMap[hourly[i].hour] = hourly[i].count;
+    for (var h = 0; h < 24; h++) {
+      labels.push(h.toString().padStart(2, '0') + ':00');
+      data.push(hourMap[h] || 0);
+    }
+    S.activityCharts.hourly = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: 'rgba(167,139,250,0.5)',
+          borderColor: '#a78bfa',
+          borderWidth: 1,
+          borderRadius: 3,
+        }]
+      },
+      options: chartDefaults(),
+    });
+  }
+
+  function renderCategoryChart(categories) {
+    var canvas = $('#chart-category-activity');
+    if (!canvas) return;
+    destroyChart('category');
+    var cats = Object.keys(categories);
+    if (!cats.length) return;
+    var labels = cats.map(function(c) { return c.charAt(0).toUpperCase() + c.slice(1); });
+    var data = cats.map(function(c) { return categories[c]; });
+    var colors = cats.map(function(c) { return CHART_COLORS[c] || '#64748b'; });
+    S.activityCharts.category = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: colors,
+          borderColor: 'rgba(15,15,20,0.8)',
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '55%',
+        plugins: {
+          legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 }, padding: 8, usePointStyle: true, pointStyleWidth: 8 } },
+          tooltip: { backgroundColor: 'rgba(15,15,20,0.95)', titleColor: '#e2e8f0', bodyColor: '#94a3b8', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, cornerRadius: 6, padding: 8 },
+        },
+      },
+    });
+  }
+
+  function renderTopActorsChart(topActors) {
+    var canvas = $('#chart-top-actors');
+    if (!canvas) return;
+    destroyChart('topActors');
+    if (!topActors.length) return;
+    var labels = topActors.map(function(a) { return a.actor || 'Unknown'; });
+    var data = topActors.map(function(a) { return a.count; });
+    S.activityCharts.topActors = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: 'rgba(52,211,153,0.5)',
+          borderColor: '#34d399',
+          borderWidth: 1,
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { backgroundColor: 'rgba(15,15,20,0.95)', titleColor: '#e2e8f0', bodyColor: '#94a3b8', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, cornerRadius: 6, padding: 8 },
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', font: { size: 10 } }, beginAtZero: true },
+          y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+        },
+      },
+    });
   }
 
   function tryParseDetails(details, key) {
@@ -1844,7 +2671,7 @@
     try {
       var params = new URLSearchParams({ limit: '200' });
       if (search) params.set('search', search);
-      var r = await fetch('/api/panel/chat?' + params);
+      var r = await apiFetch('/api/panel/chat?' + params);
       var d = await r.json();
       var messages = d.messages || [];
       renderChatFeed(container, messages, false);
@@ -1890,30 +2717,32 @@
       var timeHtml = timestamp ? '<span class="chat-time-inline">' + timestamp + '</span>' : '';
       if (isSystem) {
         var action = m.type === 'join' ? 'joined' : m.type === 'leave' ? 'left' : 'died';
-        var pLink = '<span class="player-link" data-steam-id="' + esc(m.steam_id || '') + '">' + esc(m.player_name || 'Player') + '</span>';
+        var pLink = '<span class="player-link" data-steam-id="' + esc(m.steam_id || '') + '">' + esc(stripRconTags(m.player_name || 'Player')) + '</span>';
         msg.innerHTML = timeHtml + '<span class="chat-author system">System</span><span class="chat-text text-muted">' + pLink + ' ' + action + '</span>';
       } else {
         var authorCls = isOutbound ? 'outbound' : '';
         var author = isOutbound ? (m.discord_user || 'Discord') : (m.player_name || 'Player');
         var isAdmin = m.is_admin ? ' chat-admin' : '';
-        msg.innerHTML = timeHtml + '<span class="chat-author player-link' + isAdmin + ' ' + authorCls + '" data-steam-id="' + esc(m.steam_id || '') + '">' + esc(author) + '</span><span class="chat-text' + isAdmin + '">' + esc(m.message || '') + '</span>';
+        var cleanMsg = stripRconTags(m.message || '');
+        var cleanAuthor = stripRconTags(author);
+        msg.innerHTML = timeHtml + '<span class="chat-author player-link' + isAdmin + ' ' + authorCls + '" data-steam-id="' + esc(m.steam_id || '') + '">' + esc(cleanAuthor) + '</span><span class="chat-text' + isAdmin + '">' + esc(cleanMsg) + '</span>';
       }
       container.appendChild(msg);
     }
   }
 
   async function sendChat() {
-    if (S.tier < 3) return;
+    if (S.tier < 2) return;
     var input = $('#chat-msg-input');
     if (!input) return;
     var msg = input.value.trim();
     if (!msg) return;
     try {
       
-      await fetch('/api/panel/rcon', {
+      await apiFetch('/api/admin/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'admin [Panel] ' + (S.user ? S.user.displayName || 'Admin' : 'Admin') + ': ' + msg }),
+        body: JSON.stringify({ message: '[Panel] ' + (S.user ? S.user.displayName || 'Admin' : 'Admin') + ': ' + msg }),
       });
       input.value = '';
       var feed = $('#chat-feed');
@@ -1927,7 +2756,17 @@
     } catch (e) { console.error('Chat send error:', e); }
   }
 
-  var RCON_COMMANDS = ['info', 'players', 'save', 'say ', 'kick ', 'ban ', 'unban ', 'whitelist ', 'servermsg '];
+  var RCON_COMMANDS = [
+    'info', 'players', 'save',
+    'say ', 'admin ', 'servermsg ',
+    'kick ', 'ban ', 'unban ',
+    'whitelist ', 'removewhitelist ', 'addadmin ', 'removeadmin ',
+    'fetchbanned', 'fetchwhitelist', 'fetchadmins',
+    'teleport ', 'unstuck ', 'giveitem ',
+    'weather ', 'season ', 'settime ', 'setday', 'setnight',
+    'setzombiemultiplier ', 'setanimalmultiplier ', 'setzombies ', 'setanimals ',
+    'restart ', 'QuickRestart', 'RestartNow', 'CancelRestart', 'shutdown '
+  ];
   var consoleHistory = [];
   var consoleHistoryIdx = -1;
   try { consoleHistory = JSON.parse(localStorage.getItem('hmz_console_history') || '[]'); } catch {}
@@ -1950,7 +2789,7 @@
     appendConsole(cmd, 'cmd');
     input.value = '';
     try {
-      var r = await fetch('/api/panel/rcon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd }) });
+      var r = await apiFetch('/api/panel/rcon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd }) });
       var d = await r.json();
       if (d.ok) appendConsole(d.response || '(no response)', 'resp');
       else appendConsole('Error: ' + (d.error || 'Unknown error'), 'err');
@@ -2028,7 +2867,7 @@
     var container = $('#settings-grid');
     if (!container) return;
     try {
-      var r = await fetch('/api/panel/settings');
+      var r = await apiFetch('/api/panel/settings');
       if (!r.ok) { container.innerHTML = '<div class="feed-empty">Settings unavailable</div>'; return; }
       var d = await r.json();
       var settings = d.settings || {};
@@ -2134,7 +2973,9 @@
   }
 
   function showSettingsDiff() {
-    var keys = Object.keys(S.settingsChanged);
+    var changed = S.settingsMode === 'bot' ? S.botConfigChanged : S.settingsChanged;
+    var originals = S.settingsMode === 'bot' ? S.botConfigOriginal : S.settingsOriginal;
+    var keys = Object.keys(changed);
     if (keys.length === 0) return;
 
     var content = $('#settings-diff-content');
@@ -2156,14 +2997,18 @@
 
     for (var i = 0; i < keys.length; i++) {
       var key = keys[i];
-      var oldVal = S.settingsOriginal[key] != null ? String(S.settingsOriginal[key]) : '';
-      var newVal = S.settingsChanged[key];
+      var oldVal = originals[key] != null ? String(originals[key]) : '';
+      var newVal = changed[key];
+      var isSensitive = S.settingsMode === 'bot' && !oldVal && newVal;
+      var displayOld = isSensitive ? '(hidden)' : oldVal;
+      var displayNew = isSensitive ? '(updated)' : newVal;
       var row = el('div', 'diff-row');
-      row.innerHTML = '<div class="diff-key">' + esc(humanizeSettingKey(key)) + '<div class="diff-key-raw">' + esc(key) + '</div></div>' +
+      var descKey = S.settingsMode === 'bot' ? key : humanizeSettingKey(key);
+      row.innerHTML = '<div class="diff-key">' + esc(descKey) + '<div class="diff-key-raw">' + esc(key) + '</div></div>' +
         '<div class="diff-values">' +
-        '<span class="diff-old">' + esc(oldVal) + '</span>' +
+        '<span class="diff-old">' + esc(displayOld) + '</span>' +
         '<span class="diff-arrow">\u2192</span>' +
-        '<span class="diff-new">' + esc(newVal) + '</span>' +
+        '<span class="diff-new">' + esc(String(displayNew)) + '</span>' +
         '</div>';
       content.appendChild(row);
     }
@@ -2175,6 +3020,7 @@
   }
 
   function resetSettingsChanges() {
+    if (S.settingsMode === 'bot') return resetBotConfigChanges();
     
     var keys = Object.keys(S.settingsChanged);
     for (var i = 0; i < keys.length; i++) {
@@ -2194,11 +3040,12 @@
   }
 
   async function commitSettings() {
+    if (S.settingsMode === 'bot') return commitBotConfig();
     if (Object.keys(S.settingsChanged).length === 0) return;
     var btn = $('#settings-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
     try {
-      var r = await fetch('/api/panel/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: S.settingsChanged }) });
+      var r = await apiFetch('/api/panel/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: S.settingsChanged }) });
       var d = await r.json();
       if (d.ok) {
         var updated = d.updated || [];
@@ -2223,12 +3070,229 @@
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  //  Bot Configuration (.env editor)
+  // ══════════════════════════════════════════════════════════════════
+
+  async function loadBotConfig() {
+    var container = $('#settings-grid');
+    if (!container) return;
+    try {
+      var r = await apiFetch('/api/panel/bot-config');
+      if (!r.ok) { container.innerHTML = '<div class="feed-empty">Bot configuration unavailable</div>'; return; }
+      var d = await r.json();
+      S.botConfigSections = d.sections || [];
+      S.botConfigOriginal = {};
+      S.botConfigChanged = {};
+      // Flatten for original tracking
+      for (var si = 0; si < S.botConfigSections.length; si++) {
+        var sec = S.botConfigSections[si];
+        for (var ki = 0; ki < sec.keys.length; ki++) {
+          var k = sec.keys[ki];
+          S.botConfigOriginal[k.key] = k.value;
+        }
+      }
+      renderBotConfig(container, S.botConfigSections);
+      var countEl = $('#settings-count');
+      var total = S.botConfigSections.reduce(function(sum, s) { return sum + s.keys.length; }, 0);
+      if (countEl) countEl.textContent = total + ' settings';
+      // Reset change state
+      var btn = $('#settings-save-btn');
+      if (btn) { btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); }
+      var countBadge = $('#settings-change-count');
+      if (countBadge) countBadge.classList.add('hidden');
+      var resetBtn = $('#settings-reset-btn');
+      if (resetBtn) resetBtn.classList.add('hidden');
+      var restartBadge = $('#settings-restart-badge');
+      if (restartBadge) restartBadge.classList.add('hidden');
+    } catch (e) {
+      container.innerHTML = '<div class="feed-empty">Failed to load bot configuration</div>';
+      console.error('Bot config error:', e);
+    }
+  }
+
+  function renderBotConfig(container, sections) {
+    container.innerHTML = '';
+
+    for (var si = 0; si < sections.length; si++) {
+      var sec = sections[si];
+      if (!sec.keys.length) continue;
+
+      var section = el('div', 'settings-category');
+      var header = el('div', 'settings-category-header');
+      header.innerHTML = '<span class="cat-arrow">\u25B8</span><span class="cat-label">' + esc(sec.label) + '</span><span class="cat-count">' + sec.keys.length + '</span>';
+
+      var body = el('div', 'settings-category-items');
+      for (var ki = 0; ki < sec.keys.length; ki++) {
+        var item = sec.keys[ki];
+        var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
+        row.dataset.key = item.key;
+        var desc = ENV_DESCS[item.key] || '';
+        var isBool = ENV_BOOLEANS.has(item.key);
+        var nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
+        if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
+        if (item.readOnly) nameHtml += ' <span class="setting-sensitive-badge" style="color:#d4a843;border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
+        nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
+
+        var inputHtml = '';
+        if (item.readOnly) {
+          inputHtml = '<span class="text-xs text-muted font-mono">' + esc(item.value || '-') + '</span>';
+        } else if (item.sensitive) {
+          inputHtml = '<div class="flex items-center gap-2">';
+          if (item.hasValue) inputHtml += '<span class="text-xs text-calm">\u2022\u2022\u2022\u2022\u2022\u2022 set</span>';
+          else inputHtml += '<span class="text-xs text-muted">not set</span>';
+          inputHtml += '<input type="password" class="setting-input bot-config-input" style="width:180px" placeholder="Enter new value..." data-key="' + esc(item.key) + '" data-original="" data-sensitive="true" autocomplete="off">';
+          inputHtml += '</div>';
+        } else if (isBool) {
+          var isOn = item.value === 'true';
+          inputHtml = '<label class="setting-toggle"><input type="checkbox" class="bot-config-toggle" data-key="' + esc(item.key) + '" data-original="' + esc(item.value) + '"' + (isOn ? ' checked' : '') + '><span class="toggle-track"></span><span class="toggle-thumb"></span></label>';
+        } else {
+          inputHtml = '<input type="text" class="setting-input bot-config-input" value="' + esc(item.value) + '" data-key="' + esc(item.key) + '" data-original="' + esc(item.value) + '">';
+        }
+
+        row.innerHTML = nameHtml + (desc ? '<div class="setting-desc">' + esc(desc) + '</div>' : '') + inputHtml;
+        body.appendChild(row);
+      }
+
+      // Wire accordion toggle
+      (function(bodyEl, headerEl) {
+        headerEl.addEventListener('click', function() {
+          bodyEl.classList.toggle('open');
+          headerEl.querySelector('.cat-arrow').classList.toggle('open');
+        });
+      })(body, header);
+
+      // Open first section by default
+      if (si === 0) { body.classList.add('open'); header.querySelector('.cat-arrow').classList.add('open'); }
+
+      section.appendChild(header);
+      section.appendChild(body);
+      container.appendChild(section);
+    }
+
+    // Wire change detection for text inputs
+    container.addEventListener('input', function(e) {
+      if (!e.target.classList.contains('bot-config-input')) return;
+      var key = e.target.dataset.key;
+      var orig = e.target.dataset.original;
+      var val = e.target.value;
+      var isSensitive = e.target.dataset.sensitive === 'true';
+
+      if (isSensitive) {
+        // Any non-empty value in a sensitive field is a change
+        if (val.length > 0) { S.botConfigChanged[key] = val; e.target.classList.add('changed'); }
+        else { delete S.botConfigChanged[key]; e.target.classList.remove('changed'); }
+      } else {
+        if (val !== orig) { S.botConfigChanged[key] = val; e.target.classList.add('changed'); }
+        else { delete S.botConfigChanged[key]; e.target.classList.remove('changed'); }
+      }
+      updateBotConfigBadges();
+    });
+
+    // Wire change detection for toggle switches
+    container.addEventListener('change', function(e) {
+      if (!e.target.classList.contains('bot-config-toggle')) return;
+      var key = e.target.dataset.key;
+      var orig = e.target.dataset.original;
+      var val = e.target.checked ? 'true' : 'false';
+      if (val !== orig) { S.botConfigChanged[key] = val; }
+      else { delete S.botConfigChanged[key]; }
+      updateBotConfigBadges();
+    });
+  }
+
+  function updateBotConfigBadges() {
+    var changeCount = Object.keys(S.botConfigChanged).length;
+    var hasChanges = changeCount > 0;
+    var btn = $('#settings-save-btn');
+    if (btn) { btn.disabled = !hasChanges; btn.classList.toggle('opacity-50', !hasChanges); btn.classList.toggle('cursor-not-allowed', !hasChanges); }
+    var countBadge = $('#settings-change-count');
+    if (countBadge) { countBadge.classList.toggle('hidden', !hasChanges); countBadge.textContent = changeCount + ' change' + (changeCount !== 1 ? 's' : ''); }
+    var resetBtn = $('#settings-reset-btn');
+    if (resetBtn) resetBtn.classList.toggle('hidden', !hasChanges);
+    var restartBadge = $('#settings-restart-badge');
+    if (restartBadge) restartBadge.classList.toggle('hidden', !hasChanges);
+  }
+
+  function humanizeEnvKey(key) {
+    // Convert SCREAMING_SNAKE_CASE to readable title
+    return key.replace(/_/g, ' ').replace(/\b([A-Z]+)\b/g, function(m) {
+      // Keep common acronyms uppercase
+      if (/^(ID|IP|RCON|SFTP|FTP|SSH|PVP|API|URL|TTL|CSV|DB|OAUTH|MSG|XP|AI|DM|UI|NPC|ADMIN)$/.test(m)) return m;
+      return m.charAt(0) + m.slice(1).toLowerCase();
+    });
+  }
+
+  function resetBotConfigChanges() {
+    var keys = Object.keys(S.botConfigChanged);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var input = $('input.bot-config-input[data-key="' + key + '"]');
+      if (input) {
+        if (input.dataset.sensitive === 'true') input.value = '';
+        else input.value = input.dataset.original;
+        input.classList.remove('changed');
+      }
+      var toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
+      if (toggle) {
+        toggle.checked = toggle.dataset.original === 'true';
+      }
+    }
+    S.botConfigChanged = {};
+    updateBotConfigBadges();
+  }
+
+  async function commitBotConfig() {
+    if (Object.keys(S.botConfigChanged).length === 0) return;
+    var btn = $('#settings-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    try {
+      var r = await apiFetch('/api/panel/bot-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes: S.botConfigChanged })
+      });
+      var d = await r.json();
+      if (d.ok) {
+        var updated = d.updated || [];
+        for (var ui = 0; ui < updated.length; ui++) {
+          var key = updated[ui];
+          var newVal = S.botConfigChanged[key];
+          // Don't store sensitive values in originals
+          if ($('input.bot-config-input[data-key="' + key + '"][data-sensitive="true"]')) {
+            var sens = $('input.bot-config-input[data-key="' + key + '"]');
+            if (sens) { sens.value = ''; sens.classList.remove('changed'); }
+          } else {
+            S.botConfigOriginal[key] = newVal;
+            var input = $('input.bot-config-input[data-key="' + key + '"]');
+            if (input) { input.dataset.original = newVal; input.classList.remove('changed'); }
+            var toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
+            if (toggle) { toggle.dataset.original = newVal; }
+          }
+        }
+        S.botConfigChanged = {};
+        if (btn) btn.textContent = 'Saved \u2713';
+        updateBotConfigBadges();
+        // Show restart notice
+        var restartBadge = $('#settings-restart-badge');
+        if (restartBadge) restartBadge.classList.remove('hidden');
+        showToast(d.message || 'Settings saved. Restart the bot for changes to take effect.', 5000);
+        setTimeout(function() { if (btn) { btn.textContent = 'Save Changes'; btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); } }, 2000);
+      } else throw new Error(d.error || 'Save failed');
+    } catch (e) {
+      if (btn) { btn.textContent = 'Error'; btn.disabled = false; }
+      console.error('Bot config save error:', e);
+      showToast('Error: ' + e.message, 5000);
+      setTimeout(function() { if (btn) btn.textContent = 'Save Changes'; }, 2000);
+    }
+  }
+
   async function doPowerAction(action) {
     var log = $('#controls-log');
     var time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
     appendLog(log, '[' + time + '] Sending ' + action + '...', 'text-muted');
     try {
-      var r = await fetch('/api/panel/power', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) });
+      var r = await apiFetch('/api/panel/power', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) });
       var d = await r.json();
       if (d.ok) appendLog(log, '[' + time + '] \u2713 ' + d.message, 'text-calm');
       else appendLog(log, '[' + time + '] \u2715 ' + (d.error || 'Failed'), 'text-red-400');
@@ -2249,7 +3313,7 @@
     var container = $('#backup-list');
     if (!container) return;
     try {
-      var r = await fetch('/api/panel/backups');
+      var r = await apiFetch('/api/panel/backups');
       if (!r.ok) return;
       var d = await r.json();
       var backups = d.backups || [];
@@ -2296,10 +3360,10 @@
         url += '&locationType=' + encodeURIComponent(parts[0]) + '&locationId=' + encodeURIComponent(parts[1]);
       }
 
-      var resp = await fetch(url);
+      var resp = await apiFetch(url);
       _itemsData = await resp.json();
 
-      var movResp = await fetch('/api/panel/movements?limit=50');
+      var movResp = await apiFetch('/api/panel/movements?limit=50');
       var movData = await movResp.json();
       _itemsMovements = movData.movements || [];
 
@@ -2359,7 +3423,7 @@
         html += '<td class="px-2 py-1.5"><span class="text-surge font-mono">' + g.quantity + '×</span></td>';
         html += '<td class="px-2 py-1.5 text-muted">' + (g.stack_size || 1) + '</td>';
         html += '<td class="px-2 py-1.5">' + _locationBadge(g.location_type, g.location_id, g.location_slot) + '</td>';
-        html += '<td class="px-2 py-1.5 font-mono text-muted text-[10px]">' + esc(g.fingerprint) + '</td>';
+        html += '<td class="px-2 py-1.5 font-mono text-[10px]"><span class="text-emerald-400 cursor-pointer hover:underline fp-track-link" data-fp="' + esc(g.fingerprint) + '" data-item="' + esc(g.item) + '" title="Track this item">' + esc(g.fingerprint) + '</span></td>';
         html += '<td class="px-2 py-1.5 text-muted">' + _timeAgo(g.last_seen) + '</td>';
         html += '<td class="px-2 py-1.5"><button class="text-accent hover:text-accent-hover text-[10px] item-grp-detail" data-id="' + g.id + '">History</button></td>';
         html += '</tr>';
@@ -2425,7 +3489,7 @@
       html += '<td class="px-2 py-1.5">' + (inst.amount || 1) + '</td>';
       html += '<td class="px-2 py-1.5 ' + durColor + ' font-mono">' + durPct + '%</td>';
       html += '<td class="px-2 py-1.5">' + _locationBadge(inst.location_type, inst.location_id, inst.location_slot) + '</td>';
-      html += '<td class="px-2 py-1.5 font-mono text-muted text-[10px]">' + esc(inst.fingerprint) + '</td>';
+      html += '<td class="px-2 py-1.5 font-mono text-[10px]"><span class="text-emerald-400 cursor-pointer hover:underline fp-track-link" data-fp="' + esc(inst.fingerprint) + '" data-item="' + esc(inst.item) + '" title="Track this item">' + esc(inst.fingerprint) + '</span></td>';
       html += '<td class="px-2 py-1.5 text-muted">' + _timeAgo(inst.last_seen) + '</td>';
       html += '<td class="px-2 py-1.5"><button class="text-accent hover:text-accent-hover text-[10px] item-inst-detail" data-id="' + inst.id + '">History</button></td>';
       html += '</tr>';
@@ -2538,6 +3602,20 @@
     $$('.item-grp-detail').forEach(function(btn) {
       btn.addEventListener('click', function() { _showItemDetail('group', parseInt(btn.dataset.id, 10)); });
     });
+
+    // Fingerprint → Activity tracker navigation
+    $$('.fp-track-link').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var fpHash = el.dataset.fp;
+        var fpItem = el.dataset.item;
+        if (fpHash && fpItem) {
+          var searchEl = $('#activity-search');
+          if (searchEl) searchEl.value = fpItem + '#' + fpHash;
+          switchTab('activity');
+          setTimeout(function() { resetActivityPaging(); loadActivity(); }, 100);
+        }
+      });
+    });
   }
 
   async function _showItemDetail(type, id) {
@@ -2550,7 +3628,7 @@
 
     try {
       var url = type === 'group' ? '/api/panel/groups/' + id : '/api/panel/items/' + id + '/movements';
-      var resp = await fetch(url);
+      var resp = await apiFetch(url);
       var data = await resp.json();
 
       var html = '';
@@ -2645,7 +3723,7 @@
     try {
       var params = new URLSearchParams({ limit: String(limit) });
       if (search) params.set('search', search);
-      var r = await fetch('/api/panel/db/' + table + '?' + params);
+      var r = await apiFetch('/api/panel/db/' + table + '?' + params);
       if (!r.ok) {
         var err = {};
         try { err = await r.json(); } catch (e) {  }
@@ -2782,6 +3860,158 @@
     return str;
   }
 
+  // ── DB: Fetch live table list with row counts ──
+  async function fetchDbTableList() {
+    try {
+      var r = await apiFetch('/api/panel/db/tables');
+      if (!r.ok) return;
+      var d = await r.json();
+      S.dbTablesLive = d.tables || [];
+      // Override dropdowns with live data
+      var selects = [$('#db-table'), $('#qb-table')];
+      for (var si = 0; si < selects.length; si++) {
+        var sel = selects[si];
+        if (!sel) continue;
+        var prevVal = sel.value;
+        sel.innerHTML = '';
+        for (var i = 0; i < S.dbTablesLive.length; i++) {
+          var t = S.dbTablesLive[i];
+          var opt = document.createElement('option');
+          opt.value = t.name;
+          opt.textContent = t.name + ' (' + (t.rowCount || 0).toLocaleString() + ' rows)';
+          sel.appendChild(opt);
+        }
+        if (prevVal) sel.value = prevVal;
+      }
+      // Cache schema info
+      for (var j = 0; j < S.dbTablesLive.length; j++) {
+        S.dbSchemaCache[S.dbTablesLive[j].name] = S.dbTablesLive[j].columns || [];
+      }
+    } catch (e) { /* ignore — will fall back to static list */ }
+  }
+
+  // ── DB: Show schema for selected table ──
+  function showDbSchema() {
+    var table = $('#db-table') ? $('#db-table').value : '';
+    var container = $('#db-schema-info');
+    if (!container) return;
+    var cols = S.dbSchemaCache[table];
+    if (!cols || !cols.length) {
+      container.innerHTML = '<span class="text-muted text-xs">No schema info available</span>';
+      return;
+    }
+    var html = '<div class="overflow-x-auto"><table class="db-table text-xs"><thead><tr>';
+    html += '<th>Column</th><th>Type</th><th>PK</th><th>Nullable</th>';
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < cols.length; i++) {
+      var c = cols[i];
+      html += '<tr>';
+      html += '<td class="font-mono text-accent">' + esc(c.name) + '</td>';
+      html += '<td>' + esc(c.type || 'TEXT') + '</td>';
+      html += '<td>' + (c.pk ? '\u2713' : '') + '</td>';
+      html += '<td>' + (c.nullable ? 'yes' : 'no') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  }
+
+  // ── DB: Query builder helpers ──
+  function updateQbColumns() {
+    var table = $('#qb-table') ? $('#qb-table').value : '';
+    var cols = S.dbSchemaCache[table] || [];
+    var whereCol = $('#qb-where-col');
+    var orderCol = $('#qb-order-col');
+    var selects = [whereCol, orderCol];
+    for (var si = 0; si < selects.length; si++) {
+      var sel = selects[si];
+      if (!sel) continue;
+      sel.innerHTML = '<option value="">--</option>';
+      for (var i = 0; i < cols.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = cols[i].name;
+        opt.textContent = cols[i].name;
+        sel.appendChild(opt);
+      }
+    }
+  }
+
+  function buildQbSql() {
+    var table = $('#qb-table') ? $('#qb-table').value : '';
+    var columns = ($('#qb-columns') ? $('#qb-columns').value : '').trim() || '*';
+    var whereCol = $('#qb-where-col') ? $('#qb-where-col').value : '';
+    var whereOp = $('#qb-where-op') ? $('#qb-where-op').value : '=';
+    var whereVal = ($('#qb-where-val') ? $('#qb-where-val').value : '').trim();
+    var orderCol = $('#qb-order-col') ? $('#qb-order-col').value : '';
+    var orderDir = $('#qb-order-dir') ? $('#qb-order-dir').value : 'DESC';
+    var limit = ($('#qb-limit') ? $('#qb-limit').value : '100').trim() || '100';
+
+    if (!table) return '';
+    var sql = 'SELECT ' + columns + ' FROM ' + table;
+    if (whereCol && (whereVal || whereOp === 'IS NULL' || whereOp === 'IS NOT NULL')) {
+      if (whereOp === 'IS NULL') sql += " WHERE " + whereCol + " IS NULL";
+      else if (whereOp === 'IS NOT NULL') sql += " WHERE " + whereCol + " IS NOT NULL";
+      else if (whereOp === 'LIKE') sql += " WHERE " + whereCol + " LIKE '%" + whereVal.replace(/'/g, "''") + "%'";
+      else if (whereOp === 'IN') sql += " WHERE " + whereCol + " IN (" + whereVal + ")";
+      else sql += " WHERE " + whereCol + " " + whereOp + " '" + whereVal.replace(/'/g, "''") + "'";
+    }
+    if (orderCol) sql += ' ORDER BY ' + orderCol + ' ' + orderDir;
+    sql += ' LIMIT ' + parseInt(limit, 10);
+    return sql;
+  }
+
+  function updateQbPreview() {
+    var preview = $('#qb-preview');
+    if (preview) preview.textContent = buildQbSql();
+  }
+
+  async function runQueryBuilder() {
+    var sql = buildQbSql();
+    if (!sql) return showToast('Select a table first', 'error');
+    await executeRawQuery(sql);
+  }
+
+  async function runRawSql() {
+    var input = $('#db-raw-sql');
+    var sql = (input ? input.value : '').trim();
+    if (!sql) return showToast('Enter a SQL query', 'error');
+    await executeRawQuery(sql);
+  }
+
+  async function executeRawQuery(sql) {
+    var container = $('#db-query-results');
+    var status = $('#db-query-status');
+    if (!container) return;
+    container.innerHTML = '<div class="feed-empty">Running...</div>';
+    if (status) status.textContent = '';
+
+    try {
+      var r = await apiFetch('/api/panel/db/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: sql, limit: 500 }),
+      });
+      var d = await r.json();
+      if (d.error) {
+        container.innerHTML = '<div class="feed-empty text-danger">' + esc(d.error) + '</div>';
+        if (status) status.textContent = 'Error';
+        return;
+      }
+      var rows = d.rows || [];
+      var columns = d.columns || [];
+      S.dbLastResult = { table: 'query', rows: rows, columns: columns };
+      if (status) status.textContent = rows.length + ' row' + (rows.length !== 1 ? 's' : '') + ' returned';
+      if (!rows.length) {
+        container.innerHTML = '<div class="feed-empty">No results</div>';
+        return;
+      }
+      renderDbTable(container, rows, columns);
+    } catch (e) {
+      container.innerHTML = '<div class="feed-empty text-danger">Request failed: ' + esc(e.message) + '</div>';
+      if (status) status.textContent = 'Failed';
+    }
+  }
+
   // ══════════════════════════════════════════════════
   //  ANTICHEAT
   // ══════════════════════════════════════════════════
@@ -2807,14 +4037,17 @@
       params.set('limit', '100');
 
       var [flagsRes, riskRes] = await Promise.all([
-        fetch('/api/panel/anticheat/flags?' + params),
-        fetch('/api/panel/anticheat/risk-scores')
+        apiFetch('/api/panel/anticheat/flags?' + params),
+        apiFetch('/api/panel/anticheat/risk-scores')
       ]);
 
       if (!flagsRes.ok || !riskRes.ok) {
-        flagsContainer.innerHTML = '<div class="feed-empty">Failed to load anticheat data (requires admin)</div>';
+        var errMsg = 'Failed to load anticheat data';
+        if (flagsRes.status === 403 || riskRes.status === 403) errMsg += ' (requires admin)';
+        else errMsg += ' (server error)';
+        flagsContainer.innerHTML = '<div class="feed-empty">' + errMsg + '</div>';
         riskContainer.innerHTML = '';
-        cardsContainer.innerHTML = '';
+        if (cardsContainer) cardsContainer.innerHTML = '';
         return;
       }
 
@@ -2930,9 +4163,11 @@
       var riskPct = Math.round((s.risk_score || 0) * 100);
       var riskColor = riskPct >= 70 ? 'text-red-400' : riskPct >= 40 ? 'text-amber-400' : 'text-green-400';
       var barColor = riskPct >= 70 ? 'bg-red-400' : riskPct >= 40 ? 'bg-amber-400' : 'bg-green-400';
+      var riskPlayerName = '';
+      if (s.steam_id) { var rp = S.players.find(function(p) { return p.steamId === s.steam_id; }); if (rp) riskPlayerName = rp.name; }
 
       html += '<tr>' +
-        '<td class="font-medium">' + esc(s.steam_id) + '</td>' +
+        '<td class="font-medium"><span class="player-link cursor-pointer hover:underline" data-steam-id="' + esc(s.steam_id) + '">' + esc(riskPlayerName || s.steam_id) + '</span></td>' +
         '<td><div class="flex items-center gap-2"><div class="w-16 h-1.5 bg-surface-100 rounded-full overflow-hidden"><div class="h-full ' + barColor + ' rounded-full" style="width:' + riskPct + '%"></div></div><span class="font-mono text-xs ' + riskColor + '">' + riskPct + '%</span></div></td>' +
         '<td class="font-mono text-xs">' + (s.open_flags || 0) + '</td>' +
         '<td class="font-mono text-xs">' + (s.confirmed_flags || 0) + '</td>' +
@@ -2946,7 +4181,7 @@
 
   async function reviewAcFlag(flagId, status, notes) {
     try {
-      var r = await fetch('/api/panel/anticheat/flags/' + flagId + '/review', {
+      var r = await apiFetch('/api/panel/anticheat/flags/' + flagId + '/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: status, notes: notes || '' })
@@ -3035,6 +4270,10 @@
       });
       if (player) showPlayerModal(player);
       else if (steamId) fetchAndShowPlayer(steamId);
+      else {
+        // No steamId and not in cached players — show brief toast
+        showToast('Player "' + (name || 'Unknown') + '" not found in player data', 2500);
+      }
       return;
     }
 
@@ -3062,6 +4301,8 @@
       var openModal = $('#player-modal');
       if (openModal && !openModal.classList.contains('hidden')) openModal.classList.add('hidden');
       switchTab('activity');
+      // Force reload with the pre-populated filters
+      setTimeout(function() { resetActivityPaging(); loadActivity(); }, 100);
       return;
     }
 
@@ -3187,12 +4428,28 @@
     }
     owners.sort(function(a, b) { return b.count - a.count; });
 
+    // If this specific item has a fingerprint, identify who holds THIS instance
+    var isTrackedInstance = !!fp;
+    var instanceHolder = '';
+    if (isTrackedInstance && contextSteamId) {
+      var holder = S.players.find(function(p) { return p.steamId === contextSteamId; });
+      if (holder) instanceHolder = holder.name;
+    }
+
     var popup = document.createElement('div');
     popup.className = 'item-popup';
 
     // Build header with close button
     var html = '<div class="item-popup-header">' + esc(name) + '<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>';
     html += '<div class="item-popup-body">';
+
+    // Instance badge — highlight that this is a tracked specific item
+    if (isTrackedInstance) {
+      html += '<div class="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1 mb-2 flex items-center gap-1">';
+      html += '\ud83d\udd0d Tracked Instance';
+      if (instanceHolder) html += ' \u2014 held by <span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="' + esc(contextSteamId) + '">' + esc(instanceHolder) + '</span>';
+      html += '</div>';
+    }
 
     // Basic stats grid
     html += '<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mb-2">';
@@ -3213,9 +4470,13 @@
       html += '<div class="text-xs mb-2"><span class="text-muted">Attachments:</span> <span class="text-accent">' + attachments.map(function(a) { return esc(a); }).join(', ') + '</span></div>';
     }
 
-    // Owners section
+    // Owners section — for tracked instances, show as "Other holders of this item type" (secondary)
     if (owners.length > 0) {
-      html += '<div class="text-xs text-muted mt-1 mb-1">Held by ' + owners.length + ' player' + (owners.length > 1 ? 's' : '') + ':</div>';
+      if (isTrackedInstance) {
+        html += '<div class="text-xs text-muted mt-1 mb-1">' + owners.length + ' player' + (owners.length > 1 ? 's' : '') + ' hold' + (owners.length === 1 ? 's' : '') + ' ' + esc(name) + ':</div>';
+      } else {
+        html += '<div class="text-xs text-muted mt-1 mb-1">Held by ' + owners.length + ' player' + (owners.length > 1 ? 's' : '') + ':</div>';
+      }
       html += '<div class="item-popup-owners">';
       for (var oi = 0; oi < Math.min(owners.length, 6); oi++) {
         html += '<div class="text-xs"><span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="' + esc(owners[oi].steamId) + '">' + esc(owners[oi].name) + '</span> <span class="text-muted">\u00d7' + owners[oi].count + '</span></div>';
@@ -3224,16 +4485,19 @@
       html += '</div>';
     }
 
-    // Tracking data container — will be populated async
+    // Tracking data container — will be populated async (prioritizes fingerprint-specific data)
     html += '<div id="item-tracking-data" class="mt-2 border-t border-border/30 pt-2">';
-    if (fp || name) {
+    if (fp) {
+      html += '<div class="text-[10px] text-muted">Loading instance history...</div>';
+    } else if (name) {
       html += '<div class="text-[10px] text-muted">Loading tracking data...</div>';
     }
     html += '</div>';
 
     // Quick links
     html += '<div class="mt-2 flex gap-2 flex-wrap">';
-    html += '<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="' + esc(name) + '">Activity log \u2192</span>';
+    var actSearchVal = fp ? name + '#' + fp : name;
+    html += '<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="' + esc(actSearchVal) + '">' + (fp ? '\ud83d\udd0d Track item' : 'Activity log') + ' \u2192</span>';
     if (S.tier >= 3) { // admin
       var dbSearch = fp || name;
       html += '<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_instances" data-search="' + esc(dbSearch) + '">Item DB \u2192</span>';
@@ -3243,7 +4507,7 @@
     html += '</div>';
     popup.innerHTML = html;
 
-    // Position near the slot
+    // Position near the slot, then clamp to viewport
     var rect = slot.getBoundingClientRect();
     popup.style.position = 'fixed';
     popup.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + 'px';
@@ -3251,6 +4515,7 @@
     popup.style.zIndex = '10000';
     popup.style.maxWidth = '320px';
     document.body.appendChild(popup);
+    clampToViewport(popup);
 
     // Async: Fetch tracking data from item fingerprint API
     if (fp || name) {
@@ -3270,7 +4535,7 @@
       if (steamId) params.push('steamId=' + encodeURIComponent(steamId));
       var url = '/api/panel/items/lookup?' + params.join('&');
 
-      var r = await fetch(url);
+      var r = await apiFetch(url);
       if (!r.ok) {
         container.innerHTML = '<div class="text-[10px] text-muted">No tracking data available</div>';
         return;
@@ -3391,7 +4656,7 @@
 
   async function fetchAndShowPlayer(steamId) {
     try {
-      var r = await fetch('/api/players/' + steamId);
+      var r = await apiFetch('/api/players/' + steamId);
       if (r.ok) { var p = await r.json(); showPlayerModal(p); }
     } catch (e) { /* silent */ }
   }
@@ -3463,6 +4728,7 @@
     popup.style.zIndex = '10000';
     popup.style.maxWidth = '340px';
     document.body.appendChild(popup);
+    clampToViewport(popup);
 
     // Fetch entity data
     _fetchEntityData(name, type, table);
@@ -3474,7 +4740,7 @@
     if (!container) return;
 
     try {
-      var r = await (typeof authFetch === 'function' ? authFetch : fetch)('/api/panel/lookup/' + encodeURIComponent(type) + '/' + encodeURIComponent(name));
+      var r = await (typeof authFetch === 'function' ? authFetch : apiFetch)('/api/panel/lookup/' + encodeURIComponent(type) + '/' + encodeURIComponent(name));
       if (!r.ok) { container.innerHTML = '<div class="text-[10px] text-muted">No data available</div>'; return; }
       var result = await r.json();
 
@@ -3524,6 +4790,32 @@
     var div = document.createElement('div');
     div.textContent = String(str);
     return div.innerHTML;
+  }
+
+  /** Strip RCON color tags (<SP>, <FO>, <PN>, <PR>, <CL>, </>) from text */
+  function stripRconTags(str) {
+    if (!str) return '';
+    return String(str).replace(/<(?:PN|PR|SP|FO|CL|\/)>/g, '').trim();
+  }
+
+  /** Show a brief toast notification at the bottom of the screen */
+  function showToast(message, duration) {
+    var t = el('div', 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-surface-200 border border-border text-text text-xs px-4 py-2 rounded-lg shadow-lg z-[10001] fade-in');
+    t.textContent = message;
+    document.body.appendChild(t);
+    setTimeout(function() { t.remove(); }, duration || 3000);
+  }
+
+  /** Clamp a popup element within the viewport so it never goes off-screen */
+  function clampToViewport(popup) {
+    requestAnimationFrame(function() {
+      var rect = popup.getBoundingClientRect();
+      var pad = 8;
+      if (rect.right > window.innerWidth - pad) popup.style.left = Math.max(pad, window.innerWidth - rect.width - pad) + 'px';
+      if (rect.bottom > window.innerHeight - pad) popup.style.top = Math.max(pad, window.innerHeight - rect.height - pad) + 'px';
+      if (rect.left < pad) popup.style.left = pad + 'px';
+      if (rect.top < pad) popup.style.top = pad + 'px';
+    });
   }
 
   /**
@@ -3622,7 +4914,7 @@
       var c = $('#tl-map');
       if (!c || !window.L) return;
       TL.map = L.map(c, { crs: L.CRS.Simple, minZoom: -2, maxZoom: 4, zoomControl: true, attributionControl: false });
-      L.imageOverlay('/map-4096.png', [[0,0],[4096,4096]]).addTo(TL.map);
+      L.imageOverlay('/terrain.png', [[0,0],[4096,4096]], { className: 'map-terrain' }).addTo(TL.map);
       TL.map.fitBounds([[0,0],[4096,4096]]);
 
       // Create layer groups
@@ -3681,12 +4973,12 @@
 
     // Load snapshot list
     try {
-      var bounds = await fetch('/api/timeline/bounds').then(function(r) { return r.json(); });
+      var bounds = await apiFetch('/api/timeline/bounds').then(function(r) { return r.json(); });
       if (!bounds || !bounds.count) {
         $('#tl-info').textContent = 'No snapshots yet — data records every ' + (5) + ' min';
         return;
       }
-      TL.snapshots = await fetch('/api/timeline/snapshots?from=' + bounds.earliest + '&to=' + bounds.latest).then(function(r) { return r.json(); });
+      TL.snapshots = await apiFetch('/api/timeline/snapshots?from=' + bounds.earliest + '&to=' + bounds.latest).then(function(r) { return r.json(); });
       if (!TL.snapshots.length) return;
 
       var slider = $('#tl-slider');
@@ -3711,7 +5003,7 @@
 
     try {
       var snap = TL.snapshots[idx];
-      TL.data = await fetch('/api/timeline/snapshot/' + snap.id).then(function(r) { return r.json(); });
+      TL.data = await apiFetch('/api/timeline/snapshot/' + snap.id).then(function(r) { return r.json(); });
       TL.nameMap = TL.data.nameMap || {};
       tlRender();
     } catch (e) {
@@ -3851,7 +5143,7 @@
 
   async function tlLoadDeaths() {
     try {
-      var deaths = await fetch('/api/timeline/deaths?limit=200').then(function(r){return r.json();});
+      var deaths = await apiFetch('/api/timeline/deaths?limit=200').then(function(r){return r.json();});
       TL.layers.deaths.clearLayers();
       deaths.forEach(function(d) {
         if (d.lat == null) return;

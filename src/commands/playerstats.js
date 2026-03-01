@@ -1,13 +1,21 @@
+/**
+ * /playerstats — View player activity stats from the log.
+ *
+ * Uses the lightweight player-embed.js (log-only data).
+ * The full save-enriched view is available via the #player-stats channel select menu.
+ */
+
+'use strict';
+
 const {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ComponentType,
-  MessageFlags,
 } = require('discord.js');
 const playerStats = require('../tracking/player-stats');
-const playtime = require('../tracking/playtime-tracker');
+const playtime    = require('../tracking/playtime-tracker');
 const { buildPlayerEmbed } = require('../modules/player-embed');
 
 module.exports = {
@@ -21,34 +29,54 @@ module.exports = {
     const allPlayers = playerStats.getAllPlayers();
 
     if (allPlayers.length === 0) {
-      await interaction.editReply('No player stats recorded yet. Stats are gathered from the game server log — play for a while and check back!');
+      await interaction.editReply('No player stats recorded yet. Stats are gathered from the game server log \u2014 play for a while and check back!');
       return;
     }
 
     // Build select menu options (max 25 per Discord limit)
     const options = allPlayers.slice(0, 25).map(p => {
-      const activity = p.deaths + p.builds + p.raidsOut + p.containersLooted;
+      const pt = playtime.getPlaytime(p.id);
+      const ptStr = pt ? ` \xB7 ${pt.totalFormatted}` : '';
       return {
         label: p.name.substring(0, 100),
-        description: `Deaths: ${p.deaths} | Builds: ${p.builds} | Activity: ${activity}`,
+        description: `\uD83D\uDC80 ${p.deaths} deaths \xB7 \uD83D\uDD28 ${p.builds} builds${ptStr}`.substring(0, 100),
         value: p.id,
       };
     });
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('playerstats_select')
-      .setPlaceholder('Select a player to view their stats...')
+      .setPlaceholder('Select a player to view their stats\u2026')
       .addOptions(options);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
 
-    // Show overview embed
-    const overviewEmbed = buildOverviewEmbed(allPlayers);
+    // Overview embed
+    const totalDeaths = allPlayers.reduce((s, p) => s + p.deaths, 0);
+    const totalBuilds = allPlayers.reduce((s, p) => s + p.builds, 0);
+    const totalLoots  = allPlayers.reduce((s, p) => s + p.containersLooted, 0);
 
-    const response = await interaction.editReply({
-      embeds: [overviewEmbed],
-      components: [row],
+    const embed = new EmbedBuilder()
+      .setTitle('\uD83D\uDCCA Player Activity')
+      .setDescription(`**${allPlayers.length}** tracked survivors`)
+      .setColor(0x5865F2)
+      .setTimestamp();
+
+    embed.addFields(
+      { name: '\uD83D\uDC80 Deaths', value: `${totalDeaths}`, inline: true },
+      { name: '\uD83D\uDD28 Builds', value: `${totalBuilds}`, inline: true },
+      { name: '\uD83D\uDCE6 Looted', value: `${totalLoots}`, inline: true },
+    );
+
+    // Top 5 most active
+    const top5 = allPlayers.slice(0, 5).map((p, i) => {
+      const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
+      const activity = p.deaths + p.builds + p.raidsOut + p.containersLooted;
+      return `${medals[i]} **${p.name}** \u2014 ${activity} events`;
     });
+    if (top5.length > 0) embed.addFields({ name: 'Most Active', value: top5.join('\n') });
+
+    const response = await interaction.editReply({ embeds: [embed], components: [row] });
 
     // Listen for select menu interactions (2 minute timeout)
     const collector = response.createMessageComponentCollector({
@@ -70,14 +98,10 @@ module.exports = {
         }
 
         const isAdmin = require('../config').isAdminView(selectInteraction.member);
-        const embed = buildPlayerEmbed(stats, { isAdmin });
+        const playerEmbed = buildPlayerEmbed(stats, { isAdmin });
 
-        await selectInteraction.update({
-          embeds: [embed],
-          components: [row],
-        });
+        await selectInteraction.update({ embeds: [playerEmbed], components: [row] });
       } catch (err) {
-        // Interaction may have expired (10062) or message deleted (10008)
         if (![10062, 10008, 40060].includes(err.code)) {
           console.error('[CMD:playerstats] Select interaction error:', err.message);
         }
@@ -85,44 +109,9 @@ module.exports = {
     });
 
     collector.on('end', async () => {
-      // Disable the select menu after timeout
       selectMenu.setDisabled(true);
       const disabledRow = new ActionRowBuilder().addComponents(selectMenu);
       await interaction.editReply({ components: [disabledRow] }).catch(() => {});
     });
   },
 };
-
-function buildOverviewEmbed(allPlayers) {
-  const totalDeaths = allPlayers.reduce((s, p) => s + p.deaths, 0);
-  const totalBuilds = allPlayers.reduce((s, p) => s + p.builds, 0);
-  const totalRaids = allPlayers.reduce((s, p) => s + p.raidsOut, 0);
-  const totalLoots = allPlayers.reduce((s, p) => s + p.containersLooted, 0);
-
-  const embed = new EmbedBuilder()
-    .setTitle('Player Stats')
-    .setDescription('Select a player from the dropdown below to view their detailed stats.')
-    .setColor(0x3498db)
-    .setTimestamp();
-
-  // Server-wide totals as compact code block
-  const grid = [
-    `**Players:** ${allPlayers.length}  ·  **Deaths:** ${totalDeaths}`,
-    `**Builds:** ${totalBuilds}  ·  **Looted:** ${totalLoots}`,
-  ];
-  if (totalRaids > 0) grid.push(`**Raids:** ${totalRaids}`);
-  embed.addFields({ name: 'Server Totals (All Time)', value: grid.join('\n') });
-
-  // Top 5 most active
-  const top5 = allPlayers.slice(0, 5).map((p, i) => {
-    const medals = ['🥇', '🥈', '🥉'];
-    const medal = medals[i] || `\`${i + 1}.\``;
-    const activity = p.deaths + p.builds + p.raidsOut + p.containersLooted;
-    return `${medal} **${p.name}** — ${activity} events`;
-  });
-  if (top5.length > 0) {
-    embed.addFields({ name: 'Most Active', value: top5.join('\n') });
-  }
-
-  return embed;
-}

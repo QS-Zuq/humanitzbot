@@ -1,4 +1,4 @@
-const { ChannelType, PermissionFlagsBits } = require('discord.js');
+const { ChannelType } = require('discord.js');
 const _defaultConfig = require('../config');
 const { getPlayerList } = require('../rcon/server-info');
 
@@ -6,25 +6,22 @@ const STATUS_CHANNELS = [
   { key: 'players', template: '\u{1F465} Players: {value}', fallback: '\u{1F465} Players: --' },
 ];
 
-const DEFAULT_CATEGORY_NAME = '\u{1F4CA} HumanitZ Server Info';
-
 class StatusChannels {
   /**
    * @param {import('discord.js').Client} client
    * @param {object} [deps]
    * @param {object} [deps.config]        Config overrides (for multi-server)
    * @param {Function} [deps.getPlayerList] Custom getPlayerList function (bound to a specific rcon)
-   * @param {string} [deps.categoryName]   Custom category name (for multi-server)
+   * @param {string} [deps.categoryName]   Category name hint — used to find (NOT create) the category
    */
   constructor(client, deps = {}) {
     this.client = client;
     this.guild = null;
-    this.category = null;
     this.channels = new Map(); // key -> channel
     this.interval = null;
     this._config = deps.config || _defaultConfig;
     this._getPlayerList = deps.getPlayerList || getPlayerList;
-    this._categoryName = deps.categoryName || DEFAULT_CATEGORY_NAME;
+    this._categoryHint = deps.categoryName || '';
     this.updateIntervalMs = Math.max(this._config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
   }
 
@@ -36,17 +33,22 @@ class StatusChannels {
         return;
       }
 
-      // Find or create the category
-      await this._ensureCategory();
-
-      // Find or create the players channel
+      // Find existing voice channels matching the "👥 Players:" pattern.
+      // Search in the hinted category first, then across all categories.
+      // We NEVER create categories or channels — the user manages their own layout.
       for (const ch of STATUS_CHANNELS) {
-        await this._ensureChannel(ch);
+        await this._findChannel(ch);
       }
 
-      console.log(`[STATUS] Status channel ready in "${this._categoryName}" (updating every ${this.updateIntervalMs / 1000}s)`);
+      const found = this.channels.size;
+      if (found === 0) {
+        console.log('[STATUS] No voice channels matching "👥 Players:" found — skipping status channels');
+        return;
+      }
 
-      // Initial update (don't await — voice channel renames can stall due to Discord rate limits)
+      console.log(`[STATUS] Found ${found} status channel(s) (updating every ${this.updateIntervalMs / 1000}s)`);
+
+      // Initial update
       this._update().catch(err => console.error('[STATUS] Initial update error:', err.message));
 
       // Start repeating updates
@@ -63,70 +65,40 @@ class StatusChannels {
     }
   }
 
-  async _ensureCategory() {
-    const existing = this.guild.channels.cache.find(
-      c => c.type === ChannelType.GuildCategory && c.name === this._categoryName
-    );
+  /**
+   * Find an existing voice channel matching the status pattern.
+   * Searches by prefix ("👥 Pl") in any category. If a category hint is provided,
+   * prefer channels inside that category.
+   */
+  async _findChannel(spec) {
+    const prefix = spec.template.split('{value}')[0].substring(0, 5);
+    const allChannels = this.guild.channels.cache;
 
-    if (existing) {
-      this.category = existing;
-      await this._ensureBotPermissions(existing);
-    } else {
-      this.category = await this.guild.channels.create({
-        name: this._categoryName,
-        type: ChannelType.GuildCategory,
-        position: 0,
-        permissionOverwrites: [
-          {
-            id: this.guild.id, // @everyone
-            deny: [PermissionFlagsBits.Connect],
-          },
-          {
-            id: this.client.user.id, // bot
-            allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-          },
-        ],
-      });
-      console.log(`[STATUS] Created category: ${this._categoryName}`);
+    // Prefer channel in hinted category
+    if (this._categoryHint) {
+      const cat = allChannels.find(
+        c => c.type === ChannelType.GuildCategory &&
+             c.name.toLowerCase().includes(this._categoryHint.replace(/📊\s*/g, '').toLowerCase().substring(0, 10))
+      );
+      if (cat) {
+        const inCat = allChannels.find(
+          c => c.parentId === cat.id &&
+               c.type === ChannelType.GuildVoice &&
+               c.name.startsWith(prefix)
+        );
+        if (inCat) {
+          this.channels.set(spec.key, inCat);
+          return;
+        }
+      }
     }
 
-    // Try to move to top
-    try {
-      await this.category.setPosition(0);
-    } catch (_) {
-      // may fail if already at top
-    }
-  }
-
-  async _ensureChannel(spec) {
-    const prefix = spec.template.split('{value}')[0];
-    const existing = this.guild.channels.cache.find(
-      c => c.parentId === this.category.id &&
-           c.type === ChannelType.GuildVoice &&
-           c.name.startsWith(prefix.substring(0, 5))
+    // Fallback: search across all categories
+    const found = allChannels.find(
+      c => c.type === ChannelType.GuildVoice && c.name.startsWith(prefix)
     );
-
-    if (existing) {
-      this.channels.set(spec.key, existing);
-      await this._ensureBotPermissions(existing);
-    } else {
-      const channel = await this.guild.channels.create({
-        name: spec.fallback,
-        type: ChannelType.GuildVoice,
-        parent: this.category.id,
-        permissionOverwrites: [
-          {
-            id: this.guild.id,
-            deny: [PermissionFlagsBits.Connect],
-          },
-          {
-            id: this.client.user.id,
-            allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-          },
-        ],
-      });
-      this.channels.set(spec.key, channel);
-      console.log(`[STATUS] Created channel: ${spec.fallback}`);
+    if (found) {
+      this.channels.set(spec.key, found);
     }
   }
 
@@ -177,17 +149,6 @@ class StatusChannels {
     }
   }
 
-  async _ensureBotPermissions(channel) {
-    try {
-      await channel.permissionOverwrites.edit(this.client.user.id, {
-        ManageChannels: true,
-        ViewChannel: true,
-        Connect: true,
-      });
-    } catch (err) {
-      console.error(`[STATUS] Could not set bot permissions on ${channel.name}:`, err.message);
-    }
-  }
 }
 
 module.exports = StatusChannels;

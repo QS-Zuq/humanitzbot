@@ -746,6 +746,80 @@ class HumanitZDB {
         console.log(`[${this._label}] Migration v11→v12: bot_state table`);
       }
 
+      // v12 → v13: anticheat tables (flags, risk scores, entity fingerprints)
+      if (fromVersion < 13) {
+        this._db.exec(`
+          CREATE TABLE IF NOT EXISTS anticheat_flags (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            steam_id        TEXT NOT NULL,
+            player_name     TEXT DEFAULT '',
+            detector        TEXT NOT NULL,
+            severity        TEXT DEFAULT 'low',
+            score           REAL DEFAULT 0,
+            details         TEXT DEFAULT '{}',
+            evidence        TEXT DEFAULT '[]',
+            status          TEXT DEFAULT 'open',
+            reviewed_by     TEXT,
+            reviewed_at     TEXT,
+            review_notes    TEXT,
+            auto_escalated  INTEGER DEFAULT 0,
+            created_at      TEXT DEFAULT (datetime('now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_ac_flags_steam    ON anticheat_flags(steam_id);
+          CREATE INDEX IF NOT EXISTS idx_ac_flags_detector ON anticheat_flags(detector);
+          CREATE INDEX IF NOT EXISTS idx_ac_flags_status   ON anticheat_flags(status);
+          CREATE INDEX IF NOT EXISTS idx_ac_flags_severity ON anticheat_flags(severity);
+          CREATE INDEX IF NOT EXISTS idx_ac_flags_created  ON anticheat_flags(created_at);
+
+          CREATE TABLE IF NOT EXISTS player_risk_scores (
+            steam_id        TEXT PRIMARY KEY,
+            risk_score      REAL DEFAULT 0,
+            open_flags      INTEGER DEFAULT 0,
+            confirmed_flags INTEGER DEFAULT 0,
+            dismissed_flags INTEGER DEFAULT 0,
+            last_flag_at    TEXT,
+            last_scored_at  TEXT,
+            baseline_data   TEXT DEFAULT '{}',
+            updated_at      TEXT DEFAULT (datetime('now'))
+          );
+
+          CREATE TABLE IF NOT EXISTS entity_fingerprints (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type     TEXT NOT NULL,
+            entity_id       TEXT NOT NULL,
+            fingerprint     TEXT NOT NULL,
+            parent_id       INTEGER,
+            creator_steam_id TEXT,
+            created_at      TEXT DEFAULT (datetime('now')),
+            last_validated  TEXT,
+            tamper_score    REAL DEFAULT 0,
+            metadata        TEXT DEFAULT '{}'
+          );
+          CREATE INDEX IF NOT EXISTS idx_ef_type          ON entity_fingerprints(entity_type);
+          CREATE INDEX IF NOT EXISTS idx_ef_entity        ON entity_fingerprints(entity_id);
+          CREATE INDEX IF NOT EXISTS idx_ef_fingerprint   ON entity_fingerprints(fingerprint);
+          CREATE INDEX IF NOT EXISTS idx_ef_creator       ON entity_fingerprints(creator_steam_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_ef_unique ON entity_fingerprints(entity_type, entity_id);
+
+          CREATE TABLE IF NOT EXISTS fingerprint_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint_id  INTEGER REFERENCES entity_fingerprints(id),
+            event_type      TEXT NOT NULL,
+            old_state       TEXT,
+            new_state       TEXT,
+            attributed_to   TEXT,
+            source          TEXT,
+            confidence      REAL DEFAULT 1.0,
+            created_at      TEXT DEFAULT (datetime('now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_fpe_fingerprint ON fingerprint_events(fingerprint_id);
+          CREATE INDEX IF NOT EXISTS idx_fpe_attributed  ON fingerprint_events(attributed_to);
+          CREATE INDEX IF NOT EXISTS idx_fpe_type        ON fingerprint_events(event_type);
+          CREATE INDEX IF NOT EXISTS idx_fpe_created     ON fingerprint_events(created_at);
+        `);
+        console.log(`[${this._label}] Migration v12→v13: anticheat flags, risk scores, entity fingerprints`);
+      }
+
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._db.exec('COMMIT');
       console.log(`[${this._label}] Schema migrated to v${SCHEMA_VERSION}`);

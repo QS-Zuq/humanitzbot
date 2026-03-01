@@ -74,6 +74,7 @@ class WebMapServer {
     this._db = opts.db || null;
     this._scheduler = opts.scheduler || null;
     this._saveService = opts.saveService || null;
+    this._multiServerManager = opts.multiServerManager || null;
 
     // World coordinate bounds — loaded from calibration file or defaults
     this._worldBounds = this._loadCalibration();
@@ -179,6 +180,51 @@ class WebMapServer {
     const safe = serverId.replace(/[^a-zA-Z0-9_-]/g, '');
     const dir = path.join(SERVERS_DIR, safe);
     return fs.existsSync(dir) ? dir : null;
+  }
+
+  /**
+   * Resolve all data sources for a given server ID.
+   * Returns { db, rcon, config, playerStats, playtime, getPlayerList, getServerInfo,
+   *           scheduler, dataDir, isPrimary, serverId } or null if server not found.
+   */
+  _resolveServer(serverId) {
+    const isPrimary = !serverId || serverId === 'primary';
+    if (isPrimary) {
+      return {
+        db: this._db,
+        rcon,
+        config,
+        playerStats,
+        playtime,
+        getPlayerList: require('../rcon/server-info').getPlayerList,
+        getServerInfo: require('../rcon/server-info').getServerInfo,
+        sendAdminMessage: require('../rcon/server-info').sendAdminMessage,
+        scheduler: this._scheduler,
+        dataDir: DATA_DIR,
+        idMap: this._idMap,
+        isPrimary: true,
+        serverId: 'primary',
+      };
+    }
+    // Look up multi-server instance
+    if (!this._multiServerManager) return null;
+    const instance = this._multiServerManager.getInstance(serverId);
+    if (!instance || !instance.running) return null;
+    return {
+      db: instance.db,
+      rcon: instance.rcon,
+      config: instance.config,
+      playerStats: instance.playerStats,
+      playtime: instance.playtime,
+      getPlayerList: instance.getPlayerList,
+      getServerInfo: instance.getServerInfo,
+      sendAdminMessage: instance.sendAdminMessage,
+      scheduler: instance._modules?.serverScheduler || null,
+      dataDir: instance.dataDir,
+      idMap: this._loadIdMapFrom(instance.dataDir),
+      isPrimary: false,
+      serverId,
+    };
   }
 
   /** Load player ID map from a specific data directory. */
@@ -382,6 +428,15 @@ class WebMapServer {
     app.use(express.static(PUBLIC_DIR, { dotfiles: 'deny' }));
     app.use(express.json());
 
+    // ── Multi-server context middleware ──
+    // Resolves ?server=<id> query param into a server context object on req.srv
+    // Falls back to primary server if not specified or not found
+    app.use('/api', (req, _res, next) => {
+      const serverId = req.query.server || req.body?.server || 'primary';
+      req.srv = this._resolveServer(serverId) || this._resolveServer('primary');
+      next();
+    });
+
     // ── API: List available servers (multi-server support) ──
     app.get('/api/servers', requireTier('survivor'), (req, res) => {
       const servers = [{ id: 'primary', name: config.serverName || 'Primary Server' }];
@@ -455,43 +510,29 @@ class WebMapServer {
 
     // ── API: Get all player positions ──
     app.get('/api/players', requireTier('survivor'), rateLimit(10000, 10), async (req, res) => {
-      const serverId = req.query.server || 'primary';
-      const isPrimary = !serverId || serverId === 'primary';
+      const srv = req.srv;
 
       // Resolve data sources based on server
-      let players, idMap, logStatsProvider, playtimeProvider;
-      if (isPrimary) {
-        players = this._parseSaveData();
-        idMap = this._idMap;
-        logStatsProvider = playerStats;
-        playtimeProvider = playtime;
-      } else {
-        const dataDir = this._getServerDataDir(serverId);
-        if (!dataDir) return res.status(404).json({ error: 'Server not found' });
-        players = this._parseSaveDataForServer(dataDir);
-        idMap = this._loadIdMapFrom(dataDir);
-        logStatsProvider = this._loadLogStatsFrom(dataDir);
-        playtimeProvider = this._loadPlaytimeFrom(dataDir);
-      }
+      const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
+      const idMap = srv.idMap;
+      const logStatsProvider = srv.playerStats;
+      const playtimeProvider = srv.playtime;
 
       // Query RCON for online players (non-blocking — if it fails, all show offline)
       let onlineSteamIds = new Set();
-      if (isPrimary) {
-        try {
-          const { getPlayerList } = require('../rcon/server-info');
-          const list = await getPlayerList();
-          const playerArr = list?.players || (Array.isArray(list) ? list : []);
-          for (const p of playerArr) {
-            if (p.steamId) onlineSteamIds.add(p.steamId);
-          }
-        } catch { /* RCON unavailable — all players show offline */ }
-      }
+      try {
+        const list = await srv.getPlayerList();
+        const playerArr = list?.players || (Array.isArray(list) ? list : []);
+        for (const p of playerArr) {
+          if (p.steamId) onlineSteamIds.add(p.steamId);
+        }
+      } catch { /* RCON unavailable — all players show offline */ }
 
       // Build clan membership lookup from DB
       let clanLookup = {}; // steamId → { clanName, rank }
-      if (isPrimary && this._db) {
+      if (srv.db) {
         try {
-          const clans = this._db.getAllClans?.() || [];
+          const clans = srv.db.getAllClans?.() || [];
           for (const clan of clans) {
             for (const m of (clan.members || [])) {
               clanLookup[m.steam_id] = { clanName: clan.name, rank: m.rank };
@@ -632,7 +673,7 @@ class WebMapServer {
       }
 
       res.json({
-        server: serverId,
+        server: srv.serverId,
         players: result,
         worldBounds: this._worldBounds,
         toggles: this._getToggles(),
@@ -642,11 +683,12 @@ class WebMapServer {
 
     // ── API: Get single player detail ──
     app.get('/api/players/:steamId', requireTier('survivor'), (req, res) => {
-      const players = this._parseSaveData();
+      const srv = req.srv;
+      const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
       const data = players.get(req.params.steamId);
       if (!data) return res.status(404).json({ error: 'Player not found' });
 
-      const name = this._idMap[req.params.steamId] || req.params.steamId;
+      const name = srv.idMap[req.params.steamId] || req.params.steamId;
       const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
       let lat = null, lng = null;
       if (hasPosition) {
@@ -655,8 +697,8 @@ class WebMapServer {
 
       // Resolve display names
       const professionName = PERK_MAP[data.startingPerk] || data.startingPerk || 'Unknown';
-      const logStats = playerStats.getStats(req.params.steamId) || playerStats.getStatsByName(name);
-      const ptData = playtime.getPlaytime(req.params.steamId);
+      const logStats = srv.playerStats.getStats(req.params.steamId) || srv.playerStats.getStatsByName(name);
+      const ptData = srv.playtime.getPlaytime(req.params.steamId);
 
       res.json({
         steamId: req.params.steamId,
@@ -757,7 +799,7 @@ class WebMapServer {
       // Validate steam ID format
       if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ error: 'Invalid steamId format' });
       try {
-        const result = await rcon.send(`kick ${steamId}`);
+        const result = await req.srv.rcon.send(`kick ${steamId}`);
         res.json({ ok: true, result });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -770,7 +812,7 @@ class WebMapServer {
       if (!steamId || typeof steamId !== 'string') return res.status(400).json({ error: 'Missing steamId' });
       if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ error: 'Invalid steamId format' });
       try {
-        const result = await rcon.send(`ban ${steamId}`);
+        const result = await req.srv.rcon.send(`ban ${steamId}`);
         res.json({ ok: true, result });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -786,7 +828,7 @@ class WebMapServer {
       const safe = message.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/[\r\n]+/g, ' ').trim();
       if (!safe) return res.status(400).json({ error: 'Message is empty after sanitization' });
       try {
-        const result = await rcon.send(`say ${safe}`);
+        const result = await req.srv.rcon.send(`say ${safe}`);
         res.json({ ok: true, result });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -796,8 +838,7 @@ class WebMapServer {
     // ── API: Get RCON player list (online status) ──
     app.get('/api/online', requireTier('survivor'), async (req, res) => {
       try {
-        const { getPlayerList } = require('../rcon/server-info');
-        const list = await getPlayerList();
+        const list = await req.srv.getPlayerList();
         res.json({ players: list });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -850,11 +891,36 @@ class WebMapServer {
         result.primary.status = 'offline';
       }
 
-      // Total players from save data + extract game day from save-cache
-      const players = this._parseSaveData();
-      result.primary.totalPlayers = players.size;
+      // Total players — DB first, save data fallback
+      if (this._db) {
+        try {
+          const cnt = this._db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get();
+          if (cnt?.cnt) result.primary.totalPlayers = cnt.cnt;
+        } catch { /* db unavailable */ }
+      }
+      if (!result.primary.totalPlayers) {
+        const players = this._parseSaveData();
+        result.primary.totalPlayers = players.size;
+      }
 
-      // Fallback: maxPlayers from server settings if RCON didn't provide it
+      // Fallback: maxPlayers + game day from DB first (authoritative)
+      if (this._db) {
+        try {
+          if (!result.primary.maxPlayers) {
+            const settingsRow = this._db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
+            if (settingsRow?.value) {
+              const settings = JSON.parse(settingsRow.value);
+              if (settings.MaxPlayers) result.primary.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
+              if (settings.DaysPerSeason) result.primary.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
+            }
+          }
+          const ws = this._db.getAllWorldState?.() || {};
+          if (!result.primary.gameDay && ws.day) result.primary.gameDay = ws.day;
+          if (!result.primary.season && ws.season) result.primary.season = ws.season;
+        } catch { /* db unavailable */ }
+      }
+
+      // Last-resort fallback: file-based server-settings.json + save-cache
       if (!result.primary.maxPlayers) {
         try {
           const settingsFile = path.join(DATA_DIR, 'server-settings.json');
@@ -865,7 +931,6 @@ class WebMapServer {
         } catch { /* ignore */ }
       }
 
-      // Game day from save-cache (RCON doesn't return Day)
       if (!result.primary.gameDay) {
         try {
           const cachePath = path.join(DATA_DIR, 'save-cache.json');
@@ -878,15 +943,6 @@ class WebMapServer {
         } catch { /* save-cache unavailable */ }
       }
 
-      // World state from DB (fallback for game day / season)
-      if (this._db) {
-        try {
-          const ws = this._db.getAllWorldState?.() || {};
-          if (!result.primary.gameDay && ws.day) result.primary.gameDay = ws.day;
-          if (!result.primary.season && ws.season) result.primary.season = ws.season;
-        } catch { /* db unavailable */ }
-      }
-
       // Scheduler info (public)
       if (this._scheduler && this._scheduler.isActive()) {
         try {
@@ -894,7 +950,7 @@ class WebMapServer {
         } catch { /* scheduler unavailable */ }
       }
 
-      // Multi-server status
+      // Multi-server status — use RCON via resolved instances when available
       const additional = this._loadServerList();
       for (const s of additional) {
         const dir = this._getServerDataDir(s.id);
@@ -909,21 +965,84 @@ class WebMapServer {
           totalPlayers: 0,
         };
 
-        // Try to get player count from save cache
-        try {
-          const saveData = this._parseSaveDataForServer(dir);
-          serverInfo.totalPlayers = saveData?.size || 0;
-        } catch { /* non-critical */ }
-
-        // Multi-server RCON is not queried from landing — too expensive
-        // Status comes from save cache freshness
-        const cacheFile = path.join(dir, 'save-cache.json');
-        try {
-          if (fs.existsSync(cacheFile)) {
-            const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
-            serverInfo.status = age < 600_000 ? 'online' : 'stale';
+        // Try RCON for live status (same as primary server)
+        const srv = this._resolveServer(s.id);
+        if (srv) {
+          try {
+            const info = await srv.getServerInfo();
+            if (info) {
+              serverInfo.status = 'online';
+              serverInfo.maxPlayers = info.maxPlayers || null;
+              serverInfo.gameDay = info.day || null;
+              if (info.season) serverInfo.season = info.season;
+              if (info.name) serverInfo.rconName = info.name;
+              if (info.time) serverInfo.gameTime = info.time;
+            }
+            const list = await srv.getPlayerList();
+            const playerArr = list?.players || (Array.isArray(list) ? list : []);
+            serverInfo.onlineCount = playerArr.length;
+          } catch {
+            serverInfo.status = 'offline';
           }
-        } catch { /* non-critical */ }
+        }
+
+        // Use DB for total players + fallback data when RCON didn't provide everything
+        if (srv?.db) {
+          try {
+            // Total players from DB
+            const playerCount = srv.db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get();
+            if (playerCount?.cnt) serverInfo.totalPlayers = playerCount.cnt;
+
+            // MaxPlayers from server_settings in bot_state
+            if (!serverInfo.maxPlayers) {
+              const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
+              if (settingsRow?.value) {
+                const settings = JSON.parse(settingsRow.value);
+                if (settings.MaxPlayers) serverInfo.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
+                if (settings.DaysPerSeason) serverInfo.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
+              }
+            }
+
+            // Game day from world_state or save-cache in bot_state
+            if (!serverInfo.gameDay) {
+              const ws = srv.db.getAllWorldState?.() || {};
+              if (ws.day) serverInfo.gameDay = ws.day;
+              if (!serverInfo.season && ws.season) serverInfo.season = ws.season;
+            }
+          } catch { /* DB unavailable — non-critical */ }
+        }
+
+        // Fallback: total players from save data if DB didn't have them
+        if (!serverInfo.totalPlayers) {
+          try {
+            const saveData = this._parseSaveDataForServer(dir);
+            serverInfo.totalPlayers = saveData?.size || 0;
+          } catch { /* non-critical */ }
+        }
+
+        // Last-resort fallback: save-cache file for game day + status
+        if (!serverInfo.gameDay) {
+          const cacheFile = path.join(dir, 'save-cache.json');
+          try {
+            if (fs.existsSync(cacheFile)) {
+              const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+              if (cache.worldState?.daysPassed != null) {
+                serverInfo.gameDay = cache.worldState.daysPassed;
+              }
+              if (serverInfo.status === 'unknown') {
+                const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
+                serverInfo.status = age < 600_000 ? 'online' : 'stale';
+              }
+            }
+          } catch { /* non-critical */ }
+        }
+
+        // Scheduler info for this server
+        if (srv?.scheduler && srv.scheduler.isActive?.()) {
+          try {
+            serverInfo.schedule = srv.scheduler.getStatus();
+          } catch { /* scheduler unavailable */ }
+        }
 
         result.servers.push(serverInfo);
       }
@@ -940,12 +1059,12 @@ class WebMapServer {
 
     // ── Panel: Server status (RCON info + resources) ──
     app.get('/api/panel/status', requireTier('survivor'), async (req, res) => {
-      const result = { serverState: 'unknown', uptime: null, maxPlayers: null, onlineCount: 0, fps: null, gameDay: null, season: null, gameTime: null, timezone: config.botTimezone || 'UTC', resources: null };
+      const srv = req.srv;
+      const result = { serverState: 'unknown', uptime: null, maxPlayers: null, onlineCount: 0, fps: null, gameDay: null, season: null, gameTime: null, timezone: srv.config.botTimezone || 'UTC', resources: null };
 
       // RCON server info
       try {
-        const { getServerInfo, getPlayerList } = require('../rcon/server-info');
-        const info = await getServerInfo();
+        const info = await srv.getServerInfo();
         if (info) {
           result.serverState = 'running';
           result.fps = info.fps || null;
@@ -954,7 +1073,7 @@ class WebMapServer {
           if (info.season) result.season = info.season;
           if (info.time) result.gameTime = info.time;
         }
-        const list = await getPlayerList();
+        const list = await srv.getPlayerList();
         const playerArr = list?.players || (Array.isArray(list) ? list : []);
         result.onlineCount = playerArr.length;
       } catch {
@@ -964,7 +1083,7 @@ class WebMapServer {
       // Fallback: maxPlayers from server settings if RCON didn't provide it
       if (!result.maxPlayers) {
         try {
-          const settingsFile = path.join(DATA_DIR, 'server-settings.json');
+          const settingsFile = path.join(srv.dataDir, 'server-settings.json');
           if (fs.existsSync(settingsFile)) {
             const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
             if (settings.MaxPlayers) result.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
@@ -972,31 +1091,33 @@ class WebMapServer {
         } catch { /* ignore */ }
       }
 
-      // System resources (SSH or Pterodactyl)
-      try {
-        const resources = await serverResources.getResources();
-        if (resources) {
-          result.resources = {
-            cpu: resources.cpu,
-            memPercent: resources.memPercent,
-            memFormatted: resources.memUsed != null && resources.memTotal != null
-              ? `${formatBytes(resources.memUsed)} / ${formatBytes(resources.memTotal)}`
-              : null,
-            diskPercent: resources.diskPercent,
-            diskFormatted: resources.diskUsed != null && resources.diskTotal != null
-              ? `${formatBytes(resources.diskUsed)} / ${formatBytes(resources.diskTotal)}`
-              : null,
-          };
-          if (resources.uptime != null) {
-            result.uptime = formatUptime(resources.uptime);
+      // System resources (SSH or Pterodactyl) — primary only for now
+      if (srv.isPrimary) {
+        try {
+          const resources = await serverResources.getResources();
+          if (resources) {
+            result.resources = {
+              cpu: resources.cpu,
+              memPercent: resources.memPercent,
+              memFormatted: resources.memUsed != null && resources.memTotal != null
+                ? `${formatBytes(resources.memUsed)} / ${formatBytes(resources.memTotal)}`
+                : null,
+              diskPercent: resources.diskPercent,
+              diskFormatted: resources.diskUsed != null && resources.diskTotal != null
+                ? `${formatBytes(resources.diskUsed)} / ${formatBytes(resources.diskTotal)}`
+                : null,
+            };
+            if (resources.uptime != null) {
+              result.uptime = formatUptime(resources.uptime);
+            }
           }
-        }
-      } catch { /* resources unavailable */ }
+        } catch { /* resources unavailable */ }
+      }
 
       // Game day from save-cache (RCON doesn't return Day)
       if (!result.gameDay) {
         try {
-          const cachePath = path.join(DATA_DIR, 'save-cache.json');
+          const cachePath = path.join(srv.dataDir, 'save-cache.json');
           if (fs.existsSync(cachePath)) {
             const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
             if (cache.worldState?.daysPassed != null) {
@@ -1007,11 +1128,29 @@ class WebMapServer {
       }
 
       // Season from RCON (already set above), then DB fallback
-      if (this._db) {
+      if (srv.db) {
         try {
-          const ws = this._db.getAllWorldState?.() || {};
+          const ws = srv.db.getAllWorldState?.() || {};
           if (!result.gameDay && ws.day) result.gameDay = ws.day;
           if (!result.season && ws.season) result.season = ws.season;
+        } catch { /* db unavailable */ }
+      }
+
+      // Include DaysPerSeason from server settings so frontend doesn't hardcode it
+      try {
+        const settingsFile = path.join(srv.dataDir, 'server-settings.json');
+        if (fs.existsSync(settingsFile)) {
+          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          if (settings.DaysPerSeason) result.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
+        }
+      } catch { /* ignore */ }
+      if (!result.daysPerSeason && srv.db) {
+        try {
+          const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
+          if (settingsRow?.value) {
+            const s = JSON.parse(settingsRow.value);
+            if (s.DaysPerSeason) result.daysPerSeason = parseInt(s.DaysPerSeason, 10) || 28;
+          }
         } catch { /* db unavailable */ }
       }
 
@@ -1020,34 +1159,33 @@ class WebMapServer {
 
     // ── Panel: Quick stats ──
     app.get('/api/panel/stats', requireTier('survivor'), async (req, res) => {
+      const srv = req.srv;
       const result = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
 
       // Player count from save data
-      const players = this._parseSaveData();
+      const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
       result.totalPlayers = players.size;
 
       // Online count from RCON
       try {
-        const { getPlayerList } = require('../rcon/server-info');
-        const list = await getPlayerList();
+        const list = await srv.getPlayerList();
         const playerArr = list?.players || (Array.isArray(list) ? list : []);
         result.onlinePlayers = playerArr.length;
       } catch { /* RCON unavailable */ }
 
       // DB counts for today (timezone-aware using BOT_TIMEZONE)
-      if (this._db) {
+      if (srv.db) {
         try {
-          const tz = config.botTimezone || 'UTC';
+          const tz = srv.config.botTimezone || 'UTC';
           const nowStr = new Date().toLocaleDateString('en-CA', { timeZone: tz }); // YYYY-MM-DD
           const todayMidnight = new Date(`${nowStr}T00:00:00`);
-          // Convert to UTC by accounting for timezone offset
           const tzDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: 'UTC' }));
           const localDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: tz }));
           const offsetMs = tzDate - localDate;
           const todayIso = new Date(todayMidnight.getTime() + offsetMs).toISOString();
-          const activities = this._db.getActivitySince?.(todayIso) || [];
+          const activities = srv.db.getActivitySince?.(todayIso) || [];
           result.eventsToday = activities.length;
-          const chats = this._db.getChatSince?.(todayIso) || [];
+          const chats = srv.db.getChatSince?.(todayIso) || [];
           result.chatsToday = chats.length;
         } catch { /* db unavailable */ }
       }
@@ -1057,7 +1195,8 @@ class WebMapServer {
 
     // ── Panel: Activity feed from DB ──
     app.get('/api/panel/activity', requireTier('survivor'), rateLimit(10000, 20), (req, res) => {
-      if (!this._db) return res.json({ events: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ events: [] });
 
       const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
       const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
@@ -1067,27 +1206,25 @@ class WebMapServer {
       try {
         let events;
         if (actor) {
-          events = this._db.getActivityByActor(actor, limit, offset);
+          events = srv.db.getActivityByActor(actor, limit, offset);
         } else if (type) {
-          events = this._db.getActivityByCategory(type, limit, offset);
+          events = srv.db.getActivityByCategory(type, limit, offset);
         } else {
-          events = this._db.getRecentActivity(limit, offset);
+          events = srv.db.getRecentActivity(limit, offset);
         }
 
         // Resolve steam IDs to player names + clean UE4 blueprint names
+        const idMap = srv.idMap || {};
         const resolved = (events || []).map(e => {
           const out = { ...e };
-          // Resolve actor: prefer actor_name, fall back to idMap lookup on steam_id or actor
-          if (!out.actor_name && out.steam_id && this._idMap[out.steam_id]) {
-            out.actor_name = this._idMap[out.steam_id];
-          } else if (!out.actor_name && out.actor && this._idMap[out.actor]) {
-            out.actor_name = this._idMap[out.actor];
+          if (!out.actor_name && out.steam_id && idMap[out.steam_id]) {
+            out.actor_name = idMap[out.steam_id];
+          } else if (!out.actor_name && out.actor && idMap[out.actor]) {
+            out.actor_name = idMap[out.actor];
           }
-          // Resolve target: prefer target_name, fall back to idMap
-          if (!out.target_name && out.target_steam_id && this._idMap[out.target_steam_id]) {
-            out.target_name = this._idMap[out.target_steam_id];
+          if (!out.target_name && out.target_steam_id && idMap[out.target_steam_id]) {
+            out.target_name = idMap[out.target_steam_id];
           }
-          // Clean UE4 blueprint names from item/actor fields
           if (out.item) out.item = cleanActorName(out.item);
           if (out.actor && !out.actor_name) out.actor_name = cleanActorName(out.actor);
           return out;
@@ -1099,12 +1236,186 @@ class WebMapServer {
       }
     });
 
-    // ── Panel: Clans from DB ──
-    app.get('/api/panel/clans', requireTier('survivor'), (req, res) => {
-      if (!this._db) return res.json({ clans: [] });
+    // ── Panel: Activity stats (aggregated trends) ──
+    app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req, res) => {
+      const srv = req.srv;
+      if (!srv.db) return res.json({ categories: {}, hourly: [], daily: [], types: {} });
 
       try {
-        const clans = this._db.getAllClans?.() || [];
+        const db = srv.db.db;
+
+        // Total count
+        const totalRow = db.prepare('SELECT COUNT(*) as total FROM activity_log').get();
+
+        // Count by type
+        const typeCounts = db.prepare('SELECT type, COUNT(*) as count FROM activity_log GROUP BY type ORDER BY count DESC').all();
+        const types = {};
+        for (const r of typeCounts) types[r.type] = r.count;
+
+        // Count by category
+        const categories = {};
+        const catMap = {
+          container: ['container_item_added', 'container_item_removed', 'container_loot', 'container_destroyed'],
+          inventory: ['inventory_item_added', 'inventory_item_removed'],
+          vehicle: ['vehicle_fuel_changed', 'vehicle_health_changed', 'vehicle_appeared', 'vehicle_destroyed', 'vehicle_change'],
+          session: ['player_connect', 'player_disconnect'],
+          combat: ['player_death', 'player_death_pvp', 'damage_taken'],
+          building: ['player_build', 'structure_placed', 'structure_destroyed', 'structure_damaged', 'building_destroyed', 'raid_damage'],
+          horse: ['horse_appeared', 'horse_disappeared', 'horse_change'],
+          admin: ['admin_access', 'anticheat_flag'],
+        };
+        for (const [cat, types2] of Object.entries(catMap)) {
+          let sum = 0;
+          for (const t of types2) sum += types[t] || 0;
+          if (sum > 0) categories[cat] = sum;
+        }
+
+        // Hourly distribution (last 7 days)
+        const hourly = db.prepare(`
+          SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
+          FROM activity_log
+          WHERE created_at >= datetime('now', '-7 days')
+          GROUP BY hour ORDER BY hour
+        `).all();
+
+        // Daily totals (last 30 days)
+        const daily = db.prepare(`
+          SELECT date(created_at) as day, COUNT(*) as count
+          FROM activity_log
+          WHERE created_at >= datetime('now', '-30 days')
+          GROUP BY day ORDER BY day
+        `).all();
+
+        // Daily by category (last 14 days, for stacked chart)
+        const dailyByType = db.prepare(`
+          SELECT date(created_at) as day, type, COUNT(*) as count
+          FROM activity_log
+          WHERE created_at >= datetime('now', '-14 days')
+          GROUP BY day, type ORDER BY day
+        `).all();
+
+        // Top actors (last 7 days)
+        const topActors = db.prepare(`
+          SELECT COALESCE(actor_name, actor, steam_id) as actor, COUNT(*) as count
+          FROM activity_log
+          WHERE created_at >= datetime('now', '-7 days') AND actor IS NOT NULL AND actor != ''
+          GROUP BY actor ORDER BY count DESC LIMIT 10
+        `).all();
+
+        // Resolve actor names
+        const idMap = srv.idMap || {};
+        for (const a of topActors) {
+          if (idMap[a.actor]) a.actor = idMap[a.actor];
+          else a.actor = cleanActorName(a.actor);
+        }
+
+        // Date range
+        const range = db.prepare('SELECT MIN(created_at) as earliest, MAX(created_at) as latest FROM activity_log').get();
+
+        res.json({
+          total: totalRow?.total || 0,
+          types,
+          categories,
+          hourly,
+          daily,
+          dailyByType,
+          topActors,
+          dateRange: { earliest: range?.earliest, latest: range?.latest },
+        });
+      } catch (err) {
+        res.status(500).json({ error: safeError(err) });
+      }
+    });
+
+    // ── Panel: DB table list with row counts ──
+    app.get('/api/panel/db/tables', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+      const srv = req.srv;
+      if (!srv.db) return res.json({ tables: [] });
+
+      const ALLOWED = new Set([
+        'activity_log', 'chat_log', 'players', 'player_aliases',
+        'clans', 'clan_members', 'world_state', 'structures',
+        'vehicles', 'companions', 'world_horses', 'dead_bodies',
+        'containers', 'loot_actors', 'quests', 'server_settings',
+        'snapshots', 'game_items', 'game_professions', 'game_afflictions',
+        'game_skills', 'game_challenges', 'game_recipes',
+        'item_instances', 'item_movements', 'item_groups', 'world_drops',
+        'game_buildings', 'game_loot_pools', 'game_loot_pool_items',
+        'game_vehicles_ref', 'game_animals', 'game_crops',
+        'game_car_upgrades', 'game_ammo_types', 'game_repair_data',
+        'game_furniture', 'game_traps', 'game_sprays',
+        'game_quests', 'game_lore', 'game_loading_tips',
+        'game_spawn_locations', 'game_server_setting_defs',
+      ]);
+
+      try {
+        const db = srv.db.db;
+        const allTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+        const tables = [];
+
+        for (const t of allTables) {
+          if (!ALLOWED.has(t.name)) continue;
+          try {
+            const row = db.prepare(`SELECT COUNT(*) as c FROM "${t.name}"`).get();
+            const cols = db.prepare(`PRAGMA table_info("${t.name}")`).all();
+            tables.push({
+              name: t.name,
+              rowCount: row?.c || 0,
+              columns: cols.map(c => ({ name: c.name, type: c.type, pk: c.pk === 1, nullable: c.notnull === 0 })),
+            });
+          } catch { /* skip inaccessible tables */ }
+        }
+
+        res.json({ tables });
+      } catch (err) {
+        res.status(500).json({ error: safeError(err) });
+      }
+    });
+
+    // ── Panel: Raw SQL query (SELECT only, admin) ──
+    app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+      const srv = req.srv;
+      if (!srv.db) return res.json({ rows: [], columns: [], error: 'No database' });
+
+      const sql = (req.body.sql || '').trim();
+      if (!sql) return res.status(400).json({ error: 'No SQL provided' });
+
+      // Only allow SELECT statements
+      const upper = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').trim().toUpperCase();
+      if (!upper.startsWith('SELECT')) {
+        return res.status(400).json({ error: 'Only SELECT queries are allowed' });
+      }
+      // Block dangerous keywords after SELECT
+      if (/\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|ATTACH|DETACH|REPLACE|PRAGMA\s+\w+\s*=)\b/i.test(sql)) {
+        return res.status(400).json({ error: 'Query contains disallowed keywords' });
+      }
+
+      const limit = Math.min(parseInt(req.body.limit, 10) || 200, 1000);
+
+      try {
+        const db = srv.db.db;
+        // Wrap in a limited query if no LIMIT clause
+        let query = sql;
+        if (!/\bLIMIT\b/i.test(sql)) {
+          query = sql.replace(/;?\s*$/, '') + ' LIMIT ' + limit;
+        }
+
+        const rows = db.prepare(query).all();
+        const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+        res.json({ rows, columns, count: rows.length });
+      } catch (err) {
+        res.status(400).json({ error: safeError(err) });
+      }
+    });
+
+    // ── Panel: Clans from DB ──
+    app.get('/api/panel/clans', requireTier('survivor'), (req, res) => {
+      const srv = req.srv;
+      if (!srv.db) return res.json({ clans: [] });
+
+      try {
+        const clans = srv.db.getAllClans?.() || [];
         res.json({ clans });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1113,7 +1424,8 @@ class WebMapServer {
 
     // ── Panel: Map world data (structures, vehicles, containers, companions, dead bodies) ──
     app.get('/api/panel/mapdata', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json({ structures: [], vehicles: [], containers: [], companions: [], deadBodies: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ structures: [], vehicles: [], containers: [], companions: [], deadBodies: [] });
 
       const layers = (req.query.layers || 'all').split(',');
       const showAll = layers.includes('all');
@@ -1121,7 +1433,7 @@ class WebMapServer {
 
       try {
         if (showAll || layers.includes('structures')) {
-          const rows = this._db.db.prepare('SELECT id, display_name, actor_class, owner_steam_id, pos_x, pos_y, pos_z, current_health, max_health, upgrade_level, inventory FROM structures WHERE pos_x IS NOT NULL').all();
+          const rows = srv.db.db.prepare('SELECT id, display_name, actor_class, owner_steam_id, pos_x, pos_y, pos_z, current_health, max_health, upgrade_level, inventory FROM structures WHERE pos_x IS NOT NULL').all();
           result.structures = rows.map(r => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
@@ -1131,7 +1443,7 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('vehicles')) {
-          const rows = this._db.db.prepare('SELECT id, display_name, class, pos_x, pos_y, pos_z, health, max_health, fuel FROM vehicles WHERE pos_x IS NOT NULL').all();
+          const rows = srv.db.db.prepare('SELECT id, display_name, class, pos_x, pos_y, pos_z, health, max_health, fuel FROM vehicles WHERE pos_x IS NOT NULL').all();
           result.vehicles = rows.map(r => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { id: r.id, name: r.display_name || cleanActorName(r.class), lat, lng, health: r.health, maxHealth: r.max_health, fuel: Math.round(r.fuel * 10) / 10 };
@@ -1139,7 +1451,7 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('containers')) {
-          const rows = this._db.db.prepare('SELECT actor_name, pos_x, pos_y, pos_z, items, locked FROM containers WHERE pos_x IS NOT NULL AND pos_x != 0').all();
+          const rows = srv.db.db.prepare('SELECT actor_name, pos_x, pos_y, pos_z, items, locked FROM containers WHERE pos_x IS NOT NULL AND pos_x != 0').all();
           result.containers = rows.map(r => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
@@ -1149,7 +1461,7 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('companions')) {
-          const rows = this._db.db.prepare('SELECT id, type, actor_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra FROM companions WHERE pos_x IS NOT NULL').all();
+          const rows = srv.db.db.prepare('SELECT id, type, actor_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra FROM companions WHERE pos_x IS NOT NULL').all();
           result.companions = rows.map(r => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { id: r.id, type: r.type, owner: r.owner_steam_id, lat, lng, health: r.health };
@@ -1157,7 +1469,7 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('deadBodies')) {
-          const rows = this._db.db.prepare('SELECT actor_name, pos_x, pos_y, pos_z FROM dead_bodies WHERE pos_x IS NOT NULL').all();
+          const rows = srv.db.db.prepare('SELECT actor_name, pos_x, pos_y, pos_z FROM dead_bodies WHERE pos_x IS NOT NULL').all();
           result.deadBodies = rows.map(r => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { name: r.actor_name, lat, lng };
@@ -1168,9 +1480,9 @@ class WebMapServer {
         const wantAI = showAll || layers.includes('zombies') || layers.includes('animals') || layers.includes('bandits');
         if (wantAI) {
           try {
-            const latestSnap = this._db.db.prepare('SELECT id FROM timeline_snapshots ORDER BY created_at DESC LIMIT 1').get();
+            const latestSnap = srv.db.db.prepare('SELECT id FROM timeline_snapshots ORDER BY created_at DESC LIMIT 1').get();
             if (latestSnap) {
-              const aiRows = this._db.db.prepare('SELECT ai_type, category, display_name, pos_x, pos_y FROM timeline_ai WHERE snapshot_id = ? AND pos_x IS NOT NULL').all(latestSnap.id);
+              const aiRows = srv.db.db.prepare('SELECT ai_type, category, display_name, pos_x, pos_y FROM timeline_ai WHERE snapshot_id = ? AND pos_x IS NOT NULL').all(latestSnap.id);
               const zombies = [], animals = [], bandits = [];
               for (const r of aiRows) {
                 if (r.pos_x === 0 && r.pos_y === 0) continue;
@@ -1189,7 +1501,7 @@ class WebMapServer {
 
         // Build steam_id → name lookup for owner resolution
         const nameMap = {};
-        const nameRows = this._db.db.prepare('SELECT steam_id, name FROM players').all();
+        const nameRows = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
         for (const nr of nameRows) nameMap[nr.steam_id] = nr.name;
         result.nameMap = nameMap;
 
@@ -1203,7 +1515,8 @@ class WebMapServer {
 
     // GET /api/panel/items — All tracked items (instances + groups), with filters
     app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
-      if (!this._db) return res.json({ instances: [], groups: [], total: 0 });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ instances: [], groups: [], total: 0 });
       try {
         const search = req.query.search || '';
         const locationType = req.query.locationType || '';
@@ -1213,14 +1526,14 @@ class WebMapServer {
         let instances, groups;
 
         if (search) {
-          instances = this._db.searchItemInstances(search, limit);
-          groups = this._db.searchItemGroups(search, limit);
+          instances = srv.db.searchItemInstances(search, limit);
+          groups = srv.db.searchItemGroups(search, limit);
         } else if (locationType && locationId) {
-          instances = this._db.getItemInstancesByLocation(locationType, locationId);
-          groups = this._db.getItemGroupsByLocation(locationType, locationId);
+          instances = srv.db.getItemInstancesByLocation(locationType, locationId);
+          groups = srv.db.getItemGroupsByLocation(locationType, locationId);
         } else {
-          instances = this._db.getActiveItemInstances();
-          groups = this._db.getActiveItemGroups();
+          instances = srv.db.getActiveItemInstances();
+          groups = srv.db.getActiveItemGroups();
         }
 
         // Parse attachments JSON
@@ -1251,8 +1564,8 @@ class WebMapServer {
           groups,
           locations: Object.values(locationSummary),
           counts: {
-            instances: this._db.getItemInstanceCount(),
-            groups: this._db.getItemGroupCount(),
+            instances: srv.db.getItemInstanceCount(),
+            groups: srv.db.getItemGroupCount(),
           },
         });
       } catch (err) {
@@ -1262,13 +1575,14 @@ class WebMapServer {
 
     // GET /api/panel/items/:id/movements — Movement history for an instance
     app.get('/api/panel/items/:id/movements', requireTier('admin'), (req, res) => {
-      if (!this._db) return res.json({ movements: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ movements: [] });
       try {
         const id = parseInt(req.params.id, 10);
-        const instance = this._db.getItemInstance(id);
+        const instance = srv.db.getItemInstance(id);
         if (!instance) return res.status(404).json({ error: 'Instance not found' });
 
-        const movements = this._db.getItemMovements(id);
+        const movements = srv.db.getItemMovements(id);
         res.json({ instance, movements });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1277,14 +1591,15 @@ class WebMapServer {
 
     // GET /api/panel/groups/:id — Group detail with movement history
     app.get('/api/panel/groups/:id', requireTier('admin'), (req, res) => {
-      if (!this._db) return res.json({ group: null, movements: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ group: null, movements: [] });
       try {
         const id = parseInt(req.params.id, 10);
-        const group = this._db.getItemGroup(id);
+        const group = srv.db.getItemGroup(id);
         if (!group) return res.status(404).json({ error: 'Group not found' });
         try { group.attachments = JSON.parse(group.attachments); } catch { group.attachments = []; }
 
-        const movements = this._db.getItemMovementsByGroup(id);
+        const movements = srv.db.getItemMovementsByGroup(id);
         res.json({ group, movements });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1293,7 +1608,8 @@ class WebMapServer {
 
     // GET /api/panel/movements — Recent item movements across all items
     app.get('/api/panel/movements', requireTier('admin'), (req, res) => {
-      if (!this._db) return res.json({ movements: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ movements: [] });
       try {
         const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
         const steamId = req.query.steamId || '';
@@ -1302,11 +1618,11 @@ class WebMapServer {
 
         let movements;
         if (steamId) {
-          movements = this._db.getItemMovementsByPlayer(steamId, limit);
+          movements = srv.db.getItemMovementsByPlayer(steamId, limit);
         } else if (locationType && locationId) {
-          movements = this._db.getItemMovementsByLocation(locationType, locationId, limit);
+          movements = srv.db.getItemMovementsByLocation(locationType, locationId, limit);
         } else {
-          movements = this._db.getRecentItemMovements(limit);
+          movements = srv.db.getRecentItemMovements(limit);
         }
 
         res.json({ movements });
@@ -1318,7 +1634,8 @@ class WebMapServer {
     // GET /api/panel/items/lookup — Look up item instance/group by name + fingerprint data
     // Used by item popups across the entire UI to bridge save data → item tracking DB
     app.get('/api/panel/items/lookup', requireTier('survivor'), (req, res) => {
-      if (!this._db) return res.json({ match: null, movements: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ match: null, movements: [] });
       try {
         const { fingerprint, item: itemName, steamId } = req.query;
         if (!fingerprint && !itemName) return res.status(400).json({ error: 'Need fingerprint or item name' });
@@ -1330,7 +1647,7 @@ class WebMapServer {
         // Try exact fingerprint match first
         if (fingerprint) {
           // Check instances
-          const instances = this._db.findItemsByFingerprint(fingerprint);
+          const instances = srv.db.findItemsByFingerprint(fingerprint);
           if (instances.length > 0) {
             // If steamId provided, prefer the instance at that player's location
             if (steamId) {
@@ -1340,12 +1657,12 @@ class WebMapServer {
             }
             matchType = 'instance';
             try { match.attachments = JSON.parse(match.attachments); } catch { match.attachments = []; }
-            movements = this._db.getItemMovements(match.id);
+            movements = srv.db.getItemMovements(match.id);
           }
 
           // Check groups if no instance match
           if (!match) {
-            const groups = this._db.findActiveGroupsByFingerprint?.(fingerprint) || [];
+            const groups = srv.db.findActiveGroupsByFingerprint?.(fingerprint) || [];
             if (groups.length > 0) {
               if (steamId) {
                 match = groups.find(g => g.location_type === 'player' && g.location_id === steamId) || groups[0];
@@ -1354,14 +1671,14 @@ class WebMapServer {
               }
               matchType = 'group';
               try { match.attachments = JSON.parse(match.attachments); } catch { match.attachments = []; }
-              movements = this._db.getItemMovementsByGroup(match.id);
+              movements = srv.db.getItemMovementsByGroup(match.id);
             }
           }
         }
 
         // Fall back to item name search if no fingerprint match
         if (!match && itemName) {
-          const instances = this._db.getItemInstancesByItem(itemName);
+          const instances = srv.db.getItemInstancesByItem(itemName);
           if (instances.length > 0) {
             if (steamId) {
               match = instances.find(i => i.location_type === 'player' && i.location_id === steamId) || instances[0];
@@ -1370,7 +1687,7 @@ class WebMapServer {
             }
             matchType = 'instance';
             try { match.attachments = JSON.parse(match.attachments); } catch { match.attachments = []; }
-            movements = this._db.getItemMovements(match.id);
+            movements = srv.db.getItemMovements(match.id);
           }
         }
 
@@ -1379,7 +1696,7 @@ class WebMapServer {
         const resolveName = (sid) => {
           if (!sid) return null;
           if (nameCache[sid]) return nameCache[sid];
-          const name = this._idMap[sid] || sid;
+          const name = srv.idMap[sid] || sid;
           nameCache[sid] = name;
           return name;
         };
@@ -1416,12 +1733,13 @@ class WebMapServer {
 
     // ── Panel: Entity lookup (survivor+) — lightweight reference data for info popups ──
     app.get('/api/panel/lookup/:type/:name', requireTier('survivor'), rateLimit(5000, 20), (req, res) => {
-      if (!this._db) return res.json({ found: false });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ found: false });
       const type = req.params.type;
       const name = decodeURIComponent(req.params.name || '');
       if (!name) return res.json({ found: false });
 
-      const db = this._db.db;
+      const db = srv.db.db;
       const result = { found: false, type, name, data: {} };
 
       try {
@@ -1474,7 +1792,8 @@ class WebMapServer {
 
     // ── Panel: Comprehensive DB query (admin only) ──
     app.get('/api/panel/db/:table', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
-      if (!this._db) return res.json({ rows: [], columns: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ rows: [], columns: [] });
 
       const table = req.params.table;
       // Defense-in-depth: validate table name is alphanumeric + underscores only
@@ -1511,7 +1830,7 @@ class WebMapServer {
       }
 
       try {
-        const db = this._db.db;
+        const db = srv.db.db;
 
         // Get column names
         const pragma = db.prepare(`PRAGMA table_info("${table}")`).all();
@@ -1547,8 +1866,8 @@ class WebMapServer {
         if (columns.includes('steam_id') || columns.includes('owner_steam_id')) {
           for (const row of rows) {
             const sid = row.steam_id || row.owner_steam_id;
-            if (sid && this._idMap[sid] && !row.name && !row.actor_name && !row.player_name) {
-              row._resolved_name = this._idMap[sid];
+            if (sid && srv.idMap[sid] && !row.name && !row.actor_name && !row.player_name) {
+              row._resolved_name = srv.idMap[sid];
             }
           }
         }
@@ -1561,17 +1880,18 @@ class WebMapServer {
 
     // ── Panel: Chat log from DB ──
     app.get('/api/panel/chat', requireTier('survivor'), (req, res) => {
-      if (!this._db) return res.json({ messages: [] });
+      const srv = req.srv;
+      if (!srv.db) return res.json({ messages: [] });
 
       const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
       const search = (req.query.search || '').trim();
 
       try {
         let messages;
-        if (search && this._db.searchChat) {
-          messages = this._db.searchChat(search, limit);
+        if (search && srv.db.searchChat) {
+          messages = srv.db.searchChat(search, limit);
         } else {
-          messages = this._db.getRecentChat(limit);
+          messages = srv.db.getRecentChat(limit);
         }
         res.json({ messages: messages || [] });
       } catch (err) {
@@ -1600,7 +1920,7 @@ class WebMapServer {
       }
 
       try {
-        const response = await rcon.send(sanitized);
+        const response = await req.srv.rcon.send(sanitized);
         res.json({ ok: true, response });
       } catch (err) {
         res.status(500).json({ ok: false, error: safeError(err) });
@@ -1614,7 +1934,7 @@ class WebMapServer {
       try {
         // Step 1: Tell the game server to save
         try {
-          await rcon.send('save');
+          await req.srv.rcon.send('save');
         } catch { /* RCON may not be connected — continue anyway, save file may still be recent */ }
 
         // Step 2: Wait briefly for the save to flush to disk
@@ -1653,11 +1973,11 @@ class WebMapServer {
 
       // Fall back to Docker CLI (VPS setup)
       const { execFile } = require('child_process');
-      // Sanitize container name — alphanumeric, hyphens, underscores only
-      const dockerContainer = (process.env.DOCKER_CONTAINER || 'hzserver').replace(/[^a-zA-Z0-9_.-]/g, '');
+      // Use server-specific container name, fall back to env
+      const dockerContainer = (req.srv.config.dockerContainer || process.env.DOCKER_CONTAINER || 'hzserver').replace(/[^a-zA-Z0-9_.-]/g, '');
 
       if (action === 'backup') {
-        const backupDir = path.join(DATA_DIR, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
+        const backupDir = path.join(req.srv.dataDir, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
         execFile('docker', ['cp', `${dockerContainer}:/home/steam/hzserver/serverfiles/HumanitZServer/Saved`, backupDir], { timeout: 30000 }, (err) => {
           if (err) return res.status(500).json({ ok: false, error: 'Backup failed' });
           res.json({ ok: true, message: 'Backup created' });
@@ -1698,7 +2018,7 @@ class WebMapServer {
       } catch (e) { /* panel API unavailable — fall through */ }
 
       // Fall back to local data/backups/ directory
-      const backupsDir = path.join(DATA_DIR, 'backups');
+      const backupsDir = path.join(req.srv.dataDir, 'backups');
       try {
         const fs = require('fs');
         if (fs.existsSync(backupsDir)) {
@@ -1733,8 +2053,9 @@ class WebMapServer {
 
     // ── Panel: Game server settings (read) ──
     app.get('/api/panel/settings', requireTier('admin'), async (req, res) => {
+      const srv = req.srv;
       // Try loading from cached file first
-      const settingsFile = path.join(DATA_DIR, 'server-settings.json');
+      const settingsFile = path.join(srv.dataDir, 'server-settings.json');
       try {
         if (fs.existsSync(settingsFile)) {
           const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
@@ -1743,12 +2064,12 @@ class WebMapServer {
       } catch { /* fall through to SFTP */ }
 
       // Try reading via SFTP
-      if (config.ftpHost && config.ftpUser) {
+      if (srv.config.ftpHost && srv.config.ftpUser) {
         try {
           const SftpClient = require('ssh2-sftp-client');
           const sftp = new SftpClient();
-          await sftp.connect(config.sftpConnectConfig());
-          const content = await sftp.get(config.ftpSettingsPath);
+          await sftp.connect(srv.config.sftpConnectConfig());
+          const content = await sftp.get(srv.config.ftpSettingsPath);
           await sftp.end();
 
           const settings = {};
@@ -1792,17 +2113,17 @@ class WebMapServer {
         }
       }
 
-      if (!config.ftpHost || !config.ftpUser) {
+      if (!req.srv.config.ftpHost || !req.srv.config.ftpUser) {
         return res.status(400).json({ error: 'SFTP not configured' });
       }
 
       try {
         const SftpClient = require('ssh2-sftp-client');
         const sftp = new SftpClient();
-        await sftp.connect(config.sftpConnectConfig());
+        await sftp.connect(req.srv.config.sftpConnectConfig());
 
         // Read current file
-        const content = (await sftp.get(config.ftpSettingsPath)).toString();
+        const content = (await sftp.get(req.srv.config.ftpSettingsPath)).toString();
         const lines = content.split('\n');
 
         // Update values in-place
@@ -1821,11 +2142,11 @@ class WebMapServer {
         });
 
         // Write back
-        await sftp.put(Buffer.from(newLines.join('\n')), config.ftpSettingsPath);
+        await sftp.put(Buffer.from(newLines.join('\n')), req.srv.config.ftpSettingsPath);
         await sftp.end();
 
         // Update local cache
-        const settingsFile = path.join(DATA_DIR, 'server-settings.json');
+        const settingsFile = path.join(req.srv.dataDir, 'server-settings.json');
         try {
           let cached = {};
           if (fs.existsSync(settingsFile)) cached = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
@@ -1842,10 +2163,208 @@ class WebMapServer {
     // ── API: Server scheduler status ──
     app.get('/api/panel/scheduler', requireTier('survivor'), (req, res) => {
       // This will be populated by the bot when it passes the scheduler instance
-      if (this._scheduler) {
-        res.json(this._scheduler.getStatus());
+      if (req.srv.scheduler) {
+        res.json(req.srv.scheduler.getStatus());
       } else {
         res.json({ active: false });
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    //  Bot Configuration API — read/write .env file
+    // ══════════════════════════════════════════════════════════════════
+
+    // Keys that contain credentials — values are NEVER sent to the client.
+    // Write is allowed (masked placeholder is replaced only if user provides a real value).
+    const ENV_SENSITIVE_KEYS = new Set([
+      'DISCORD_TOKEN', 'DISCORD_OAUTH_SECRET', 'RCON_PASSWORD',
+      'FTP_PASSWORD', 'FTP_PRIVATE_KEY_PATH', 'PANEL_API_KEY',
+    ]);
+
+    // Keys that are read-only (managed by the bot, not user-editable via web)
+    const ENV_READONLY_KEYS = new Set([
+      'ENV_SCHEMA_VERSION',
+    ]);
+
+    /** Parse a .env file into structured entries preserving comments and order */
+    function parseEnvFile(content) {
+      const entries = [];
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const trimmed = raw.trim();
+
+        // Blank line
+        if (!trimmed) { entries.push({ type: 'blank', raw }); continue; }
+
+        // Section header comment (e.g. "# ── Discord Bot ──")
+        if (/^#\s*[─═]/.test(trimmed)) {
+          entries.push({ type: 'section', raw, label: trimmed.replace(/^#\s*[─═]+\s*/, '').replace(/\s*[─═]+\s*$/, '').trim() });
+          continue;
+        }
+
+        // Regular comment
+        if (trimmed.startsWith('#')) {
+          // Check if it's a commented-out key (e.g. #KEY=value)
+          const commentedMatch = trimmed.match(/^#\s*([A-Z][A-Z0-9_]*)=(.*)/);
+          if (commentedMatch) {
+            entries.push({ type: 'commented', raw, key: commentedMatch[1], value: commentedMatch[2] });
+          } else {
+            entries.push({ type: 'comment', raw });
+          }
+          continue;
+        }
+
+        // Key=value line
+        const eq = trimmed.indexOf('=');
+        if (eq > 0) {
+          const key = trimmed.substring(0, eq).trim();
+          const value = trimmed.substring(eq + 1).trim();
+          entries.push({ type: 'keyval', raw, key, value });
+        } else {
+          entries.push({ type: 'other', raw });
+        }
+      }
+      return entries;
+    }
+
+    /** GET /api/panel/bot-config — read .env as categorized settings */
+    app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      try {
+        const envPath = path.join(__dirname, '..', '..', '.env');
+        if (!fs.existsSync(envPath)) {
+          return res.status(404).json({ error: '.env file not found' });
+        }
+
+        const content = fs.readFileSync(envPath, 'utf8');
+        const entries = parseEnvFile(content);
+
+        // Build categorized output
+        const sections = [];
+        let currentSection = { label: 'General', keys: [] };
+
+        for (const entry of entries) {
+          if (entry.type === 'section') {
+            // Start a new section if current has keys
+            if (currentSection.keys.length > 0) sections.push(currentSection);
+            currentSection = { label: entry.label, keys: [] };
+            continue;
+          }
+          if (entry.type === 'keyval') {
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entry.key);
+            const isReadOnly = ENV_READONLY_KEYS.has(entry.key);
+            currentSection.keys.push({
+              key: entry.key,
+              value: isSensitive ? '' : entry.value,
+              sensitive: isSensitive,
+              readOnly: isReadOnly,
+              hasValue: isSensitive ? (entry.value.length > 0 && !entry.value.startsWith('your_')) : undefined,
+              commented: false,
+            });
+          } else if (entry.type === 'commented') {
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entry.key);
+            currentSection.keys.push({
+              key: entry.key,
+              value: isSensitive ? '' : entry.value,
+              sensitive: isSensitive,
+              readOnly: false,
+              hasValue: false,
+              commented: true,
+            });
+          }
+        }
+        if (currentSection.keys.length > 0) sections.push(currentSection);
+
+        res.json({ sections });
+      } catch (err) {
+        res.status(500).json({ error: `Failed to read bot config: ${safeError(err)}` });
+      }
+    });
+
+    /** POST /api/panel/bot-config — update .env keys */
+    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+      const { changes } = req.body;
+      if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+        return res.status(400).json({ error: 'Missing changes object' });
+      }
+
+      // Block read-only keys
+      const blocked = Object.keys(changes).filter(k => ENV_READONLY_KEYS.has(k));
+      if (blocked.length > 0) {
+        return res.status(403).json({ error: `Cannot modify read-only keys: ${blocked.join(', ')}` });
+      }
+
+      // Validate values — no newlines, reasonable length
+      for (const [key, value] of Object.entries(changes)) {
+        const v = String(value);
+        if (/[\r\n]/.test(v)) {
+          return res.status(400).json({ error: `Invalid value for '${key}': contains newline` });
+        }
+        if (v.length > 2000) {
+          return res.status(400).json({ error: `Value for '${key}' too long (max 2000 chars)` });
+        }
+      }
+
+      try {
+        const envPath = path.join(__dirname, '..', '..', '.env');
+        if (!fs.existsSync(envPath)) {
+          return res.status(404).json({ error: '.env file not found' });
+        }
+
+        const content = fs.readFileSync(envPath, 'utf8');
+        const lines = content.split('\n');
+        const updated = new Set();
+
+        const newLines = lines.map(line => {
+          const trimmed = line.trim();
+
+          // Active key=value line
+          const eq = trimmed.indexOf('=');
+          if (eq > 0 && !trimmed.startsWith('#') && !trimmed.startsWith(';')) {
+            const key = trimmed.substring(0, eq).trim();
+            if (key in changes) {
+              updated.add(key);
+              return `${key}=${changes[key]}`;
+            }
+          }
+
+          // Commented-out key — uncomment it if user is setting a value
+          if (trimmed.startsWith('#')) {
+            const commentedMatch = trimmed.match(/^#\s*([A-Z][A-Z0-9_]*)=(.*)/);
+            if (commentedMatch && commentedMatch[1] in changes) {
+              const key = commentedMatch[1];
+              updated.add(key);
+              const val = String(changes[key]);
+              // If setting to empty, re-comment it
+              if (val === '') return `#${key}=`;
+              return `${key}=${val}`;
+            }
+          }
+
+          return line;
+        });
+
+        // Any keys not found in the file — append them at the end
+        for (const key of Object.keys(changes)) {
+          if (!updated.has(key) && String(changes[key]) !== '') {
+            newLines.push(`${key}=${changes[key]}`);
+            updated.add(key);
+          }
+        }
+
+        // Write atomically — write to temp then rename
+        const tmpPath = envPath + '.tmp';
+        fs.writeFileSync(tmpPath, newLines.join('\n'));
+        fs.renameSync(tmpPath, envPath);
+
+        res.json({
+          ok: true,
+          updated: [...updated],
+          restartRequired: true,
+          message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
+        });
+      } catch (err) {
+        res.status(500).json({ error: `Failed to save bot config: ${safeError(err)}` });
       }
     });
 
@@ -1855,20 +2374,21 @@ class WebMapServer {
 
     /** GET /api/panel/anticheat/flags — list flags with optional filters */
     app.get('/api/panel/anticheat/flags', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
-      if (!this._db) return res.json([]);
+      const srv = req.srv;
+      if (!srv.db) return res.json([]);
       try {
         const { status, severity, steam_id, detector, limit } = req.query;
         const maxRows = Math.min(parseInt(limit, 10) || 100, 500);
         let flags;
 
         if (steam_id) {
-          flags = this._db.getAnticheatFlagsByPlayer(steam_id);
+          flags = srv.db.getAcFlagsBySteam(steam_id, maxRows);
         } else if (detector) {
-          flags = this._db.getAnticheatFlagsByDetector(detector, maxRows);
+          flags = srv.db.getAcFlagsByDetector(detector, status || 'open', maxRows);
         } else if (status) {
-          flags = this._db.getAnticheatFlagsByStatus(status, maxRows);
+          flags = srv.db.getAcFlags(status, maxRows);
         } else {
-          flags = this._db.getRecentAnticheatFlags(maxRows);
+          flags = srv.db.getAcFlags('open', maxRows);
         }
 
         // Apply severity filter client-side if both status and severity are set
@@ -1879,7 +2399,7 @@ class WebMapServer {
         // Resolve player names from players table
         const nameMap = {};
         try {
-          const rows = this._db.db.prepare('SELECT steam_id, name FROM players').all();
+          const rows = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
           for (const r of rows) nameMap[r.steam_id] = r.name;
         } catch { /* */ }
 
@@ -1896,9 +2416,9 @@ class WebMapServer {
 
     /** GET /api/panel/anticheat/risk-scores — all player risk scores */
     app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
-        const scores = this._db.getRiskScores() || [];
+        const scores = req.srv.db.getAllRiskScores() || [];
         res.json(scores);
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1907,7 +2427,7 @@ class WebMapServer {
 
     /** POST /api/panel/anticheat/flags/:id/review — confirm, dismiss, or whitelist a flag */
     app.post('/api/panel/anticheat/flags/:id/review', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.status(500).json({ error: 'Database not available' });
+      if (!req.srv.db) return res.status(500).json({ error: 'Database not available' });
       try {
         const flagId = parseInt(req.params.id, 10);
         if (isNaN(flagId)) return res.status(400).json({ error: 'Invalid flag ID' });
@@ -1920,7 +2440,7 @@ class WebMapServer {
         // Get reviewer identity from session
         const reviewedBy = req.session?.username || req.session?.discordId || 'admin';
 
-        this._db.reviewAnticheatFlag(flagId, status, reviewedBy, notes || '');
+        req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes || '');
         res.json({ ok: true, flagId, status });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1929,12 +2449,19 @@ class WebMapServer {
 
     /** GET /api/panel/anticheat/stats — summary counts for dashboard */
     app.get('/api/panel/anticheat/stats', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json({ open: 0, confirmed: 0, dismissed: 0, total: 0 });
+      if (!req.srv.db) return res.json({ open: 0, confirmed: 0, dismissed: 0, total: 0 });
       try {
-        const open = this._db.countAnticheatFlags({ status: 'open' });
-        const confirmed = this._db.countAnticheatFlags({ status: 'confirmed' });
-        const dismissed = this._db.countAnticheatFlags({ status: 'dismissed' });
-        const total = this._db.countAnticheatFlags({});
+        const srv = req.srv;
+        const countByStatus = (s) => {
+          try {
+            if (s) return srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags WHERE status = ?').get(s).count;
+            return srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags').get().count;
+          } catch { return 0; }
+        };
+        const open = countByStatus('open');
+        const confirmed = countByStatus('confirmed');
+        const dismissed = countByStatus('dismissed');
+        const total = countByStatus(null);
         res.json({ open, confirmed, dismissed, total });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1947,9 +2474,9 @@ class WebMapServer {
 
     /** GET /api/timeline/bounds — earliest/latest snapshot timestamps + count */
     app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json({ earliest: null, latest: null, count: 0 });
+      if (!req.srv.db) return res.json({ earliest: null, latest: null, count: 0 });
       try {
-        const bounds = this._db.getTimelineBounds();
+        const bounds = req.srv.db.getTimelineBounds();
         res.json(bounds || { earliest: null, latest: null, count: 0 });
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -1958,14 +2485,14 @@ class WebMapServer {
 
     /** GET /api/timeline/snapshots?from=&to=&limit= — snapshot list (metadata only) */
     app.get('/api/timeline/snapshots', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
         const { from, to, limit } = req.query;
         let snapshots;
         if (from && to) {
-          snapshots = this._db.getTimelineSnapshotRange(from, to);
+          snapshots = req.srv.db.getTimelineSnapshotRange(from, to);
         } else {
-          snapshots = this._db.getTimelineSnapshots(parseInt(limit, 10) || 50);
+          snapshots = req.srv.db.getTimelineSnapshots(parseInt(limit, 10) || 50);
         }
         res.json(snapshots);
       } catch (err) {
@@ -1975,12 +2502,12 @@ class WebMapServer {
 
     /** GET /api/timeline/snapshot/:id — full snapshot data (all entities with map coords) */
     app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
-      if (!this._db) return res.status(404).json({ error: 'Database not available' });
+      if (!req.srv.db) return res.status(404).json({ error: 'Database not available' });
       try {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) return res.status(400).json({ error: 'Invalid snapshot ID' });
 
-        const full = this._db.getTimelineSnapshotFull(id);
+        const full = req.srv.db.getTimelineSnapshotFull(id);
         if (!full) return res.status(404).json({ error: 'Snapshot not found' });
 
         // Convert world coordinates to leaflet coordinates for all entities
@@ -2002,7 +2529,7 @@ class WebMapServer {
         // Build name map for owner resolution
         const nameMap = {};
         try {
-          const rows = this._db.db.prepare('SELECT steam_id, name FROM players').all();
+          const rows = req.srv.db.db.prepare('SELECT steam_id, name FROM players').all();
           for (const r of rows) nameMap[r.steam_id] = r.name;
         } catch { /* */ }
         full.nameMap = nameMap;
@@ -2015,13 +2542,13 @@ class WebMapServer {
 
     /** GET /api/timeline/player/:steamId/trail?from=&to= — player position history */
     app.get('/api/timeline/player/:steamId/trail', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
         const { steamId } = req.params;
         const { from, to } = req.query;
         if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
 
-        const positions = this._db.getPlayerPositionHistory(steamId, from, to);
+        const positions = req.srv.db.getPlayerPositionHistory(steamId, from, to);
         // Convert to map coordinates
         const trail = positions.map(p => {
           if (p.pos_x != null && p.pos_y != null && !(p.pos_x === 0 && p.pos_y === 0)) {
@@ -2039,11 +2566,11 @@ class WebMapServer {
 
     /** GET /api/timeline/ai/population?from=&to= — AI population over time */
     app.get('/api/timeline/ai/population', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
         const { from, to } = req.query;
         if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
-        const data = this._db.getAIPopulationHistory(from, to);
+        const data = req.srv.db.getAIPopulationHistory(from, to);
         res.json(data);
       } catch (err) {
         res.status(500).json({ error: safeError(err) });
@@ -2052,14 +2579,14 @@ class WebMapServer {
 
     /** GET /api/timeline/deaths?limit=&player= — recent death causes */
     app.get('/api/timeline/deaths', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
         const { limit, player } = req.query;
         let deaths;
         if (player) {
-          deaths = this._db.getDeathCausesByPlayer(player, parseInt(limit, 10) || 50);
+          deaths = req.srv.db.getDeathCausesByPlayer(player, parseInt(limit, 10) || 50);
         } else {
-          deaths = this._db.getDeathCauses(parseInt(limit, 10) || 50);
+          deaths = req.srv.db.getDeathCauses(parseInt(limit, 10) || 50);
         }
         // Add map coordinates
         deaths = deaths.map(d => {
@@ -2077,9 +2604,9 @@ class WebMapServer {
 
     /** GET /api/timeline/deaths/stats — death cause breakdown */
     app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!this._db) return res.json([]);
+      if (!req.srv.db) return res.json([]);
       try {
-        const stats = this._db.getDeathCauseStats();
+        const stats = req.srv.db.getDeathCauseStats();
         res.json(stats);
       } catch (err) {
         res.status(500).json({ error: safeError(err) });

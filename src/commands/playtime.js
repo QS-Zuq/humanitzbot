@@ -1,4 +1,12 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+/**
+ * /playtime — Playtime leaderboard or player lookup.
+ *
+ * No SteamIDs exposed to non-admins. Clean, focused output.
+ */
+
+'use strict';
+
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const playtime = require('../tracking/playtime-tracker');
 const config = require('../config');
 
@@ -18,9 +26,11 @@ module.exports = {
 
     try {
       const search = interaction.options.getString('player');
+      const trackingSince = new Date(playtime.getTrackingSince())
+        .toLocaleDateString('en-GB', { timeZone: config.botTimezone });
 
       if (search) {
-        // Look up a specific player by name (partial match)
+        // ── Player lookup ──
         const leaderboard = playtime.getLeaderboard();
         const match = leaderboard.find(
           e => e.name.toLowerCase() === search.toLowerCase()
@@ -33,41 +43,46 @@ module.exports = {
           return;
         }
 
+        // Rank position
+        const rank = leaderboard.indexOf(match) + 1;
+        const rankStr = rank <= 3 ? ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'][rank - 1] : `#${rank}`;
+
         const embed = new EmbedBuilder()
-          .setTitle(`⏱️ ${match.name}'s Playtime`)
+          .setTitle(`\u23F1\uFE0F ${match.name}`)
           .setColor(0x9b59b6)
+          .setDescription(`${rankStr} on the leaderboard`)
           .addFields(
             { name: 'Total Playtime', value: match.totalFormatted, inline: true },
             { name: 'Sessions', value: `${match.sessions}`, inline: true },
-            { name: 'Steam ID', value: require('../config').isAdminView(interaction.member) ? `\`${match.id}\`` : `\`${match.id.slice(0, 8)}···\``, inline: false },
           )
-          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone })}` })
+          .setFooter({ text: `Tracking since ${trackingSince}` })
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
       } else {
-        // Show leaderboard
+        // ── Leaderboard ──
         const leaderboard = playtime.getLeaderboard();
 
         const embed = new EmbedBuilder()
-          .setTitle('⏱️ Playtime Leaderboard')
+          .setTitle('\u23F1\uFE0F Playtime Leaderboard')
           .setColor(0x9b59b6)
-          .setFooter({ text: `Tracking since ${new Date(playtime.getTrackingSince()).toLocaleDateString('en-GB', { timeZone: config.botTimezone })}` })
+          .setFooter({ text: `Tracking since ${trackingSince}` })
           .setTimestamp();
 
         if (leaderboard.length === 0) {
           embed.setDescription('No playtime data recorded yet.');
         } else {
           const top = leaderboard.slice(0, 20);
+          const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
           const lines = top.map((entry, i) => {
-            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `\`${i + 1}.\``;
-            return `${medal} **${entry.name}** — ${entry.totalFormatted} (${entry.sessions} session${entry.sessions !== 1 ? 's' : ''})`;
+            const medal = medals[i] || `\`${i + 1}.\``;
+            return `${medal} **${entry.name}** \u2014 ${entry.totalFormatted} (${entry.sessions} session${entry.sessions !== 1 ? 's' : ''})`;
           });
 
           embed.setDescription(lines.join('\n'));
 
           if (leaderboard.length > 20) {
-            embed.addFields({ name: '\u200b', value: `*…and ${leaderboard.length - 20} more*` });
+            embed.addFields({ name: '\u200b', value: `*\u2026and ${leaderboard.length - 20} more*` });
           }
         }
 
@@ -75,7 +90,7 @@ module.exports = {
       }
     } catch (err) {
       console.error('[CMD:playtime]', err.message);
-      await interaction.editReply('❌ Failed to retrieve playtime data.');
+      await interaction.editReply('\u274C Failed to retrieve playtime data.');
     }
   },
 };

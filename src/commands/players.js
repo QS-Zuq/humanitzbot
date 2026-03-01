@@ -1,3 +1,12 @@
+/**
+ * /players — Show online players with playtime context.
+ *
+ * Clean list: numbered, bold names, total playtime.
+ * No SteamIDs exposed.
+ */
+
+'use strict';
+
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getPlayerList } = require('../rcon/server-info');
 const playtime = require('../tracking/playtime-tracker');
@@ -14,7 +23,7 @@ module.exports = {
       const list = await getPlayerList();
 
       const embed = new EmbedBuilder()
-        .setTitle('👥 Online Players')
+        .setTitle('\uD83D\uDC65 Online Players')
         .setColor(0x3498db)
         .setFooter({ text: 'HumanitZ Server' })
         .setTimestamp();
@@ -22,18 +31,20 @@ module.exports = {
       if (list.count === 0 && list.players.length === 0) {
         embed.setDescription('No players currently online.');
       } else {
-        embed.setDescription(`**${list.count}** player(s) online`);
+        embed.setDescription(`**${list.count}** player${list.count !== 1 ? 's' : ''} online`);
 
         if (list.players.length > 0) {
           const playerLines = list.players.map((p, i) => {
             const id = (p.steamId && p.steamId !== 'N/A') ? p.steamId : p.name;
             const pt = playtime.getPlaytime(id);
-            const time = pt ? ` — ${pt.totalFormatted}` : '';
+            const time = pt ? ` \u2014 ${pt.totalFormatted}` : '';
             return `\`${i + 1}.\` **${p.name}**${time}`;
           });
 
-          // Discord embeds have a 1024 char limit per field, so chunk if needed
-          const chunks = chunkArray(playerLines, 15);
+          const chunks = [];
+          for (let i = 0; i < playerLines.length; i += 15) {
+            chunks.push(playerLines.slice(i, i + 15));
+          }
           chunks.forEach((chunk, idx) => {
             embed.addFields({
               name: chunks.length > 1 ? `Players (${idx + 1}/${chunks.length})` : 'Players',
@@ -47,16 +58,8 @@ module.exports = {
     } catch (err) {
       console.error('[CMD:players]', err.message);
       await interaction.editReply({
-        content: '❌ Could not fetch player list. The server may be offline.',
+        content: '\u274C Could not fetch player list. The server may be offline.',
       });
     }
   },
 };
-
-function chunkArray(arr, size) {
-  const chunks = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
-  return chunks;
-}

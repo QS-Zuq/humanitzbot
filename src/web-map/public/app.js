@@ -14,8 +14,7 @@ const map = L.map('map', {
   attributionControl: false,
 });
 
-// Use the 2048 JPEG for faster loading (1.4MB vs 30MB for 4K PNG)
-const mapImage = L.imageOverlay('map-2048.jpg', mapBounds).addTo(map);
+const mapImage = L.imageOverlay('terrain.png', mapBounds, { className: 'map-terrain' }).addTo(map);
 map.fitBounds(mapBounds);
 
 // Adjust map size for flex layout
