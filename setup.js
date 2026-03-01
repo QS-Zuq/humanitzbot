@@ -193,10 +193,12 @@ async function discoverFiles(sftp, dir, depth, maxDepth, found) {
         console.log(`  Found ${item.name}/ directory → ${fullPath}`);
       }
       // Skip obviously irrelevant directories for faster discovery
-      if (/^(\.|node_modules|__pycache__|Engine|Content|Binaries|proc|sys|run|tmp|lost\+found|snap|boot|usr)$/i.test(item.name)) continue;
-      // Prioritize game server directories (check them first)
-      const isPriority = /^(data|serverfiles|home|opt|root|app|HumanitZServer|hzserver|humanitz|container)/i.test(item.name);
-      if (isPriority || depth < 6) {
+      if (/^(\.|node_modules|__pycache__|Engine|Content|Binaries|proc|sys|run|tmp|lost\+found|snap|boot|usr|lib|lib64|sbin|bin|var|etc|dev|mnt|media|srv)$/i.test(item.name)) continue;
+      // Game server directories — always recurse into these regardless of depth
+      const isGameDir = /^(Saved|Logs|SaveGames|SaveList|Default|HumanitZServer|HZLogs|serverfiles|hzserver|humanitz|LinuxServer)/i.test(item.name);
+      // General hosting directories — recurse when not too deep
+      const isHostDir = /^(data|home|opt|root|app|container|steam|server|servers|game|games|lgsm)/i.test(item.name);
+      if (isGameDir || isHostDir || depth < 4) {
         await discoverFiles(sftp, fullPath, depth + 1, maxDepth, found);
       }
     } else if (DISCOVERY_TARGETS[item.name] && !found.has(item.name)) {
@@ -251,10 +253,12 @@ async function autoDiscoverPaths(sftp) {
   } catch { /* not there */ }
 
   // Search for any files we didn't find at the default locations
-  if (found.size < Object.keys(DISCOVERY_TARGETS).length) {
-    const missing = Object.keys(DISCOVERY_TARGETS).filter(n => !found.has(n));
+  if (found.size < Object.keys(DISCOVERY_TARGETS).length + DISCOVERY_DIR_TARGETS.length) {
+    const missingFiles = Object.keys(DISCOVERY_TARGETS).filter(n => !found.has(n));
+    const missingDirs = DISCOVERY_DIR_TARGETS.filter(n => !found.has(n));
+    const missing = [...missingFiles, ...missingDirs.map(d => d + '/')];
     console.log(`  Searching for: ${missing.join(', ')}`);
-    await discoverFiles(sftp, '/', 0, 8, found);
+    await discoverFiles(sftp, '/', 0, 12, found);
   }
 
   // Report results
@@ -282,7 +286,14 @@ async function autoDiscoverPaths(sftp) {
   const notFound = Object.keys(DISCOVERY_TARGETS).filter(n => !found.has(n));
   if (notFound.length > 0) {
     console.log(`\n  ⚠️  Could not locate: ${notFound.join(', ')}`);
-    console.log('  Using default paths for missing files. You can set them manually in .env.');
+    if (found.size === 0) {
+      console.log('  No game files were found on the SFTP server.');
+      console.log('  This usually means the SFTP root is not where expected.');
+      console.log('  Try connecting with an SFTP client (FileZilla, WinSCP) to find the correct path,');
+      console.log('  then set the paths manually in .env.');
+    } else {
+      console.log('  Using default paths for missing files. You can set them manually in .env.');
+    }
   } else {
     console.log('\n  ✓ All files located!');
   }
@@ -364,6 +375,7 @@ function updateEnvFile(paths) {
   };
 
   for (const [key, value] of Object.entries(mapping)) {
+    if (value === undefined || value === null) continue; // Skip unset values
     // Check if the key is already set in .env (commented or uncommented)
     const regex = new RegExp(`^#?\\s*${key}\\s*=.*$`, 'm');
     if (regex.test(envContent)) {
