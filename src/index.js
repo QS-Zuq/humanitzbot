@@ -31,7 +31,8 @@ const MultiServerManager = require('./server/multi-server');
 const ActivityLog = require('./modules/activity-log');
 const MilestoneTracker = require('./modules/milestone-tracker');
 const RecapService = require('./modules/recap-service');
-const AnticheatIntegration = require('./modules/anticheat-integration');
+let AnticheatIntegration;
+try { AnticheatIntegration = require('./modules/anticheat-integration'); } catch { /* optional module */ }
 const HumanitZDB = require('./db/database');
 const SaveService = require('./parsers/save-service');
 const gameReference = require('./parsers/game-reference');
@@ -715,7 +716,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   // Anticheat — observation-only anomaly detection (optional private package)
-  if (config.enableAnticheat) {
+  if (config.enableAnticheat && AnticheatIntegration) {
     if (!db) {
       setStatus('Anticheat', '🟡 Skipped (no database)');
     } else {
