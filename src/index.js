@@ -553,10 +553,10 @@ client.once(Events.ClientReady, async (readyClient) => {
     setStatus('PvP Kill Feed', '⚫ Disabled');
   }
 
-  // Save Service — SFTP save-file polling → SQLite sync (agent or direct)
-  if (hasFtp()) {
+  // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
+  if (hasFtp() || panelApi.available) {
     saveService = new SaveService(db, {
-      sftpConfig: config.sftpConnectConfig(),
+      sftpConfig: hasFtp() ? config.sftpConnectConfig() : null,
       savePath: config.ftpSavePath,
       clanSavePath: config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
       pollInterval: config.savePollInterval,
@@ -606,7 +606,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.error('[BOT] Save service error:', err.message);
     });
     await saveService.start();
-    setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode)`);
+    const saveSource = hasFtp() ? '' : ' via Panel API';
+    setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode${saveSource})`);
 
     // Wire LogWatcher → SaveService ID map sharing
     if (logWatcher) {
@@ -649,7 +650,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
     setStatus('Timeline', '🟢 Active');
   } else {
-    setStatus('Save Service', '🟡 Skipped (FTP credentials not set)');
+    setStatus('Save Service', '🟡 Skipped (no FTP credentials or Panel API)');
     setStatus('Timeline', '🟡 Skipped (requires Save Service)');
   }
 
