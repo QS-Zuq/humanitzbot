@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://bisecthosting.com/zuq">
+  <a href="https://www.bisecthosting.com/zuq?r=github">
     <img src="https://www.bisecthosting.com/partners/custom-banners/3ad6b933-dc50-4c3c-aaa2-858dc43b73ed.webp" alt="BisectHosting Partner Banner" />
   </a>
 </p>
