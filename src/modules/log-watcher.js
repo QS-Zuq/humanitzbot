@@ -811,8 +811,9 @@ class LogWatcher {
         this._playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
         this._incDayCount('damage');
 
-        // DB: log damage event
-        this._logEvent({ type: 'damage_taken', category: 'combat', actorName: dmgVictim, item: dmgSource, amount: Math.round(dmgAmount), timestamp });
+        // DB: log damage event (classify source for clean display)
+        const dmgClassified = this._classifyDamageSource(dmgSource);
+        this._logEvent({ type: 'damage_taken', category: 'combat', actorName: dmgVictim, item: dmgClassified.name, amount: Math.round(dmgAmount), timestamp });
 
         // Track PvP damage for kill attribution.
         // NPC damage sources always start with BP_ (e.g. BP_Zombie_C_123) — already

@@ -34,6 +34,28 @@ const CONTAINER_ALIASES = [
   [/^BuildContainer(?:_\d+)?$/i, 'Container'],
 ];
 
+// ─── NPC/AI name aliases ──────────────────────────────────────────────────
+// Post-cleanup names from damage sources that generic CamelCase splitting can't fix.
+const NPC_ALIASES = new Map([
+  ['dogzombie',          'Dog Zombie'],
+  ['zombiebear',         'Zombie Bear'],
+  ['kaihuman',           'Bandit'],
+  ['kai human',          'Bandit'],
+  ['kai human melee',    'Bandit'],
+  ['kai human ranged',   'Bandit'],
+  ['bellytoxic',         'Bloater'],
+  ['belly toxic',        'Bloater'],
+  ['runnerbrute',        'Runner Brute'],
+  ['giantbrute',         'Giant Brute'],
+  ['giant brute',        'Giant Brute'],
+  ['militaryarmoured',   'Military Armoured'],
+  ['military armoured',  'Military Armoured'],
+  ['police armor',       'Police Armoured'],
+  ['policearmor',        'Police Armoured'],
+  ['police1',            'Police Zombie'],
+  ['police2',            'Police Zombie'],
+]);
+
 /**
  * Clean a raw UE4 actor name, blueprint path, or item name into a readable label.
  *
@@ -52,8 +74,27 @@ function cleanName(raw) {
   if (!raw) return 'Unknown';
   let name = String(raw);
 
+  // Strip trailing UE4 pawn metadata: "(25m) Weapon()" suffix
+  name = name.replace(/\(\d+m\)\s*Weapon\(\)\s*$/, '').trim();
+
   // BuildContainer → Container (catch early before CamelCase-only path)
   if (/^BuildContainer(?:_\d+)?$/i.test(name)) return 'Container';
+
+  // Space-separated UE4 pawn names: "Pawn Zombie Runner C 2147019193"
+  // Strip pawn prefix, trailing instance ID, then delegate to normal cleanup
+  const pawnMatch = name.match(/^Pawn\s+(.+?)\s+C\s+\d+/i);
+  if (pawnMatch) {
+    // Strip "Zombie " prefix when a specific subtype follows (Runner, Brute, etc.)
+    // but keep "Zombie" when it's the only type word
+    const pawnInner = pawnMatch[1].trim();
+    const stripped = pawnInner.replace(/^Zombie\s+/i, '');
+    name = stripped || pawnInner; // fall back to "Zombie" if nothing left
+    // CamelCase-split if needed, then return
+    if (/[a-z][A-Z]/.test(name)) {
+      return name.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+    }
+    return name;
+  }
 
   // Already clean (no underscores, no BP_ prefix, has spaces) — return as-is
   if (!name.includes('_') && !name.startsWith('BP_')) {
@@ -88,6 +129,11 @@ function cleanName(raw) {
   name = name.replace(/^(?:ChildActor|Storage|Door|Window|Lamp|Light|Prop|Deco)_/i, '');
   name = name.replace(/^BP_/, '');
 
+  // Strip PawnZombie / Pawn prefix (e.g. PawnZombie_Runner → Runner, PawnZombie2 → Zombie)
+  name = name.replace(/^Pawn(?:Zombie\d*)?_?/i, '');
+  // If stripping left nothing (was just "PawnZombie") → Zombie
+  if (!name) return 'Zombie';
+
   // BuildContainer_NNN → Container
   if (/^BuildContainer(?:_\d+)?$/i.test(name)) return 'Container';
 
@@ -110,6 +156,10 @@ function cleanName(raw) {
 
   // Collapse multiple spaces
   name = name.replace(/\s{2,}/g, ' ').trim();
+
+  // Check NPC aliases for damage source names that generic cleanup can't fix
+  const npcAlias = NPC_ALIASES.get(name.toLowerCase());
+  if (npcAlias) return npcAlias;
 
   return name || raw;
 }

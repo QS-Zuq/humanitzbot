@@ -113,6 +113,8 @@ function classifyDamageLabel(source) {
  */
 function isNpcDamageSource(source) {
   if (source.includes('_')) return true;
+  // Space-separated UE4 pawn format: "Pawn Zombie Runner C 2147019193(25m) Weapon()"
+  if (/^Pawn\s/i.test(source)) return true;
   return /^(?:Zombie|ZombieBear|KaiHuman|Mutant|Runner|Brute|RunnerBrute|Pudge|Dogzombie|BellyToxic|Police|Cop|Military|MilitaryArmoured|Hazmat|Camo|Wolf|Bear|Deer|Snake|Spider)$/i.test(source);
 }
 
