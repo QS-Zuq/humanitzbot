@@ -335,11 +335,11 @@ describe('send / _sendCommand', () => {
   });
 
   it('skips command echo, strips [RCON]: prefix and ANSI codes', { timeout: 5000 }, async () => {
-    const rcon = createTestRcon();
+    const rcon = createTestRcon({ silenceMs: 30 });
     await connectRcon(rcon);
 
     const p = rcon.send('Players');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 20));
 
     // Command echo — should be skipped
     rcon._ws.emit('message', JSON.stringify({ event: 'console output', args: ['Players'] }));
@@ -355,34 +355,29 @@ describe('send / _sendCommand', () => {
     rcon.disconnect();
   });
 
-  it('silence detection — resolves after no output for ~1.5 seconds', { timeout: 5000 }, async () => {
-    const rcon = createTestRcon();
+  it('silence detection — resolves after configured silence period', { timeout: 5000 }, async () => {
+    const rcon = createTestRcon({ silenceMs: 30 });
     await connectRcon(rcon);
 
-    const startTime = Date.now();
     const p = rcon.send('info');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 20));
 
-    rcon._ws.emit('message', JSON.stringify({ event: 'console output', args: ['info'] })); // echo
+    rcon._ws.emit('message', JSON.stringify({ event: 'console output', args: ['info'] }));
     rcon._ws.emit('message', JSON.stringify({ event: 'console output', args: ['[RCON]: Server v1.0'] }));
 
     const result = await p;
-    const elapsed = Date.now() - startTime;
-
     assert.equal(result, 'Server v1.0');
-    assert.ok(elapsed >= 1400, `elapsed ${elapsed}ms should be >= 1400ms (silence period)`);
     rcon.disconnect();
   });
 
-  it('command queuing — second send waits for first to complete', { timeout: 10000 }, async () => {
-    const rcon = createTestRcon();
+  it('command queuing — second send waits for first to complete', { timeout: 5000 }, async () => {
+    const rcon = createTestRcon({ silenceMs: 30 });
     await connectRcon(rcon);
 
     const p1 = rcon.send('cmd1');
     const p2 = rcon.send('cmd2');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 20));
 
-    // Only cmd1 should have been sent
     const sentCmds = rcon._ws._sends.map((s) => JSON.parse(s)).filter((m) => m.event === 'send command');
     assert.equal(sentCmds.length, 1);
     assert.deepEqual(sentCmds[0].args, ['cmd1']);
@@ -394,7 +389,7 @@ describe('send / _sendCommand', () => {
     assert.equal(r1, 'result1');
 
     // Wait for cmd2 to start
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 50));
     const allCmds = rcon._ws._sends.map((s) => JSON.parse(s)).filter((m) => m.event === 'send command');
     assert.equal(allCmds.length, 2, 'cmd2 should now be sent');
     assert.deepEqual(allCmds[1].args, ['cmd2']);

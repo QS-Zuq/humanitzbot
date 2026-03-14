@@ -9,24 +9,7 @@ process.env.DISCORD_CLIENT_ID = '123';
 process.env.DISCORD_GUILD_ID = '456';
 
 const WebMapServer = require('../src/web-map/server');
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Extract the final route handler from Express app's internal router stack,
- * skipping middleware (requireTier, rateLimit) to call the handler directly.
- */
-function extractHandler(app, method, routePath) {
-  const router = app._router || app.router;
-  if (!router?.stack) throw new Error('No Express router stack');
-  for (const layer of router.stack) {
-    if (layer.route?.path === routePath && layer.route.methods[method]) {
-      const st = layer.route.stack;
-      return st[st.length - 1].handle;
-    }
-  }
-  throw new Error(`Handler not found: ${method.toUpperCase()} ${routePath}`);
-}
+const { extractHandler } = require('./helpers/route-helpers');
 
 /** Create a mock response that captures status code and JSON body. */
 function mockRes() {

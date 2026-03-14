@@ -48,6 +48,7 @@ class PanelRcon extends EventEmitter {
     this._label = options.label || 'PANEL-RCON';
     this._cacheTtl = options.cacheTtl || null;
     this._WebSocket = options.WebSocket || WebSocket;
+    this._silenceMs = options.silenceMs || 1500;
 
     // WebSocket state
     this._ws = null;
@@ -375,7 +376,7 @@ class PanelRcon extends EventEmitter {
             resolved = true;
             resolve(responseLines.join('\n'));
           }
-        }, 1500); // 1.5s quiet period (slightly longer than TCP RCON's 1s
+        }, this._silenceMs); // quiet period (default 1.5s, slightly longer than TCP RCON's 1s
         // because WebSocket has more latency + daemon buffering)
       };
 

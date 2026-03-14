@@ -10,126 +10,27 @@ process.env.DISCORD_GUILD_ID = '456';
 
 const { mockDb } = require('./helpers/mock-db');
 const { API_ERRORS } = require('../src/web-map/api-errors');
-
-// ── Capture route handlers from WebMapServer constructor ──────────────────────
-// WebMapServer._setupRoutes() registers Express routes via app.post/get/use.
-// We intercept them with a mock Express app and collect all handlers for testing.
-
-const _routes = {};
-const _middlewares = [];
-
-const mockApp = {
-  get: (pathOrKey, ...handlers) => {
-    if (typeof pathOrKey === 'string' && handlers.length > 0) {
-      _routes[`GET ${pathOrKey}`] = handlers;
-    }
-  },
-  post: (path, ...handlers) => {
-    _routes[`POST ${path}`] = handlers;
-  },
-  use: (...args) => {
-    // Capture middleware — ignore path-based static serving
-    if (typeof args[0] === 'function') {
-      _middlewares.push(args[0]);
-    } else if (typeof args[1] === 'function') {
-      // path-based use — skip
-    }
-  },
-  set: () => {},
-};
-
-// Patch express() to return our mock app
-const express = require('express');
-const _originalExpress = express;
-
-// We need to load WebMapServer and capture routes.
-// The constructor calls _setupRoutes() which registers all routes on the app.
-// We'll monkey-patch express to return our mock, then require the server module.
-
-// First, intercept the express module — WebMapServer calls express() in constructor
-const Module = require('module');
-const _origResolve = Module._resolveFilename;
-const _expressJsonCalled = { value: false };
-
-// Instead of patching require, let's use a simpler approach:
-// Directly extract the handler from registered routes.
-// We'll create a minimal WebMapServer by stubbing out filesystem & dependencies.
-
-const fs = require('fs');
-const _path = require('path');
-
-// Stub filesystem calls that happen during construction
-const _origExistsSync = fs.existsSync;
-const _origReadFileSync = fs.readFileSync;
-
-// Temporarily patch fs for constructor
-fs.existsSync = (p) => {
-  if (typeof p === 'string' && (p.includes('map-calibration') || p.includes('.sav') || p.includes('panel.html'))) {
-    return false;
-  }
-  return _origExistsSync(p);
-};
-
-fs.readFileSync = (p, ...args) => {
-  if (typeof p === 'string' && p.includes('map-calibration')) {
-    return '{}';
-  }
-  return _origReadFileSync(p, ...args);
-};
-
-// Patch express to intercept app creation
-const origExpressFn = express;
-let _capturedApp = null;
-require.cache[require.resolve('express')] = {
-  id: require.resolve('express'),
-  filename: require.resolve('express'),
-  loaded: true,
-  exports: Object.assign(
-    function fakeExpress() {
-      _capturedApp = mockApp;
-      return mockApp;
-    },
-    { static: () => (_req, _res, next) => next?.(), json: express.json, urlencoded: express.urlencoded },
-  ),
-};
-
-// Now require the server module — constructor will use our mock
 const WebMapServer = require('../src/web-map/server');
+const { extractHandler: _extractHandler, extractMiddleware: _extractMiddleware } = require('./helpers/route-helpers');
 
-// Restore patched modules
-fs.existsSync = _origExistsSync;
-fs.readFileSync = _origReadFileSync;
-require.cache[require.resolve('express')] = {
-  id: require.resolve('express'),
-  filename: require.resolve('express'),
-  loaded: true,
-  exports: origExpressFn,
-};
+// ── Create WebMapServer instance and extract route handlers ────────────────
 
-// Create WebMapServer instance (this triggers _setupRoutes which populates _routes)
-const _server = new WebMapServer(null, { db: mockDb() });
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+const client = { channels: { cache: new Map() } };
+const _server = new WebMapServer(client, { db: mockDb() });
 
 /**
- * Get the final handler from a route (last element in handlers array).
+ * Get the final handler from a route (last element in handlers stack).
  * Route handlers are [requireTier, rateLimit, handler] — we want the handler.
  */
 function getHandler(method, routePath) {
-  const key = `${method} ${routePath}`;
-  const handlers = _routes[key];
-  if (!handlers) throw new Error(`Route not found: ${key}`);
-  return handlers[handlers.length - 1];
+  return _extractHandler(_server._app, method.toLowerCase(), routePath);
 }
 
 /**
- * Get the requireTier middleware (first handler).
+ * Get the requireTier middleware (first handler in stack).
  */
 function getTierMiddleware(method, routePath) {
-  const key = `${method} ${routePath}`;
-  const handlers = _routes[key];
-  if (!handlers) throw new Error(`Route not found: ${key}`);
-  return handlers[0];
+  return _extractMiddleware(_server._app, method.toLowerCase(), routePath, 0);
 }
 
 /**

@@ -9,7 +9,7 @@
  * @param {object} opts
  * @param {Array}  [opts.players=[]]  - Rows returned by `getAllPlayers()`
  * @param {Array}  [opts.clans=[]]    - Rows returned by `getAllClans()`
- * @param {object} [opts.state=null]  - Initial state-store entries (key → value, auto-stringified)
+ * @param {object} [opts.state=null]  - Initial state-store entries (key → value); strings stored as-is, others JSON-stringified
  * @param {object} [opts.extras={}]   - Additional methods merged onto the mock
  * @returns {object} Mock DB instance
  */
@@ -19,7 +19,7 @@ function mockDb({ players = [], clans = [], state = null, extras = {} } = {}) {
   // Seed initial state
   if (state && typeof state === 'object') {
     for (const [k, v] of Object.entries(state)) {
-      store.set(k, JSON.stringify(v));
+      store.set(k, typeof v === 'string' ? v : JSON.stringify(v));
     }
   }
 
