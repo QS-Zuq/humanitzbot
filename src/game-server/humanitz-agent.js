@@ -675,20 +675,9 @@ const PERK_MAP = {
   'Enum_Professions::NewEnumerator17': 'Electrical Engineer',
 };
 
-const PERK_INDEX_MAP = {
-  0: 'Unemployed',
-  1: 'Amateur Boxer',
-  2: 'Farmer',
-  3: 'Mechanic',
-  9: 'Car Salesman',
-  10: 'Outdoorsman',
-  12: 'Chemist',
-  13: 'Emergency Medical Technician',
-  14: 'Military Veteran',
-  15: 'Thief',
-  16: 'Fire Fighter',
-  17: 'Electrical Engineer',
-};
+const PERK_INDEX_MAP = Object.fromEntries(
+  Object.entries(PERK_MAP).map(([k, v]) => [parseInt(k.split('NewEnumerator')[1], 10), v]),
+);
 
 // ─── Clan rank → display name ──────────────────────────────────────────────
 
