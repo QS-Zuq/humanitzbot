@@ -77,8 +77,25 @@ function _getIcons() {
 }
 var ICONS = _getIcons();
 
-// Rebuild icons on language change
-document.addEventListener('languageChanged', function() { ICONS = _getIcons(); });
+// Rebuild icons + re-render on language change
+document.addEventListener('languageChanged', function() {
+  ICONS = _getIcons();
+  // Re-render current snapshot entities with new labels
+  if (currentSnapData) renderTimelineEntities();
+  // Re-render info panel with new locale formatting
+  if (currentSnapIndex >= 0) updateSnapshotInfo(currentSnapIndex);
+  // Update play/pause button label
+  var playBtn = document.getElementById('tl-play-btn');
+  if (playBtn) {
+    var isPlaying = !!playbackTimer;
+    playBtn.title = tTimeline(isPlaying ? 'controls.pause' : 'controls.play');
+    playBtn.setAttribute('aria-label', tTimeline(isPlaying ? 'controls.pause' : 'controls.play'));
+  }
+  // Update speed button labels
+  document.querySelectorAll('.tl-speed-btn').forEach(function(btn) {
+    if (btn.dataset.speed) btn.title = tTimeline('controls.speed') + ' ' + btn.dataset.speed + 'x';
+  });
+});
 
 // ── Fetch helpers ──────────────────────────────────────────
 
