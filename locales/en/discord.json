@@ -729,5 +729,17 @@
     "weekly_digest_title": "📰 Weekly Digest",
     "total_events_footer": "{{count}} total events",
     "week_ending_footer": "Week ending {{date_label}}"
+  },
+  "github_tracker": {
+    "thread_title": "GitHub: {{repo}}",
+    "thread_description": "Tracking pull requests and commits for **{{repo}}**.",
+    "thread_reason": "GitHub tracker thread for {{repo}}",
+    "pr_opened": "🟢 PR Opened",
+    "pr_closed": "🔴 PR Closed",
+    "pr_merged": "🟣 PR Merged",
+    "repository": "Repository",
+    "branch": "Branch",
+    "labels": "Labels",
+    "unknown_author": "unknown"
   }
 }

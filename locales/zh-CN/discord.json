@@ -729,5 +729,17 @@
     "weekly_digest_title": "📰 每周摘要",
     "total_events_footer": "共计 {{count}} 个事件",
     "week_ending_footer": "截至 {{date_label}}"
+  },
+  "github_tracker": {
+    "thread_title": "GitHub：{{repo}}",
+    "thread_description": "追踪 **{{repo}}** 的 PR 和提交记录。",
+    "thread_reason": "{{repo}} 的 GitHub 追踪线程",
+    "pr_opened": "🟢 PR 已开启",
+    "pr_closed": "🔴 PR 已关闭",
+    "pr_merged": "🟣 PR 已合并",
+    "repository": "仓库",
+    "branch": "分支",
+    "labels": "标签",
+    "unknown_author": "未知"
   }
 }

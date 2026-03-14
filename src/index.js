@@ -43,6 +43,7 @@ const MultiServerManager = require('./server/multi-server');
 const ActivityLog = require('./modules/activity-log');
 const MilestoneTracker = require('./modules/milestone-tracker');
 const RecapService = require('./modules/recap-service');
+const GitHubTracker = require('./modules/github-tracker');
 let AnticheatIntegration;
 try {
   AnticheatIntegration = require('./modules/anticheat-integration');
@@ -193,6 +194,7 @@ let activityLog; // ActivityLog instance
 let milestoneTracker; // MilestoneTracker instance
 let recapService; // RecapService instance
 let anticheatIntegration; // AnticheatIntegration instance
+let githubTracker; // GitHubTracker instance
 let botStatusManager; // Discord profile presence/status rotation
 // Bot lifecycle embeds (online/offline) go to panel channel — game server status goes to activity thread
 let stdinConsole; // interactive stdin console for headless hosts
@@ -825,6 +827,23 @@ client.once(Events.ClientReady, async (readyClient) => {
       setStatus('Anticheat', '⚫ Disabled');
     }
 
+    // GitHub Tracker — poll GitHub repos for PR/commit changes, post to per-repo threads
+    if (config.enableGithubTracker) {
+      if (!config.githubChannelId) {
+        setStatus('GitHub Tracker', '🟡 Skipped (GITHUB_CHANNEL_ID not set)');
+        console.log('[BOT] GitHub tracker skipped — GITHUB_CHANNEL_ID not configured');
+      } else if (config.githubRepos.length === 0) {
+        setStatus('GitHub Tracker', '🟡 Skipped (GITHUB_REPOS not set)');
+        console.log('[BOT] GitHub tracker skipped — GITHUB_REPOS not configured');
+      } else {
+        githubTracker = new GitHubTracker(readyClient, { db, config });
+        await githubTracker.start();
+        setStatus('GitHub Tracker', `🟢 Active (${config.githubRepos.length} repo(s))`);
+      }
+    } else {
+      setStatus('GitHub Tracker', '⚫ Disabled');
+    }
+
     // Player Stats — DB-first reads (SaveService populates DB, PSC reads it)
     if (config.enablePlayerStats) {
       if (!hasFtp() && !db) {
@@ -1134,6 +1153,7 @@ async function shutdown(reason = 'Manual shutdown') {
   if (playerStatsChannel) playerStatsChannel.stop();
   if (activityLog) activityLog.stop();
   if (anticheatIntegration) await anticheatIntegration.stop();
+  if (githubTracker) githubTracker.stop();
   if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
   if (stdinConsole) stdinConsole.stop();
