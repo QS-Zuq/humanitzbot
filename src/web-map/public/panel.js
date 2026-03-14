@@ -4148,7 +4148,7 @@
 
     var allClans = [];
     function _clanRankLabel(rank) {
-      var m = { Leader: 'leader', 'Co-Leader': 'co_leader', Officer: 'officer', Member: 'member' };
+      var m = { Leader: 'leader', 'Co-Leader': 'co_leader', Officer: 'officer', Member: 'member', Recruit: 'recruit' };
       return m[rank] ? i18next.t('web:clans.' + m[rank]) : rank;
     }
 

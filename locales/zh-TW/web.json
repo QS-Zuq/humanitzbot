@@ -361,7 +361,8 @@
     "leader": "會長",
     "co_leader": "副會長",
     "officer": "幹部",
-    "member": "成員"
+    "member": "成員",
+    "recruit": "新人"
   },
   "activity": {
     "search_placeholder": "玩家或 物品#fingerprint...",

@@ -361,7 +361,8 @@
     "leader": "Leader",
     "co_leader": "Co-Leader",
     "officer": "Officer",
-    "member": "Member"
+    "member": "Member",
+    "recruit": "Recruit"
   },
   "activity": {
     "search_placeholder": "Player or Item#fingerprint...",
