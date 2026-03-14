@@ -5,6 +5,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const gameData = require('../src/parsers/game-data');
+const { PERK_MAP, PERK_INDEX_MAP, CLAN_RANK_MAP, SEASON_MAP } = require('../src/parsers/save-parser');
+const { ENUM_MAPS } = gameData;
+const { _projectEnum } = require('../src/parsers/game-data-extract')._test;
 
 describe('AFFLICTION_MAP', () => {
   it('is an array', () => {
@@ -271,5 +274,124 @@ describe('Enum lookup maps', () => {
 
   it('BUILD_CATEGORY_NAMES is populated', () => {
     assert.ok(Object.keys(gameData.BUILD_CATEGORY_NAMES).length > 0);
+  });
+});
+
+// ── Enum map consistency (save-parser ↔ ENUM_MAPS) ────────────────────────────
+
+describe('Enum map consistency (save-parser ↔ ENUM_MAPS)', () => {
+  it('save-parser exports are non-empty (guard against silent load failure)', () => {
+    assert.ok(Object.keys(PERK_MAP).length > 0, 'PERK_MAP should not be empty');
+    assert.ok(Object.keys(CLAN_RANK_MAP).length > 0, 'CLAN_RANK_MAP should not be empty');
+    assert.ok(Object.keys(ENUM_MAPS.Enum_Professions).length > 0, 'ENUM_MAPS.Enum_Professions should not be empty');
+    assert.ok(Object.keys(ENUM_MAPS.E_ClanRank).length > 0, 'ENUM_MAPS.E_ClanRank should not be empty');
+  });
+
+  it('PERK_MAP has exactly 12 active professions', () => {
+    assert.equal(Object.keys(PERK_MAP).length, 12);
+  });
+
+  it('ENUM_MAPS.Enum_Professions has exactly 17 entries (12 active + 5 Reserved)', () => {
+    assert.equal(Object.keys(ENUM_MAPS.Enum_Professions).length, 17);
+    const active = Object.values(ENUM_MAPS.Enum_Professions).filter((v) => v !== 'Reserved');
+    assert.equal(active.length, 12);
+  });
+
+  it('CLAN_RANK_MAP has exactly 5 ranks', () => {
+    assert.equal(Object.keys(CLAN_RANK_MAP).length, 5);
+  });
+
+  it('ENUM_MAPS.Enum_Professions matches PERK_MAP for all active professions', () => {
+    for (const [key, value] of Object.entries(PERK_MAP)) {
+      const suffix = key.split('::')[1];
+      assert.equal(
+        ENUM_MAPS.Enum_Professions[suffix],
+        value,
+        `Mismatch for ${suffix}: PERK_MAP='${value}', ENUM_MAPS='${ENUM_MAPS.Enum_Professions[suffix]}'`,
+      );
+    }
+  });
+
+  it('ENUM_MAPS.Enum_Professions has no active entries missing from PERK_MAP', () => {
+    for (const [key, value] of Object.entries(ENUM_MAPS.Enum_Professions)) {
+      if (value === 'Reserved') continue;
+      assert.ok(
+        PERK_MAP[`Enum_Professions::${key}`],
+        `ENUM_MAPS has '${key}' → '${value}' but PERK_MAP has no matching entry`,
+      );
+    }
+  });
+
+  it('ENUM_MAPS.E_ClanRank matches CLAN_RANK_MAP for all ranks', () => {
+    for (const [key, value] of Object.entries(CLAN_RANK_MAP)) {
+      const suffix = key.split('::')[1];
+      assert.equal(
+        ENUM_MAPS.E_ClanRank[suffix],
+        value,
+        `Mismatch for ${suffix}: CLAN_RANK_MAP='${value}', ENUM_MAPS='${ENUM_MAPS.E_ClanRank[suffix]}'`,
+      );
+    }
+  });
+
+  it('ENUM_MAPS.E_ClanRank has no entries missing from CLAN_RANK_MAP', () => {
+    for (const [key, value] of Object.entries(ENUM_MAPS.E_ClanRank)) {
+      assert.ok(
+        CLAN_RANK_MAP[`E_ClanRank::${key}`],
+        `ENUM_MAPS has '${key}' → '${value}' but CLAN_RANK_MAP has no matching entry`,
+      );
+    }
+  });
+
+  it('PERK_INDEX_MAP is consistent with PERK_MAP', () => {
+    for (const [key, value] of Object.entries(PERK_MAP)) {
+      const idx = parseInt(key.split('NewEnumerator')[1], 10);
+      assert.equal(PERK_INDEX_MAP[idx], value, `PERK_INDEX_MAP[${idx}] should be '${value}'`);
+    }
+    assert.equal(Object.keys(PERK_INDEX_MAP).length, 12, 'PERK_INDEX_MAP should have 12 entries');
+  });
+
+  it('ENUM_MAPS.Enum_Professions Reserved slots are only for unused indices', () => {
+    for (const [key, value] of Object.entries(ENUM_MAPS.Enum_Professions)) {
+      if (value === 'Reserved') {
+        assert.ok(!PERK_MAP[`Enum_Professions::${key}`], `${key} marked Reserved in ENUM_MAPS but exists in PERK_MAP`);
+      }
+    }
+  });
+
+  it('SEASON_MAP is intentionally absent from ENUM_MAPS', () => {
+    assert.ok(!('UDS_Season' in ENUM_MAPS), 'UDS_Season should not be in ENUM_MAPS');
+    assert.equal(Object.keys(SEASON_MAP).length, 4, 'SEASON_MAP should have 4 seasons');
+  });
+});
+
+// ── _projectEnum unit tests ────────────────────────────────────────────────────
+
+describe('_projectEnum', () => {
+  it('strips the enum prefix from keys', () => {
+    const result = _projectEnum({ 'Foo::NewEnumerator0': 'Bar' }, []);
+    assert.equal(result['NewEnumerator0'], 'Bar');
+    assert.equal(Object.keys(result).length, 1);
+  });
+
+  it('returns empty object for empty input', () => {
+    assert.deepEqual(_projectEnum({}, []), {});
+  });
+
+  it('fills reserved slots with "Reserved"', () => {
+    const result = _projectEnum({}, [4, 5]);
+    assert.equal(result['NewEnumerator4'], 'Reserved');
+    assert.equal(result['NewEnumerator5'], 'Reserved');
+    assert.equal(Object.keys(result).length, 2);
+  });
+
+  it('does not overwrite an existing key with Reserved', () => {
+    const result = _projectEnum({ 'Foo::NewEnumerator4': 'Active' }, [4]);
+    assert.equal(result['NewEnumerator4'], 'Active');
+  });
+
+  it('ignores keys without :: separator', () => {
+    const result = _projectEnum({ NoSeparator: 'Value', 'Has::Sep': 'OK' }, []);
+    assert.equal(Object.keys(result).length, 1);
+    assert.equal(result['Sep'], 'OK');
   });
 });
