@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Recap Service — automated daily and weekly summary embeds.
  *
@@ -24,22 +22,32 @@
  */
 
 const { EmbedBuilder } = require('discord.js');
+const { t, getLocale, fmtNumber } = require('../i18n');
 
 const STATE_KEY = 'recap_service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function _fmt(n) {
+function _fmt(n, locale = 'en') {
   if (n == null) return '0';
-  return Number(n).toLocaleString();
+  return fmtNumber(Number(n), locale);
 }
 
-function _fmtHours(seconds) {
-  if (!seconds || seconds <= 0) return '0h';
+function _tr(locale, key, vars = {}) {
+  return t(`discord:recap.${key}`, locale, vars);
+}
+
+function _fmtHours(seconds, locale = 'en') {
+  if (!seconds || seconds <= 0) {
+    return _tr(locale, 'duration_minutes', { minutes: fmtNumber(0, locale) });
+  }
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (h === 0) return `${m}m`;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (h === 0) return _tr(locale, 'duration_minutes', { minutes: fmtNumber(m, locale) });
+  return _tr(locale, 'duration_hours_minutes', {
+    hours: fmtNumber(h, locale),
+    minutes: fmtNumber(m, locale),
+  });
 }
 
 function _trend(current, previous) {
@@ -99,7 +107,7 @@ class RecapService {
         return;
       }
 
-      const dateLabel = this._config.getDateLabel(new Date(date + 'T12:00:00Z'));
+      const dateLabel = this._config.getDateLabel(new Date(`${date}T12:00:00Z`));
       const embed = this._buildDailyEmbed(stats, dateLabel);
 
       await this._post([embed]);
@@ -142,7 +150,6 @@ class RecapService {
     const playerKills = {};
     const playerDeaths = {};
     const playerBuilds = {};
-    const playerFish = {};
     for (const e of dayEvents) {
       const sid = e.steam_id;
       if (!sid) continue;
@@ -156,11 +163,6 @@ class RecapService {
 
     // Get kill deltas from players table — use the day's log events for kill counts
     // Kill events are tracked as individual log lines, count them
-    const killEvents = dayEvents.filter(e =>
-      e.type === 'kill_zombie' || e.type === 'kill_animal' || e.type === 'kill_bandit' ||
-      e.type === 'kill_feed' || (e.type === 'player_death_pvp' && e.target_steam_id)
-    );
-
     // Total kills: count from DB players table (more reliable)
     const allPlayers = this._db.getAllPlayers();
     let totalKills = 0;
@@ -232,50 +234,72 @@ class RecapService {
    * Build the daily recap embed.
    */
   _buildDailyEmbed(stats, dateLabel) {
+    const locale = getLocale({ serverConfig: this._config });
     const lines = [];
 
     // Header stats
-    lines.push(`👥 **${_fmt(stats.uniquePlayers)}** unique players · 📈 Peak: **${stats.peakConcurrent}**`);
+    lines.push(_tr(locale, 'daily_unique_peak_line', {
+      unique_players: _fmt(stats.uniquePlayers, locale),
+      peak: _fmt(stats.peakConcurrent, locale),
+    }));
     lines.push('');
 
     // Activity breakdown
     if (stats.deaths > 0) {
-      const pvpNote = stats.pvpKills > 0 ? ` (${stats.pvpKills} PvP)` : '';
-      lines.push(`💀 **Deaths:** ${_fmt(stats.deaths)}${pvpNote}`);
+      const pvpNote = stats.pvpKills > 0
+        ? _tr(locale, 'daily_deaths_pvp_note', { pvp_kills: _fmt(stats.pvpKills, locale) })
+        : '';
+      lines.push(_tr(locale, 'daily_deaths_line', {
+        deaths: _fmt(stats.deaths, locale),
+        pvp_note: pvpNote,
+      }));
     }
-    if (stats.builds > 0) lines.push(`🔨 **Built:** ${_fmt(stats.builds)} structures`);
-    if (stats.loots > 0) lines.push(`📦 **Looted:** ${_fmt(stats.loots)} containers`);
-    if (stats.raidHits > 0) lines.push(`💥 **Raid Damage:** ${_fmt(stats.raidHits)} hits`);
-    if (stats.fish > 0) lines.push(`🐟 **Fish Caught:** ${_fmt(stats.fish)}`);
+    if (stats.builds > 0) lines.push(_tr(locale, 'daily_built_line', { builds: _fmt(stats.builds, locale) }));
+    if (stats.loots > 0) lines.push(_tr(locale, 'daily_looted_line', { loots: _fmt(stats.loots, locale) }));
+    if (stats.raidHits > 0) lines.push(_tr(locale, 'daily_raid_hits_line', { raid_hits: _fmt(stats.raidHits, locale) }));
+    if (stats.fish > 0) lines.push(_tr(locale, 'daily_fish_line', { fish: _fmt(stats.fish, locale) }));
 
     // Top killer
     if (stats.topKiller) {
       lines.push('');
-      lines.push(`🎯 **Top Killer:** ${stats.topKiller} — ${_fmt(stats.topKillerKills)} lifetime kills`);
+      lines.push(_tr(locale, 'daily_top_killer_line', {
+        top_killer: stats.topKiller,
+        top_killer_kills: _fmt(stats.topKillerKills, locale),
+      }));
     }
 
     // New players
     if (stats.newPlayers.length > 0) {
       lines.push('');
       const names = stats.newPlayers.slice(0, 5).join(', ');
-      const extra = stats.newPlayers.length > 5 ? ` +${stats.newPlayers.length - 5} more` : '';
-      lines.push(`🆕 **New Survivors:** ${names}${extra}`);
+      const extra = stats.newPlayers.length > 5
+        ? _tr(locale, 'daily_new_survivors_extra', {
+          count: _fmt(stats.newPlayers.length - 5, locale),
+        })
+        : '';
+      lines.push(_tr(locale, 'daily_new_survivors_line', {
+        names,
+        extra,
+      }));
     }
 
     // MVP and Unluckiest
     if (stats.mvp || stats.unluckiest) {
       lines.push('');
-      if (stats.mvp) lines.push(`⭐ **MVP:** ${stats.mvp}`);
+      if (stats.mvp) lines.push(_tr(locale, 'daily_mvp_line', { mvp: stats.mvp }));
       if (stats.unluckiest && stats.unluckyDeaths > 1) {
-        lines.push(`💀 **Unluckiest:** ${stats.unluckiest} (${stats.unluckyDeaths} deaths)`);
+        lines.push(_tr(locale, 'daily_unluckiest_line', {
+          unluckiest: stats.unluckiest,
+          deaths: _fmt(stats.unluckyDeaths, locale),
+        }));
       }
     }
 
     return new EmbedBuilder()
-      .setTitle(`📊 Daily Recap — ${dateLabel}`)
+      .setTitle(_tr(locale, 'daily_recap_title', { date_label: dateLabel }))
       .setDescription(lines.join('\n'))
       .setColor(0x5865f2)
-      .setFooter({ text: `${_fmt(stats.totalEvents)} total events` })
+      .setFooter({ text: _tr(locale, 'total_events_footer', { count: _fmt(stats.totalEvents, locale) }) })
       .setTimestamp();
   }
 
@@ -288,9 +312,10 @@ class RecapService {
     if (!this._db) return;
 
     try {
+      const locale = getLocale({ serverConfig: this._config });
       // Get the last 7 days of data
       const today = this._config.getToday();
-      const weekAgo = new Date(today + 'T00:00:00.000Z');
+      const weekAgo = new Date(`${today}T00:00:00.000Z`);
       weekAgo.setDate(weekAgo.getDate() - 7);
       const startOfWeek = weekAgo.toISOString();
 
@@ -339,35 +364,68 @@ class RecapService {
       }
 
       const lines = [];
-      lines.push(`👥 **${_fmt(uniquePlayers.size)}** unique players this week${_trend(uniquePlayers.size, prevWeek?.uniquePlayers)}`);
+      lines.push(_tr(locale, 'weekly_unique_players_line', {
+        unique_players: _fmt(uniquePlayers.size, locale),
+        trend: _trend(uniquePlayers.size, prevWeek?.uniquePlayers),
+      }));
       lines.push('');
 
       // Stats with trends
-      lines.push(`💀 **Deaths:** ${_fmt(totalDeaths)}${_trend(totalDeaths, prevWeek?.deaths)}`);
-      if (pvpKills > 0) lines.push(`⚔️ **PvP Kills:** ${_fmt(pvpKills)}${_trend(pvpKills, prevWeek?.pvpKills)}`);
-      lines.push(`🔨 **Built:** ${_fmt(totalBuilds)} structures${_trend(totalBuilds, prevWeek?.builds)}`);
-      lines.push(`📦 **Looted:** ${_fmt(totalLoots)} containers${_trend(totalLoots, prevWeek?.loots)}`);
+      lines.push(_tr(locale, 'weekly_deaths_line', {
+        deaths: _fmt(totalDeaths, locale),
+        trend: _trend(totalDeaths, prevWeek?.deaths),
+      }));
+      if (pvpKills > 0) {
+        lines.push(_tr(locale, 'weekly_pvp_kills_line', {
+          pvp_kills: _fmt(pvpKills, locale),
+          trend: _trend(pvpKills, prevWeek?.pvpKills),
+        }));
+      }
+      lines.push(_tr(locale, 'weekly_built_line', {
+        builds: _fmt(totalBuilds, locale),
+        trend: _trend(totalBuilds, prevWeek?.builds),
+      }));
+      lines.push(_tr(locale, 'weekly_looted_line', {
+        loots: _fmt(totalLoots, locale),
+        trend: _trend(totalLoots, prevWeek?.loots),
+      }));
       lines.push('');
 
       // Player of the Week
       if (topKillers.length > 0) {
-        lines.push(`🏆 **Top Killer:** ${topKillers[0].name} — ${_fmt(topKillers[0].lifetime_kills)} kills`);
+        lines.push(_tr(locale, 'weekly_top_killer_line', {
+          top_killer: topKillers[0].name,
+          top_killer_kills: _fmt(topKillers[0].lifetime_kills, locale),
+        }));
       }
       if (topPlaytime.length > 0 && topPlaytime[0].playtime_seconds > 0) {
-        lines.push(`⏱️ **Most Active:** ${topPlaytime[0].name} — ${_fmtHours(topPlaytime[0].playtime_seconds)}`);
+        lines.push(_tr(locale, 'weekly_most_active_line', {
+          most_active: topPlaytime[0].name,
+          most_active_hours: _fmtHours(topPlaytime[0].playtime_seconds, locale),
+        }));
       }
       if (unluckiest && unluckyDeaths > 2) {
-        lines.push(`💀 **Unluckiest:** ${unluckiest} (${unluckyDeaths} deaths this week)`);
+        lines.push(_tr(locale, 'weekly_unluckiest_line', {
+          unluckiest,
+          unlucky_deaths: _fmt(unluckyDeaths, locale),
+        }));
       }
 
       lines.push('');
-      lines.push(`📈 **${_fmt(events.length)}** total events this week${_trend(events.length, prevWeek?.totalEvents)}`);
+      lines.push(_tr(locale, 'weekly_total_events_line', {
+        total_events: _fmt(events.length, locale),
+        trend: _trend(events.length, prevWeek?.totalEvents),
+      }));
 
       const embed = new EmbedBuilder()
-        .setTitle('📰 Weekly Digest')
+        .setTitle(_tr(locale, 'weekly_digest_title'))
         .setDescription(lines.join('\n'))
         .setColor(0xf59e0b)
-        .setFooter({ text: `Week ending ${this._config.getDateLabel()}` })
+        .setFooter({
+          text: _tr(locale, 'week_ending_footer', {
+            date_label: this._config.getDateLabel(),
+          }),
+        })
         .setTimestamp();
 
       await this._post([embed]);
@@ -395,22 +453,8 @@ class RecapService {
     await this.postDailyRecap(yesterdayDate);
 
     // Check if today is the weekly reset day
-    const now = new Date();
-    const dayOfWeek = parseInt(
-      new Intl.DateTimeFormat('en-US', {
-        timeZone: this._config.botTimezone,
-        weekday: 'short',
-      }).formatToParts(now).find(p => p.type === 'weekday')?.value || '0',
-      10,
-    );
-    // Intl weekday as short name → map to number
-    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-    const todayNum = dayMap[
-      new Intl.DateTimeFormat('en-US', {
-        timeZone: this._config.botTimezone,
-        weekday: 'short',
-      }).format(now)
-    ] ?? -1;
+    const today = this._config.getToday();
+    const todayNum = new Date(`${today}T12:00:00Z`).getUTCDay();
 
     if (todayNum === this._config.weeklyResetDay) {
       await this.postWeeklyDigest();
@@ -434,7 +478,7 @@ class RecapService {
 
   _getPostTarget() {
     // Post to the log channel directly (not the thread — recaps are top-level)
-    if (this._logWatcher && this._logWatcher.logChannel) {
+    if (this._logWatcher?.logChannel) {
       return this._logWatcher.logChannel;
     }
     const channelId = this._config.logChannelId;
@@ -478,20 +522,10 @@ class RecapService {
   // ── Utility ────────────────────────────────────────────────
 
   _getYesterday() {
-    const now = new Date();
-    now.setDate(now.getDate() - 1);
-    try {
-      const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: this._config.botTimezone,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-      }).formatToParts(now);
-      const y = parts.find(p => p.type === 'year').value;
-      const m = parts.find(p => p.type === 'month').value;
-      const d = parts.find(p => p.type === 'day').value;
-      return `${y}-${m}-${d}`;
-    } catch {
-      return now.toISOString().split('T')[0];
-    }
+    const today = this._config.getToday();
+    const d = new Date(`${today}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().split('T')[0];
   }
 }
 

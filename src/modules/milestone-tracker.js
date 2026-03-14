@@ -20,6 +20,7 @@
  */
 
 const { EmbedBuilder } = require('discord.js');
+const { t, getLocale, fmtNumber } = require('../i18n');
 
 // ── Milestone Thresholds ─────────────────────────────────────────────────────
 
@@ -40,15 +41,15 @@ const CLAN_MEMBER_THRESHOLDS = [5, 10, 15, 20];
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
-function _fmtKills(n) {
-  if (n >= 1000) return `${Math.floor(n / 1000).toLocaleString()}K`;
-  return n.toLocaleString();
+function _fmtKills(n, locale = 'en') {
+  if (n >= 1000) return `${fmtNumber(Math.floor(n / 1000), locale)}K`;
+  return fmtNumber(n, locale);
 }
 
-function _fmtHours(ms) {
+function _fmtHours(ms, locale = 'en') {
   const h = Math.floor(ms / 3600000);
   if (h >= 1000) return `${(h / 1000).toFixed(1)}K`;
-  return h.toLocaleString();
+  return fmtNumber(h, locale);
 }
 
 // ── State key for bot_state ──────────────────────────────────────────────────
@@ -100,6 +101,7 @@ class MilestoneTracker {
     this._logWatcher = opts.logWatcher || null;
     this._config = opts.config || require('../config');
     this._label = opts.label || 'MILESTONES';
+    this._locale = getLocale({ serverConfig: this._config });
 
     // In-memory state (loaded from DB on start)
     this._state = _loadState(this._db);
@@ -203,9 +205,12 @@ class MilestoneTracker {
       if (kills >= threshold && !announced.includes(threshold)) {
         announced.push(threshold);
         this._queueEmbed(
-          `🎯 ${name} reached **${_fmtKills(threshold)} zombie kills!**`,
+          t('discord:milestone_tracker.kill_milestone', this._locale, {
+            name,
+            kills: _fmtKills(threshold, this._locale),
+          }),
           0x3fb950,
-          `${kills.toLocaleString()} total kills`,
+          `${fmtNumber(kills, this._locale)} total kills`,
         );
         changed = true;
       }
@@ -225,9 +230,12 @@ class MilestoneTracker {
       if (playtimeMs >= threshold && !announced.includes(threshold)) {
         announced.push(threshold);
         this._queueEmbed(
-          `⏱️ ${name} has spent **${_fmtHours(threshold)} hours** in-game!`,
+          t('discord:milestone_tracker.playtime_milestone', this._locale, {
+            name,
+            hours: _fmtHours(threshold, this._locale),
+          }),
           0x5865f2,
-          `${_fmtHours(playtimeMs)} hours total`,
+          `${_fmtHours(playtimeMs, this._locale)} hours total`,
         );
         changed = true;
       }
@@ -248,7 +256,7 @@ class MilestoneTracker {
         announced.push(threshold);
         const label = threshold === 1 ? '1 day' : `${threshold} days`;
         this._queueEmbed(
-          `🏕️ ${name} has survived **${label}** without dying!`,
+          t('discord:milestone_tracker.survival_milestone', this._locale, { name, days: label }),
           0xf59e0b,
           `Day ${daysSurvived}`,
         );
@@ -283,7 +291,7 @@ class MilestoneTracker {
 
       announced.push(cName);
       this._queueEmbed(
-        `⭐ ${name} completed the **${cName}** challenge!`,
+        t('discord:milestone_tracker.challenge_completed', this._locale, { name, challenge_name: cName }),
         0xeab308,
         null,
       );
@@ -312,7 +320,10 @@ class MilestoneTracker {
         if (!profName || announcedProfs.includes(profName)) continue;
         announcedProfs.push(profName);
         this._queueEmbed(
-          `🏆 ${name} is the **first** to unlock the **${profName}** profession!`,
+          t('discord:milestone_tracker.first_profession_unlock', this._locale, {
+            name,
+            profession_name: profName,
+          }),
           0xa855f7,
           null,
         );
@@ -345,7 +356,10 @@ class MilestoneTracker {
           if (memberCount >= threshold && !announced.includes(threshold)) {
             announced.push(threshold);
             this._queueEmbed(
-              `🏰 Clan **[${clanName}]** reached **${threshold} members!**`,
+              t('discord:milestone_tracker.clan_milestone', this._locale, {
+                clan_name: clanName,
+                members: threshold,
+              }),
               0x6366f1,
               `${memberCount} members total`,
             );

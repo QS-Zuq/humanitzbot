@@ -292,6 +292,9 @@ function createServerConfig(serverDef) {
   if (serverDef.botTimezone) merged.botTimezone = serverDef.botTimezone;
   if (serverDef.logTimezone) merged.logTimezone = serverDef.logTimezone;
 
+  // Locale override (falls back to primary's BOT_LOCALE)
+  if (serverDef.locale) merged.botLocale = serverDef.locale;
+
   // Docker container name (for restart commands) — explicit to prevent
   // inheriting primary's container name and accidentally restarting it
   merged.dockerContainer = serverDef.dockerContainer || '';

@@ -85,6 +85,31 @@ function formatMs(ms) {
   return parts.join(' ');
 }
 
+function _getTimePartsInTz(date, timeZone) {
+  const parts = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone,
+  }).formatToParts(date);
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+  return { hour, minute };
+}
+
+function _getWeekdayInTz(date, timeZone) {
+  const parts = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone,
+  }).formatToParts(date);
+  const year = parseInt(parts.find((p) => p.type === 'year')?.value || '1970', 10);
+  const month = parseInt(parts.find((p) => p.type === 'month')?.value || '1', 10);
+  const day = parseInt(parts.find((p) => p.type === 'day')?.value || '1', 10);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
 /**
  * Static PvP schedule label (no live countdown).
  * Returns e.g. "PvP Schedule: Mon, Wed, Fri 18:00-22:00 UTC" or ''.
@@ -122,11 +147,7 @@ function difficultyScheduleLines(cfg) {
 
   // Determine active time slot
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', hour12: false,
-    timeZone: cfg.botTimezone,
-  });
-  const [h, m] = timeStr.split(':').map(Number);
+  const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
   const timeMins = times.map(t => {
     const [th, tm] = t.split(':').map(Number);
@@ -344,11 +365,7 @@ function _difficultyText() {
 
   // Determine active time slot
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', hour12: false,
-    timeZone: cfg.botTimezone,
-  });
-  const [h, m] = timeStr.split(':').map(Number);
+  const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
   const timeMins = times.map(t => { const [th, tm] = t.split(':').map(Number); return th * 60 + (tm || 0); });
   let activeSlot = 0;
@@ -390,20 +407,11 @@ function _pvpScheduleText() {
 
   // Get current time in the configured timezone
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', hour12: false,
-    timeZone: this._config.botTimezone,
-  });
-  const [h, m] = timeStr.split(':').map(Number);
+  const { hour: h, minute: m } = _getTimePartsInTz(now, this._config.botTimezone);
   const nowMin = h * 60 + m;
 
   // Day of week in bot timezone
-  const dayStr = now.toLocaleDateString('en-US', {
-    weekday: 'short',
-    timeZone: this._config.botTimezone,
-  });
-  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  const dayOfWeek = dayMap[dayStr] ?? now.getDay();
+  const dayOfWeek = _getWeekdayInTz(now, this._config.botTimezone);
 
   // Resolve hours for a given day (per-day override or global default)
   const getHours = (day) => {

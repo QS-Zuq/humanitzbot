@@ -18,6 +18,7 @@ const {
 } = require('discord.js');
 const { SETUP } = require('./panel-constants');
 const { writeEnvValues } = require('./panel-env');
+const { t, getLocale } = require('../i18n');
 
 /**
  * Detect SSH private keys on the bot's host machine.
@@ -123,10 +124,11 @@ async function _detectLocalGameServer() {
  * Launch the setup wizard. Posts the initial profile selection embed.
  */
 async function _startSetupWizard() {
+  const locale = getLocale({ serverConfig: this._config });
   this._setupWizard = { step: 'profile', profile: null, rcon: null, sftp: null, panel: null, channels: {} };
 
   const embed = new EmbedBuilder()
-    .setTitle('🔧 HumanitZ Bot — Setup Wizard')
+    .setTitle(t('discord:panel_setup_wizard.wizard_title', locale))
     .setColor(0x5865f2)
     .setDescription([
       'Welcome! This wizard will help you configure your bot.',
@@ -137,7 +139,7 @@ async function _startSetupWizard() {
       '🌐 **Bisect / Remote host** — Game server on a remote host (Pterodactyl panel auto-detection)',
       '📡 **RCON only** — No file access, basic features only (chat relay, status, commands)',
     ].join('\n'))
-    .setFooter({ text: 'Step 1 of 4 — Hosting Profile' });
+    .setFooter({ text: t('discord:panel_setup_wizard.step_1_footer', locale) });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(SETUP.PROFILE_VPS).setLabel('VPS / Self-hosted').setStyle(ButtonStyle.Primary).setEmoji('🖥️'),
@@ -234,15 +236,16 @@ async function _handleSetupProfile(interaction, id) {
  * Show Panel API credentials modal (Bisect auto-detect step).
  */
 async function _handleSetupPanelButton(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   const modal = new ModalBuilder()
     .setCustomId(SETUP.PANEL_MODAL)
-    .setTitle('Panel API — Auto-Detect')
+    .setTitle(t('discord:panel_setup_wizard.panel_auto_detect_title', locale))
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('panel_url')
           .setLabel('Panel Server URL')
-          .setPlaceholder('https://games.bisecthosting.com/server/a1b2c3d4')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_panel_url', locale))
           .setValue(this._setupWizard.panel?.url || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -251,7 +254,7 @@ async function _handleSetupPanelButton(interaction) {
         new TextInputBuilder()
           .setCustomId('api_key')
           .setLabel('Panel API Key')
-          .setPlaceholder('ptlc_xxxxxxxxxxxx (Account → API Credentials)')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_panel_api_key', locale))
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
       ),
@@ -588,16 +591,17 @@ async function _handleSetupPanelManualFallback(interaction) {
  * Show RCON credentials modal.
  */
 async function _handleSetupRconButton(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   const d = this._setupWizard.defaults || {};
   const modal = new ModalBuilder()
     .setCustomId(SETUP.RCON_MODAL)
-    .setTitle('RCON Connection')
+    .setTitle(t('discord:panel_setup_wizard.rcon_connection_title', locale))
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('host')
           .setLabel('RCON Host')
-          .setPlaceholder(d.rconHost || '127.0.0.1')
+          .setPlaceholder(d.rconHost || t('discord:panel_setup_wizard.placeholder_rcon_host', locale))
           .setValue(this._setupWizard.rcon?.host || d.rconHost || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -606,7 +610,7 @@ async function _handleSetupRconButton(interaction) {
         new TextInputBuilder()
           .setCustomId('port')
           .setLabel('RCON Port')
-          .setPlaceholder(d.rconPort || '27015')
+          .setPlaceholder(d.rconPort || t('discord:panel_setup_wizard.placeholder_rcon_port', locale))
           .setValue(this._setupWizard.rcon?.port || d.rconPort || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -615,7 +619,7 @@ async function _handleSetupRconButton(interaction) {
         new TextInputBuilder()
           .setCustomId('password')
           .setLabel('RCON Password')
-          .setPlaceholder(d.rconPassword ? '(auto-detected from settings)' : 'Your RCON password')
+          .setPlaceholder(d.rconPassword ? '(auto-detected from settings)' : t('discord:panel_setup_wizard.placeholder_rcon_password', locale))
           .setValue(this._setupWizard.rcon?.password || d.rconPassword || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -664,6 +668,7 @@ async function _handleSetupRconModal(interaction) {
  * Show SFTP credentials modal.
  */
 async function _handleSetupSftpButton(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   const d = this._setupWizard.defaults || {};
   // For VPS, try to detect the current OS user for SFTP username default
   let defaultUser = '';
@@ -677,13 +682,13 @@ async function _handleSetupSftpButton(interaction) {
     : 'No keys found — enter path or use password';
   const modal = new ModalBuilder()
     .setCustomId(SETUP.SFTP_MODAL)
-    .setTitle('SFTP Connection')
+    .setTitle(t('discord:panel_setup_wizard.sftp_connection_title', locale))
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('host')
           .setLabel('SFTP Host')
-          .setPlaceholder(d.ftpHost || 'Same as RCON host')
+          .setPlaceholder(d.ftpHost || t('discord:panel_setup_wizard.placeholder_sftp_host', locale))
           .setValue(this._setupWizard.sftp?.host || d.ftpHost || this._setupWizard.rcon?.host || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -692,7 +697,7 @@ async function _handleSetupSftpButton(interaction) {
         new TextInputBuilder()
           .setCustomId('port')
           .setLabel('SFTP Port')
-          .setPlaceholder(d.ftpPort || '22')
+          .setPlaceholder(d.ftpPort || t('discord:panel_setup_wizard.placeholder_sftp_port', locale))
           .setValue(this._setupWizard.sftp?.port || d.ftpPort || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
@@ -710,7 +715,7 @@ async function _handleSetupSftpButton(interaction) {
         new TextInputBuilder()
           .setCustomId('password')
           .setLabel('SFTP Password (blank if using SSH key)')
-          .setPlaceholder('Leave blank if using key auth without passphrase')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_sftp_passphrase', locale))
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
       ),
@@ -869,16 +874,17 @@ async function _handleSetupSkipSftp(interaction) {
  * Show channel assignment modal.
  */
 async function _handleSetupChannelsButton(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   const ch = this._setupWizard.channels || {};
   const modal = new ModalBuilder()
     .setCustomId(SETUP.CHANNELS_MODAL)
-    .setTitle('Channel Assignment')
+    .setTitle(t('discord:panel_setup_wizard.channel_assignment_title', locale))
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('status')
           .setLabel('Server Status Channel ID')
-          .setPlaceholder('Right-click channel → Copy Channel ID')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.serverStatus || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
@@ -887,7 +893,7 @@ async function _handleSetupChannelsButton(interaction) {
         new TextInputBuilder()
           .setCustomId('stats')
           .setLabel('Player Stats Channel ID')
-          .setPlaceholder('Right-click channel → Copy Channel ID')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.playerStats || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
@@ -896,7 +902,7 @@ async function _handleSetupChannelsButton(interaction) {
         new TextInputBuilder()
           .setCustomId('log')
           .setLabel('Activity Log Channel ID')
-          .setPlaceholder('Right-click channel → Copy Channel ID')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.log || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
@@ -905,7 +911,7 @@ async function _handleSetupChannelsButton(interaction) {
         new TextInputBuilder()
           .setCustomId('chat')
           .setLabel('Chat Relay Channel ID (also admin channel)')
-          .setPlaceholder('Right-click channel → Copy Channel ID')
+          .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.chat || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(false)
@@ -942,6 +948,7 @@ async function _handleSetupChannelsModal(interaction) {
  * Apply all wizard settings — write to .env and restart.
  */
 async function _handleSetupApply(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   await interaction.deferUpdate();
 
   const wiz = this._setupWizard;
@@ -1084,10 +1091,10 @@ async function _handleSetupApply(interaction) {
   successLines.push('4. This channel becomes your admin dashboard.');
 
   const successEmbed = new EmbedBuilder()
-    .setTitle('✅ Setup Complete!')
+    .setTitle(t('discord:panel_setup_wizard.setup_complete_title', locale))
     .setColor(0x2ecc71)
     .setDescription(successLines.join('\n'))
-    .setFooter({ text: 'Restarting...' });
+    .setFooter({ text: t('discord:panel_setup_wizard.restarting', locale) });
 
   try {
     await this.panelMessage.edit({ embeds: [successEmbed], components: [] });
@@ -1102,9 +1109,10 @@ async function _handleSetupApply(interaction) {
  * Build and update the setup wizard embed based on current step.
  */
 async function _updateSetupEmbed(interaction) {
+  const locale = getLocale({ serverConfig: this._config });
   const wiz = this._setupWizard;
   const embed = new EmbedBuilder()
-    .setTitle('🔧 HumanitZ Bot — Setup Wizard')
+    .setTitle(t('discord:panel_setup_wizard.wizard_title', locale))
     .setColor(0x5865f2);
 
   const lines = [];

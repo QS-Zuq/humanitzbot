@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const config = require('../config');
+const { t, getLocalizations } = require('../i18n');
 
 /**
  * /threads rebuild — Downloads full log history from SFTP, groups events by
@@ -462,11 +463,14 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('threads')
-    .setDescription('Rebuild daily activity summary threads from log history (Admin only)')
+    .setNameLocalizations(getLocalizations('commands:threads.name'))
+    .setDescription(t('commands:threads.description', 'en'))
+    .setDescriptionLocalizations(getLocalizations('commands:threads.description'))
     .addIntegerOption(opt =>
       opt
         .setName('days')
-        .setDescription('How many days back to rebuild (default: all)')
+        .setDescription(t('commands:threads.options.days', 'en'))
+        .setDescriptionLocalizations(getLocalizations('commands:threads.options.days'))
         .setMinValue(1)
         .setRequired(false)
     )
@@ -474,22 +478,23 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await interaction.editReply('⏳ Downloading log files from server…');
+    const locale = interaction.locale || 'en';
+    await interaction.editReply(t('commands:threads.reply.downloading', locale));
 
     const daysBack = interaction.options.getInteger('days');
     const result = await rebuildThreads(interaction.client, daysBack);
 
     if (result.error) {
-      return interaction.editReply(`❌ ${result.error}`);
+      return interaction.editReply(t('commands:threads.reply.error', locale, { error: result.error }));
     }
 
     const parts = [];
-    if (result.created > 0) parts.push(`✅ Created **${result.created}** activity summary thread(s)`);
-    if (result.deleted > 0) parts.push(`🗑️ Replaced **${result.deleted}** existing thread(s)`);
-    if (result.preserved > 0) parts.push(`📋 Preserved **${result.preserved}** message(s) from old threads`);
-    if (result.cleaned > 0) parts.push(`🧹 Cleaned **${result.cleaned}** old summary message(s)`);
-    if (result.created === 0 && result.deleted === 0) parts.push('ℹ️ No events found for the requested date range.');
-    parts.push('\n💬 *Chat threads are built from live RCON polling — historic chat can be replayed from the DB using `/threads source:db`.*');
+    if (result.created > 0) parts.push(t('commands:threads.reply.created', locale, { count: result.created }));
+    if (result.deleted > 0) parts.push(t('commands:threads.reply.replaced', locale, { count: result.deleted }));
+    if (result.preserved > 0) parts.push(t('commands:threads.reply.preserved', locale, { count: result.preserved }));
+    if (result.cleaned > 0) parts.push(t('commands:threads.reply.cleaned', locale, { count: result.cleaned }));
+    if (result.created === 0 && result.deleted === 0) parts.push(t('commands:threads.reply.no_events', locale));
+    parts.push(`\n${t('commands:threads.reply.chat_note', locale)}`);
 
     await interaction.editReply(parts.join('\n'));
   },

@@ -217,10 +217,10 @@
 
         <!-- Top bar: title + status -->
         <div class="landing-top">
-          <h1 id="landing-title" class="font-heading font-bold text-text-bright" style="font-size:clamp(1.4rem,3vw,2rem);line-height:1">HumanitZ Server</h1>
+          <h1 id="landing-title" class="font-heading font-bold text-text-bright" style="font-size:clamp(1.4rem,3vw,2rem);line-height:1" data-i18n="web:title.landing">HumanitZ Server</h1>
           <div id="landing-status-badge" class="landing-status-pill">
             <span id="ls-status-dot" class="w-2 h-2 rounded-full bg-muted"></span>
-            <span id="ls-status-text" class="text-muted text-xs">Checking...</span>
+            <span id="ls-status-text" class="text-muted text-xs" data-i18n="web:landing.status.checking">Checking...</span>
           </div>
         </div>
 
@@ -239,13 +239,13 @@
           <div class="landing-auth-section" id="landing-auth">
             <a id="landing-auth-btn" href="/auth/login" class="landing-discord-btn">
               <svg width="18" height="14" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.7 40.7 0 00-1.8 3.7c-5.5-.8-11-.8-16.3 0A37.3 37.3 0 0025.3.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.4 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32 .3 45.1v.1a58.8 58.8 0 0017.8 9 .2.2 0 00.3-.1c1.4-1.9 2.6-3.9 3.6-6a.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 010-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .3 36.4 36.4 0 01-5.5 2.7.2.2 0 00-.1.3c1.1 2.1 2.3 4.1 3.7 6a.2.2 0 00.2.1 58.6 58.6 0 0017.9-9v-.1c1.4-15-2.3-28-9.8-39.6a.2.2 0 00-.1-.1zM23.7 37c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7zm23.2 0c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7z"/></svg>
-              Sign in with Discord
+              <span data-i18n="web:auth.sign_in_with_discord">Sign in with Discord</span>
             </a>
           </div>
           <div id="landing-links" class="hidden landing-links-row">
-            <a id="link-discord" href="https://discord.gg/GKAyNdJ2Fh" target="_blank" class="text-muted hover:text-accent transition-colors">HumanitZ Discord</a>
+            <a id="link-discord" href="https://discord.gg/GKAyNdJ2Fh" target="_blank" class="text-muted hover:text-accent transition-colors" data-i18n="web:landing.links.discord">HumanitZ Discord</a>
             <span class="text-border">&middot;</span>
-            <a href="https://store.steampowered.com/app/1534530/HumanitZ/" target="_blank" class="text-muted hover:text-accent transition-colors">Steam</a>
+            <a href="https://store.steampowered.com/app/1534530/HumanitZ/" target="_blank" class="text-muted hover:text-accent transition-colors" data-i18n="web:landing.links.steam">Steam</a>
           </div>
         </div>
 
@@ -256,15 +256,15 @@
             <span>QS-Zuq/humanitzbot</span>
           </a>
           <span class="landing-footer-sep">&middot;</span>
-          <a href="https://github.com/QS-Zuq/humanitzbot/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="landing-footer-link">MIT License</a>
+          <a href="https://github.com/QS-Zuq/humanitzbot/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="landing-footer-link" data-i18n="web:landing.footer.mit_license">MIT License</a>
         </div>
         <div class="landing-footer-attr">
-          HumanitZ by <a href="https://humanitzgame.com/" target="_blank" rel="noopener noreferrer">Yodubzz Studios</a>
-          &middot; Map by <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">Leaflet</a>
-          &middot; Icons by <a href="https://lucide.dev" target="_blank" rel="noopener noreferrer">Lucide</a>
-          &middot; Tooltips by <a href="https://atomiks.github.io/tippyjs/" target="_blank" rel="noopener noreferrer">Tippy.js</a>
-          &middot; Charts by <a href="https://www.chartjs.org" target="_blank" rel="noopener noreferrer">Chart.js</a>
-          &middot; Animation by <a href="https://gsap.com" target="_blank" rel="noopener noreferrer">GSAP</a>
+          <span data-i18n="web:landing.footer.humanitz_by">HumanitZ by</span> <a href="https://humanitzgame.com/" target="_blank" rel="noopener noreferrer">Yodubzz Studios</a>
+          &middot; <span data-i18n="web:landing.footer.map_by">Map by</span> <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">Leaflet</a>
+          &middot; <span data-i18n="web:landing.footer.icons_by">Icons by</span> <a href="https://lucide.dev" target="_blank" rel="noopener noreferrer">Lucide</a>
+          &middot; <span data-i18n="web:landing.footer.tooltips_by">Tooltips by</span> <a href="https://atomiks.github.io/tippyjs/" target="_blank" rel="noopener noreferrer">Tippy.js</a>
+          &middot; <span data-i18n="web:landing.footer.charts_by">Charts by</span> <a href="https://www.chartjs.org" target="_blank" rel="noopener noreferrer">Chart.js</a>
+          &middot; <span data-i18n="web:landing.footer.animation_by">Animation by</span> <a href="https://gsap.com" target="_blank" rel="noopener noreferrer">GSAP</a>
         </div>
         </footer>
       </div>
@@ -280,20 +280,20 @@
           <span class="text-base sidebar-mini hidden font-heading font-bold text-text-bright">H</span>
         </div>
         <ul class="flex-1 py-2 overflow-y-auto space-y-0.5">
-          <li><a href="#" class="nav-link active" data-tab="dashboard"><i data-lucide="layout-dashboard" class="nav-ico"></i><span class="nav-txt">Dashboard</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="map" data-min-tier="2"><i data-lucide="map" class="nav-ico"></i><span class="nav-txt">Live Map</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="timeline" data-min-tier="2"><i data-lucide="clock" class="nav-ico"></i><span class="nav-txt">Timeline</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="players" data-min-tier="1"><i data-lucide="users" class="nav-ico"></i><span class="nav-txt">Players</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="clans" data-min-tier="1"><i data-lucide="shield" class="nav-ico"></i><span class="nav-txt">Clans</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="activity" data-min-tier="1"><i data-lucide="activity" class="nav-ico"></i><span class="nav-txt">Activity</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="chat" data-min-tier="1"><i data-lucide="message-circle" class="nav-ico"></i><span class="nav-txt">Chat</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="items" data-min-tier="3"><i data-lucide="package" class="nav-ico"></i><span class="nav-txt">Items</span></a></li>
+          <li><a href="#" class="nav-link active" data-tab="dashboard"><i data-lucide="layout-dashboard" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.dashboard">Dashboard</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="map" data-min-tier="2"><i data-lucide="map" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.map">Live Map</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="timeline" data-min-tier="2"><i data-lucide="clock" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.timeline">Timeline</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="players" data-min-tier="1"><i data-lucide="users" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.players">Players</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="clans" data-min-tier="1"><i data-lucide="shield" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.clans">Clans</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="activity" data-min-tier="1"><i data-lucide="activity" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.activity">Activity</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="chat" data-min-tier="1"><i data-lucide="message-circle" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.chat">Chat</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="items" data-min-tier="3"><i data-lucide="package" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.items">Items</span></a></li>
           <li class="nav-sep" data-min-tier="3"></li>
-          <li><a href="#" class="nav-link" data-tab="console" data-min-tier="3"><i data-lucide="terminal" class="nav-ico"></i><span class="nav-txt">Console</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="settings" data-min-tier="3"><i data-lucide="settings" class="nav-ico"></i><span class="nav-txt">Settings</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="controls" data-min-tier="3"><i data-lucide="power" class="nav-ico"></i><span class="nav-txt">Controls</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="database" data-min-tier="3"><i data-lucide="database" class="nav-ico"></i><span class="nav-txt">Database</span></a></li>
-          <li><a href="#" class="nav-link" data-tab="anticheat" data-min-tier="3"><i data-lucide="shield-alert" class="nav-ico"></i><span class="nav-txt">Anticheat</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="console" data-min-tier="3"><i data-lucide="terminal" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.console">Console</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="settings" data-min-tier="3"><i data-lucide="settings" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.settings">Settings</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="controls" data-min-tier="3"><i data-lucide="power" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.controls">Controls</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="database" data-min-tier="3"><i data-lucide="database" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.database">Database</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="anticheat" data-min-tier="3"><i data-lucide="shield-alert" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.anticheat">Anticheat</span></a></li>
         </ul>
         <div class="px-3 py-3 border-t border-border">
           <div class="flex items-center gap-2 mb-2 sidebar-user cursor-pointer" id="user-block" data-tippy-content="Toggle view mode">
@@ -302,11 +302,16 @@
               <div id="user-name" class="text-xs font-medium text-gray-300 truncate max-w-[120px]">-</div>
               <div class="flex items-center gap-1.5">
                 <span id="user-tier" class="text-[10px] text-muted capitalize">-</span>
-                <span id="view-mode-badge" class="hidden text-[9px] font-medium text-amber-400 bg-amber-400/10 px-1.5 rounded">SURVIVOR VIEW</span>
+                <span id="view-mode-badge" class="hidden text-[9px] font-medium text-amber-400 bg-amber-400/10 px-1.5 rounded" data-i18n="web:sidebar.survivor_view">SURVIVOR VIEW</span>
               </div>
             </div>
           </div>
-          <a href="/auth/logout" class="block text-center text-[11px] text-muted/50 hover:text-gray-300 transition-colors">Sign out</a>
+          <select id="lang-switcher" class="input-field w-full text-xs mb-2" title="Language" data-i18n-attr='{"title":"web:sidebar.language"}'>
+            <option value="en" data-i18n="web:sidebar.languages.en">English</option>
+            <option value="zh-TW" data-i18n="web:sidebar.languages.zh_tw">繁體中文</option>
+            <option value="zh-CN" data-i18n="web:sidebar.languages.zh_cn">简体中文</option>
+          </select>
+          <a href="/auth/logout" class="block text-center text-[11px] text-muted/50 hover:text-gray-300 transition-colors" data-i18n="web:auth.sign_out">Sign out</a>
         </div>
       </nav>
 
@@ -315,13 +320,13 @@
 
         <!-- Multi-server carousel — shown above all tabs when multi-server active -->
         <div id="server-bar" class="server-carousel hidden">
-          <button id="srv-prev" class="srv-carousel-btn" aria-label="Previous server"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+          <button id="srv-prev" class="srv-carousel-btn" aria-label="Previous server" data-i18n-attr='{"aria-label":"web:server_bar.previous_server"}'><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
           <div class="srv-carousel-info">
             <span id="srv-carousel-dot" class="srv-carousel-dot"></span>
             <span id="srv-carousel-name" class="srv-carousel-name">-</span>
             <span id="srv-carousel-count" class="srv-carousel-count">1/1</span>
           </div>
-          <button id="srv-next" class="srv-carousel-btn" aria-label="Next server"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+          <button id="srv-next" class="srv-carousel-btn" aria-label="Next server" data-i18n-attr='{"aria-label":"web:server_bar.next_server"}'><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
         </div>
 
         <!-- DASHBOARD -->
@@ -329,33 +334,33 @@
           <!-- Single-server dashboard (shown when only one server) -->
           <div id="dash-single" class="flex flex-col flex-1 min-h-0 space-y-4">
           <div class="flex items-center justify-between">
-            <h1 class="page-title">Dashboard</h1>
+            <h1 class="page-title" data-i18n="web:pages.dashboard">Dashboard</h1>
             <div class="flex items-center gap-3">
               <span id="d-tz" class="text-[11px] text-muted font-mono"></span>
               <span class="text-[11px] text-muted/40 flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3 animate-spin" style="animation-duration:30s"></i> 30s</span>
             </div>
           </div>
           <div id="dashboard-connect" class="hidden flex items-center gap-3 bg-surface-100 border border-border rounded-lg px-4 py-2.5">
-            <span class="text-muted text-xs shrink-0">Connect</span>
+            <span class="text-muted text-xs shrink-0" data-i18n="web:dashboard.connect">Connect</span>
             <code id="d-address" class="text-accent font-mono text-sm tracking-wide truncate min-w-0">-</code>
-            <button id="d-copy-btn" class="ml-auto p-1.5 rounded text-muted hover:text-white hover:bg-surface-50 transition-all" data-tippy-content="Copy IP">
+            <button id="d-copy-btn" class="ml-auto p-1.5 rounded text-muted hover:text-white hover:bg-surface-50 transition-all" data-tippy-content="Copy IP" data-i18n-attr='{"data-tippy-content":"web:map.copy_ip_tooltip"}'>
               <i data-lucide="copy" class="w-3.5 h-3.5"></i>
             </button>
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <div class="stat-card"><div class="stat-label">Status</div><div id="d-status" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Online</div><div id="d-online" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-online"></canvas></div></div>
-            <div class="stat-card"><div class="stat-label">Total Players</div><div id="d-total" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">World</div><div id="d-world" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Events Today</div><div id="d-events" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-events"></canvas></div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:dashboard.status">Status</div><div id="d-status" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:dashboard.online">Online</div><div id="d-online" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-online"></canvas></div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:dashboard.total_players">Total Players</div><div id="d-total" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:dashboard.world">World</div><div id="d-world" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:dashboard.events_today">Events Today</div><div id="d-events" class="stat-value">-</div><div class="h-6 mt-1"><canvas id="spark-events"></canvas></div></div>
           </div>
           <!-- Two-column dashboard layout: server info + module cards -->
           <div id="dash-grid" class="dash-layout">
-            <div id="dash-info-col" class="hidden card"><h3 class="card-title flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-muted"></i> Server Info</h3><div id="dash-server-info"></div></div>
+            <div id="dash-info-col" class="hidden card"><h3 class="card-title flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-muted"></i> <span data-i18n="web:dashboard.server_info">Server Info</span></h3><div id="dash-server-info"></div></div>
             <div id="dash-modules-col" class="dash-modules-stack">
-              <div id="schedule-card" class="hidden card"><h3 class="card-title">Difficulty Schedule</h3><div id="schedule-info" class="space-y-2"></div></div>
+              <div id="schedule-card" class="hidden card"><h3 class="card-title" data-i18n="web:dashboard.difficulty_schedule">Difficulty Schedule</h3><div id="schedule-info" class="space-y-2"></div></div>
               <!-- plugin-dashboard-slot -->
-              <div id="resources-card" class="hidden card" data-min-tier="3"><h3 class="card-title">Server Resources</h3><div id="resources-info" class="space-y-3"></div></div>
+              <div id="resources-card" class="hidden card" data-min-tier="3"><h3 class="card-title" data-i18n="web:dashboard.server_resources">Server Resources</h3><div id="resources-info" class="space-y-3"></div></div>
             </div>
           </div>
           </div><!-- /dash-single -->
@@ -364,30 +369,30 @@
         <!-- MAP -->
         <section id="tab-map" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center gap-3 px-5 py-2.5 border-b border-border bg-surface-200 shrink-0 flex-wrap">
-            <h1 class="page-title mr-auto">Live Map</h1>
-            <input type="text" id="map-search" placeholder="Search..." class="input-field w-32 text-xs py-1">
-            <label class="flex items-center gap-1 text-[11px] text-muted cursor-pointer select-none"><input type="checkbox" id="map-show-offline" checked class="accent-accent rounded w-3 h-3"> Offline</label>
-            <label class="flex items-center gap-1 text-[11px] text-emerald-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-players" checked class="accent-emerald-400 rounded w-3 h-3"> Players</label>
-            <label class="flex items-center gap-1 text-[11px] text-blue-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-structures" class="accent-blue-400 rounded w-3 h-3"> Structures</label>
-            <label class="flex items-center gap-1 text-[11px] text-amber-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-vehicles" class="accent-amber-400 rounded w-3 h-3"> Vehicles</label>
-            <label class="flex items-center gap-1 text-[11px] text-purple-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-containers" class="accent-purple-400 rounded w-3 h-3"> Containers</label>
-            <label class="flex items-center gap-1 text-[11px] text-pink-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-companions" class="accent-pink-400 rounded w-3 h-3"> Companions</label>
-            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#9b59b6"><input type="checkbox" id="map-layer-zombies" class="rounded w-3 h-3" style="accent-color:#9b59b6"> Zombies</label>
-            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#e67e22"><input type="checkbox" id="map-layer-animals" class="rounded w-3 h-3" style="accent-color:#e67e22"> Animals</label>
-            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#e74c3c"><input type="checkbox" id="map-layer-bandits" class="rounded w-3 h-3" style="accent-color:#e74c3c"> Bandits</label>
-            <button id="map-refresh-btn" class="text-[11px] px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors flex items-center gap-1" data-tippy-content="Force game save &amp; refresh all map data"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
+            <h1 class="page-title mr-auto" data-i18n="web:pages.live_map">Live Map</h1>
+            <input type="text" id="map-search" placeholder="Search..." class="input-field w-32 text-xs py-1" data-i18n-attr='{"placeholder":"web:map.search_placeholder"}'>
+            <label class="flex items-center gap-1 text-[11px] text-muted cursor-pointer select-none"><input type="checkbox" id="map-show-offline" checked class="accent-accent rounded w-3 h-3"> <span data-i18n="web:map.offline">Offline</span></label>
+            <label class="flex items-center gap-1 text-[11px] text-emerald-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-players" checked class="accent-emerald-400 rounded w-3 h-3"> <span data-i18n="web:map.players">Players</span></label>
+            <label class="flex items-center gap-1 text-[11px] text-blue-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-structures" class="accent-blue-400 rounded w-3 h-3"> <span data-i18n="web:map.structures">Structures</span></label>
+            <label class="flex items-center gap-1 text-[11px] text-amber-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-vehicles" class="accent-amber-400 rounded w-3 h-3"> <span data-i18n="web:map.vehicles">Vehicles</span></label>
+            <label class="flex items-center gap-1 text-[11px] text-purple-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-containers" class="accent-purple-400 rounded w-3 h-3"> <span data-i18n="web:map.containers">Containers</span></label>
+            <label class="flex items-center gap-1 text-[11px] text-pink-400 cursor-pointer select-none"><input type="checkbox" id="map-layer-companions" class="accent-pink-400 rounded w-3 h-3"> <span data-i18n="web:map.companions">Companions</span></label>
+            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#9b59b6"><input type="checkbox" id="map-layer-zombies" class="rounded w-3 h-3" style="accent-color:#9b59b6"> <span data-i18n="web:map.zombies">Zombies</span></label>
+            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#e67e22"><input type="checkbox" id="map-layer-animals" class="rounded w-3 h-3" style="accent-color:#e67e22"> <span data-i18n="web:map.animals">Animals</span></label>
+            <label class="flex items-center gap-1 text-[11px] cursor-pointer select-none" style="color:#e74c3c"><input type="checkbox" id="map-layer-bandits" class="rounded w-3 h-3" style="accent-color:#e74c3c"> <span data-i18n="web:map.bandits">Bandits</span></label>
+            <button id="map-refresh-btn" class="text-[11px] px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors flex items-center gap-1" data-tippy-content="Force game save &amp; refresh all map data" data-i18n-attr='{"data-tippy-content":"web:map.force_refresh_tooltip"}'><i data-lucide="refresh-cw" class="w-3 h-3"></i> <span data-i18n="web:map.refresh">Refresh</span></button>
             <span id="map-player-count" class="text-xs text-accent font-medium">0 online</span>
           </div>
           <div class="flex-1 flex min-h-0">
             <div id="map-sidebar" class="w-56 border-r border-border bg-surface-200 flex flex-col shrink-0 overflow-hidden">
-              <div class="px-3 py-2 text-[11px] font-medium text-muted uppercase tracking-wider border-b border-border">Players</div>
+              <div class="px-3 py-2 text-[11px] font-medium text-muted uppercase tracking-wider border-b border-border" data-i18n="web:map.players">Players</div>
               <div id="map-player-list" class="flex-1 overflow-y-auto py-1"></div>
             </div>
             <div class="flex-1 relative min-h-0">
               <div id="map-container" class="absolute inset-0"></div>
               <div id="map-player-detail" class="hidden absolute right-0 top-0 bottom-0 w-80 bg-surface-200 border-l border-border overflow-y-auto z-1000 shadow-2xl">
                 <div class="p-4">
-                  <button id="map-detail-close" class="modal-close" title="Close"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                  <button id="map-detail-close" class="modal-close" title="Close" data-i18n-attr='{"title":"web:map.close"}'><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
                   <div id="map-detail-content"></div>
                 </div>
               </div>
@@ -398,33 +403,33 @@
         <!-- TIMELINE -->
         <section id="tab-timeline" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center gap-3 px-5 py-2.5 border-b border-border bg-surface-200 shrink-0 flex-wrap">
-            <h1 class="page-title mr-auto">Timeline</h1>
-            <button id="tl-step-back" class="tl-btn" data-tippy-content="Previous (←)"><i data-lucide="skip-back" class="w-3.5 h-3.5"></i></button>
-            <button id="tl-play" class="tl-btn" data-tippy-content="Play/Pause (Space)"><i data-lucide="play" class="w-3.5 h-3.5"></i></button>
-            <button id="tl-step-fwd" class="tl-btn" data-tippy-content="Next (→)"><i data-lucide="skip-forward" class="w-3.5 h-3.5"></i></button>
-            <button id="tl-go-latest" class="tl-btn" data-tippy-content="Latest (End)"><i data-lucide="fast-forward" class="w-3.5 h-3.5"></i></button>
+            <h1 class="page-title mr-auto" data-i18n="web:pages.timeline">Timeline</h1>
+            <button id="tl-step-back" class="tl-btn" data-tippy-content="Previous (←)" data-i18n-attr='{"data-tippy-content":"web:timeline.previous"}'><i data-lucide="skip-back" class="w-3.5 h-3.5"></i></button>
+            <button id="tl-play" class="tl-btn" data-tippy-content="Play/Pause (Space)" data-i18n-attr='{"data-tippy-content":"web:timeline.play_pause"}'><i data-lucide="play" class="w-3.5 h-3.5"></i></button>
+            <button id="tl-step-fwd" class="tl-btn" data-tippy-content="Next (→)" data-i18n-attr='{"data-tippy-content":"web:timeline.next"}'><i data-lucide="skip-forward" class="w-3.5 h-3.5"></i></button>
+            <button id="tl-go-latest" class="tl-btn" data-tippy-content="Latest (End)" data-i18n-attr='{"data-tippy-content":"web:timeline.latest"}'><i data-lucide="fast-forward" class="w-3.5 h-3.5"></i></button>
             <span class="flex gap-0.5 ml-1">
               <button class="tl-speed" data-speed="1">1×</button>
               <button class="tl-speed active" data-speed="5">5×</button>
               <button class="tl-speed" data-speed="10">10×</button>
             </span>
             <span class="text-[11px] text-muted mx-1">|</span>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-players" checked> <span class="text-emerald-400">Players</span> <span id="tl-c-players" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-zombies" checked> <span class="text-purple-400">Zombies</span> <span id="tl-c-zombies" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-animals" checked> <span class="text-orange-400">Animals</span> <span id="tl-c-animals" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-bandits" checked> <span class="text-red-400">Bandits</span> <span id="tl-c-bandits" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-vehicles" checked> <span class="text-blue-400">Vehicles</span> <span id="tl-c-vehicles" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-structures"> <span class="text-gray-400">Structs</span> <span id="tl-c-structures" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-companions" checked> <span class="text-yellow-400">Companions</span> <span id="tl-c-companions" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-backpacks"> <span class="text-fuchsia-400">Packs</span> <span id="tl-c-backpacks" class="text-muted"></span></label>
-            <label class="tl-layer"><input type="checkbox" id="tl-l-deaths" checked> <span class="text-red-500">Deaths</span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-players" checked> <span class="text-emerald-400" data-i18n="web:timeline.layers.players">Players</span> <span id="tl-c-players" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-zombies" checked> <span class="text-purple-400" data-i18n="web:timeline.layers.zombies">Zombies</span> <span id="tl-c-zombies" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-animals" checked> <span class="text-orange-400" data-i18n="web:timeline.layers.animals">Animals</span> <span id="tl-c-animals" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-bandits" checked> <span class="text-red-400" data-i18n="web:timeline.layers.bandits">Bandits</span> <span id="tl-c-bandits" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-vehicles" checked> <span class="text-blue-400" data-i18n="web:timeline.layers.vehicles">Vehicles</span> <span id="tl-c-vehicles" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-structures"> <span class="text-gray-400" data-i18n="web:timeline.layers.structs">Structs</span> <span id="tl-c-structures" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-companions" checked> <span class="text-yellow-400" data-i18n="web:timeline.layers.companions">Companions</span> <span id="tl-c-companions" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-backpacks"> <span class="text-fuchsia-400" data-i18n="web:timeline.layers.packs">Packs</span> <span id="tl-c-backpacks" class="text-muted"></span></label>
+            <label class="tl-layer"><input type="checkbox" id="tl-l-deaths" checked> <span class="text-red-500" data-i18n="web:timeline.layers.deaths">Deaths</span></label>
           </div>
           <div class="flex-1 relative min-h-0">
             <div id="tl-map" class="absolute inset-0"></div>
           </div>
           <div class="px-4 py-2 bg-surface-200 border-t border-border flex items-center gap-3">
             <input type="range" id="tl-slider" min="0" max="0" value="0" step="1" class="flex-1 h-1.5 accent-accent cursor-pointer">
-            <div id="tl-info" class="text-[11px] text-muted whitespace-nowrap">No snapshots</div>
+            <div id="tl-info" class="text-[11px] text-muted whitespace-nowrap" data-i18n="web:timeline.no_snapshots">No snapshots</div>
           </div>
         </section>
 
@@ -432,30 +437,30 @@
         <section id="tab-players" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Players</h1>
+            <h1 class="page-title" data-i18n="web:pages.players">Players</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="player-search" placeholder="Search..." class="input-field has-icon w-48">
+                <input type="text" id="player-search" placeholder="Search..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:players.search_placeholder"}'>
               </div>
               <select id="player-sort" class="input-field w-40">
-                <option value="online">Online First</option>
-                <option value="name">Name</option>
-                <option value="kills">Kills</option>
-                <option value="playtime">Playtime</option>
-                <option value="lastSeen">Last Seen</option>
-                <option value="daysSurvived">Days Survived</option>
+                <option value="online" data-i18n="web:players.online_first">Online First</option>
+                <option value="name" data-i18n="web:players.name">Name</option>
+                <option value="kills" data-i18n="web:players.kills">Kills</option>
+                <option value="playtime" data-i18n="web:players.playtime">Playtime</option>
+                <option value="lastSeen" data-i18n="web:players.last_seen">Last Seen</option>
+                <option value="daysSurvived" data-i18n="web:players.days_survived">Days Survived</option>
               </select>
             </div>
             <div class="flex items-center gap-1">
-              <button id="player-view-table" class="p-1.5 rounded text-accent bg-accent/10 border border-accent/20" title="Table view"><i data-lucide="list" class="w-4 h-4"></i></button>
-              <button id="player-view-cards" class="p-1.5 rounded text-muted hover:text-text transition-colors" title="Card view"><i data-lucide="layout-grid" class="w-4 h-4"></i></button>
+              <button id="player-view-table" class="p-1.5 rounded text-accent bg-accent/10 border border-accent/20" title="Table view" data-i18n-attr='{"title":"web:players.table_view"}'><i data-lucide="list" class="w-4 h-4"></i></button>
+              <button id="player-view-cards" class="p-1.5 rounded text-muted hover:text-text transition-colors" title="Card view" data-i18n-attr='{"title":"web:players.card_view"}'><i data-lucide="layout-grid" class="w-4 h-4"></i></button>
             </div>
           </div>
           <div id="player-list" class="overflow-x-auto"></div>
           <div id="player-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div class="bg-surface-100 border border-border rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
-              <button id="player-modal-close" class="modal-close" title="Close (Esc)"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+              <button id="player-modal-close" class="modal-close" title="Close (Esc)" data-i18n-attr='{"title":"web:players.close_esc"}'><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
               <div class="p-6" id="player-modal-content"></div>
             </div>
           </div>
@@ -464,26 +469,26 @@
         <!-- CLANS -->
         <section id="tab-clans" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Clans</h1>
+            <h1 class="page-title" data-i18n="web:pages.clans">Clans</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="clan-search" placeholder="Search clans..." class="input-field has-icon w-48">
+                <input type="text" id="clan-search" placeholder="Search clans..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:clans.search_placeholder"}'>
               </div>
               <select id="clan-sort" class="input-field w-40">
-                <option value="members">Most Members</option>
-                <option value="name">Name</option>
-                <option value="online">Most Online</option>
-                <option value="kills">Total Kills</option>
+                <option value="members" data-i18n="web:clans.most_members">Most Members</option>
+                <option value="name" data-i18n="web:clans.name">Name</option>
+                <option value="online" data-i18n="web:clans.most_online">Most Online</option>
+                <option value="kills" data-i18n="web:clans.total_kills">Total Kills</option>
               </select>
               <span id="clan-count" class="text-xs text-muted"></span>
             </div>
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="clan-stats">
-            <div class="stat-card"><div class="stat-label">Total Clans</div><div id="clans-total" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Players in Clans</div><div id="clans-players" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Largest Clan</div><div id="clans-largest" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Online in Clans</div><div id="clans-online" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:clans.total_clans">Total Clans</div><div id="clans-total" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:clans.players_in_clans">Players in Clans</div><div id="clans-players" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:clans.largest_clan">Largest Clan</div><div id="clans-largest" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:clans.online_in_clans">Online in Clans</div><div id="clans-online" class="stat-value">-</div></div>
           </div>
           <div id="clan-list" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"></div>
         </section>
@@ -492,25 +497,25 @@
         <section id="tab-activity" class="tab-content hidden p-6 space-y-4">
           <!-- Header -->
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Activity Log</h1>
+            <h1 class="page-title" data-i18n="web:pages.activity_log">Activity Log</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="activity-search" placeholder="Player or Item#fingerprint..." class="input-field has-icon w-48">
+                <input type="text" id="activity-search" placeholder="Player or Item#fingerprint..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:activity.search_placeholder"}'>
               </div>
               <input type="date" id="activity-date" class="input-field w-36">
-              <button id="activity-toggle-charts" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" title="Toggle charts">
-                <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Charts
+              <button id="activity-toggle-charts" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" title="Toggle charts" data-i18n-attr='{"title":"web:activity.toggle_charts"}'>
+                <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> <span data-i18n="web:activity.charts">Charts</span>
               </button>
             </div>
           </div>
 
           <!-- Stats summary cards -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="activity-stat-cards">
-            <div class="stat-card"><div class="stat-label">Total Events</div><div id="act-total" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Event Types</div><div id="act-types-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Date Range</div><div id="act-date-range" class="stat-value text-sm">-</div></div>
-            <div class="stat-card"><div class="stat-label">Top Actor</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.total_events">Total Events</div><div id="act-total" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.event_types">Event Types</div><div id="act-types-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.date_range">Date Range</div><div id="act-date-range" class="stat-value text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.top_actor">Top Actor</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
           </div>
 
           <!-- Charts panel (collapsible) -->
@@ -518,14 +523,14 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <!-- Daily activity trend -->
               <div class="card">
-                <div class="card-title">Daily Activity (30 days)</div>
+                <div class="card-title" data-i18n="web:activity.daily_activity_30_days">Daily Activity (30 days)</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-daily-activity"></canvas>
                 </div>
               </div>
               <!-- Hourly distribution -->
               <div class="card">
-                <div class="card-title">Hourly Distribution (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.hourly_distribution_7_days">Hourly Distribution (7 days)</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-hourly-activity"></canvas>
                 </div>
@@ -534,14 +539,14 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <!-- Category breakdown (doughnut) -->
               <div class="card">
-                <div class="card-title">By Category</div>
+                <div class="card-title" data-i18n="web:activity.by_category">By Category</div>
                 <div style="height: 220px; position: relative;" class="flex items-center justify-center">
                   <canvas id="chart-category-activity"></canvas>
                 </div>
               </div>
               <!-- Top actors -->
               <div class="card">
-                <div class="card-title">Most Active Players (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.most_active_players_7_days">Most Active Players (7 days)</div>
                 <div style="height: 220px; position: relative;">
                   <canvas id="chart-top-actors"></canvas>
                 </div>
@@ -551,15 +556,15 @@
 
           <!-- Category filter pills -->
           <div class="flex items-center gap-1.5 flex-wrap" id="activity-category-pills">
-            <button class="activity-pill active" data-category="">All</button>
-            <button class="activity-pill" data-category="session"><i data-lucide="log-in" class="w-3 h-3"></i> Sessions</button>
-            <button class="activity-pill" data-category="combat"><i data-lucide="swords" class="w-3 h-3"></i> Combat</button>
-            <button class="activity-pill" data-category="structure"><i data-lucide="building" class="w-3 h-3"></i> Structures</button>
-            <button class="activity-pill" data-category="container"><i data-lucide="box" class="w-3 h-3"></i> Containers</button>
-            <button class="activity-pill" data-category="inventory"><i data-lucide="backpack" class="w-3 h-3"></i> Inventory</button>
-            <button class="activity-pill" data-category="vehicle"><i data-lucide="car" class="w-3 h-3"></i> Vehicles</button>
-            <button class="activity-pill" data-category="horse"><i data-lucide="heart" class="w-3 h-3"></i> Horses</button>
-            <button class="activity-pill" data-category="admin"><i data-lucide="shield" class="w-3 h-3"></i> Admin</button>
+            <button class="activity-pill active" data-category="" data-i18n="web:activity.all">All</button>
+            <button class="activity-pill" data-category="session"><i data-lucide="log-in" class="w-3 h-3"></i> <span data-i18n="web:activity.sessions">Sessions</span></button>
+            <button class="activity-pill" data-category="combat"><i data-lucide="swords" class="w-3 h-3"></i> <span data-i18n="web:activity.combat">Combat</span></button>
+            <button class="activity-pill" data-category="structure"><i data-lucide="building" class="w-3 h-3"></i> <span data-i18n="web:activity.structures">Structures</span></button>
+            <button class="activity-pill" data-category="container"><i data-lucide="box" class="w-3 h-3"></i> <span data-i18n="web:activity.containers">Containers</span></button>
+            <button class="activity-pill" data-category="inventory"><i data-lucide="backpack" class="w-3 h-3"></i> <span data-i18n="web:activity.inventory">Inventory</span></button>
+            <button class="activity-pill" data-category="vehicle"><i data-lucide="car" class="w-3 h-3"></i> <span data-i18n="web:activity.vehicles">Vehicles</span></button>
+            <button class="activity-pill" data-category="horse"><i data-lucide="heart" class="w-3 h-3"></i> <span data-i18n="web:activity.horses">Horses</span></button>
+            <button class="activity-pill" data-category="admin"><i data-lucide="shield" class="w-3 h-3"></i> <span data-i18n="web:activity.admin">Admin</span></button>
           </div>
 
           <!-- Fingerprint tracker panel (hidden by default, shown when search has item#fingerprint format) -->
@@ -568,18 +573,18 @@
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2">
                   <i data-lucide="scan-search" class="w-4 h-4 text-emerald-400"></i>
-                  <span class="text-sm font-semibold text-emerald-400">Item Tracker</span>
+                  <span class="text-sm font-semibold text-emerald-400" data-i18n="web:activity.item_tracker">Item Tracker</span>
                   <span id="fp-item-name" class="text-sm text-gray-300"></span>
                   <span id="fp-hash" class="font-mono text-[10px] text-muted bg-surface-300 px-1.5 py-0.5 rounded"></span>
                 </div>
                 <div class="flex items-center gap-2">
                   <select id="fp-limit" class="input-field text-xs py-0.5 w-20">
-                    <option value="25">25</option>
-                    <option value="50" selected>50</option>
-                    <option value="100">100</option>
-                    <option value="250">250</option>
+                    <option value="25" data-i18n="web:database.option_25">25</option>
+                    <option value="50" selected data-i18n="web:database.option_50">50</option>
+                    <option value="100" data-i18n="web:database.option_100">100</option>
+                    <option value="250" data-i18n="web:database.option_250">250</option>
                   </select>
-                  <button id="fp-close" class="text-muted hover:text-red-400 transition-colors" title="Close tracker">
+                  <button id="fp-close" class="text-muted hover:text-red-400 transition-colors" title="Close tracker" data-i18n-attr='{"title":"web:activity.close_tracker"}'>
                     <i data-lucide="x" class="w-4 h-4"></i>
                   </button>
                 </div>
@@ -588,39 +593,39 @@
               <div id="fp-instance-info" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs"></div>
               <!-- Ownership chain -->
               <div id="fp-ownership" class="mb-3 hidden">
-                <div class="text-[10px] text-muted font-medium mb-1">CHAIN OF CUSTODY</div>
+                <div class="text-[10px] text-muted font-medium mb-1" data-i18n="web:activity.chain_of_custody">CHAIN OF CUSTODY</div>
                 <div id="fp-ownership-chain" class="flex items-center gap-1 flex-wrap text-xs"></div>
               </div>
               <!-- Movement timeline -->
               <div id="fp-movements" class="space-y-0.5 max-h-[400px] overflow-y-auto scrollbar-thin"></div>
-              <div id="fp-loading" class="text-xs text-muted text-center py-4">Loading tracker data…</div>
-              <div id="fp-empty" class="hidden text-xs text-muted text-center py-4">No movements recorded for this item.</div>
+              <div id="fp-loading" class="text-xs text-muted text-center py-4" data-i18n="web:activity.loading_tracker_data">Loading tracker data…</div>
+              <div id="fp-empty" class="hidden text-xs text-muted text-center py-4" data-i18n="web:activity.no_movements_recorded_for_item">No movements recorded for this item.</div>
             </div>
           </div>
 
           <!-- Event feed -->
           <div id="activity-feed" class="space-y-0.5"></div>
           <div id="activity-load-more" class="hidden text-center py-4">
-            <button id="activity-load-more-btn" class="btn-secondary text-xs px-4 py-1.5">Load More</button>
+            <button id="activity-load-more-btn" class="btn-secondary text-xs px-4 py-1.5" data-i18n="web:activity.load_more">Load More</button>
           </div>
         </section>
 
         <!-- CHAT -->
         <section id="tab-chat" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center justify-between px-5 py-2.5 border-b border-border bg-surface-200 shrink-0">
-            <h1 class="page-title">Chat</h1>
+            <h1 class="page-title" data-i18n="web:pages.chat">Chat</h1>
             <div class="flex items-center gap-3">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="chat-search" placeholder="Search messages..." class="input-field has-icon w-40 text-xs py-1">
+                <input type="text" id="chat-search" placeholder="Search messages..." class="input-field has-icon w-40 text-xs py-1" data-i18n-attr='{"placeholder":"web:chat.search_placeholder"}'>
               </div>
               <span id="chat-count" class="text-xs text-muted"></span>
             </div>
           </div>
           <div id="chat-feed" class="flex-1 overflow-y-auto px-5 py-3 space-y-0.5 min-h-0"></div>
           <div class="px-5 py-3 border-t border-border bg-surface-200 flex gap-2 shrink-0" data-min-tier="2">
-            <input type="text" id="chat-msg-input" placeholder="Send message to server..." class="input-field flex-1">
-            <button id="chat-send-btn" class="btn-primary flex items-center gap-1.5"><i data-lucide="send" class="w-3.5 h-3.5"></i> Send</button>
+            <input type="text" id="chat-msg-input" placeholder="Send message to server..." class="input-field flex-1" data-i18n-attr='{"placeholder":"web:chat.send_message_placeholder"}'>
+            <button id="chat-send-btn" class="btn-primary flex items-center gap-1.5"><i data-lucide="send" class="w-3.5 h-3.5"></i> <span data-i18n="web:chat.send">Send</span></button>
           </div>
         </section>
 
@@ -628,34 +633,34 @@
         <section id="tab-items" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Item Tracker</h1>
+            <h1 class="page-title" data-i18n="web:pages.item_tracker">Item Tracker</h1>
             <div class="flex items-center gap-2">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="items-search" placeholder="Search items..." class="input-field has-icon w-48">
+                <input type="text" id="items-search" placeholder="Search items..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:items.search_placeholder"}'>
               </div>
               <select id="items-view" class="input-field w-36">
-                <option value="all">All Items</option>
-                <option value="instances">Unique Only</option>
-                <option value="groups">Groups Only</option>
-                <option value="movements">Movements</option>
+                <option value="all" data-i18n="web:items.all_items">All Items</option>
+                <option value="instances" data-i18n="web:items.unique_only">Unique Only</option>
+                <option value="groups" data-i18n="web:items.groups_only">Groups Only</option>
+                <option value="movements" data-i18n="web:items.movements">Movements</option>
               </select>
               <select id="items-location-filter" class="input-field w-44">
-                <option value="">All Locations</option>
+                <option value="" data-i18n="web:items.all_locations">All Locations</option>
               </select>
               <span id="items-count" class="text-xs text-muted"></span>
             </div>
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div class="stat-card"><div class="stat-label">Unique Items</div><div id="items-unique-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Fungible Groups</div><div id="items-group-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Locations</div><div id="items-location-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label">Recent Movements</div><div id="items-movement-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:items.unique_items">Unique Items</div><div id="items-unique-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:items.fungible_groups">Fungible Groups</div><div id="items-group-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:items.locations">Locations</div><div id="items-location-count" class="stat-value">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:items.recent_movements">Recent Movements</div><div id="items-movement-count" class="stat-value">-</div></div>
           </div>
           <div id="items-content" class="space-y-2"></div>
           <div id="item-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div class="bg-surface-100 border border-border rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
-              <button id="item-detail-close" class="modal-close" title="Close (Esc)"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+              <button id="item-detail-close" class="modal-close" title="Close (Esc)" data-i18n-attr='{"title":"web:players.close_esc"}'><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
               <div class="p-6" id="item-detail-content"></div>
             </div>
           </div>
@@ -664,62 +669,62 @@
         <!-- CONSOLE -->
         <section id="tab-console" class="tab-content hidden flex flex-col" style="height:100vh">
           <div class="flex items-center justify-between px-5 py-2.5 border-b border-border bg-surface-200 shrink-0">
-            <h1 class="page-title">RCON Console</h1>
+            <h1 class="page-title" data-i18n="web:pages.rcon_console">RCON Console</h1>
             <div class="flex items-center gap-3">
               <div class="relative" id="cmd-helper-wrap">
-                <button id="cmd-helper-btn" class="text-xs text-muted hover:text-accent transition-colors flex items-center gap-1"><i data-lucide="help-circle" class="w-3.5 h-3.5"></i> Commands</button>
+                <button id="cmd-helper-btn" class="text-xs text-muted hover:text-accent transition-colors flex items-center gap-1"><i data-lucide="help-circle" class="w-3.5 h-3.5"></i> <span data-i18n="web:console.commands">Commands</span></button>
                 <div id="cmd-helper-list" class="hidden absolute right-0 top-full mt-1 w-72 bg-surface-100 border border-border rounded-lg shadow-xl z-50 py-1 max-h-80 overflow-y-auto">
-                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mb-0.5">Server Info</div>
-                  <div class="cmd-item" data-cmd="info">info <span class="cmd-desc">Server info</span></div>
-                  <div class="cmd-item" data-cmd="players">players <span class="cmd-desc">Online list</span></div>
-                  <div class="cmd-item" data-cmd="save">save <span class="cmd-desc">Save world</span></div>
-                  <div class="cmd-item" data-cmd="fetchbanned">fetchbanned <span class="cmd-desc">List bans</span></div>
-                  <div class="cmd-item" data-cmd="fetchwhitelist">fetchwhitelist <span class="cmd-desc">List whitelist</span></div>
-                  <div class="cmd-item" data-cmd="fetchadmins">fetchadmins <span class="cmd-desc">List admins</span></div>
-                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Communication</div>
-                  <div class="cmd-item" data-cmd="say ">say &lt;msg&gt; <span class="cmd-desc">Broadcast</span></div>
-                  <div class="cmd-item" data-cmd="admin ">admin &lt;msg&gt; <span class="cmd-desc">Admin message</span></div>
-                  <div class="cmd-item" data-cmd="servermsg ">servermsg &lt;msg&gt; <span class="cmd-desc">Server popup</span></div>
-                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Player Management</div>
-                  <div class="cmd-item" data-cmd="kick ">kick &lt;id&gt; <span class="cmd-desc">Kick player</span></div>
-                  <div class="cmd-item" data-cmd="ban ">ban &lt;id&gt; <span class="cmd-desc">Ban player</span></div>
-                  <div class="cmd-item" data-cmd="unban ">unban &lt;id&gt; <span class="cmd-desc">Unban player</span></div>
-                  <div class="cmd-item" data-cmd="whitelist ">whitelist &lt;id&gt; <span class="cmd-desc">Add whitelist</span></div>
-                  <div class="cmd-item" data-cmd="removewhitelist ">removewhitelist &lt;id&gt; <span class="cmd-desc">Remove whitelist</span></div>
-                  <div class="cmd-item" data-cmd="addadmin ">addadmin &lt;id&gt; <span class="cmd-desc">Add admin</span></div>
-                  <div class="cmd-item" data-cmd="removeadmin ">removeadmin &lt;id&gt; <span class="cmd-desc">Remove admin</span></div>
-                  <div class="cmd-item" data-cmd="teleport ">teleport &lt;id&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; <span class="cmd-desc">Teleport</span></div>
-                  <div class="cmd-item" data-cmd="unstuck ">unstuck &lt;id&gt; <span class="cmd-desc">Unstuck player</span></div>
-                  <div class="cmd-item" data-cmd="giveitem ">giveitem &lt;id&gt; &lt;item&gt; &lt;qty&gt; <span class="cmd-desc">Give item</span></div>
-                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">World Settings</div>
-                  <div class="cmd-item" data-cmd="weather ">weather &lt;type&gt; <span class="cmd-desc">Set weather</span></div>
-                  <div class="cmd-item" data-cmd="season ">season &lt;type&gt; <span class="cmd-desc">Set season</span></div>
-                  <div class="cmd-item" data-cmd="settime ">settime &lt;hours&gt; <span class="cmd-desc">Set time</span></div>
-                  <div class="cmd-item" data-cmd="setday">setday <span class="cmd-desc">Set daytime</span></div>
-                  <div class="cmd-item" data-cmd="setnight">setnight <span class="cmd-desc">Set nighttime</span></div>
-                  <div class="cmd-item" data-cmd="setzombiemultiplier ">setzombiemultiplier &lt;n&gt; <span class="cmd-desc">Zombie density</span></div>
-                  <div class="cmd-item" data-cmd="setanimalmultiplier ">setanimalmultiplier &lt;n&gt; <span class="cmd-desc">Animal density</span></div>
-                  <div class="cmd-item" data-cmd="setzombies ">setzombies &lt;on/off&gt; <span class="cmd-desc">Toggle zombies</span></div>
-                  <div class="cmd-item" data-cmd="setanimals ">setanimals &lt;on/off&gt; <span class="cmd-desc">Toggle animals</span></div>
-                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5">Server Control</div>
-                  <div class="cmd-item" data-cmd="restart ">restart &lt;seconds&gt; <span class="cmd-desc">Timed restart</span></div>
-                  <div class="cmd-item" data-cmd="QuickRestart">QuickRestart <span class="cmd-desc">Quick restart</span></div>
-                  <div class="cmd-item" data-cmd="RestartNow">RestartNow <span class="cmd-desc">Restart now</span></div>
-                  <div class="cmd-item" data-cmd="CancelRestart">CancelRestart <span class="cmd-desc">Cancel restart</span></div>
-                  <div class="cmd-item" data-cmd="shutdown ">shutdown &lt;seconds&gt; <span class="cmd-desc">Shutdown server</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mb-0.5" data-i18n="web:command_helper_sections.server_info">Server Info</div>
+                  <div class="cmd-item" data-cmd="info">info <span class="cmd-desc" data-i18n="web:command_helper_descriptions.info">Server info</span></div>
+                  <div class="cmd-item" data-cmd="players">players <span class="cmd-desc" data-i18n="web:command_helper_descriptions.players">Online list</span></div>
+                  <div class="cmd-item" data-cmd="save">save <span class="cmd-desc" data-i18n="web:command_helper_descriptions.save">Save world</span></div>
+                  <div class="cmd-item" data-cmd="fetchbanned">fetchbanned <span class="cmd-desc" data-i18n="web:command_helper_descriptions.fetchbanned">List bans</span></div>
+                  <div class="cmd-item" data-cmd="fetchwhitelist">fetchwhitelist <span class="cmd-desc" data-i18n="web:command_helper_descriptions.fetchwhitelist">List whitelist</span></div>
+                  <div class="cmd-item" data-cmd="fetchadmins">fetchadmins <span class="cmd-desc" data-i18n="web:command_helper_descriptions.fetchadmins">List admins</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5" data-i18n="web:command_helper_sections.communication">Communication</div>
+                  <div class="cmd-item" data-cmd="say ">say &lt;msg&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.say">Broadcast</span></div>
+                  <div class="cmd-item" data-cmd="admin ">admin &lt;msg&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.admin">Admin message</span></div>
+                  <div class="cmd-item" data-cmd="servermsg ">servermsg &lt;msg&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.servermsg">Server popup</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5" data-i18n="web:command_helper_sections.player_management">Player Management</div>
+                  <div class="cmd-item" data-cmd="kick ">kick &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.kick">Kick player</span></div>
+                  <div class="cmd-item" data-cmd="ban ">ban &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.ban">Ban player</span></div>
+                  <div class="cmd-item" data-cmd="unban ">unban &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.unban">Unban player</span></div>
+                  <div class="cmd-item" data-cmd="whitelist ">whitelist &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.whitelist">Add whitelist</span></div>
+                  <div class="cmd-item" data-cmd="removewhitelist ">removewhitelist &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.removewhitelist">Remove whitelist</span></div>
+                  <div class="cmd-item" data-cmd="addadmin ">addadmin &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.addadmin">Add admin</span></div>
+                  <div class="cmd-item" data-cmd="removeadmin ">removeadmin &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.removeadmin">Remove admin</span></div>
+                  <div class="cmd-item" data-cmd="teleport ">teleport &lt;id&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.teleport">Teleport</span></div>
+                  <div class="cmd-item" data-cmd="unstuck ">unstuck &lt;id&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.unstuck">Unstuck player</span></div>
+                  <div class="cmd-item" data-cmd="giveitem ">giveitem &lt;id&gt; &lt;item&gt; &lt;qty&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.giveitem">Give item</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5" data-i18n="web:command_helper_sections.world_settings">World Settings</div>
+                  <div class="cmd-item" data-cmd="weather ">weather &lt;type&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.weather">Set weather</span></div>
+                  <div class="cmd-item" data-cmd="season ">season &lt;type&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.season">Set season</span></div>
+                  <div class="cmd-item" data-cmd="settime ">settime &lt;hours&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.settime">Set time</span></div>
+                  <div class="cmd-item" data-cmd="setday">setday <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setday">Set daytime</span></div>
+                  <div class="cmd-item" data-cmd="setnight">setnight <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setnight">Set nighttime</span></div>
+                  <div class="cmd-item" data-cmd="setzombiemultiplier ">setzombiemultiplier &lt;n&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setzombiemultiplier">Zombie density</span></div>
+                  <div class="cmd-item" data-cmd="setanimalmultiplier ">setanimalmultiplier &lt;n&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setanimalmultiplier">Animal density</span></div>
+                  <div class="cmd-item" data-cmd="setzombies ">setzombies &lt;on/off&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setzombies">Toggle zombies</span></div>
+                  <div class="cmd-item" data-cmd="setanimals ">setanimals &lt;on/off&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.setanimals">Toggle animals</span></div>
+                  <div class="px-2.5 py-1.5 text-[10px] text-muted uppercase tracking-wider font-medium border-b border-border mt-1 mb-0.5" data-i18n="web:command_helper_sections.server_control">Server Control</div>
+                  <div class="cmd-item" data-cmd="restart ">restart &lt;seconds&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.restart">Timed restart</span></div>
+                  <div class="cmd-item" data-cmd="QuickRestart">QuickRestart <span class="cmd-desc" data-i18n="web:command_helper_descriptions.quick_restart">Quick restart</span></div>
+                  <div class="cmd-item" data-cmd="RestartNow">RestartNow <span class="cmd-desc" data-i18n="web:command_helper_descriptions.restart_now">Restart now</span></div>
+                  <div class="cmd-item" data-cmd="CancelRestart">CancelRestart <span class="cmd-desc" data-i18n="web:command_helper_descriptions.cancel_restart">Cancel restart</span></div>
+                  <div class="cmd-item" data-cmd="shutdown ">shutdown &lt;seconds&gt; <span class="cmd-desc" data-i18n="web:command_helper_descriptions.shutdown">Shutdown server</span></div>
                 </div>
               </div>
-              <button id="console-clear-btn" class="text-xs text-muted hover:text-gray-300 transition-colors flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear</button>
+              <button id="console-clear-btn" class="text-xs text-muted hover:text-gray-300 transition-colors flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> <span data-i18n="web:console.clear">Clear</span></button>
             </div>
           </div>
           <div id="console-output" class="flex-1 overflow-y-auto px-5 py-3 font-mono text-xs bg-surface-300 space-y-0.5 min-h-0"></div>
           <div class="px-5 py-2.5 border-t border-border bg-surface-200 flex gap-2 shrink-0 relative">
             <span class="text-calm font-mono text-sm self-center mr-1">❯</span>
             <div class="flex-1 relative">
-              <input type="text" id="rcon-input" placeholder="Enter command..." class="input-field w-full font-mono" autocomplete="off">
+              <input type="text" id="rcon-input" placeholder="Enter command..." class="input-field w-full font-mono" autocomplete="off" data-i18n-attr='{"placeholder":"web:console.enter_command_placeholder"}'>
               <div id="console-autocomplete" class="hidden absolute left-0 bottom-full mb-1 w-full bg-surface-100 border border-border rounded-lg shadow-xl z-50 py-1 max-h-40 overflow-y-auto"></div>
             </div>
-            <button id="rcon-send-btn" class="btn-primary flex items-center gap-1.5"><i data-lucide="play" class="w-3.5 h-3.5"></i> Run</button>
+            <button id="rcon-send-btn" class="btn-primary flex items-center gap-1.5"><i data-lucide="play" class="w-3.5 h-3.5"></i> <span data-i18n="web:console.run">Run</span></button>
           </div>
         </section>
 
@@ -727,48 +732,48 @@
         <section id="tab-settings" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
             <div class="flex items-center gap-3">
-              <h1 class="page-title">Settings</h1>
+              <h1 class="page-title" data-i18n="web:pages.settings">Settings</h1>
               <div class="flex items-center bg-surface-200 rounded-lg p-0.5 border border-border">
                 <button id="settings-mode-game" class="settings-mode-btn active" data-mode="game">
-                  <i data-lucide="server" class="w-3 h-3"></i> Game Server
+                  <i data-lucide="server" class="w-3 h-3"></i> <span data-i18n="web:settings.game_server">Game Server</span>
                 </button>
                 <button id="settings-mode-bot" class="settings-mode-btn" data-mode="bot">
-                  <i data-lucide="bot" class="w-3 h-3"></i> Bot Config
+                  <i data-lucide="bot" class="w-3 h-3"></i> <span data-i18n="web:settings.bot_config">Bot Config</span>
                 </button>
                 <button id="settings-mode-schedule" class="settings-mode-btn" data-mode="schedule" data-min-tier="3">
-                  <i data-lucide="calendar-clock" class="w-3 h-3"></i> Schedule
+                  <i data-lucide="calendar-clock" class="w-3 h-3"></i> <span data-i18n="web:settings.schedule">Schedule</span>
                 </button>
               </div>
             </div>
             <div class="flex items-center gap-3">
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                <input type="text" id="settings-search" placeholder="Search settings..." class="input-field has-icon w-48">
+                <input type="text" id="settings-search" placeholder="Search settings..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:settings.search_settings_placeholder"}'>
               </div>
               <span id="settings-count" class="text-xs text-muted"></span>
               <span id="settings-change-count" class="hidden text-xs font-medium text-surge bg-surge/10 border border-surge/20 px-2 py-0.5 rounded-full"></span>
-              <span id="settings-restart-badge" class="hidden text-xs font-medium text-horde bg-horde/10 border border-horde/20 px-2 py-0.5 rounded-full flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Restart Required</span>
-              <button id="settings-save-btn" class="btn-primary opacity-50 cursor-not-allowed flex items-center gap-1.5" disabled><i data-lucide="save" class="w-3.5 h-3.5"></i> Save Changes</button>
-              <button id="settings-reset-btn" class="hidden text-xs text-muted hover:text-horde transition-colors" title="Discard all changes"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5 inline-block align-middle mr-0.5"></i>Reset</button>
+              <span id="settings-restart-badge" class="hidden text-xs font-medium text-horde bg-horde/10 border border-horde/20 px-2 py-0.5 rounded-full flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i> <span data-i18n="web:settings.restart_required">Restart Required</span></span>
+              <button id="settings-save-btn" class="btn-primary opacity-50 cursor-not-allowed flex items-center gap-1.5" disabled><i data-lucide="save" class="w-3.5 h-3.5"></i> <span data-i18n="web:settings.save_changes">Save Changes</span></button>
+              <button id="settings-reset-btn" class="hidden text-xs text-muted hover:text-horde transition-colors" title="Discard all changes" data-i18n-attr='{"title":"web:settings.discard_all_changes"}'><i data-lucide="rotate-ccw" class="w-3.5 h-3.5 inline-block align-middle mr-0.5"></i><span data-i18n="web:settings.reset">Reset</span></button>
             </div>
           </div>
           <div id="settings-grid" class="space-y-1"></div>
           <!-- Settings diff confirmation modal -->
           <div id="settings-diff-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div class="bg-surface-100 border border-border rounded-xl w-full max-w-lg max-h-[80vh] overflow-hidden shadow-2xl relative flex flex-col">
-              <button id="settings-diff-close" class="modal-close" title="Close"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+              <button id="settings-diff-close" class="modal-close" title="Close" data-i18n-attr='{"title":"web:map.close"}'><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
               <div class="px-6 pt-5 pb-3 border-b border-border">
                 <h2 class="text-base font-heading font-semibold text-text-bright flex items-center gap-2">
                   <i data-lucide="git-compare" class="w-4 h-4 text-surge"></i>
-                  Review Changes
+                  <span data-i18n="web:settings.review_changes">Review Changes</span>
                 </h2>
-                <p class="text-xs text-muted mt-1">These settings will be written to the server configuration file.</p>
+                <p class="text-xs text-muted mt-1" data-i18n="web:settings.diff_description">These settings will be written to the server configuration file.</p>
               </div>
               <div id="settings-diff-content" class="px-6 py-3 overflow-y-auto flex-1"></div>
               <div class="px-6 py-3 border-t border-border flex items-center justify-between gap-3">
-                <button id="settings-diff-cancel" class="text-sm text-muted hover:text-text transition-colors">Cancel</button>
+                <button id="settings-diff-cancel" class="text-sm text-muted hover:text-text transition-colors" data-i18n="web:common.cancel">Cancel</button>
                 <button id="settings-diff-confirm" class="btn-primary flex items-center gap-1.5">
-                  <i data-lucide="check" class="w-3.5 h-3.5"></i> Confirm &amp; Save
+                  <i data-lucide="check" class="w-3.5 h-3.5"></i> <span data-i18n="web:settings.confirm_and_save">Confirm &amp; Save</span>
                 </button>
               </div>
             </div>
@@ -776,53 +781,53 @@
           <!-- Schedule editor modal -->
           <div id="sched-editor-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div class="bg-surface-100 border border-border rounded-xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl relative flex flex-col">
-              <button id="sched-editor-close" class="modal-close" title="Close"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+              <button id="sched-editor-close" class="modal-close" title="Close" data-i18n-attr='{"title":"web:map.close"}'><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
               <div class="px-6 pt-5 pb-3 border-b border-border">
                 <h2 class="text-base font-heading font-semibold text-text-bright flex items-center gap-2">
                   <i data-lucide="calendar-clock" class="w-4 h-4 text-accent"></i>
-                  Schedule Editor
+                  <span data-i18n="web:settings.schedule_editor">Schedule Editor</span>
                 </h2>
-                <p class="text-xs text-muted mt-1">Configure restart times, difficulty profiles, and their settings.</p>
+                <p class="text-xs text-muted mt-1" data-i18n="web:settings.schedule_editor_description">Configure restart times, difficulty profiles, and their settings.</p>
               </div>
               <div class="px-6 py-4 overflow-y-auto flex-1 space-y-5">
                 <!-- Restart times -->
                 <div>
-                  <label class="text-xs font-medium text-text-bright block mb-1.5">Restart Times</label>
-                  <p class="text-[10px] text-muted mb-2">Server restarts at these times daily. Add or remove as needed.</p>
+                  <label class="text-xs font-medium text-text-bright block mb-1.5" data-i18n="web:settings.restart_times">Restart Times</label>
+                  <p class="text-[10px] text-muted mb-2" data-i18n="web:settings.restart_times_description">Server restarts at these times daily. Add or remove as needed.</p>
                   <div id="sched-times-list" class="flex flex-wrap gap-2 mb-2"></div>
                   <div class="flex items-center gap-2">
                     <input type="time" id="sched-add-time" class="input-field w-28 text-xs py-1">
-                    <button id="sched-add-time-btn" class="text-xs px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors">+ Add</button>
+                    <button id="sched-add-time-btn" class="text-xs px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors" data-i18n="web:settings.add_time">+ Add</button>
                   </div>
                 </div>
                 <!-- Profiles -->
                 <div>
-                  <label class="text-xs font-medium text-text-bright block mb-1.5">Profiles</label>
-                  <p class="text-[10px] text-muted mb-2">Profiles cycle through restart slots. Each profile applies different game settings.</p>
+                  <label class="text-xs font-medium text-text-bright block mb-1.5" data-i18n="web:settings.profiles">Profiles</label>
+                  <p class="text-[10px] text-muted mb-2" data-i18n="web:settings.profiles_description">Profiles cycle through restart slots. Each profile applies different game settings.</p>
                   <div id="sched-profiles-list" class="space-y-3"></div>
                   <div class="flex items-center gap-2 mt-2">
-                    <input type="text" id="sched-add-profile" placeholder="Profile name" class="input-field w-40 text-xs py-1">
-                    <button id="sched-add-profile-btn" class="text-xs px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors">+ Add Profile</button>
+                    <input type="text" id="sched-add-profile" placeholder="Profile name" class="input-field w-40 text-xs py-1" data-i18n-attr='{"placeholder":"web:settings.profile_name_placeholder"}'>
+                    <button id="sched-add-profile-btn" class="text-xs px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors" data-i18n="web:settings.add_profile">+ Add Profile</button>
                   </div>
                 </div>
                 <!-- Server name template -->
                 <div>
-                  <label class="text-xs font-medium text-text-bright block mb-1.5">Server Name Template</label>
-                  <p class="text-[10px] text-muted mb-2">Use <code class="text-accent/80 bg-surface-50 px-1 rounded text-[9px]">{mode}</code> where the profile name should appear. Leave empty to skip.</p>
-                  <input type="text" id="sched-name-template" placeholder="[EU1] My Server | {mode} | Dynamic Difficulty" class="input-field w-full text-xs py-1.5 font-mono">
+                  <label class="text-xs font-medium text-text-bright block mb-1.5" data-i18n="web:settings.server_name_template">Server Name Template</label>
+                  <p class="text-[10px] text-muted mb-2" data-i18n="web:settings.server_name_template_description">Use <code class="text-accent/80 bg-surface-50 px-1 rounded text-[9px]">{mode}</code> where the profile name should appear. Leave empty to skip.</p>
+                  <input type="text" id="sched-name-template" placeholder="[EU1] My Server | {mode} | Dynamic Difficulty" class="input-field w-full text-xs py-1.5 font-mono" data-i18n-attr='{"placeholder":"web:settings.server_name_template_placeholder"}'>
                 </div>
                 <!-- Rotate daily -->
                 <label class="flex items-center gap-2 text-xs text-text cursor-pointer select-none">
                   <input type="checkbox" id="sched-rotate-daily" class="accent-accent rounded w-3.5 h-3.5">
-                  Rotate profiles daily (shifts schedule by one slot each day)
+                  <span data-i18n="web:settings.rotate_profiles_daily">Rotate profiles daily (shifts schedule by one slot each day)</span>
                 </label>
               </div>
               <div class="px-6 py-3 border-t border-border flex items-center justify-between gap-3">
-                <button id="sched-editor-cancel" class="text-sm text-muted hover:text-text transition-colors">Cancel</button>
+                <button id="sched-editor-cancel" class="text-sm text-muted hover:text-text transition-colors" data-i18n="web:common.cancel">Cancel</button>
                 <div class="flex items-center gap-3">
                   <span id="sched-editor-status" class="text-[10px] text-muted"></span>
                   <button id="sched-editor-save" class="btn-primary flex items-center gap-1.5">
-                    <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Schedule
+                    <i data-lucide="save" class="w-3.5 h-3.5"></i> <span data-i18n="web:settings.save_schedule">Save Schedule</span>
                   </button>
                 </div>
               </div>
@@ -833,38 +838,38 @@
         <!-- CONTROLS -->
         <section id="tab-controls" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Server Controls</h1>
+            <h1 class="page-title" data-i18n="web:pages.server_controls">Server Controls</h1>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div class="card">
-              <h3 class="card-title">Power</h3>
-              <p class="text-xs text-muted mb-3">Start, stop, or restart the game server.</p>
+              <h3 class="card-title" data-i18n="web:controls.power">Power</h3>
+              <p class="text-xs text-muted mb-3" data-i18n="web:controls.power_description">Start, stop, or restart the game server.</p>
               <div class="flex gap-2 flex-wrap">
-                <button class="power-btn power-start" data-action="start">Start</button>
-                <button class="power-btn power-restart" data-action="restart">Restart</button>
-                <button class="power-btn power-stop" data-action="stop">Stop</button>
+                <button class="power-btn power-start" data-action="start" data-i18n="web:controls.start">Start</button>
+                <button class="power-btn power-restart" data-action="restart" data-i18n="web:controls.restart">Restart</button>
+                <button class="power-btn power-stop" data-action="stop" data-i18n="web:controls.stop">Stop</button>
               </div>
             </div>
             <div class="card">
-              <h3 class="card-title">Backups</h3>
-              <p class="text-xs text-muted mb-3">Create a manual backup of save files.</p>
-              <button class="power-btn power-backup" data-action="backup">Create Backup</button>
+              <h3 class="card-title" data-i18n="web:controls.backups">Backups</h3>
+              <p class="text-xs text-muted mb-3" data-i18n="web:controls.backups_description">Create a manual backup of save files.</p>
+              <button class="power-btn power-backup" data-action="backup" data-i18n="web:controls.create_backup">Create Backup</button>
               <div id="backup-list" class="mt-3 space-y-1 max-h-40 overflow-y-auto hidden"></div>
             </div>
             <div class="card">
-              <h3 class="card-title">Quick Commands</h3>
-              <p class="text-xs text-muted mb-3">Common RCON commands.</p>
+              <h3 class="card-title" data-i18n="web:controls.quick_commands">Quick Commands</h3>
+              <p class="text-xs text-muted mb-3" data-i18n="web:controls.quick_commands_description">Common RCON commands.</p>
               <div class="flex gap-2 flex-wrap">
-                <button class="quick-cmd" data-cmd="info">Server Info</button>
-                <button class="quick-cmd" data-cmd="players">Player List</button>
-                <button class="quick-cmd" data-cmd="save">Save World</button>
+                <button class="quick-cmd" data-cmd="info" data-i18n="web:controls.server_info">Server Info</button>
+                <button class="quick-cmd" data-cmd="players" data-i18n="web:controls.player_list">Player List</button>
+                <button class="quick-cmd" data-cmd="save" data-i18n="web:controls.save_world">Save World</button>
               </div>
             </div>
           </div>
           <div class="card">
-            <h3 class="card-title">Action Log</h3>
+            <h3 class="card-title" data-i18n="web:controls.action_log">Action Log</h3>
             <div id="controls-log" class="space-y-1 max-h-60 overflow-y-auto">
-              <div class="text-xs text-muted py-2">No actions yet</div>
+              <div class="text-xs text-muted py-2" data-i18n="web:controls.no_actions_yet">No actions yet</div>
             </div>
           </div>
         </section>
@@ -873,15 +878,15 @@
         <section id="tab-database" class="tab-content hidden p-6 space-y-4">
           <div class="breadcrumb-bar"></div>
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Database</h1>
+            <h1 class="page-title" data-i18n="web:pages.database">Database</h1>
             <div class="flex items-center gap-2">
               <!-- Mode toggle: Browse / Query -->
               <div class="flex items-center bg-surface-200 rounded-lg p-0.5 border border-border">
                 <button id="db-mode-browse" class="settings-mode-btn active" data-mode="browse">
-                  <i data-lucide="table" class="w-3 h-3"></i> Browse
+                  <i data-lucide="table" class="w-3 h-3"></i> <span data-i18n="web:database.browse">Browse</span>
                 </button>
                 <button id="db-mode-query" class="settings-mode-btn" data-mode="query">
-                  <i data-lucide="terminal" class="w-3 h-3"></i> Query
+                  <i data-lucide="terminal" class="w-3 h-3"></i> <span data-i18n="web:database.query">Query</span>
                 </button>
               </div>
             </div>
@@ -895,16 +900,16 @@
               <div class="ml-auto flex items-center gap-2">
                 <div class="relative">
                   <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
-                  <input type="text" id="db-search" placeholder="Search..." class="input-field has-icon w-48">
+                  <input type="text" id="db-search" placeholder="Search..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:database.search_placeholder"}'>
                 </div>
-                <select id="db-limit" class="input-field w-24"><option value="50">50</option><option value="100">100</option><option value="200">200</option><option value="500">500</option></select>
-                <button id="db-export-csv" class="btn-secondary flex items-center gap-1.5 text-xs" title="Export current results as CSV"><i data-lucide="download" class="w-3.5 h-3.5"></i> CSV</button>
+                <select id="db-limit" class="input-field w-24"><option value="50" data-i18n="web:database.option_50">50</option><option value="100" data-i18n="web:database.option_100">100</option><option value="200" data-i18n="web:database.option_200">200</option><option value="500" data-i18n="web:database.option_500">500</option></select>
+                <button id="db-export-csv" class="btn-secondary flex items-center gap-1.5 text-xs" title="Export current results as CSV" data-i18n-attr='{"title":"web:database.export_csv"}'><i data-lucide="download" class="w-3.5 h-3.5"></i> <span data-i18n="web:database.csv">CSV</span></button>
               </div>
             </div>
             <!-- Table schema preview (collapsible) -->
             <details id="db-schema-details" class="mb-3">
               <summary class="text-xs text-muted cursor-pointer hover:text-text transition-colors flex items-center gap-1">
-                <i data-lucide="columns" class="w-3 h-3"></i> Schema
+                <i data-lucide="columns" class="w-3 h-3"></i> <span data-i18n="web:database.schema">Schema</span>
               </summary>
               <div id="db-schema-info" class="mt-2 overflow-x-auto"></div>
             </details>
@@ -916,36 +921,36 @@
             <!-- Visual query builder -->
             <div class="card">
               <div class="card-title flex items-center gap-2">
-                <i data-lucide="wand" class="w-3.5 h-3.5"></i> Query Builder
+                <i data-lucide="wand" class="w-3.5 h-3.5"></i> <span data-i18n="web:database.query_builder">Query Builder</span>
               </div>
               <div class="space-y-3">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs text-muted font-mono">SELECT</span>
-                  <input type="text" id="qb-columns" value="*" placeholder="* or column names" class="input-field flex-1 font-mono text-xs">
-                  <span class="text-xs text-muted font-mono">FROM</span>
+                  <span class="text-xs text-muted font-mono" data-i18n="web:database.select">SELECT</span>
+                  <input type="text" id="qb-columns" value="*" placeholder="* or column names" class="input-field flex-1 font-mono text-xs" data-i18n-attr='{"placeholder":"web:database.columns_placeholder"}'>
+                  <span class="text-xs text-muted font-mono" data-i18n="web:database.from">FROM</span>
                   <select id="qb-table" class="input-field w-56 font-mono text-xs"></select>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap" id="qb-where-row">
-                  <span class="text-xs text-muted font-mono">WHERE</span>
-                  <select id="qb-where-col" class="input-field w-40 font-mono text-xs"><option value="">--</option></select>
+                  <span class="text-xs text-muted font-mono" data-i18n="web:database.where">WHERE</span>
+                  <select id="qb-where-col" class="input-field w-40 font-mono text-xs"><option value="" data-i18n="web:database.option_dash">--</option></select>
                   <select id="qb-where-op" class="input-field w-20 font-mono text-xs">
-                    <option value="=">=</option><option value="!=">!=</option>
-                    <option value="LIKE">LIKE</option><option value=">">></option>
-                    <option value="<"><</option><option value=">=">>=</option><option value="<="><=</option>
-                    <option value="IS NULL">IS NULL</option><option value="IS NOT NULL">IS NOT NULL</option>
+                    <option value="=" data-i18n="web:database.op_eq">=</option><option value="!=" data-i18n="web:database.op_neq">!=</option>
+                    <option value="LIKE" data-i18n="web:database.op_like">LIKE</option><option value=">" data-i18n="web:database.op_gt">></option>
+                    <option value="<" data-i18n="web:database.op_lt">&lt;</option><option value=">=" data-i18n="web:database.op_gte">>=</option><option value="<=" data-i18n="web:database.op_lte">&lt;=</option>
+                    <option value="IS NULL" data-i18n="web:database.op_is_null">IS NULL</option><option value="IS NOT NULL" data-i18n="web:database.op_is_not_null">IS NOT NULL</option>
                   </select>
-                  <input type="text" id="qb-where-val" placeholder="value" class="input-field w-40 font-mono text-xs">
+                  <input type="text" id="qb-where-val" placeholder="value" class="input-field w-40 font-mono text-xs" data-i18n-attr='{"placeholder":"web:database.value_placeholder"}'>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs text-muted font-mono">ORDER BY</span>
-                  <select id="qb-order-col" class="input-field w-40 font-mono text-xs"><option value="">--</option></select>
-                  <select id="qb-order-dir" class="input-field w-20 font-mono text-xs"><option value="DESC">DESC</option><option value="ASC">ASC</option></select>
-                  <span class="text-xs text-muted font-mono">LIMIT</span>
+                  <span class="text-xs text-muted font-mono" data-i18n="web:database.order_by">ORDER BY</span>
+                  <select id="qb-order-col" class="input-field w-40 font-mono text-xs"><option value="" data-i18n="web:database.option_dash">--</option></select>
+                  <select id="qb-order-dir" class="input-field w-20 font-mono text-xs"><option value="DESC" data-i18n="web:database.order_desc">DESC</option><option value="ASC" data-i18n="web:database.order_asc">ASC</option></select>
+                  <span class="text-xs text-muted font-mono" data-i18n="web:database.limit">LIMIT</span>
                   <input type="number" id="qb-limit" value="100" min="1" max="1000" class="input-field w-20 font-mono text-xs">
                 </div>
                 <div class="flex items-center gap-2">
-                  <button id="qb-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> Run Query</button>
-                  <button id="qb-copy-sql" class="btn-secondary flex items-center gap-1.5 text-xs"><i data-lucide="copy" class="w-3 h-3"></i> Copy SQL</button>
+                  <button id="qb-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> <span data-i18n="web:database.run_query">Run Query</span></button>
+                  <button id="qb-copy-sql" class="btn-secondary flex items-center gap-1.5 text-xs"><i data-lucide="copy" class="w-3 h-3"></i> <span data-i18n="web:database.copy_sql">Copy SQL</span></button>
                   <span id="qb-preview" class="text-xs text-muted font-mono truncate flex-1"></span>
                 </div>
               </div>
@@ -953,11 +958,11 @@
             <!-- Raw SQL (admin) -->
             <div class="card">
               <div class="card-title flex items-center gap-2">
-                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Raw SQL <span class="text-xs font-normal text-muted">(SELECT only)</span>
+                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> <span data-i18n="web:database.raw_sql">Raw SQL</span> <span class="text-xs font-normal text-muted" data-i18n="web:database.select_only">(SELECT only)</span>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="db-raw-sql" placeholder="SELECT * FROM players LIMIT 10" class="input-field flex-1 font-mono text-xs">
-                <button id="db-raw-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> Run</button>
+                <input type="text" id="db-raw-sql" placeholder="SELECT * FROM players LIMIT 10" class="input-field flex-1 font-mono text-xs" data-i18n-attr='{"placeholder":"web:database.raw_sql_placeholder"}'>
+                <button id="db-raw-run" class="btn-primary flex items-center gap-1.5 text-xs"><i data-lucide="play" class="w-3 h-3"></i> <span data-i18n="web:database.run">Run</span></button>
               </div>
             </div>
             <!-- Query results -->
@@ -969,11 +974,11 @@
         <!-- ═══ Anticheat ═══ -->
         <section id="tab-anticheat" class="tab-content hidden p-6 space-y-4">
           <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="page-title">Anticheat</h1>
+            <h1 class="page-title" data-i18n="web:pages.anticheat">Anticheat</h1>
             <div class="flex items-center gap-2">
-              <select id="ac-status-filter" class="input-field w-32"><option value="open">Open</option><option value="confirmed">Confirmed</option><option value="dismissed">Dismissed</option><option value="whitelisted">Whitelisted</option><option value="">All</option></select>
-              <select id="ac-severity-filter" class="input-field w-28"><option value="">All Severity</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select>
-              <button id="ac-refresh" class="btn-secondary flex items-center gap-1.5 text-xs"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh</button>
+              <select id="ac-status-filter" class="input-field w-32"><option value="open" data-i18n="web:anticheat.open">Open</option><option value="confirmed" data-i18n="web:anticheat.confirmed">Confirmed</option><option value="dismissed" data-i18n="web:anticheat.dismissed">Dismissed</option><option value="whitelisted" data-i18n="web:anticheat.whitelisted">Whitelisted</option><option value="" data-i18n="web:anticheat.all">All</option></select>
+              <select id="ac-severity-filter" class="input-field w-28"><option value="" data-i18n="web:anticheat.all_severity">All Severity</option><option value="critical" data-i18n="web:anticheat.critical">Critical</option><option value="high" data-i18n="web:anticheat.high">High</option><option value="medium" data-i18n="web:anticheat.medium">Medium</option><option value="low" data-i18n="web:anticheat.low">Low</option><option value="info" data-i18n="web:anticheat.info">Info</option></select>
+              <button id="ac-refresh" class="btn-secondary flex items-center gap-1.5 text-xs"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span data-i18n="web:map.refresh">Refresh</span></button>
             </div>
           </div>
           <!-- Risk score overview cards -->
@@ -981,26 +986,31 @@
           <!-- Flags table -->
           <div class="card">
             <div class="card-header flex items-center justify-between">
-              <span class="font-medium text-text-bright">Flags</span>
+              <span class="font-medium text-text-bright" data-i18n="web:anticheat.flags">Flags</span>
               <span id="ac-flag-count" class="text-xs text-muted"></span>
             </div>
             <div id="ac-flags-table" class="overflow-x-auto"></div>
           </div>
           <!-- Risk scores table -->
           <div class="card">
-            <div class="card-header"><span class="font-medium text-text-bright">Player Risk Scores</span></div>
+            <div class="card-header"><span class="font-medium text-text-bright" data-i18n="web:anticheat.player_risk_scores">Player Risk Scores</span></div>
             <div id="ac-risk-table" class="overflow-x-auto"></div>
           </div>
         </section>
 
         <footer class="px-6 py-3 text-center text-[11px] text-muted/20 border-t border-border/20 mt-auto shrink-0">
-          HumanitZ by Yodubzz Studios · Community panel
+          <span data-i18n="web:footer.community_panel">HumanitZ by Yodubzz Studios · Community panel</span>
         </footer>
       </main>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- i18n -->
+  <script src="https://unpkg.com/i18next@25/dist/umd/i18next.min.js"></script>
+  <script src="https://unpkg.com/i18next-http-backend@3/i18nextHttpBackend.min.js"></script>
+  <script src="https://unpkg.com/i18next-browser-languagedetector@8/i18nextBrowserLanguageDetector.min.js"></script>
+  <script src="/js/i18n.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@ const { Events, EmbedBuilder } = require('discord.js');
 const _defaultConfig = require('../config');
 const { addAdminMembers } = require('../config');
 const _defaultRcon = require('../rcon/rcon');
+const { t, getLocale } = require('../i18n');
 
 // Data-layer parser: regexes, line parsing, diffing, sanitisation
 const chatParser = require('./chat-relay-parser');
@@ -25,6 +26,7 @@ class ChatRelay {
     this._nukeActive = false;      // true during NUKE_BOT — suppresses thread creation
     this._healthy = true;           // false if start() failed — module appears active but isn't
     this._headless = false;          // true when running without a Discord channel (DB-only data collection)
+    this._locale = getLocale({ serverConfig: this._config });
   }
 
   /** Whether the chat relay started successfully. */
@@ -192,7 +194,10 @@ class ChatRelay {
 
     const dateLabel = this._config.getDateLabel();
     const serverSuffix = this._config.serverName ? ` [${this._config.serverName}]` : '';
-    const threadName = `💬 Chat Log — ${dateLabel}${serverSuffix}`;
+    const threadName = t('discord:chat_relay.chat_log_title', this._locale, {
+      date_label: dateLabel,
+      server_suffix: serverSuffix,
+    });
 
     try {
       // Check active threads
@@ -227,8 +232,11 @@ class ChatRelay {
       const starterMsg = await this.adminChannel.send({
         embeds: [
           new EmbedBuilder()
-            .setTitle(`💬 Chat Log — ${dateLabel}${serverSuffix}`)
-            .setDescription('All in-game chat messages for today are logged in this thread.')
+            .setTitle(t('discord:chat_relay.chat_log_title', this._locale, {
+              date_label: dateLabel,
+              server_suffix: serverSuffix,
+            }))
+            .setDescription(t('discord:chat_relay.chat_log_description', this._locale))
             .setColor(0x3498db)
             .setTimestamp(),
         ],
@@ -236,7 +244,7 @@ class ChatRelay {
       this._chatThread = await starterMsg.startThread({
         name: threadName,
         autoArchiveDuration: 1440,
-        reason: 'Daily chat log thread',
+        reason: t('discord:chat_relay.daily_thread_reason', this._locale),
       });
       this._chatThreadDate = today;
       console.log(`[${this._label}] Created daily thread: ${threadName}`);
@@ -307,16 +315,16 @@ class ChatRelay {
     const adminMatch = text.match(/^!admin\s*(.*)/i);
     if (!adminMatch) return;
 
-    const reason = adminMatch[1] || 'No reason given';
+    const reason = adminMatch[1] || t('discord:chat_relay.admin_call_no_reason', this._locale);
     console.log(`[${this._label}] !admin call from ${name}: ${reason}`);
 
     // Alert in the daily chat thread (with @here so admins are notified)
     const embed = new EmbedBuilder()
-      .setTitle('🚨 Admin Assistance Requested')
+      .setTitle(t('discord:chat_relay.admin_assistance_requested', this._locale))
       .setColor(0xe74c3c)
       .addFields(
-        { name: 'Player', value: name, inline: true },
-        { name: 'Reason', value: reason, inline: true },
+        { name: t('discord:chat_relay.player', this._locale), value: name, inline: true },
+        { name: t('discord:chat_relay.reason', this._locale), value: reason, inline: true },
       )
       .setTimestamp();
 
@@ -357,7 +365,7 @@ class ChatRelay {
         const m = link.match(/^(.*?discord\.gg)(\/.*)$/i);
         linkPart = m ? ` </><CL>${m[1]}</><FO>${m[2] || ''}` : ` ${link}`;
       }
-      await this._rcon.send(`admin </>${name}<FO>, your request has been sent to the admins.${linkPart}`);
+      await this._rcon.send(`admin </>${name}<FO>, ${t('discord:chat_relay.request_sent_notice', this._locale)}${linkPart}`);
     } catch (_) {}
   }
 

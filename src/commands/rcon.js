@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const rcon = require('../rcon/rcon');
+const { t, getLocalizations } = require('../i18n');
 
 // Commands that could disrupt the server — blocked from Discord execution
 // Keep in sync with web panel blocklist in src/web-map/server.js
@@ -11,25 +12,28 @@ const BLOCKED_COMMANDS = new Set([
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('rcon')
-    .setDescription('Send a raw RCON command to the server (Admin only)')
-    .addStringOption(option =>
+    .setNameLocalizations(getLocalizations('commands:rcon.name'))
+    .setDescription(t('commands:rcon.description', 'en'))
+    .setDescriptionLocalizations(getLocalizations('commands:rcon.description'))
+    .addStringOption((option) =>
       option
         .setName('command')
-        .setDescription('The RCON command to send')
-        .setRequired(true)
+        .setDescription(t('commands:rcon.options.command', 'en'))
+        .setDescriptionLocalizations(getLocalizations('commands:rcon.options.command'))
+        .setRequired(true),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const locale = interaction.locale || 'en';
 
     const command = interaction.options.getString('command');
 
-    // Block destructive commands
     const cmdWord = command.trim().toLowerCase().split(/\s+/)[0];
     if (BLOCKED_COMMANDS.has(cmdWord)) {
       await interaction.editReply({
-        content: `❌ The command \`${cmdWord}\` is blocked for safety. Use the server panel to perform this action.`,
+        content: t('commands:rcon.reply.blocked', locale, { command: cmdWord }),
       });
       return;
     }
@@ -39,15 +43,18 @@ module.exports = {
 
       const output = response && response.trim()
         ? `\`\`\`\n${response.substring(0, 1900)}\n\`\`\``
-        : '_No response from server._';
+        : t('commands:rcon.reply.no_response', locale);
 
       await interaction.editReply({
-        content: `**Command:** \`${command}\`\n**Response:**\n${output}`,
+        content: t('commands:rcon.reply.response_template', locale, {
+          command,
+          response: output,
+        }),
       });
     } catch (err) {
       console.error('[CMD:rcon]', err.message);
       await interaction.editReply({
-        content: `❌ RCON command failed: ${err.message}`,
+        content: t('commands:rcon.reply.failed', locale, { error: err.message }),
       });
     }
   },

@@ -15,38 +15,46 @@ const {
   ComponentType,
 } = require('discord.js');
 const playerStats = require('../tracking/player-stats');
-const playtime    = require('../tracking/playtime-tracker');
+const playtime = require('../tracking/playtime-tracker');
 const { buildPlayerEmbed } = require('../modules/player-embed');
+const { t, getLocalizations } = require('../i18n');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('playerstats')
-    .setDescription('View player activity stats (deaths, builds, raids, etc.)'),
+    .setNameLocalizations(getLocalizations('commands:playerstats.name'))
+    .setDescription(t('commands:playerstats.description', 'en'))
+    .setDescriptionLocalizations(getLocalizations('commands:playerstats.description')),
 
   async execute(interaction) {
     await interaction.deferReply();
+    const locale = interaction.locale || 'en';
 
     const allPlayers = playerStats.getAllPlayers();
 
     if (allPlayers.length === 0) {
-      await interaction.editReply('No player stats recorded yet. Stats are gathered from the game server log \u2014 play for a while and check back!');
+      await interaction.editReply(t('commands:playerstats.reply.no_data', locale));
       return;
     }
 
     // Build select menu options (max 25 per Discord limit)
-    const options = allPlayers.slice(0, 25).map(p => {
+    const options = allPlayers.slice(0, 25).map((p) => {
       const pt = playtime.getPlaytime(p.id);
-      const ptStr = pt ? ` \xB7 ${pt.totalFormatted}` : '';
+      const ptStr = pt ? ` · ${pt.totalFormatted}` : '';
       return {
         label: p.name.substring(0, 100),
-        description: `\uD83D\uDC80 ${p.deaths} deaths \xB7 \uD83D\uDD28 ${p.builds} builds${ptStr}`.substring(0, 100),
+        description: t('commands:playerstats.menus.player_option_description', locale, {
+          deaths: p.deaths,
+          builds: p.builds,
+          playtime: ptStr,
+        }).substring(0, 100),
         value: p.id,
       };
     });
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('playerstats_select')
-      .setPlaceholder('Select a player to view their stats\u2026')
+      .setPlaceholder(t('commands:playerstats.menus.player_placeholder', locale))
       .addOptions(options);
 
     const row = new ActionRowBuilder().addComponents(selectMenu);
@@ -54,27 +62,29 @@ module.exports = {
     // Overview embed
     const totalDeaths = allPlayers.reduce((s, p) => s + p.deaths, 0);
     const totalBuilds = allPlayers.reduce((s, p) => s + p.builds, 0);
-    const totalLoots  = allPlayers.reduce((s, p) => s + p.containersLooted, 0);
+    const totalLoots = allPlayers.reduce((s, p) => s + p.containersLooted, 0);
 
     const embed = new EmbedBuilder()
-      .setTitle('\uD83D\uDCCA Player Activity')
-      .setDescription(`**${allPlayers.length}** tracked survivors`)
+      .setTitle(t('commands:playerstats.embeds.title', locale))
+      .setDescription(t('commands:playerstats.embeds.tracked_survivors', locale, { count: allPlayers.length }))
       .setColor(0x5865F2)
       .setTimestamp();
 
     embed.addFields(
-      { name: '\uD83D\uDC80 Deaths', value: `${totalDeaths}`, inline: true },
-      { name: '\uD83D\uDD28 Builds', value: `${totalBuilds}`, inline: true },
-      { name: '\uD83D\uDCE6 Looted', value: `${totalLoots}`, inline: true },
+      { name: t('commands:playerstats.embeds.deaths', locale), value: `${totalDeaths}`, inline: true },
+      { name: t('commands:playerstats.embeds.builds', locale), value: `${totalBuilds}`, inline: true },
+      { name: t('commands:playerstats.embeds.looted', locale), value: `${totalLoots}`, inline: true },
     );
 
     // Top 5 most active
     const top5 = allPlayers.slice(0, 5).map((p, i) => {
-      const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
       const activity = p.deaths + p.builds + p.raidsOut + p.containersLooted;
-      return `${medals[i]} **${p.name}** \u2014 ${activity} events`;
+      return `${medals[i]} **${p.name}** — ${t('commands:playerstats.reply.events_count', locale, { count: activity })}`;
     });
-    if (top5.length > 0) embed.addFields({ name: 'Most Active', value: top5.join('\n') });
+    if (top5.length > 0) {
+      embed.addFields({ name: t('commands:playerstats.embeds.most_active', locale), value: top5.join('\n') });
+    }
 
     const response = await interaction.editReply({ embeds: [embed], components: [row] });
 
@@ -91,7 +101,7 @@ module.exports = {
 
         if (!stats) {
           await selectInteraction.update({
-            embeds: [new EmbedBuilder().setDescription('Player not found.').setColor(0xe74c3c)],
+            embeds: [new EmbedBuilder().setDescription(t('commands:playerstats.reply.player_not_found', locale)).setColor(0xe74c3c)],
             components: [row],
           });
           return;

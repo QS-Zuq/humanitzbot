@@ -141,6 +141,9 @@ const config = {
   // Most dedicated-server hosts (Bisect, Nitrado, etc.) run in UTC.
   logTimezone: process.env.LOG_TIMEZONE || 'UTC',
 
+  // Bot display language (en, zh-TW, zh-CN)
+  botLocale: process.env.BOT_LOCALE || 'en',
+
   // Behavior
   chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000, 5000),
   statusCacheTtl: Math.max(parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000, 10000),

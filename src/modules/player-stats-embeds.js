@@ -19,6 +19,7 @@ const { cleanItemName: _rawClean, cleanItemArray, isHexGuid } = require('../pars
 const {
   buildScheduleField,
 } = require('../server/server-display');
+const { t, getLocale, fmtDate, fmtTime, fmtNumber } = require('../i18n');
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -31,11 +32,23 @@ function _clean(name) {
 }
 
 /** Format milliseconds → "12h 34m" or "34m". */
-function _fmtTime(ms) {
-  if (!ms || ms <= 0) return '0m';
+function _fmtTime(ms, locale = 'en') {
+  if (!ms || ms <= 0) {
+    return t('discord:player_stats.duration_minutes', locale, {
+      minutes: fmtNumber(0, locale),
+    });
+  }
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  if (h > 0) {
+    return t('discord:player_stats.duration_hours_minutes', locale, {
+      hours: fmtNumber(h, locale),
+      minutes: fmtNumber(m, locale),
+    });
+  }
+  return t('discord:player_stats.duration_minutes', locale, {
+    minutes: fmtNumber(m, locale),
+  });
 }
 
 /** Percentage bar — 10 chars wide. */
@@ -53,6 +66,10 @@ function _pct(value, max) {
 
 /** Medal array for leaderboards. */
 const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
+
+function _tp(locale, key, vars = {}) {
+  return t(`discord:player_stats.${key}`, locale, vars);
+}
 
 // ─── Category enum → name ────────────────────────────────────────
 const _SKILL_CAT = { 'NewEnumerator0': 'Survival', 'NewEnumerator1': 'Crafting', 'NewEnumerator2': 'Combat' };
@@ -157,12 +174,13 @@ function _parseSkillTree(raw) {
 // ═════════════════════════════════════════════════════════════════════
 
 function _buildOverviewEmbed() {
+  const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` — ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
-    .setTitle(`\uD83D\uDCCA Player Statistics${serverTag}`)
+    .setTitle(`${_tp(locale, 'overview_title')}${serverTag}`)
     .setColor(0x5865F2)
     .setTimestamp()
-    .setFooter({ text: 'Select a player or clan below \u00B7 Last updated' });
+    .setFooter({ text: _tp(locale, 'overview_footer') });
 
   // ┌──────────────────────────────────────────────────────────────┐
   // │  1. DYNAMIC DIFFICULTY SCHEDULE — The #1 feature            │
@@ -182,8 +200,14 @@ function _buildOverviewEmbed() {
   const totalDeaths = players.reduce((s, p) => s + p.deaths, 0);
 
   const descLines = [
-    `\uD83D\uDC65 **${onlineCount}** online \u00B7 **${players.length}** total survivors`,
-    `\uD83E\uDDDF **${totalKills.toLocaleString()}** zombie kills \u00B7 \uD83D\uDC80 **${totalDeaths}** deaths`,
+    _tp(locale, 'overview_online_summary', {
+      online: fmtNumber(onlineCount, locale),
+      total: fmtNumber(players.length, locale),
+    }),
+    _tp(locale, 'overview_kills_summary', {
+      kills: fmtNumber(totalKills, locale),
+      deaths: fmtNumber(totalDeaths, locale),
+    }),
   ];
   embed.setDescription(descLines.join('\n'));
 
@@ -196,8 +220,8 @@ function _buildOverviewEmbed() {
     .sort((a, b) => b.kills - a.kills).slice(0, 5);
   if (topKillers.length > 0) {
     const lines = topKillers.map((p, i) =>
-      `${MEDALS[i]} **${p.name}** \u2014 ${p.kills.toLocaleString()}`);
-    embed.addFields({ name: '\uD83E\uDDDF Top Killers', value: lines.join('\n'), inline: true });
+      `${MEDALS[i]} **${p.name}** \u2014 ${fmtNumber(p.kills, locale)}`);
+    embed.addFields({ name: _tp(locale, 'top_killers'), value: lines.join('\n'), inline: true });
   }
 
   // Top Playtime
@@ -205,8 +229,8 @@ function _buildOverviewEmbed() {
     .sort((a, b) => b.playtime - a.playtime).slice(0, 5);
   if (topPlaytime.length > 0) {
     const lines = topPlaytime.map((p, i) =>
-      `${MEDALS[i]} **${p.name}** \u2014 ${_fmtTime(p.playtime)}`);
-    embed.addFields({ name: '\u23F1\uFE0F Most Active', value: lines.join('\n'), inline: true });
+      `${MEDALS[i]} **${p.name}** \u2014 ${_fmtTime(p.playtime, locale)}`);
+    embed.addFields({ name: _tp(locale, 'most_active'), value: lines.join('\n'), inline: true });
   }
 
   // Top Survivors
@@ -214,8 +238,8 @@ function _buildOverviewEmbed() {
     .sort((a, b) => b.daysSurvived - a.daysSurvived).slice(0, 5);
   if (topSurvivors.length > 0) {
     const lines = topSurvivors.map((p, i) =>
-      `${MEDALS[i]} **${p.name}** \u2014 ${p.daysSurvived}d`);
-    embed.addFields({ name: '\uD83D\uDCC5 Longest Survival', value: lines.join('\n'), inline: true });
+      `${MEDALS[i]} **${p.name}** \u2014 ${_tp(locale, 'days_short', { days: fmtNumber(p.daysSurvived, locale) })}`);
+    embed.addFields({ name: _tp(locale, 'longest_survival'), value: lines.join('\n'), inline: true });
   }
 
   // ┌──────────────────────────────────────────────────────────────┐
@@ -224,29 +248,60 @@ function _buildOverviewEmbed() {
 
   const funLines = [];
   const mostBitten = players.filter(p => p.bitten > 0).sort((a, b) => b.bitten - a.bitten)[0];
-  if (mostBitten) funLines.push(`\uD83E\uDDB7 Most bitten: **${mostBitten.name}** (${mostBitten.bitten}\u00D7)`);
+  if (mostBitten) {
+    funLines.push(_tp(locale, 'fun_most_bitten', {
+      name: mostBitten.name,
+      count: fmtNumber(mostBitten.bitten, locale),
+    }));
+  }
   const topFisher = players.filter(p => p.fishCaught > 0).sort((a, b) => b.fishCaught - a.fishCaught)[0];
-  if (topFisher) funLines.push(`\uD83D\uDC1F Top angler: **${topFisher.name}** (${topFisher.fishCaught})`);
+  if (topFisher) {
+    funLines.push(_tp(locale, 'fun_top_angler', {
+      name: topFisher.name,
+      count: fmtNumber(topFisher.fishCaught, locale),
+    }));
+  }
   const topPvP = players.filter(p => p.pvpKills > 0).sort((a, b) => b.pvpKills - a.pvpKills)[0];
-  if (topPvP) funLines.push(`\u2694\uFE0F PvP leader: **${topPvP.name}** (${topPvP.pvpKills})`);
-  if (funLines.length > 0) embed.addFields({ name: '\uD83C\uDFB2 Fun Stats', value: funLines.join('\n'), inline: true });
+  if (topPvP) {
+    funLines.push(_tp(locale, 'fun_pvp_leader', {
+      name: topPvP.name,
+      count: fmtNumber(topPvP.pvpKills, locale),
+    }));
+  }
+  if (funLines.length > 0) embed.addFields({ name: _tp(locale, 'fun_stats'), value: funLines.join('\n'), inline: true });
 
   // Weekly highlights
   if (this._weeklyStats) {
     const ws = this._weeklyStats;
     const weekLines = [];
     const wk = ws.topKillers?.[0];
-    if (wk) weekLines.push(`\uD83E\uDDDF **${wk.name}** \u2014 ${wk.kills} kills`);
+    if (wk) {
+      weekLines.push(_tp(locale, 'week_top_killer', {
+        name: wk.name,
+        kills: fmtNumber(wk.kills, locale),
+      }));
+    }
     const wp = ws.topPlaytime?.[0];
-    if (wp) weekLines.push(`\u23F1\uFE0F **${wp.name}** \u2014 ${_fmtTime(wp.ms)}`);
-    if (ws.newPlayers > 0) weekLines.push(`\uD83C\uDD95 ${ws.newPlayers} new player${ws.newPlayers > 1 ? 's' : ''}`);
-    if (weekLines.length > 0) embed.addFields({ name: '\uD83D\uDCC5 This Week', value: weekLines.join('\n'), inline: true });
+    if (wp) weekLines.push(_tp(locale, 'week_most_active', { name: wp.name, playtime: _fmtTime(wp.ms, locale) }));
+    if (ws.newPlayers > 0) {
+      weekLines.push(_tp(locale, 'week_new_players', {
+        count: fmtNumber(ws.newPlayers, locale),
+        plural_suffix: ws.newPlayers > 1 ? 's' : '',
+      }));
+    }
+    if (weekLines.length > 0) embed.addFields({ name: _tp(locale, 'this_week'), value: weekLines.join('\n'), inline: true });
   }
 
   // Last save update
   if (this._lastSaveUpdate) {
     const ago = Math.round((Date.now() - this._lastSaveUpdate) / 60000);
-    if (ago >= 0) embed.addFields({ name: '\uD83D\uDCBE Last Save', value: `${ago}m ago`, inline: true });
+    if (ago >= 0) {
+      embed.addFields({
+        name: _tp(locale, 'last_save'),
+        value: _tp(locale, 'last_save_value', { minutes: fmtNumber(ago, locale) }),
+        inline: true,
+      });
+    }
   }
 
   return embed;
@@ -335,6 +390,7 @@ function _buildRoster() {
 // ═════════════════════════════════════════════════════════════════════
 
 function _buildPlayerRow() {
+  const locale = getLocale({ serverConfig: this._config });
   const roster = this._buildRoster();
   const players = Array.from(roster.entries()).map(([sid, p]) => ({ steamId: sid, ...p }));
 
@@ -346,7 +402,11 @@ function _buildPlayerRow() {
 
   const options = players.slice(0, 25).map(p => {
     const status = p.online ? '\uD83D\uDFE2 ' : '';
-    const desc = `${p.kills} kills \u00B7 ${p.deaths} deaths \u00B7 ${p.daysSurvived}d survived`;
+    const desc = _tp(locale, 'player_option_description', {
+      kills: fmtNumber(p.kills, locale),
+      deaths: fmtNumber(p.deaths, locale),
+      days: fmtNumber(p.daysSurvived, locale),
+    });
     return {
       label: `${status}${p.name}`.substring(0, 100),
       description: desc.substring(0, 100),
@@ -359,7 +419,7 @@ function _buildPlayerRow() {
   return [new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`playerstats_player_select${this._serverId ? `:${this._serverId}` : ''}`)
-      .setPlaceholder('Select a player for detailed stats\u2026')
+      .setPlaceholder(_tp(locale, 'player_select_placeholder'))
       .addOptions(options),
   )];
 }
@@ -370,6 +430,7 @@ function _buildPlayerRow() {
 // ═════════════════════════════════════════════════════════════════════
 
 function _buildClanRow() {
+  const locale = getLocale({ serverConfig: this._config });
   if (!this._clanData || this._clanData.length === 0) return [];
 
   const options = [];
@@ -386,7 +447,10 @@ function _buildClanRow() {
     }
     options.push({
       label: `[${clan.name}]`.substring(0, 100),
-      description: `${memberCount} members \u00B7 ${totalKills.toLocaleString()} kills`.substring(0, 100),
+      description: _tp(locale, 'clan_option_description', {
+        members: fmtNumber(memberCount, locale),
+        kills: fmtNumber(totalKills, locale),
+      }).substring(0, 100),
       value: `clan:${clan.name}`.substring(0, 100),
     });
   }
@@ -396,7 +460,7 @@ function _buildClanRow() {
   return [new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`playerstats_clan_select${this._serverId ? `:${this._serverId}` : ''}`)
-      .setPlaceholder('Select a clan for details\u2026')
+      .setPlaceholder(_tp(locale, 'clan_select_placeholder'))
       .addOptions(options.slice(0, 25)),
   )];
 }
@@ -414,8 +478,10 @@ function buildClanEmbed(clanName) {
     : this._clanData?.get?.(clanName);
   if (!clan) return null;
 
+  const locale = getLocale({ serverConfig: this._config });
+
   const embed = new EmbedBuilder()
-    .setTitle(`\uD83C\uDFF0 Clan: ${clanName}`)
+    .setTitle(_tp(locale, 'clan_title', { clan_name: clanName }))
     .setColor(0xe67e22)
     .setTimestamp();
 
@@ -446,22 +512,39 @@ function buildClanEmbed(clanName) {
 
     const status = online ? '\uD83D\uDFE2' : '\u26AB';
     const role = (m.canKick || m.can_kick) ? ' \uD83D\uDC51' : '';
-    memberLines.push(`${status}${role} **${name}** \u2014 ${kills.toLocaleString()} kills \u00B7 ${days}d \u00B7 ${_fmtTime(ptMs)}`);
+    memberLines.push(_tp(locale, 'clan_member_line', {
+      status,
+      role,
+      name,
+      kills: fmtNumber(kills, locale),
+      days: fmtNumber(days, locale),
+      playtime: _fmtTime(ptMs, locale),
+    }));
   }
 
   // Aggregate stats as description
   const desc = [
-    `**${members.length}** member${members.length !== 1 ? 's' : ''}`,
-    `\uD83E\uDDDF **${totalKills.toLocaleString()}** kills \u00B7 \uD83D\uDC80 **${totalDeaths}** deaths`,
+    _tp(locale, 'clan_members_count', {
+      count: fmtNumber(members.length, locale),
+      plural_suffix: members.length !== 1 ? 's' : '',
+    }),
+    _tp(locale, 'clan_kills_deaths', {
+      kills: fmtNumber(totalKills, locale),
+      deaths: fmtNumber(totalDeaths, locale),
+    }),
   ];
-  if (bestDays > 0) desc.push(`\uD83D\uDCC5 Best survival: **${bestDays}** days`);
-  if (totalPtMs > 0) desc.push(`\u23F1\uFE0F Combined playtime: **${_fmtTime(totalPtMs)}**`);
+  if (bestDays > 0) {
+    desc.push(_tp(locale, 'clan_best_survival', { days: fmtNumber(bestDays, locale) }));
+  }
+  if (totalPtMs > 0) {
+    desc.push(_tp(locale, 'clan_combined_playtime', { playtime: _fmtTime(totalPtMs, locale) }));
+  }
   embed.setDescription(desc.join('\n'));
 
   // Member list
   if (memberLines.length > 0) {
     embed.addFields({
-      name: 'Members',
+      name: _tp(locale, 'members'),
       value: memberLines.join('\n').substring(0, 1024),
     });
   }
@@ -474,16 +557,13 @@ function buildClanEmbed(clanName) {
     const logEntry = allLog.find(l => l.id === sid || l.name === name);
     if (logEntry?.lastEvent) {
       const d = new Date(logEntry.lastEvent);
-      const dateStr = d.toLocaleDateString('en-GB', {
-        day: 'numeric', month: 'short',
-        timeZone: this._config.botTimezone,
-      });
+      const dateStr = fmtDate(d, locale);
       activityLines.push(`${name}: ${dateStr}`);
     }
   }
   if (activityLines.length > 0) {
     embed.addFields({
-      name: '\uD83D\uDCCB Last Active',
+      name: _tp(locale, 'last_active'),
       value: activityLines.slice(0, 8).join('\n'),
       inline: true,
     });
@@ -516,6 +596,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   const log  = resolved.log;
   const save = resolved.save;
   const pt   = resolved.playtime;
+  const locale = getLocale({ serverConfig: this._config });
 
   const serverTag = this._config.serverName ? ` [${this._config.serverName}]` : '';
   const embed = new EmbedBuilder()
@@ -525,7 +606,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   // Random loading tip for footer
   const tips = gameData.LOADING_TIPS.filter(t => t.length > 20 && t.length < 120);
   const tip = tips.length > 0 ? tips[Math.floor(Math.random() * tips.length)] : null;
-  embed.setFooter({ text: tip ? `\uD83D\uDCA1 ${tip}` : 'HumanitZ Player Stats' });
+  embed.setFooter({ text: tip ? `\uD83D\uDCA1 ${tip}` : _tp(locale, 'player_stats_footer') });
 
   // ┌──────────────────────────────────────────────────────────────┐
   // │  1. IDENTITY — Title + Description                          │
@@ -549,24 +630,34 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   const identityBits = [];
   if (save) {
     identityBits.push(save.male ? '\u2642' : '\u2640');
-    if (save.level > 0) identityBits.push(`Lv ${save.level}`);
+    if (save.level > 0) identityBits.push(_tp(locale, 'level_short', { level: fmtNumber(save.level, locale) }));
     if (save.expCurrent != null && save.expRequired > 0) {
-      identityBits.push(`\`${_bar(save.expCurrent, save.expRequired)}\` ${_pct(save.expCurrent, save.expRequired)} XP`);
+      identityBits.push(_tp(locale, 'xp_progress', {
+        bar: _bar(save.expCurrent, save.expRequired),
+        percent: _pct(save.expCurrent, save.expRequired),
+      }));
     } else if (save.exp > 0) {
-      identityBits.push(`${Math.round(save.exp).toLocaleString()} XP`);
+      identityBits.push(_tp(locale, 'xp_amount', { xp: fmtNumber(Math.round(save.exp), locale) }));
     }
-    if (save.skillPoints > 0) identityBits.push(`\uD83D\uDD39 ${save.skillPoints} SP`);
+    if (save.skillPoints > 0) {
+      identityBits.push(_tp(locale, 'skill_points', { points: fmtNumber(save.skillPoints, locale) }));
+    }
   }
-  if (pt) identityBits.push(`${pt.totalFormatted} playtime`);
+  if (pt) identityBits.push(_tp(locale, 'playtime_label', { playtime: pt.totalFormatted }));
   if (identityBits.length > 0) desc.push(identityBits.join(' \u00B7 '));
 
   // First seen + sessions
   const metaBits = [];
   if (resolved.firstSeen) {
     const fs = new Date(resolved.firstSeen);
-    metaBits.push(`First seen ${fs.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: this._config.botTimezone })}`);
+    metaBits.push(_tp(locale, 'first_seen', { date: fmtDate(fs, locale) }));
   }
-  if (pt?.sessions > 0) metaBits.push(`${pt.sessions} session${pt.sessions !== 1 ? 's' : ''}`);
+  if (pt?.sessions > 0) {
+    metaBits.push(_tp(locale, 'session_count', {
+      count: fmtNumber(pt.sessions, locale),
+      plural_suffix: pt.sessions !== 1 ? 's' : '',
+    }));
+  }
   if (metaBits.length > 0) desc.push(metaBits.join(' \u00B7 '));
 
   // Affliction warning
@@ -576,7 +667,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
   // Name history (compact)
   if (log?.nameHistory?.length > 0) {
-    desc.push(`*aka ${log.nameHistory.map(h => h.name).join(', ')}*`);
+    desc.push(_tp(locale, 'aka_names', { names: log.nameHistory.map(h => h.name).join(', ') }));
   }
 
   if (desc.length > 0) embed.setDescription(desc.join('\n'));
@@ -591,25 +682,35 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     const hasExt = save.hasExtendedStats;
 
     const killTypes = [
-      ['\uD83E\uDDDF', 'Zombie',   'zeeksKilled'],
-      ['\uD83C\uDFAF', 'Headshot', 'headshots'],
-      ['\u2694\uFE0F', 'Melee',    'meleeKills'],
-      ['\uD83D\uDD2B', 'Ranged',   'gunKills'],
-      ['\uD83D\uDCA5', 'Blast',    'blastKills'],
-      ['\uD83D\uDC4A', 'Unarmed',  'fistKills'],
-      ['\uD83D\uDDE1\uFE0F', 'Takedown', 'takedownKills'],
-      ['\uD83D\uDE97', 'Vehicle',  'vehicleKills'],
+      ['\uD83E\uDDDF', 'kill_type_zombie',   'zeeksKilled'],
+      ['\uD83C\uDFAF', 'kill_type_headshot', 'headshots'],
+      ['\u2694\uFE0F', 'kill_type_melee',    'meleeKills'],
+      ['\uD83D\uDD2B', 'kill_type_ranged',   'gunKills'],
+      ['\uD83D\uDCA5', 'kill_type_blast',    'blastKills'],
+      ['\uD83D\uDC4A', 'kill_type_unarmed',  'fistKills'],
+      ['\uD83D\uDDE1\uFE0F', 'kill_type_takedown', 'takedownKills'],
+      ['\uD83D\uDE97', 'kill_type_vehicle',  'vehicleKills'],
     ];
 
     const killLines = [];
-    for (const [emoji, label, key] of killTypes) {
+    for (const [emoji, labelKey, key] of killTypes) {
       const allTime = at?.[key] || 0;
       const life = cl?.[key] || 0;
       if (allTime <= 0 && life <= 0) continue;
+      const label = _tp(locale, labelKey);
       if (hasExt && life > 0 && life !== allTime) {
-        killLines.push(`${emoji} ${label}: **${allTime}** *(this life: ${life})*`);
+        killLines.push(_tp(locale, 'kill_line_with_life', {
+          emoji,
+          label,
+          all_time: fmtNumber(allTime, locale),
+          life: fmtNumber(life, locale),
+        }));
       } else {
-        killLines.push(`${emoji} ${label}: **${allTime}**`);
+        killLines.push(_tp(locale, 'kill_line', {
+          emoji,
+          label,
+          all_time: fmtNumber(allTime, locale),
+        }));
       }
     }
 
@@ -617,36 +718,49 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     if (save.daysSurvived > 0) {
       const atSurv = this.getAllTimeSurvival(steamId);
       if (atSurv?.daysSurvived > save.daysSurvived) {
-        survLines.push(`\uD83D\uDCC5 Survived: **${save.daysSurvived}d** *(best: ${atSurv.daysSurvived}d)*`);
+        survLines.push(_tp(locale, 'survived_with_best', {
+          days: fmtNumber(save.daysSurvived, locale),
+          best_days: fmtNumber(atSurv.daysSurvived, locale),
+        }));
       } else {
-        survLines.push(`\uD83D\uDCC5 Survived: **${save.daysSurvived}d**`);
+        survLines.push(_tp(locale, 'survived_line', { days: fmtNumber(save.daysSurvived, locale) }));
       }
     }
-    if (log) survLines.push(`\uD83D\uDC80 Deaths: **${log.deaths}**`);
-    if (save.timesBitten > 0) survLines.push(`\uD83E\uDDB7 Bitten: **${save.timesBitten}\u00D7**`);
+    if (log) survLines.push(_tp(locale, 'deaths_line', { count: fmtNumber(log.deaths, locale) }));
+    if (save.timesBitten > 0) {
+      survLines.push(_tp(locale, 'bitten_line', { count: fmtNumber(save.timesBitten, locale) }));
+    }
     if (save.fishCaught > 0) {
-      const pike = save.fishCaughtPike > 0 ? ` (${save.fishCaughtPike} pike)` : '';
-      survLines.push(`\uD83D\uDC1F Fish: **${save.fishCaught}**${pike}`);
+      const pike = save.fishCaughtPike > 0
+        ? _tp(locale, 'fish_pike_suffix', { count: fmtNumber(save.fishCaughtPike, locale) })
+        : '';
+      survLines.push(_tp(locale, 'fish_line', {
+        count: fmtNumber(save.fishCaught, locale),
+        pike_suffix: pike,
+      }));
     }
 
     const combatValue = [...killLines, ...survLines].join('\n');
     if (combatValue) {
-      embed.addFields({ name: '\u2694\uFE0F Combat & Survival', value: combatValue });
+      embed.addFields({ name: _tp(locale, 'combat_survival'), value: combatValue });
     }
   } else if (log) {
-    embed.addFields({ name: '\u2694\uFE0F Combat', value: `\uD83D\uDC80 Deaths: **${log.deaths}**` });
+    embed.addFields({
+      name: _tp(locale, 'combat'),
+      value: _tp(locale, 'deaths_line', { count: fmtNumber(log.deaths, locale) }),
+    });
   }
 
   // PvP (inline)
   if (log && ((log.pvpKills || 0) > 0 || (log.pvpDeaths || 0) > 0)) {
     const p = [];
-    if (log.pvpKills > 0) p.push(`Kills: **${log.pvpKills}**`);
-    if (log.pvpDeaths > 0) p.push(`Deaths: **${log.pvpDeaths}**`);
+    if (log.pvpKills > 0) p.push(_tp(locale, 'pvp_kills_line', { count: fmtNumber(log.pvpKills, locale) }));
+    if (log.pvpDeaths > 0) p.push(_tp(locale, 'pvp_deaths_line', { count: fmtNumber(log.pvpDeaths, locale) }));
     const kd = log.pvpDeaths > 0
       ? (log.pvpKills / log.pvpDeaths).toFixed(2)
       : (log.pvpKills > 0 ? '\u221E' : '0');
-    p.push(`K/D: **${kd}**`);
-    embed.addFields({ name: '\uD83C\uDFF4\u200D\u2620\uFE0F PvP', value: p.join(' \u00B7 '), inline: true });
+    p.push(_tp(locale, 'pvp_kd_line', { kd }));
+    embed.addFields({ name: _tp(locale, 'pvp'), value: p.join(' \u00B7 '), inline: true });
   }
 
   // ┌──────────────────────────────────────────────────────────────┐
@@ -662,8 +776,13 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     if (this._config.showImmunity) vitals.push(`\uD83D\uDEE1\uFE0F \`${_bar(save.infection, save.maxInfection || 100)}\` ${_pct(save.infection, save.maxInfection || 100)}`);
     if (this._config.showBattery && save.battery > 0 && save.battery < 100)
       vitals.push(`\uD83D\uDD0B \`${_bar(save.battery, 100)}\` ${_pct(save.battery, 100)}`);
-    if (save.energy > 0) vitals.push(`\u2728 Energy \`${_bar(save.energy, 100)}\` ${_pct(save.energy, 100)}`);
-    if (save.wellRested) vitals.push(`\uD83D\uDCA4 Well Rested`);
+    if (save.energy > 0) {
+      vitals.push(_tp(locale, 'energy_line', {
+        bar: _bar(save.energy, 100),
+        percent: _pct(save.energy, 100),
+      }));
+    }
+    if (save.wellRested) vitals.push(_tp(locale, 'well_rested'));
 
     // Status effects (compact single line)
     if (this._config.canShow('showStatusEffects', isAdmin)) {
@@ -682,12 +801,14 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
           if (cleaned) statuses.push(cleaned);
         }
       }
-      if (save.infectionBuildup > 0) statuses.push(`Infection ${save.infectionBuildup}%`);
-      if (save.fatigue > 0.5) statuses.push('Fatigued');
-      if (statuses.length > 0) vitals.push(`**Status:** ${statuses.join(', ')}`);
+      if (save.infectionBuildup > 0) {
+        statuses.push(_tp(locale, 'infection_status', { percent: fmtNumber(save.infectionBuildup, locale) }));
+      }
+      if (save.fatigue > 0.5) statuses.push(_tp(locale, 'fatigued_status'));
+      if (statuses.length > 0) vitals.push(_tp(locale, 'status_line', { statuses: statuses.join(', ') }));
     }
 
-    if (vitals.length > 0) embed.addFields({ name: '\u2764\uFE0F Vitals', value: vitals.join('\n') });
+    if (vitals.length > 0) embed.addFields({ name: _tp(locale, 'vitals'), value: vitals.join('\n') });
   }
 
   // ┌──────────────────────────────────────────────────────────────┐
@@ -707,19 +828,23 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
     if (this._config.showEquipment) {
       const equip = (save.equipment || []).filter(notEmpty);
-      if (equip.length > 0) sections.push(`**Equipped:** ${equip.map(fmtItem).filter(Boolean).join(', ')}`);
+      if (equip.length > 0) {
+        sections.push(_tp(locale, 'inventory_equipped', { items: equip.map(fmtItem).filter(Boolean).join(', ') }));
+      }
     }
     if (this._config.showQuickSlots) {
       const quick = (save.quickSlots || []).filter(notEmpty);
-      if (quick.length > 0) sections.push(`**Quick:** ${quick.map(fmtItem).filter(Boolean).join(', ')}`);
+      if (quick.length > 0) {
+        sections.push(_tp(locale, 'inventory_quick', { items: quick.map(fmtItem).filter(Boolean).join(', ') }));
+      }
     }
     if (this._config.showPockets) {
       const pockets = (save.inventory || []).filter(notEmpty);
       if (pockets.length > 0) {
         if (pockets.length <= 6) {
-          sections.push(`**Pockets:** ${pockets.map(fmtItem).filter(Boolean).join(', ')}`);
+          sections.push(_tp(locale, 'inventory_pockets', { items: pockets.map(fmtItem).filter(Boolean).join(', ') }));
         } else {
-          sections.push(`**Pockets:** ${pockets.length} items`);
+          sections.push(_tp(locale, 'inventory_pockets_count', { count: fmtNumber(pockets.length, locale) }));
         }
       }
     }
@@ -727,15 +852,15 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
       const bp = (save.backpackItems || []).filter(notEmpty);
       if (bp.length > 0) {
         if (bp.length <= 6) {
-          sections.push(`**Backpack:** ${bp.map(fmtItem).filter(Boolean).join(', ')}`);
+          sections.push(_tp(locale, 'inventory_backpack', { items: bp.map(fmtItem).filter(Boolean).join(', ') }));
         } else {
-          sections.push(`**Backpack:** ${bp.length} items`);
+          sections.push(_tp(locale, 'inventory_backpack_count', { count: fmtNumber(bp.length, locale) }));
         }
       }
     }
 
     if (sections.length > 0) {
-      embed.addFields({ name: '\uD83C\uDF92 Inventory', value: sections.join('\n').substring(0, 1024) });
+      embed.addFields({ name: _tp(locale, 'inventory'), value: sections.join('\n').substring(0, 1024) });
     }
   }
 
@@ -748,17 +873,25 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     if (dmgEntries.length > 0) {
       const sorted = dmgEntries.sort((a, b) => b[1] - a[1]);
       const total = sorted.reduce((s, [, c]) => s + c, 0);
-      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${c}**`);
-      if (sorted.length > 4) lines.push(`+${sorted.length - 4} more`);
-      embed.addFields({ name: `\uD83E\uDE78 Damage (${total})`, value: lines.join('\n'), inline: true });
+      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+      if (sorted.length > 4) {
+        lines.push(_tp(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
+      }
+      embed.addFields({
+        name: _tp(locale, 'damage', { total: fmtNumber(total, locale) }),
+        value: lines.join('\n'),
+        inline: true,
+      });
     }
 
     const killEntries = Object.entries(log.killedBy || {});
     if (killEntries.length > 0) {
       const sorted = killEntries.sort((a, b) => b[1] - a[1]);
-      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${c}**`);
-      if (sorted.length > 4) lines.push(`+${sorted.length - 4} more`);
-      embed.addFields({ name: '\uD83D\uDC80 Killed By', value: lines.join('\n'), inline: true });
+      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+      if (sorted.length > 4) {
+        lines.push(_tp(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
+      }
+      embed.addFields({ name: _tp(locale, 'killed_by'), value: lines.join('\n'), inline: true });
     }
   }
 
@@ -768,14 +901,14 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
   if (log) {
     const parts = [];
-    if (log.builds > 0) parts.push(`\uD83C\uDFD7\uFE0F **${log.builds}** built`);
-    if (log.containersLooted > 0) parts.push(`\uD83D\uDCE6 **${log.containersLooted}** looted`);
+    if (log.builds > 0) parts.push(_tp(locale, 'base_built', { count: fmtNumber(log.builds, locale) }));
+    if (log.containersLooted > 0) parts.push(_tp(locale, 'base_looted', { count: fmtNumber(log.containersLooted, locale) }));
     if (this._config.canShow('showRaidStats', isAdmin)) {
-      if (log.raidsOut > 0) parts.push(`\u2692\uFE0F **${log.raidsOut}** raids`);
-      if (log.raidsIn > 0) parts.push(`\uD83D\uDEE1\uFE0F **${log.raidsIn}** raided`);
+      if (log.raidsOut > 0) parts.push(_tp(locale, 'base_raids', { count: fmtNumber(log.raidsOut, locale) }));
+      if (log.raidsIn > 0) parts.push(_tp(locale, 'base_raided', { count: fmtNumber(log.raidsIn, locale) }));
     }
     if (parts.length > 0) {
-      embed.addFields({ name: '\uD83C\uDFE0 Base', value: parts.join(' \u00B7 '), inline: true });
+      embed.addFields({ name: _tp(locale, 'base'), value: parts.join(' \u00B7 '), inline: true });
     }
   }
 
@@ -790,7 +923,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
       .map(p => PERK_MAP[p] || _clean(p))
       .filter(Boolean);
     if (profNames.length > 0) {
-      embed.addFields({ name: '\uD83C\uDF93 Professions', value: profNames.join(', '), inline: true });
+      embed.addFields({ name: _tp(locale, 'professions'), value: profNames.join(', '), inline: true });
     }
   }
 
@@ -799,15 +932,29 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     const tree = _parseSkillTree(save.skillsData || save.skillTree);
     if (tree) {
       const catEmoji = { Survival: '\uD83C\uDF3F', Crafting: '\uD83D\uDD27', Combat: '\u2694\uFE0F' };
+      const catLabel = {
+        Survival: _tp(locale, 'skill_category_survival'),
+        Crafting: _tp(locale, 'skill_category_crafting'),
+        Combat: _tp(locale, 'skill_category_combat'),
+      };
       const lines = [];
       for (const [cat, info] of Object.entries(tree)) {
         const emoji = catEmoji[cat] || '\u2B50';
         const bar = `\`${_bar(info.unlocked, info.total)}\``;
-        const names = info.names.length > 0 ? ` ${info.names.join(', ')}` : '';
-        lines.push(`${emoji} **${cat}** ${bar} ${info.unlocked}/${info.total}${names}`);
+        const names = info.names.length > 0
+          ? _tp(locale, 'skills_names_suffix', { names: info.names.join(', ') })
+          : '';
+        lines.push(_tp(locale, 'skills_line', {
+          emoji,
+          category: catLabel[cat] || cat,
+          bar,
+          unlocked: fmtNumber(info.unlocked, locale),
+          total: fmtNumber(info.total, locale),
+          names_suffix: names,
+        }));
       }
       if (lines.length > 0) {
-        embed.addFields({ name: '\uD83C\uDFAF Skills', value: lines.join('\n').substring(0, 1024) });
+        embed.addFields({ name: _tp(locale, 'skills'), value: lines.join('\n').substring(0, 1024) });
       }
     }
   }
@@ -851,13 +998,23 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
       }
 
       const lines = [];
-      if (completed.length > 0) lines.push(`\u2705 ${completed.join(', ')}`);
+      if (completed.length > 0) {
+        lines.push(_tp(locale, 'challenges_completed_line', { items: completed.join(', ') }));
+      }
       if (inProgress.length > 0) {
         const shown = inProgress.slice(0, 5);
-        lines.push(`\u2B1C ${shown.join(', ')}${inProgress.length > 5 ? ` +${inProgress.length - 5} more` : ''}`);
+        lines.push(_tp(locale, 'challenges_in_progress_line', {
+          items: shown.join(', '),
+          more_suffix: inProgress.length > 5
+            ? _tp(locale, 'challenges_more_suffix', { count: fmtNumber(inProgress.length - 5, locale) })
+            : '',
+        }));
       }
       embed.addFields({
-        name: `\uD83C\uDFC6 Challenges (${completed.length}/${19})`,
+        name: _tp(locale, 'challenges_title', {
+          completed: fmtNumber(completed.length, locale),
+          total: fmtNumber(19, locale),
+        }),
         value: lines.join('\n').substring(0, 1024),
       });
     }
@@ -869,7 +1026,10 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     // Completed quest spawners (major story quests like helicopter, radio tower)
     const doneQuests = Array.isArray(save.questSpawnerDone) ? save.questSpawnerDone.filter(Boolean) : [];
     if (doneQuests.length > 0) {
-      questBits.push(`\u2705 **${doneQuests.length}** quest${doneQuests.length !== 1 ? 's' : ''} completed`);
+      questBits.push(_tp(locale, 'quests_completed', {
+        count: fmtNumber(doneQuests.length, locale),
+        plural_suffix: doneQuests.length !== 1 ? 's' : '',
+      }));
     }
     // Active mini-quest
     const mq = typeof save.miniQuest === 'string' ? (() => { try { return JSON.parse(save.miniQuest); } catch { return null; } })() : save.miniQuest;
@@ -879,12 +1039,12 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
       if (active && questId) {
         // Try to look up quest name from game data
         const questRef = gameData.QUEST_DATA?.[questId];
-        const questName = questRef?.name || _clean(questId) || 'Active Quest';
+        const questName = questRef?.name || _clean(questId) || _tp(locale, 'active_quest');
         questBits.push(`\uD83D\uDCCB ${questName}`);
       }
     }
     if (questBits.length > 0) {
-      embed.addFields({ name: '\uD83D\uDDFA\uFE0F Quests', value: questBits.join(' \u00B7 '), inline: true });
+      embed.addFields({ name: _tp(locale, 'quests'), value: questBits.join(' \u00B7 '), inline: true });
     }
   }
 
@@ -894,16 +1054,16 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     const build = (save.buildingRecipes || []).length;
     if (craft > 0 || build > 0) {
       const parts = [];
-      if (craft > 0) parts.push(`Crafting: **${craft}**`);
-      if (build > 0) parts.push(`Building: **${build}**`);
-      embed.addFields({ name: '\uD83D\uDCDC Recipes', value: parts.join(' \u00B7 '), inline: true });
+      if (craft > 0) parts.push(_tp(locale, 'recipes_crafting', { count: fmtNumber(craft, locale) }));
+      if (build > 0) parts.push(_tp(locale, 'recipes_building', { count: fmtNumber(build, locale) }));
+      embed.addFields({ name: _tp(locale, 'recipes'), value: parts.join(' \u00B7 '), inline: true });
     }
   }
 
   // Collections — lore + unique items (names when available)
   const extraBits = [];
   if (this._config.canShow('showLore', isAdmin) && save?.lore?.length > 0) {
-    extraBits.push(`\uD83D\uDCD6 **${save.lore.length}** lore`);
+    extraBits.push(_tp(locale, 'collections_lore', { count: fmtNumber(save.lore.length, locale) }));
   }
   if (save) {
     const foundItems = cleanItemArray(save.lootItemUnique || []);
@@ -912,19 +1072,19 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
       if (foundItems.length <= 5) {
         extraBits.push(`\u2B50 ${foundItems.join(', ')}`);
       } else {
-        extraBits.push(`\u2B50 **${foundItems.length}** unique found`);
+        extraBits.push(_tp(locale, 'collections_unique_found', { count: fmtNumber(foundItems.length, locale) }));
       }
     }
     if (craftedItems.length > 0) {
       if (craftedItems.length <= 3) {
         extraBits.push(`\uD83D\uDD27 ${craftedItems.join(', ')}`);
       } else {
-        extraBits.push(`\uD83D\uDD27 **${craftedItems.length}** unique crafted`);
+        extraBits.push(_tp(locale, 'collections_unique_crafted', { count: fmtNumber(craftedItems.length, locale) }));
       }
     }
   }
   if (extraBits.length > 0) {
-    embed.addFields({ name: '\uD83D\uDCDA Collections', value: extraBits.join(' \u00B7 '), inline: true });
+    embed.addFields({ name: _tp(locale, 'collections'), value: extraBits.join(' \u00B7 '), inline: true });
   }
 
   // ┌──────────────────────────────────────────────────────────────┐
@@ -935,23 +1095,26 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   const metaLines = [];
   if (resolved.lastActive) {
     const d = new Date(resolved.lastActive);
-    metaLines.push(`Last seen: ${d.toLocaleDateString('en-GB', { timeZone: this._config.botTimezone })} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: this._config.botTimezone })}`);
+    metaLines.push(_tp(locale, 'last_seen', {
+      date: fmtDate(d, locale),
+      time: fmtTime(d, locale),
+    }));
   }
   if (this._config.canShow('showConnections', isAdmin) && log) {
     const conn = [];
-    if (log.connects > 0) conn.push(`${log.connects} joins`);
-    if (log.disconnects > 0) conn.push(`${log.disconnects} leaves`);
-    if (log.adminAccess > 0) conn.push(`${log.adminAccess} admin`);
+    if (log.connects > 0) conn.push(_tp(locale, 'connections_joins', { count: fmtNumber(log.connects, locale) }));
+    if (log.disconnects > 0) conn.push(_tp(locale, 'connections_leaves', { count: fmtNumber(log.disconnects, locale) }));
+    if (log.adminAccess > 0) conn.push(_tp(locale, 'connections_admin', { count: fmtNumber(log.adminAccess, locale) }));
     if (conn.length > 0) metaLines.push(conn.join(' \u00B7 '));
   }
   if (metaLines.length > 0) {
-    embed.addFields({ name: '\uD83D\uDD17 Activity', value: metaLines.join('\n'), inline: true });
+    embed.addFields({ name: _tp(locale, 'activity'), value: metaLines.join('\n'), inline: true });
   }
 
   // Location (admin-gated)
   if (this._config.canShow('showCoordinates', isAdmin) && save && save.x != null && save.x !== 0) {
     embed.addFields({
-      name: '\uD83D\uDCCD Location',
+      name: _tp(locale, 'location'),
       value: `${Math.round(save.x)}, ${Math.round(save.y)}, ${Math.round(save.z)}`,
       inline: true,
     });
@@ -962,27 +1125,30 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     const lines = [];
     if (save.horses?.length > 0) {
       for (const h of save.horses) {
-        const name = h.displayName || h.name || _clean(h.class || 'Horse');
+        const name = h.displayName || h.name || _clean(h.class || _tp(locale, 'horse_fallback'));
         const hp = h.health != null && h.maxHealth > 0
-          ? ` \u2014 ${Math.round(h.health)}/${Math.round(h.maxHealth)} HP`
+          ? _tp(locale, 'animals_hp_suffix', {
+            health: fmtNumber(Math.round(h.health), locale),
+            max_health: fmtNumber(Math.round(h.maxHealth), locale),
+          })
           : '';
         lines.push(`\uD83D\uDC34 **${name}**${hp}`);
       }
     }
     if (save.companionData?.length > 0) {
       for (const c of save.companionData) {
-        const name = c.displayName || c.name || _clean(c.class || 'Companion');
+        const name = c.displayName || c.name || _clean(c.class || _tp(locale, 'companion_fallback'));
         const bits = [];
-        if (c.health != null) bits.push(`${Math.round(c.health)} HP`);
-        if (c.energy > 0) bits.push(`\u26A1 ${Math.round(c.energy)}`);
+        if (c.health != null) bits.push(_tp(locale, 'animals_hp', { hp: fmtNumber(Math.round(c.health), locale) }));
+        if (c.energy > 0) bits.push(_tp(locale, 'animals_energy', { energy: fmtNumber(Math.round(c.energy), locale) }));
         if (c.command) bits.push(_clean(c.command));
-        if (c.vest > 0) bits.push('\uD83E\uDDBA Vest');
+        if (c.vest > 0) bits.push(_tp(locale, 'animals_vest'));
         const detail = bits.length > 0 ? ` \u2014 ${bits.join(' \u00B7 ')}` : '';
         lines.push(`\uD83D\uDC15 **${name}**${detail}`);
       }
     }
     if (lines.length > 0) {
-      embed.addFields({ name: '\uD83D\uDC3E Animals', value: lines.join('\n').substring(0, 1024) });
+      embed.addFields({ name: _tp(locale, 'animals'), value: lines.join('\n').substring(0, 1024) });
     }
   }
 
@@ -991,10 +1157,12 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
     const flags = log.cheatFlags.slice(-3);
     const lines = flags.map(f => {
       const d = new Date(f.timestamp);
-      return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: this._config.botTimezone })} \u2014 \`${f.type}\``;
+      return `${fmtDate(d, locale)} \u2014 \`${f.type}\``;
     });
-    if (log.cheatFlags.length > 3) lines.unshift(`*${log.cheatFlags.length} total flags*`);
-    embed.addFields({ name: '\uD83D\uDEA9 AC Flags', value: lines.join('\n'), inline: true });
+    if (log.cheatFlags.length > 3) {
+      lines.unshift(_tp(locale, 'ac_flags_total', { count: fmtNumber(log.cheatFlags.length, locale) }));
+    }
+    embed.addFields({ name: _tp(locale, 'ac_flags'), value: lines.join('\n'), inline: true });
   }
 
   return embed;

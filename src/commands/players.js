@@ -10,28 +10,35 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getPlayerList } = require('../rcon/server-info');
 const playtime = require('../tracking/playtime-tracker');
+const { t, getLocalizations } = require('../i18n');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('players')
-    .setDescription('Show online players on the HumanitZ server'),
+    .setNameLocalizations(getLocalizations('commands:players.name'))
+    .setDescription(t('commands:players.description', 'en'))
+    .setDescriptionLocalizations(getLocalizations('commands:players.description')),
 
   async execute(interaction) {
     await interaction.deferReply();
+    const locale = interaction.locale || 'en';
 
     try {
       const list = await getPlayerList();
 
       const embed = new EmbedBuilder()
-        .setTitle('\uD83D\uDC65 Online Players')
+        .setTitle(t('commands:players.embeds.title', locale))
         .setColor(0x3498db)
-        .setFooter({ text: 'HumanitZ Server' })
+        .setFooter({ text: t('commands:players.embeds.footer', locale) })
         .setTimestamp();
 
       if (list.count === 0 && list.players.length === 0) {
-        embed.setDescription('No players currently online.');
+        embed.setDescription(t('commands:players.reply.no_players_online', locale));
       } else {
-        embed.setDescription(`**${list.count}** player${list.count !== 1 ? 's' : ''} online`);
+        embed.setDescription(t('commands:players.reply.players_online_count', locale, {
+          count: list.count,
+          suffix: list.count !== 1 ? 's' : '',
+        }));
 
         if (list.players.length > 0) {
           const playerLines = list.players.map((p, i) => {
@@ -47,7 +54,9 @@ module.exports = {
           }
           chunks.forEach((chunk, idx) => {
             embed.addFields({
-              name: chunks.length > 1 ? `Players (${idx + 1}/${chunks.length})` : 'Players',
+              name: chunks.length > 1
+                ? t('commands:players.reply.players_field_paged', locale, { page: idx + 1, total: chunks.length })
+                : t('commands:players.reply.players_field', locale),
               value: chunk.join('\n'),
             });
           });
@@ -58,7 +67,7 @@ module.exports = {
     } catch (err) {
       console.error('[CMD:players]', err.message);
       await interaction.editReply({
-        content: '\u274C Could not fetch player list. The server may be offline.',
+        content: t('commands:players.reply.fetch_failed', locale),
       });
     }
   },

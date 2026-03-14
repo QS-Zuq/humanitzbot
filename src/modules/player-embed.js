@@ -17,10 +17,16 @@
 const { EmbedBuilder } = require('discord.js');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultConfig = require('../config');
+const { t, getLocale, fmtDate, fmtTime, fmtNumber } = require('../i18n');
+
+function _pe(locale, key, vars = {}) {
+  return t(`discord:player_embed.${key}`, locale, vars);
+}
 
 function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   const pt_inst = playtime || _defaultPlaytime;
   const cfg = config || _defaultConfig;
+  const locale = getLocale({ serverConfig: cfg });
 
   const embed = new EmbedBuilder()
     .setTitle(stats.name)
@@ -31,12 +37,20 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
 
   // ── Description: playtime, sessions, last active, name history ──
   const desc = [];
-  if (pt) desc.push(`\u23F1\uFE0F **${pt.totalFormatted}** \xB7 ${pt.sessions} session${pt.sessions !== 1 ? 's' : ''}`);
+  if (pt) {
+    desc.push(_pe(locale, 'playtime_sessions', {
+      playtime: pt.totalFormatted,
+      sessions: fmtNumber(pt.sessions, locale),
+      plural_suffix: pt.sessions !== 1 ? 's' : '',
+    }));
+  }
   if (stats.lastEvent) {
     const d = new Date(stats.lastEvent);
-    desc.push(`Last seen: ${d.toLocaleDateString('en-GB', { timeZone: cfg.botTimezone })} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: cfg.botTimezone })}`);
+    desc.push(_pe(locale, 'last_seen', { date: fmtDate(d, locale), time: fmtTime(d, locale) }));
   }
-  if (stats.nameHistory?.length > 0) desc.push(`*aka ${stats.nameHistory.map(h => h.name).join(', ')}*`);
+  if (stats.nameHistory?.length > 0) {
+    desc.push(_pe(locale, 'aka_names', { names: stats.nameHistory.map(h => h.name).join(', ') }));
+  }
   if (desc.length > 0) embed.setDescription(desc.join('\n'));
 
   // ── Combat: deaths + damage + killed by ──
@@ -44,33 +58,33 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   const killEntries = Object.entries(stats.killedBy || {});
 
   const combatLines = [];
-  combatLines.push(`\uD83D\uDC80 Deaths: **${stats.deaths}**`);
+  combatLines.push(_pe(locale, 'deaths_line', { count: fmtNumber(stats.deaths, locale) }));
 
   if (dmgEntries.length > 0) {
     const total = dmgEntries.reduce((s, [, c]) => s + c, 0);
     const sorted = dmgEntries.sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${c}**`);
-    if (sorted.length > 4) top.push(`+${sorted.length - 4} more`);
-    combatLines.push(`\n\uD83E\uDE78 **Damage Taken** (${total})\n${top.join('\n')}`);
+    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+    if (sorted.length > 4) top.push(_pe(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
+    combatLines.push(`\n${_pe(locale, 'damage_taken_title', { total: fmtNumber(total, locale) })}\n${top.join('\n')}`);
   }
 
   if (killEntries.length > 0) {
     const sorted = killEntries.sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${c}**`);
-    if (sorted.length > 4) top.push(`+${sorted.length - 4} more`);
-    combatLines.push(`\n\uD83D\uDC80 **Killed By**\n${top.join('\n')}`);
+    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+    if (sorted.length > 4) top.push(_pe(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
+    combatLines.push(`\n${_pe(locale, 'killed_by_title')}\n${top.join('\n')}`);
   }
 
-  embed.addFields({ name: '\u2694\uFE0F Combat', value: combatLines.join('\n').substring(0, 1024) });
+  embed.addFields({ name: _pe(locale, 'combat'), value: combatLines.join('\n').substring(0, 1024) });
 
   // ── PvP (if any) ──
   if ((stats.pvpKills || 0) > 0 || (stats.pvpDeaths || 0) > 0) {
     const p = [];
-    if (stats.pvpKills > 0) p.push(`Kills: **${stats.pvpKills}**`);
-    if (stats.pvpDeaths > 0) p.push(`Deaths: **${stats.pvpDeaths}**`);
+    if (stats.pvpKills > 0) p.push(_pe(locale, 'pvp_kills', { count: fmtNumber(stats.pvpKills, locale) }));
+    if (stats.pvpDeaths > 0) p.push(_pe(locale, 'pvp_deaths', { count: fmtNumber(stats.pvpDeaths, locale) }));
     const kd = stats.pvpDeaths > 0 ? (stats.pvpKills / stats.pvpDeaths).toFixed(2) : (stats.pvpKills > 0 ? '\u221E' : '0');
-    p.push(`K/D: **${kd}**`);
-    embed.addFields({ name: '\uD83C\uDFF4\u200D\u2620\uFE0F PvP', value: p.join(' \xB7 '), inline: true });
+    p.push(_pe(locale, 'pvp_kd', { kd }));
+    embed.addFields({ name: _pe(locale, 'pvp'), value: p.join(' \xB7 '), inline: true });
   }
 
   // ── Base Activity (compact, no raw item dumps) ──
@@ -79,28 +93,31 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
     const buildEntries = Object.entries(stats.buildItems || {});
     if (buildEntries.length > 0) {
       const top3 = buildEntries.sort((a, b) => b[1] - a[1]).slice(0, 3);
-      baseParts.push(`\uD83C\uDFD7\uFE0F **${stats.builds}** built \u2014 ${top3.map(([item, c]) => `${item} \xD7${c}`).join(', ')}`);
+      baseParts.push(_pe(locale, 'base_built_with_items', {
+        count: fmtNumber(stats.builds, locale),
+        items: top3.map(([item, c]) => `${item} \xD7${fmtNumber(c, locale)}`).join(', '),
+      }));
     } else {
-      baseParts.push(`\uD83C\uDFD7\uFE0F **${stats.builds}** built`);
+      baseParts.push(_pe(locale, 'base_built', { count: fmtNumber(stats.builds, locale) }));
     }
   }
   if (cfg.canShow('showRaidStats', isAdmin)) {
     const raidParts = [];
-    if (stats.raidsOut > 0) raidParts.push(`Attacked: **${stats.raidsOut}**`);
-    if (stats.destroyedOut > 0) raidParts.push(`Destroyed: **${stats.destroyedOut}**`);
-    if (stats.raidsIn > 0) raidParts.push(`Raided: **${stats.raidsIn}**`);
-    if (raidParts.length > 0) baseParts.push(`\u2692\uFE0F ${raidParts.join(' \xB7 ')}`);
+    if (stats.raidsOut > 0) raidParts.push(_pe(locale, 'base_attacked', { count: fmtNumber(stats.raidsOut, locale) }));
+    if (stats.destroyedOut > 0) raidParts.push(_pe(locale, 'base_destroyed', { count: fmtNumber(stats.destroyedOut, locale) }));
+    if (stats.raidsIn > 0) raidParts.push(_pe(locale, 'base_raided', { count: fmtNumber(stats.raidsIn, locale) }));
+    if (raidParts.length > 0) baseParts.push(_pe(locale, 'base_raid_summary', { parts: raidParts.join(' \xB7 ') }));
   }
-  if (stats.containersLooted > 0) baseParts.push(`\uD83D\uDCE6 **${stats.containersLooted}** looted`);
-  if (baseParts.length > 0) embed.addFields({ name: '\uD83C\uDFE0 Base Activity', value: baseParts.join('\n') });
+  if (stats.containersLooted > 0) baseParts.push(_pe(locale, 'base_looted', { count: fmtNumber(stats.containersLooted, locale) }));
+  if (baseParts.length > 0) embed.addFields({ name: _pe(locale, 'base_activity'), value: baseParts.join('\n') });
 
   // ── Connections (admin-gated) ──
   if (cfg.canShow('showConnections', isAdmin)) {
     const conn = [];
-    if (stats.connects > 0) conn.push(`In: **${stats.connects}**`);
-    if (stats.disconnects > 0) conn.push(`Out: **${stats.disconnects}**`);
-    if (stats.adminAccess > 0) conn.push(`Admin: **${stats.adminAccess}**`);
-    if (conn.length > 0) embed.addFields({ name: '\uD83D\uDD17 Connections', value: conn.join(' \xB7 '), inline: true });
+    if (stats.connects > 0) conn.push(_pe(locale, 'connections_in', { count: fmtNumber(stats.connects, locale) }));
+    if (stats.disconnects > 0) conn.push(_pe(locale, 'connections_out', { count: fmtNumber(stats.disconnects, locale) }));
+    if (stats.adminAccess > 0) conn.push(_pe(locale, 'connections_admin', { count: fmtNumber(stats.adminAccess, locale) }));
+    if (conn.length > 0) embed.addFields({ name: _pe(locale, 'connections'), value: conn.join(' \xB7 '), inline: true });
   }
 
   // ── AC Flags (admin only) ──
@@ -108,10 +125,12 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
     const flags = stats.cheatFlags.slice(-3);
     const lines = flags.map(f => {
       const d = new Date(f.timestamp);
-      return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: cfg.botTimezone })} \u2014 \`${f.type}\``;
+      return `${fmtDate(d, locale)} \u2014 \`${f.type}\``;
     });
-    if (stats.cheatFlags.length > 3) lines.unshift(`*${stats.cheatFlags.length} total flags*`);
-    embed.addFields({ name: '\uD83D\uDEA9 AC Flags', value: lines.join('\n'), inline: true });
+    if (stats.cheatFlags.length > 3) {
+      lines.unshift(_pe(locale, 'ac_flags_total', { count: fmtNumber(stats.cheatFlags.length, locale) }));
+    }
+    embed.addFields({ name: _pe(locale, 'ac_flags'), value: lines.join('\n'), inline: true });
   }
 
   return embed;

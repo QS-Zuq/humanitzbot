@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { isAdminView } = require('./config');
+const { t } = require('./i18n');
 const rcon = require('./rcon/rcon');
 const ChatRelay = require('./modules/chat-relay');
 const StatusChannels = require('./modules/status-channels');
@@ -280,8 +281,9 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[BOT] Game server disconnected: ${reason}`);
     if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
     if (logWatcher) {
+      const locale = config.botLocale || 'en';
       const embed = new EmbedBuilder()
-        .setDescription('🟡 Game server disconnected — RCON connection lost')
+        .setDescription(t('discord:index.rcon.disconnected', locale))
         .setColor(0xf39c12)
         .setTimestamp();
       logWatcher.sendToThread(embed).catch(() => {});
@@ -292,8 +294,9 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[BOT] Game server reconnected (downtime: ${downtimeStr})`);
     if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
     if (logWatcher) {
+      const locale = config.botLocale || 'en';
       const embed = new EmbedBuilder()
-        .setDescription(`🟢 Game server reconnected (downtime: ${downtimeStr})`)
+        .setDescription(t('discord:index.rcon.reconnected', locale, { downtime: downtimeStr }))
         .setColor(0x2ecc71)
         .setTimestamp();
       logWatcher.sendToThread(embed).catch(() => {});
@@ -1265,7 +1268,9 @@ async function _nukeChannel(client, channelId, botId) {
       console.error('  Go to: Your Application → Bot → Privileged Gateway Intents');
       if (requested.length > 0) {
         console.error('  Enable:');
-        requested.forEach(r => console.error('    ✦ ' + r));
+        requested.forEach((r) => {
+          console.error(`    ✦ ${r}`);
+        });
       } else {
         console.error('  Enable: Message Content Intent');
       }

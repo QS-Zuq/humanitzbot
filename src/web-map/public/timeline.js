@@ -40,6 +40,10 @@ const layerVisibility = {
   trails: true, deaths: true,
 };
 
+function tTimeline(key, vars) {
+  return i18next.t(`web:timeline.${key}`, vars);
+}
+
 // ── Entity Icons ───────────────────────────────────────────
 
 function makeIcon(color, size, shape = 'circle', label = '') {
@@ -60,14 +64,14 @@ function makeIcon(color, size, shape = 'circle', label = '') {
 const ICONS = {
   playerOnline:  (name) => makeIcon('#3fb950', 14, 'circle', name),
   playerOffline: (name) => makeIcon('#da3633', 10, 'circle', name),
-  zombie:    makeIcon('#9b59b6', 6, 'circle', 'Zombie'),
-  animal:    makeIcon('#e67e22', 7, 'diamond', 'Animal'),
-  bandit:    makeIcon('#e74c3c', 8, 'square', 'Bandit'),
-  vehicle:   makeIcon('#3498db', 10, 'square', 'Vehicle'),
-  structure: makeIcon('#95a5a6', 5, 'square', 'Structure'),
-  companion: makeIcon('#f1c40f', 8, 'diamond', 'Companion'),
-  backpack:  makeIcon('#8e44ad', 7, 'square', 'Backpack'),
-  death:     makeIcon('#ff0000', 10, 'circle', 'Death'),
+  zombie:    makeIcon('#9b59b6', 6, 'circle', tTimeline('entity_labels.zombie')),
+  animal:    makeIcon('#e67e22', 7, 'diamond', tTimeline('entity_labels.animal')),
+  bandit:    makeIcon('#e74c3c', 8, 'square', tTimeline('entity_labels.bandit')),
+  vehicle:   makeIcon('#3498db', 10, 'square', tTimeline('entity_labels.vehicle')),
+  structure: makeIcon('#95a5a6', 5, 'square', tTimeline('entity_labels.structure')),
+  companion: makeIcon('#f1c40f', 8, 'diamond', tTimeline('entity_labels.companion')),
+  backpack:  makeIcon('#8e44ad', 7, 'square', tTimeline('entity_labels.backpack')),
+  death:     makeIcon('#ff0000', 10, 'circle', tTimeline('entity_labels.death')),
 };
 
 // ── Fetch helpers ──────────────────────────────────────────
@@ -84,7 +88,7 @@ async function initTimeline() {
   try {
     const bounds = await fetchJSON('/api/timeline/bounds');
     if (!bounds || !bounds.count || bounds.count === 0) {
-      console.log('[TIMELINE] No snapshot data available yet');
+      console.log('[TIMELINE]', tTimeline('status.no_snapshot_data'));
       return;
     }
 
@@ -138,11 +142,11 @@ function updateSnapshotInfo(idx) {
   if (!infoEl) return;
 
   const date = new Date(snap.created_at);
-  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const dateStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const time = window.fmtTime ? window.fmtTime(date) : date.toLocaleTimeString();
+  const dateStr = window.fmtDate ? window.fmtDate(date) : date.toLocaleDateString();
   const weather = snap.weather_type || '—';
   const season = snap.season || '—';
-  const dayInfo = snap.game_day ? `Day ${snap.game_day}` : '';
+  const dayInfo = snap.game_day ? tTimeline('snapshot.day', { day: snap.game_day }) : '';
 
   infoEl.innerHTML = `
     <span class="tl-date">${dateStr} ${time}</span>
@@ -168,7 +172,9 @@ function renderTimelineEntities() {
   if (!currentSnapData) return;
 
   // Clear all timeline layers
-  Object.values(timelineLayers).forEach(layer => layer.clearLayers());
+  Object.values(timelineLayers).forEach(layer => {
+    layer.clearLayers();
+  });
 
   const d = currentSnapData;
   const nameMap = d.nameMap || {};
@@ -187,8 +193,8 @@ function renderTimelineEntities() {
           <small>${p.steam_id}</small><br>
           ❤️ ${Math.round(p.health)}/${p.max_health} |
           🍖 ${Math.round(p.hunger)} | 💧 ${Math.round(p.thirst)}<br>
-          🧟 Kills: ${p.zeeks_killed} | ⭐ Lvl ${p.level}<br>
-          📅 Days: ${p.days_survived}
+          🧟 ${tTimeline('popup.kills')}: ${p.zeeks_killed} | ⭐ ${tTimeline('popup.level_short')} ${p.level}<br>
+          📅 ${tTimeline('popup.days')}: ${p.days_survived}
         </div>
       `);
       m.on('click', () => {
@@ -221,7 +227,7 @@ function renderTimelineEntities() {
     for (const v of d.vehicles) {
       if (v.lat == null || v.lng == null) continue;
       const m = L.marker([v.lat, v.lng], { icon: ICONS.vehicle });
-      const name = v.display_name || simplifyName(v.class) || 'Vehicle';
+      const name = v.display_name || simplifyName(v.class) || tTimeline('entity_labels.vehicle');
       const fuelPct = v.max_health > 0 ? Math.round((v.health / v.max_health) * 100) : 0;
       m.bindTooltip(name, { direction: 'top', offset: [0, -8] });
       m.bindPopup(`
@@ -229,7 +235,7 @@ function renderTimelineEntities() {
           <b>${name}</b><br>
           ❤️ ${Math.round(v.health)}/${v.max_health}<br>
           ⛽ ${Math.round(v.fuel * 10) / 10}L<br>
-          📦 ${v.item_count} items
+          📦 ${v.item_count} ${tTimeline('popup.items')}
         </div>
       `);
       m.addTo(timelineLayers.vehicles);
@@ -241,15 +247,15 @@ function renderTimelineEntities() {
     for (const s of d.structures) {
       if (s.lat == null || s.lng == null) continue;
       const m = L.marker([s.lat, s.lng], { icon: ICONS.structure });
-      const name = s.display_name || simplifyName(s.actor_class) || 'Structure';
-      const owner = nameMap[s.owner_steam_id] || s.owner_steam_id || 'Unknown';
+      const name = s.display_name || simplifyName(s.actor_class) || tTimeline('entity_labels.structure');
+      const owner = nameMap[s.owner_steam_id] || s.owner_steam_id || tTimeline('popup.unknown');
       m.bindTooltip(name, { direction: 'top', offset: [0, -6] });
       m.bindPopup(`
         <div class="tl-popup">
           <b>${name}</b><br>
-          Owner: ${owner}<br>
+          ${tTimeline('popup.owner')}: ${owner}<br>
           ❤️ ${Math.round(s.current_health)}/${s.max_health}<br>
-          ⬆️ Upgrade: ${s.upgrade_level}
+          ⬆️ ${tTimeline('popup.upgrade')}: ${s.upgrade_level}
         </div>
       `);
       m.addTo(timelineLayers.structures);
@@ -261,8 +267,8 @@ function renderTimelineEntities() {
     for (const c of d.companions) {
       if (c.lat == null || c.lng == null) continue;
       const m = L.marker([c.lat, c.lng], { icon: ICONS.companion });
-      const name = c.display_name || c.entity_type || 'Companion';
-      const owner = nameMap[c.owner_steam_id] || c.owner_steam_id || 'Unknown';
+      const name = c.display_name || c.entity_type || tTimeline('entity_labels.companion');
+      const owner = nameMap[c.owner_steam_id] || c.owner_steam_id || tTimeline('popup.unknown');
       m.bindTooltip(`${name} (${owner})`, { direction: 'top', offset: [0, -8] });
       m.addTo(timelineLayers.companions);
     }
@@ -273,7 +279,7 @@ function renderTimelineEntities() {
     for (const b of d.backpacks) {
       if (b.lat == null || b.lng == null) continue;
       const m = L.marker([b.lat, b.lng], { icon: ICONS.backpack });
-      m.bindTooltip(`Backpack (${b.item_count} items)`, { direction: 'top', offset: [0, -6] });
+      m.bindTooltip(tTimeline('popup.backpack_items', { count: b.item_count }), { direction: 'top', offset: [0, -6] });
       m.addTo(timelineLayers.backpacks);
     }
   }
@@ -326,15 +332,18 @@ function renderTrail(name) {
     opacity: 0.7,
     dashArray: '5, 5',
   });
-  trail.bindTooltip(`${name || 'Player'} trail (${trailData.length} points)`, { sticky: true });
+  trail.bindTooltip(tTimeline('trail.tooltip', {
+    name: name || tTimeline('trail.player'),
+    points: trailData.length,
+  }), { sticky: true });
   trail.addTo(timelineLayers.trails);
 
   // Add start/end markers
   if (latlngs.length >= 2) {
     L.circleMarker(latlngs[0], { radius: 5, color: '#3fb950', fillOpacity: 0.8, weight: 1 })
-      .bindTooltip('Start').addTo(timelineLayers.trails);
+      .bindTooltip(tTimeline('trail.start')).addTo(timelineLayers.trails);
     L.circleMarker(latlngs[latlngs.length - 1], { radius: 5, color: '#da3633', fillOpacity: 0.8, weight: 1 })
-      .bindTooltip('End').addTo(timelineLayers.trails);
+      .bindTooltip(tTimeline('trail.end')).addTo(timelineLayers.trails);
   }
 }
 
@@ -348,13 +357,16 @@ async function loadDeaths() {
     for (const d of deaths) {
       if (d.lat == null || d.lng == null) continue;
       const m = L.marker([d.lat, d.lng], { icon: ICONS.death, zIndexOffset: -100 });
-      const cause = d.cause_name || d.cause_type || 'Unknown';
-      const time = new Date(d.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const cause = d.cause_name || d.cause_type || tTimeline('popup.unknown');
+      const deathDate = new Date(d.created_at);
+      const time = window.fmtDate && window.fmtTime
+        ? `${window.fmtDate(deathDate)} ${window.fmtTime(deathDate)}`
+        : deathDate.toLocaleString();
       m.bindPopup(`
         <div class="tl-popup">
           <b>💀 ${d.victim_name}</b><br>
-          Killed by: ${cause} (${d.cause_type})<br>
-          Damage: ${Math.round(d.damage_total)}<br>
+          ${tTimeline('popup.killed_by')}: ${cause} (${d.cause_type})<br>
+          ${tTimeline('popup.damage')}: ${Math.round(d.damage_total)}<br>
           <small>${time}</small>
         </div>
       `);
@@ -380,7 +392,11 @@ function startPlayback() {
   if (currentSnapIndex < 0) currentSnapIndex = 0;
 
   const btn = document.getElementById('tl-play-btn');
-  if (btn) btn.textContent = '⏸';
+  if (btn) {
+    btn.textContent = '⏸';
+    btn.title = tTimeline('controls.pause');
+    btn.setAttribute('aria-label', tTimeline('controls.pause'));
+  }
 
   const interval = Math.max(200, 2000 / playbackSpeed);
   playbackTimer = setInterval(() => {
@@ -401,7 +417,11 @@ function stopPlayback() {
     playbackTimer = null;
   }
   const btn = document.getElementById('tl-play-btn');
-  if (btn) btn.textContent = '▶';
+  if (btn) {
+    btn.textContent = '▶';
+    btn.title = tTimeline('controls.play');
+    btn.setAttribute('aria-label', tTimeline('controls.play'));
+  }
 }
 
 function setPlaybackSpeed(speed) {
@@ -414,6 +434,8 @@ function setPlaybackSpeed(speed) {
   // Update speed button styles
   document.querySelectorAll('.tl-speed-btn').forEach(b => {
     b.classList.toggle('active', parseInt(b.dataset.speed, 10) === speed);
+    b.title = tTimeline('controls.speed', { speed: b.dataset.speed });
+    b.setAttribute('aria-label', tTimeline('controls.speed', { speed: b.dataset.speed }));
   });
 }
 
@@ -469,7 +491,9 @@ function toggleTimelineMode() {
   } else {
     if (btn) btn.classList.remove('active');
     // Remove all timeline layers
-    Object.values(timelineLayers).forEach(layer => map.removeLayer(layer));
+    Object.values(timelineLayers).forEach(layer => {
+      map.removeLayer(layer);
+    });
     // Restore live player markers
     if (typeof markersGroup !== 'undefined') markersGroup.addTo(map);
     stopPlayback();

@@ -1,0 +1,73 @@
+{
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "starting": "Starting",
+    "stopping": "Stopping",
+    "running": "Running",
+    "stopped": "Stopped",
+    "unknown": "Unknown",
+    "unconfigured": "Not configured",
+    "disconnected": "Disconnected",
+    "error": "Error"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "refresh": "Refresh",
+    "run": "Run",
+    "send": "Send",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "backup": "Backup"
+  },
+  "labels": {
+    "players": "Players",
+    "name": "Name",
+    "server": "Server",
+    "time": "Time",
+    "date": "Date",
+    "status": "Status",
+    "profile": "Profile",
+    "channels": "Channels",
+    "modules": "Modules",
+    "resources": "Resources",
+    "uptime": "Uptime",
+    "version": "Version",
+    "world": "World"
+  },
+  "time": {
+    "days": "days",
+    "hours": "hours",
+    "minutes": "minutes",
+    "seconds": "seconds",
+    "day": "day",
+    "hour": "hour",
+    "minute": "minute",
+    "second": "second",
+    "ago": "ago",
+    "never": "Never",
+    "now": "Now",
+    "just_now": "Just now",
+    "in_progress": "In progress..."
+  },
+  "quantity": {
+    "player": "player",
+    "players": "players",
+    "session": "session",
+    "sessions": "sessions",
+    "total": "total",
+    "more": "more"
+  },
+  "messages": {
+    "loading": "Loading...",
+    "no_data": "No data",
+    "no_results": "No results",
+    "not_configured": "Not configured"
+  }
+}

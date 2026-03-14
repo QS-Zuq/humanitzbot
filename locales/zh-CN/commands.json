@@ -1,0 +1,186 @@
+{
+  "players": {
+    "name": "players",
+    "description": "显示 HumanitZ 服务器上的在线玩家",
+    "embeds": {
+      "title": "👥 在线玩家",
+      "footer": "HumanitZ 服务器"
+    },
+    "reply": {
+      "no_players_online": "当前没有玩家在线。",
+      "players_online_count": "**{{count}}** 名玩家在线",
+      "players_field": "玩家",
+      "players_field_paged": "玩家 ({{page}}/{{total}})",
+      "fetch_failed": "❌ 无法获取玩家列表。服务器可能已离线。"
+    }
+  },
+  "playerstats": {
+    "name": "playerstats",
+    "description": "查看玩家活动统计（死亡、建筑、突袭等）",
+    "embeds": {
+      "title": "📊 玩家活动",
+      "tracked_survivors": "已追踪 **{{count}}** 名幸存者",
+      "deaths": "💀 死亡",
+      "builds": "🔨 建筑",
+      "looted": "📦 搜刮",
+      "most_active": "最活跃"
+    },
+    "menus": {
+      "player_placeholder": "选择一名玩家以查看其统计数据...",
+      "player_option_description": "💀 {{deaths}} 次死亡 · 🔨 {{builds}} 次建筑{{playtime}}"
+    },
+    "reply": {
+      "no_data": "尚未记录玩家统计数据。统计数据来自游戏服务器日志 — 玩一会儿再来看看！",
+      "events_count": "{{count}} 个事件",
+      "player_not_found": "未找到玩家。"
+    }
+  },
+  "playtime": {
+    "name": "playtime",
+    "description": "显示游玩时间排行榜或查找玩家",
+    "options": {
+      "player": "要查找的玩家名称（留空则显示排行榜）"
+    },
+    "embeds": {
+      "player_title": "⏱️ {{name}}",
+      "leaderboard_title": "⏱️ 游玩时间排行榜",
+      "total_playtime": "总游玩时间",
+      "sessions": "会话",
+      "tracking_since": "追踪始于 {{date}}"
+    },
+    "reply": {
+      "not_found": "未找到 **{{player}}** 的游玩时间数据。",
+      "rank_description": "排行榜第 {{rank}} 名",
+      "no_data": "尚未记录游玩时间数据。",
+      "leaderboard_line": "{{medal}} **{{name}}** — {{playtime}} ({{sessions}} 次会话)",
+      "more": "*...以及另外 {{count}} 名*",
+      "fetch_failed": "❌ 获取游玩时间数据失败。"
+    }
+  },
+  "server": {
+    "name": "server",
+    "description": "显示服务器信息、世界状态和难度计划",
+    "embeds": {
+      "title": "🖥️ 服务器信息",
+      "tip_footer": "💡 {{tip}}",
+      "footer": "HumanitZ 服务器",
+      "online_field": "👥 在线",
+      "players_field": "🎮 玩家"
+    },
+    "reply": {
+      "no_data_returned": "_服务器未返回数据。_",
+      "unreachable": "❌ 无法连接到服务器。服务器可能已离线或 RCON 不可用。"
+    }
+  },
+  "rcon": {
+    "name": "rcon",
+    "description": "向服务器发送原始 RCON 命令（仅限管理员）",
+    "options": {
+      "command": "要发送的 RCON 命令"
+    },
+    "reply": {
+      "blocked": "❌ 出于安全原因，命令 `{{command}}` 已被拦截。请使用服务器面板执行此操作。",
+      "no_response": "_服务器未响应。_",
+      "response_template": "**命令:** `{{command}}`\n**响应:**\n{{response}}",
+      "failed": "❌ RCON 命令失败: {{error}}"
+    }
+  },
+  "qspanel": {
+    "name": "qspanel",
+    "description": "服务器管理面板 — 电源、控制台、备份、状态（仅限管理员）",
+    "subcommands": {
+      "status": "服务器电源状态、资源和主机详细信息",
+      "start": "启动游戏服务器",
+      "stop": "平滑停止游戏服务器",
+      "restart": "重启游戏服务器",
+      "kill": "强制终止游戏服务器进程（仅限紧急情况）",
+      "console": "通过托管面板发送控制台命令",
+      "backups": "列出服务器备份",
+      "backup_create": "创建新的服务器备份",
+      "backup_delete": "通过 UUID 删除服务器备份",
+      "schedules": "列出面板计划任务（自动重启等）"
+    },
+    "options": {
+      "command": "要发送的控制台命令",
+      "backup_name": "备份名称（可选 — 留空则自动生成）",
+      "backup_uuid": "要删除的备份 UUID"
+    },
+    "state": {
+      "running": "运行中",
+      "starting": "启动中",
+      "stopping": "停止中",
+      "offline": "离线",
+      "unknown": "未知"
+    },
+    "power": {
+      "starting": "启动中",
+      "stopping": "停止中",
+      "restarting": "重启中",
+      "killing": "强制终止中"
+    },
+    "embeds": {
+      "status_title": "🖥️ 服务器面板",
+      "resources_field": "📊 资源",
+      "plan_limits_field": "📋 计划限制",
+      "features_field": "🔧 功能",
+      "node_field": "🌐 节点",
+      "footer": "面板 API · Pterodactyl",
+      "power_action_title": "{{emoji}} {{verb}} 服务器",
+      "console_title": "🖥️ 已发送控制台命令",
+      "backups_title": "💾 服务器备份",
+      "backup_created_title": "💾 备份已创建",
+      "schedules_title": "📅 面板计划任务"
+    },
+    "reply": {
+      "panel_api_not_configured": "❌ 面板 API 未配置。请在 `.env` 文件中设置 `PANEL_SERVER_URL` 和 `PANEL_API_KEY`。",
+      "unknown_subcommand": "❌ 未知子命令: {{subcommand}}",
+      "status_fetch_failed": "❌ 获取服务器状态失败: {{error}}",
+      "status_header": "**{{name}}**\n{{emoji}} **{{label}}**",
+      "game_server_fallback": "游戏服务器",
+      "unlimited": "无限制",
+      "power_signal_sent": "电源信号 `{{signal}}` 发送成功。\n服务器可能需要一些时间来响应。",
+      "power_action_failed": "❌ 电源操作 `{{signal}}` 失败: {{error}}",
+      "requested_by": "请求者: {{user}}",
+      "console_sent_body": "```\n{{command}}\n```\n{{note}}",
+      "panel_console_note": "*注意：面板控制台是即发即弃的 — 不会返回响应。如需响应，请使用 `/rcon` 命令。*",
+      "console_command_failed": "❌ 控制台命令失败: {{error}}",
+      "no_backups_found": "未找到备份。",
+      "backup_in_progress": "进行中...",
+      "backup_fallback_name": "备份 {{index}}",
+      "backup_line": "{{status}}{{lock}} **{{name}}** — {{size}}\n> {{date}}\n> `{{uuid}}`",
+      "backups_footer": "{{count}} 个备份 · 面板 API",
+      "backups_fetch_failed": "❌ 获取备份列表失败: {{error}}",
+      "backup_created_body": "**{{name}}**\nUUID: `{{uuid}}`\n\n备份正在创建中。可能需要几分钟才能完成。",
+      "new_backup_name": "新备份",
+      "pending": "等待中",
+      "backup_limit_reached": "❌ 已达到备份限制。请先删除现有备份，或升级您的托管计划。",
+      "backup_create_failed": "❌ 创建备份失败: {{error}}",
+      "backup_deleted": "✅ 备份 `{{uuid}}` 已删除。",
+      "backup_delete_failed": "❌ 删除备份失败: {{error}}",
+      "schedules_none": "未配置计划任务。\n请使用您的托管面板创建计划任务（自动重启、备份等）。",
+      "online_only_suffix": " (仅在线时)",
+      "never": "从不",
+      "schedule_line": "{{active}} **{{name}}**{{onlineOnly}}\n> Cron: `{{cron}}` · 上次: {{lastRun}} · 下次: {{nextRun}}",
+      "schedules_footer": "{{count}} 个计划任务 · 面板 API",
+      "schedules_fetch_failed": "❌ 获取计划任务列表失败: {{error}}",
+      "sent_by": "发送者: {{user}}"
+    }
+  },
+  "threads": {
+    "name": "threads",
+    "description": "从日志历史重建每日活动摘要线程（仅限管理员）",
+    "options": {
+      "days": "重建过去多少天的历史（默认：所有）"
+    },
+    "reply": {
+      "downloading": "⏳ 正在从服务器下载日志文件...",
+      "error": "❌ {{error}}",
+      "created": "✅ 已创建 **{{count}}** 个活动摘要线程",
+      "replaced": "🗑️ 已替换 **{{count}}** 个现有线程",
+      "preserved": "📋 已保留旧线程中的 **{{count}}** 条消息",
+      "cleaned": "🧹 已清理 **{{count}}** 条旧的摘要消息",
+      "no_events": "ℹ️ 请求的日期范围内未找到任何事件。",
+      "chat_note": "💬 *聊天线程是由实时 RCON 轮询构建的 — 可以使用 `/threads source:db` 从数据库中重播历史聊天记录。*"
+    }
+  }
+}

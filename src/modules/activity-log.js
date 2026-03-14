@@ -23,6 +23,9 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
 const { cleanName, cleanItemName } = require('../parsers/ue4-names');
+const { t, getLocale, fmtNumber } = require('../i18n');
+
+const ACTIVITY_LOCALE = getLocale({ serverConfig: config });
 
 // ─── Category colours ───────────────────────────────────────────────────────
 
@@ -321,7 +324,7 @@ class ActivityLog {
     const maxLines = 25;
     let description = lines.slice(0, maxLines).join('\n');
     if (lines.length > maxLines) {
-      description += `\n*...and ${lines.length - maxLines} more events*`;
+      description += `\n${t('discord:activity_log.and_more_events', ACTIVITY_LOCALE, { count: lines.length - maxLines })}`;
     }
 
     return new EmbedBuilder()
@@ -329,7 +332,12 @@ class ActivityLog {
       .setDescription(description)
       .setColor(clr)
       .setTimestamp()
-      .setFooter({ text: `${events.length} event${events.length === 1 ? '' : 's'}` });
+      .setFooter({
+        text: t('discord:activity_log.events_footer', ACTIVITY_LOCALE, {
+          count: events.length,
+          plural_suffix: events.length === 1 ? '' : 's',
+        }),
+      });
   }
 }
 
@@ -352,10 +360,11 @@ function _formatTime(dateOrIso) {
   const d = dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
   if (isNaN(d.getTime())) return '';
   try {
-    return d.toLocaleTimeString('en-GB', {
-      hour: '2-digit', minute: '2-digit',
+    return new Intl.DateTimeFormat(ACTIVITY_LOCALE, {
+      hour: '2-digit',
+      minute: '2-digit',
       timeZone: config.botTimezone || 'UTC',
-    });
+    }).format(d);
   } catch {
     return d.toISOString().slice(11, 16);
   }
@@ -363,13 +372,13 @@ function _formatTime(dateOrIso) {
 
 function _categoryTitle(category) {
   switch (category) {
-    case 'container': return '📦 Container Activity';
-    case 'inventory': return '🎒 Inventory Changes';
-    case 'horse':     return '🐴 Horse Activity';
-    case 'vehicle':   return '🚗 Vehicle Activity';
-    case 'world':     return '🌍 World Events';
-    case 'structure': return '🏗️ Structure Activity';
-    default:          return '📋 Activity';
+    case 'container': return t('discord:activity_log.container_activity', ACTIVITY_LOCALE);
+    case 'inventory': return t('discord:activity_log.inventory_changes', ACTIVITY_LOCALE);
+    case 'horse':     return t('discord:activity_log.horse_activity', ACTIVITY_LOCALE);
+    case 'vehicle':   return t('discord:activity_log.vehicle_activity', ACTIVITY_LOCALE);
+    case 'world':     return t('discord:activity_log.world_events', ACTIVITY_LOCALE);
+    case 'structure': return t('discord:activity_log.structure_activity', ACTIVITY_LOCALE);
+    default:          return t('discord:activity_log.activity', ACTIVITY_LOCALE);
   }
 }
 
@@ -393,7 +402,8 @@ function _formatEvent(event, timeStr) {
         lostList = `: ${cleaned.join(', ')}`;
         if (items.length > 5) lostList += ` +${items.length - 5} more`;
       }
-      return `${ts}${emoji} **${name}** destroyed (${event.amount} item${event.amount === 1 ? '' : 's'} lost${lostList})${loc}`;
+      const amountLabel = event.amount === 1 ? 'item' : 'items';
+      return `${ts}${emoji} **${name}** destroyed (${fmtNumber(event.amount, ACTIVITY_LOCALE)} ${amountLabel} lost${lostList})${loc}`;
     }
     case 'horse_appeared':
       return `${ts}${emoji} **${name}** appeared${loc}`;

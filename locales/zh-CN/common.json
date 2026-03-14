@@ -1,0 +1,73 @@
+{
+  "status": {
+    "online": "在线",
+    "offline": "离线",
+    "starting": "启动中",
+    "stopping": "停止中",
+    "running": "运行中",
+    "stopped": "已停止",
+    "unknown": "未知",
+    "unconfigured": "未配置",
+    "disconnected": "已断开连接",
+    "error": "错误"
+  },
+  "actions": {
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "refresh": "刷新",
+    "run": "运行",
+    "send": "发送",
+    "start": "启动",
+    "stop": "停止",
+    "restart": "重启",
+    "backup": "备份"
+  },
+  "labels": {
+    "players": "玩家",
+    "name": "名称",
+    "server": "服务器",
+    "time": "时间",
+    "date": "日期",
+    "status": "状态",
+    "profile": "配置文件",
+    "channels": "频道",
+    "modules": "模块",
+    "resources": "资源",
+    "uptime": "正常运行时间",
+    "version": "版本",
+    "world": "世界"
+  },
+  "time": {
+    "days": "天",
+    "hours": "小时",
+    "minutes": "分钟",
+    "seconds": "秒",
+    "day": "天",
+    "hour": "小时",
+    "minute": "分钟",
+    "second": "秒",
+    "ago": "前",
+    "never": "从不",
+    "now": "现在",
+    "just_now": "刚刚",
+    "in_progress": "进行中..."
+  },
+  "quantity": {
+    "player": "玩家",
+    "players": "玩家",
+    "session": "会话",
+    "sessions": "会话",
+    "total": "总计",
+    "more": "更多"
+  },
+  "messages": {
+    "loading": "加载中...",
+    "no_data": "无数据",
+    "no_results": "无结果",
+    "not_configured": "未配置"
+  }
+}

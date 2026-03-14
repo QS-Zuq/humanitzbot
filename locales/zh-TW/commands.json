@@ -1,0 +1,186 @@
+{
+  "players": {
+    "name": "players",
+    "description": "顯示 HumanitZ 伺服器上的線上玩家",
+    "embeds": {
+      "title": "👥 線上玩家",
+      "footer": "HumanitZ 伺服器"
+    },
+    "reply": {
+      "no_players_online": "目前沒有玩家在線。",
+      "players_online_count": "**{{count}}** 位玩家在線",
+      "players_field": "玩家",
+      "players_field_paged": "玩家 ({{page}}/{{total}})",
+      "fetch_failed": "❌ 無法取得玩家列表。伺服器可能已離線。"
+    }
+  },
+  "playerstats": {
+    "name": "playerstats",
+    "description": "查看玩家活動統計 (死亡、建築、突襲等)",
+    "embeds": {
+      "title": "📊 玩家活動",
+      "tracked_survivors": "**{{count}}** 位追蹤中的倖存者",
+      "deaths": "💀 死亡",
+      "builds": "🔨 建築",
+      "looted": "📦 搜刮",
+      "most_active": "最活躍"
+    },
+    "menus": {
+      "player_placeholder": "選擇一位玩家查看他們的統計...",
+      "player_option_description": "💀 {{deaths}} 次死亡 · 🔨 {{builds}} 個建築{{playtime}}"
+    },
+    "reply": {
+      "no_data": "尚未記錄任何玩家統計資料。統計資料來自遊戲伺服器日誌 — 玩一段時間後再來查看！",
+      "events_count": "{{count}} 個事件",
+      "player_not_found": "找不到玩家。"
+    }
+  },
+  "playtime": {
+    "name": "playtime",
+    "description": "顯示遊玩時間排行榜或查詢特定玩家",
+    "options": {
+      "player": "要查詢的玩家名稱 (留空以顯示排行榜)"
+    },
+    "embeds": {
+      "player_title": "⏱️ {{name}}",
+      "leaderboard_title": "⏱️ 遊玩時間排行榜",
+      "total_playtime": "總遊玩時間",
+      "sessions": "連線次數",
+      "tracking_since": "追蹤開始於 {{date}}"
+    },
+    "reply": {
+      "not_found": "找不到 **{{player}}** 的遊玩時間資料。",
+      "rank_description": "排行榜第 {{rank}} 名",
+      "no_data": "尚未記錄任何遊玩時間資料。",
+      "leaderboard_line": "{{medal}} **{{name}}** — {{playtime}} ({{sessions}} 次連線)",
+      "more": "*...還有 {{count}} 個*",
+      "fetch_failed": "❌ 無法取得遊玩時間資料。"
+    }
+  },
+  "server": {
+    "name": "server",
+    "description": "顯示伺服器資訊、世界狀態和難度排程",
+    "embeds": {
+      "title": "🖥️ 伺服器資訊",
+      "tip_footer": "💡 {{tip}}",
+      "footer": "HumanitZ 伺服器",
+      "online_field": "👥 線上",
+      "players_field": "🎮 玩家"
+    },
+    "reply": {
+      "no_data_returned": "_伺服器沒有返回任何資料。_",
+      "unreachable": "❌ 無法連線至伺服器。可能已離線或 RCON 無法使用。"
+    }
+  },
+  "rcon": {
+    "name": "rcon",
+    "description": "發送原始 RCON 指令至伺服器 (僅限管理員)",
+    "options": {
+      "command": "要發送的 RCON 指令"
+    },
+    "reply": {
+      "blocked": "❌ 為了安全起見，指令 `{{command}}` 已被阻擋。請使用伺服器面板執行此操作。",
+      "no_response": "_伺服器沒有回應。_",
+      "response_template": "**指令：** `{{command}}`\n**回應：**\n{{response}}",
+      "failed": "❌ RCON 指令失敗：{{error}}"
+    }
+  },
+  "qspanel": {
+    "name": "qspanel",
+    "description": "伺服器管理面板 — 電源、控制台、備份、狀態 (僅限管理員)",
+    "subcommands": {
+      "status": "伺服器電源狀態、資源和主機詳細資訊",
+      "start": "啟動遊戲伺服器",
+      "stop": "正常停止遊戲伺服器",
+      "restart": "重新啟動遊戲伺服器",
+      "kill": "強制終止遊戲伺服器程序 (僅限緊急情況)",
+      "console": "透過託管面板發送控制台指令",
+      "backups": "列出伺服器備份",
+      "backup_create": "建立新的伺服器備份",
+      "backup_delete": "使用 UUID 刪除伺服器備份",
+      "schedules": "列出面板排程 (自動重啟等)"
+    },
+    "options": {
+      "command": "要發送的控制台指令",
+      "backup_name": "備份名稱 (選填 — 若留空將自動生成)",
+      "backup_uuid": "要刪除的備份 UUID"
+    },
+    "state": {
+      "running": "運行中",
+      "starting": "啟動中",
+      "stopping": "停止中",
+      "offline": "離線",
+      "unknown": "未知"
+    },
+    "power": {
+      "starting": "啟動中",
+      "stopping": "停止中",
+      "restarting": "重啟中",
+      "killing": "強制終止"
+    },
+    "embeds": {
+      "status_title": "🖥️ 伺服器面板",
+      "resources_field": "📊 資源",
+      "plan_limits_field": "📋 方案限制",
+      "features_field": "🔧 功能",
+      "node_field": "🌐 節點",
+      "footer": "面板 API · Pterodactyl",
+      "power_action_title": "{{emoji}} {{verb}} 伺服器",
+      "console_title": "🖥️ 已發送控制台指令",
+      "backups_title": "💾 伺服器備份",
+      "backup_created_title": "💾 備份已建立",
+      "schedules_title": "📅 面板排程"
+    },
+    "reply": {
+      "panel_api_not_configured": "❌ 面板 API 未設定。請在 `.env` 檔案中設定 `PANEL_SERVER_URL` 和 `PANEL_API_KEY`。",
+      "unknown_subcommand": "❌ 未知的子指令：{{subcommand}}",
+      "status_fetch_failed": "❌ 無法取得伺服器狀態：{{error}}",
+      "status_header": "**{{name}}**\n{{emoji}} **{{label}}**",
+      "game_server_fallback": "遊戲伺服器",
+      "unlimited": "無限制",
+      "power_signal_sent": "電源訊號 `{{signal}}` 已成功發送。\n伺服器可能需要一點時間來回應。",
+      "power_action_failed": "❌ 電源操作 `{{signal}}` 失敗：{{error}}",
+      "requested_by": "由 {{user}} 請求",
+      "console_sent_body": "```\n{{command}}\n```\n{{note}}",
+      "panel_console_note": "*注意：面板控制台是單向發送 — 不會返回回應。需要回應的指令請使用 `/rcon`。*",
+      "console_command_failed": "❌ 控制台指令失敗：{{error}}",
+      "no_backups_found": "找不到備份。",
+      "backup_in_progress": "進行中...",
+      "backup_fallback_name": "備份 {{index}}",
+      "backup_line": "{{status}}{{lock}} **{{name}}** — {{size}}\n> {{date}}\n> `{{uuid}}`",
+      "backups_footer": "{{count}} 個備份 · 面板 API",
+      "backups_fetch_failed": "❌ 無法列出備份：{{error}}",
+      "backup_created_body": "**{{name}}**\nUUID: `{{uuid}}`\n\n備份正在建立中。可能需要幾分鐘才能完成。",
+      "new_backup_name": "新備份",
+      "pending": "處理中",
+      "backup_limit_reached": "❌ 已達備份數量上限。請先刪除現有備份，或升級您的方案。",
+      "backup_create_failed": "❌ 無法建立備份：{{error}}",
+      "backup_deleted": "✅ 備份 `{{uuid}}` 已刪除。",
+      "backup_delete_failed": "❌ 無法刪除備份：{{error}}",
+      "schedules_none": "尚未設定排程。\n請使用您的託管面板來建立排程 (自動重啟、備份等)。",
+      "online_only_suffix": " (僅線上時)",
+      "never": "從未",
+      "schedule_line": "{{active}} **{{name}}**{{onlineOnly}}\n> Cron: `{{cron}}` · 上次: {{lastRun}} · 下次: {{nextRun}}",
+      "schedules_footer": "{{count}} 個排程 · 面板 API",
+      "schedules_fetch_failed": "❌ 無法列出排程：{{error}}",
+      "sent_by": "由 {{user}} 發送"
+    }
+  },
+  "threads": {
+    "name": "threads",
+    "description": "從日誌歷史重建每日活動摘要討論串 (僅限管理員)",
+    "options": {
+      "days": "要重建多少天前的資料 (預設：全部)"
+    },
+    "reply": {
+      "downloading": "⏳ 正在從伺服器下載日誌檔案...",
+      "error": "❌ {{error}}",
+      "created": "✅ 已建立 **{{count}}** 個活動摘要討論串",
+      "replaced": "🗑️ 已替換 **{{count}}** 個現有討論串",
+      "preserved": "📋 已從舊討論串保留 **{{count}}** 則訊息",
+      "cleaned": "🧹 已清理 **{{count}}** 則舊的摘要訊息",
+      "no_events": "ℹ️ 找不到請求日期範圍內的事件。",
+      "chat_note": "💬 *聊天討論串由即時 RCON 輪詢建立 — 歷史聊天記錄可透過 `/threads source:db` 從資料庫重播。*"
+    }
+  }
+}

@@ -1,18 +1,18 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const _defaultConfig = require('../config');
 const { cleanOwnMessages, embedContentKey } = require('./discord-utils');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const KillTracker = require('../tracking/kill-tracker');
-const { resolvePlayer } = require('../tracking/kill-tracker');
 const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('../parsers/save-parser');
 const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('../parsers/game-data');
-const { cleanItemName: _sharedCleanItemName, cleanItemArray, isHexGuid } = require('../parsers/ue4-names');
-const os = require('os');
+const { cleanItemName: _sharedCleanItemName } = require('../parsers/ue4-names');
+const os = require('node:os');
+const { t, getLocale, fmtNumber } = require('../i18n');
 
 /**
  * Convert a DB player row (snake_case, from _parsePlayerRow) to camelCase
@@ -127,6 +127,26 @@ function _dbRowToSave(row) {
     challengeRepairRadio:     row.challenge_repair_radio,
     customData:         row.custom_data,
   };
+}
+
+function _tsc(locale, key, vars = {}) {
+  return t(`discord:stats_channel.${key}`, locale, vars);
+}
+
+function _tstatus(locale, key, vars = {}) {
+  return t(`discord:status.${key}`, locale, vars);
+}
+
+function _seasonLabel(locale, season) {
+  const normalized = String(season || '').trim().toLowerCase();
+  const keyMap = {
+    spring: 'season_spring',
+    summer: 'season_summer',
+    autumn: 'season_autumn',
+    fall: 'season_autumn',
+    winter: 'season_winter',
+  };
+  return keyMap[normalized] ? _tstatus(locale, keyMap[normalized]) : season;
 }
 
 class PlayerStatsChannel {
@@ -459,7 +479,8 @@ class PlayerStatsChannel {
     if (Array.isArray(ws.weatherState)) {
       const weatherProp = ws.weatherState.find(p => p.name === 'CurrentWeather');
       if (weatherProp && typeof weatherProp.value === 'string') {
-        this._serverSettings._currentWeather = _resolveUdsWeather(weatherProp.value);
+        const locale = getLocale({ serverConfig: this._config });
+        this._serverSettings._currentWeather = _resolveUdsWeather(weatherProp.value, locale);
       }
     }
     // Compute total zombie kills across all players from lifetime stats
@@ -600,7 +621,7 @@ class PlayerStatsChannel {
 
       // ── Top players by lifetime kills ──
       const topKillers = [];
-      for (const [id, save] of this._saveData) {
+      for (const [id] of this._saveData) {
         const at = this.getAllTimeKills(id);
         const kills = at?.zeeksKilled || 0;
         if (kills <= 0) continue;
@@ -801,6 +822,7 @@ class PlayerStatsChannel {
    * approach of posting 1-10 individual embeds per save poll cycle.
    */
   async _postActivitySummary(deltas, targetDate) {
+    const locale = getLocale({ serverConfig: this._config });
     const sections = [];
 
     // ── Kills ──
@@ -808,27 +830,44 @@ class PlayerStatsChannel {
       const lines = deltas.killDeltas.map(({ name, delta }) => {
         const total = delta.zeeksKilled || 0;
         const parts = [];
-        if (delta.headshots)     parts.push(`${delta.headshots} headshot${delta.headshots > 1 ? 's' : ''}`);
-        if (delta.meleeKills)    parts.push(`${delta.meleeKills} melee`);
-        if (delta.gunKills)      parts.push(`${delta.gunKills} gun`);
-        if (delta.blastKills)    parts.push(`${delta.blastKills} blast`);
-        if (delta.fistKills)     parts.push(`${delta.fistKills} fist`);
-        if (delta.takedownKills) parts.push(`${delta.takedownKills} takedown`);
-        if (delta.vehicleKills)  parts.push(`${delta.vehicleKills} vehicle`);
-        const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-        return `**${name}** killed **${total} zeek${total !== 1 ? 's' : ''}**${detail}`;
+        if (delta.headshots) {
+          parts.push(_tsc(locale, 'kills_detail_headshots', {
+            count: fmtNumber(delta.headshots, locale),
+            plural_suffix: delta.headshots > 1 ? 's' : '',
+          }));
+        }
+        if (delta.meleeKills) parts.push(_tsc(locale, 'kills_detail_melee', { count: fmtNumber(delta.meleeKills, locale) }));
+        if (delta.gunKills) parts.push(_tsc(locale, 'kills_detail_gun', { count: fmtNumber(delta.gunKills, locale) }));
+        if (delta.blastKills) parts.push(_tsc(locale, 'kills_detail_blast', { count: fmtNumber(delta.blastKills, locale) }));
+        if (delta.fistKills) parts.push(_tsc(locale, 'kills_detail_fist', { count: fmtNumber(delta.fistKills, locale) }));
+        if (delta.takedownKills) parts.push(_tsc(locale, 'kills_detail_takedown', { count: fmtNumber(delta.takedownKills, locale) }));
+        if (delta.vehicleKills) parts.push(_tsc(locale, 'kills_detail_vehicle', { count: fmtNumber(delta.vehicleKills, locale) }));
+        const detail = parts.length > 0
+          ? _tsc(locale, 'kills_detail_suffix', { details: parts.join(', ') })
+          : '';
+        return _tsc(locale, 'kills_line', {
+          name,
+          total: fmtNumber(total, locale),
+          plural_suffix: total !== 1 ? 's' : '',
+          detail,
+        });
       });
-      sections.push({ header: '🧟 Kills', lines });
+      sections.push({ header: _tsc(locale, 'header_kills'), lines });
     }
 
     // ── Survival ──
     if (deltas.survivalDeltas.length > 0 && this._config.enableKillFeed) {
       const lines = deltas.survivalDeltas.map(({ name, delta }) => {
         const parts = [];
-        if (delta.daysSurvived) parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
-        return `**${name}** — ${parts.join(', ')}`;
+        if (delta.daysSurvived) {
+          parts.push(_tsc(locale, 'survival_days', {
+            days: fmtNumber(delta.daysSurvived, locale),
+            plural_suffix: delta.daysSurvived > 1 ? 's' : '',
+          }));
+        }
+        return _tsc(locale, 'survival_line', { name, details: parts.join(', ') });
       });
-      sections.push({ header: '🏕️ Survival', lines });
+      sections.push({ header: _tsc(locale, 'header_survival'), lines });
     }
 
     // ── Fishing ──
@@ -839,45 +878,73 @@ class PlayerStatsChannel {
         const bitten = delta.timesBitten || 0;
         const parts = [];
         if (total > 0) {
-          const pikeNote = pike > 0 ? ` (${pike} pike)` : '';
-          parts.push(`caught **${total} fish**${pikeNote}`);
+          const pikeNote = pike > 0
+            ? _tsc(locale, 'fishing_pike_note', { count: fmtNumber(pike, locale) })
+            : '';
+          parts.push(_tsc(locale, 'fishing_caught', {
+            count: fmtNumber(total, locale),
+            pike_note: pikeNote,
+          }));
         }
-        if (bitten > 0) parts.push(`was bitten **${bitten} time${bitten > 1 ? 's' : ''}**`);
-        return `**${name}** ${parts.join(', ')}`;
+        if (bitten > 0) {
+          parts.push(_tsc(locale, 'fishing_bitten', {
+            count: fmtNumber(bitten, locale),
+            plural_suffix: bitten > 1 ? 's' : '',
+          }));
+        }
+        return _tsc(locale, 'fishing_line', { name, details: parts.join(', ') });
       });
-      sections.push({ header: '🎣 Fishing', lines });
+      sections.push({ header: _tsc(locale, 'header_fishing'), lines });
     }
 
     // ── Recipes ──
     if (deltas.recipeDeltas.length > 0 && this._config.enableRecipeFeed) {
       const lines = deltas.recipeDeltas.map(({ name, type, items }) => {
         const names = items.map(r => _cleanItemName(r)).filter(Boolean);
-        const display = names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
-        return `**${name}** learned ${type}: ${display}`;
+        const typeLabel = type === 'crafting'
+          ? _tsc(locale, 'recipe_type_crafting')
+          : (type === 'building' ? _tsc(locale, 'recipe_type_building') : type);
+        const display = names.length <= 5
+          ? names.join(', ')
+          : _tsc(locale, 'list_with_more', {
+            items: names.slice(0, 5).join(', '),
+            count: fmtNumber(names.length - 5, locale),
+          });
+        return _tsc(locale, 'recipes_line', { name, type: typeLabel, display });
       });
-      sections.push({ header: '📖 Recipes', lines });
+      sections.push({ header: _tsc(locale, 'header_recipes'), lines });
     }
 
     // ── Skills ──
     if (deltas.skillDeltas.length > 0 && this._config.enableSkillFeed) {
       const lines = deltas.skillDeltas.map(({ name, items }) => {
         const names = items.map(s => _cleanItemName(s).toUpperCase());
-        return `**${name}** unlocked skill${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+        return _tsc(locale, 'skills_line', {
+          name,
+          plural_suffix: names.length > 1 ? 's' : '',
+          names: names.join(', '),
+        });
       });
-      sections.push({ header: '⚡ Skills', lines });
+      sections.push({ header: _tsc(locale, 'header_skills'), lines });
     }
 
     // ── Professions ──
     if (deltas.professionDeltas.length > 0 && this._config.enableProfessionFeed) {
       const lines = deltas.professionDeltas.map(({ name, items }) => {
         const names = items.map(p => {
-          if (typeof p === 'number') return PERK_INDEX_MAP[p] || `Profession #${p}`;
+          if (typeof p === 'number') {
+            return PERK_INDEX_MAP[p] || _tsc(locale, 'profession_fallback', { id: fmtNumber(p, locale) });
+          }
           if (typeof p === 'string') return PERK_MAP[p] || _cleanItemName(p);
           return String(p);
         });
-        return `**${name}** unlocked profession${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+        return _tsc(locale, 'professions_line', {
+          name,
+          plural_suffix: names.length > 1 ? 's' : '',
+          names: names.join(', '),
+        });
       });
-      sections.push({ header: '🎓 Professions', lines });
+      sections.push({ header: _tsc(locale, 'header_professions'), lines });
     }
 
     // ── Lore ──
@@ -885,20 +952,40 @@ class PlayerStatsChannel {
       const lines = deltas.loreDeltas.map(({ name, items }) => {
         const count = items.length;
         const names = items.map(l => _cleanItemName(typeof l === 'object' ? (l.name || l.id || JSON.stringify(l)) : l)).filter(Boolean);
-        const display = names.length > 0 && names.length <= 3 ? `: ${names.join(', ')}` : '';
-        return `**${name}** discovered **${count} lore entr${count > 1 ? 'ies' : 'y'}**${display}`;
+        const display = names.length > 0 && names.length <= 3
+          ? _tsc(locale, 'lore_display_suffix', { names: names.join(', ') })
+          : '';
+        return _tsc(locale, 'lore_line', {
+          name,
+          count: fmtNumber(count, locale),
+          plural_suffix: count > 1 ? 'ies' : 'y',
+          display,
+        });
       });
-      sections.push({ header: '📜 Lore', lines });
+      sections.push({ header: _tsc(locale, 'header_lore'), lines });
     }
 
     // ── Unique Items ──
     if (deltas.uniqueDeltas.length > 0 && this._config.enableUniqueFeed) {
       const lines = deltas.uniqueDeltas.map(({ name, type, items }) => {
         const names = items.map(u => _cleanItemName(typeof u === 'object' ? (u.name || u.id || JSON.stringify(u)) : u)).filter(Boolean);
-        const display = names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
-        return `**${name}** ${type} unique item${items.length > 1 ? 's' : ''}: **${display}**`;
+        const typeLabel = type === 'found'
+          ? _tsc(locale, 'unique_type_found')
+          : (type === 'crafted' ? _tsc(locale, 'unique_type_crafted') : type);
+        const display = names.length <= 5
+          ? names.join(', ')
+          : _tsc(locale, 'list_with_more', {
+            items: names.slice(0, 5).join(', '),
+            count: fmtNumber(names.length - 5, locale),
+          });
+        return _tsc(locale, 'unique_line', {
+          name,
+          type: typeLabel,
+          plural_suffix: items.length > 1 ? 's' : '',
+          display,
+        });
       });
-      sections.push({ header: '✨ Unique Items', lines });
+      sections.push({ header: _tsc(locale, 'header_unique_items'), lines });
     }
 
     // ── Companions ──
@@ -907,19 +994,29 @@ class PlayerStatsChannel {
         const count = items.length;
         const emoji = type === 'horse' ? '🐴' : '🐕';
         const label = type === 'horse'
-          ? `${count} horse${count > 1 ? 's' : ''}`
-          : `${count} companion${count > 1 ? 's' : ''}`;
-        return `${emoji} **${name}** tamed **${label}**`;
+          ? _tsc(locale, 'companion_horse_label', {
+            count: fmtNumber(count, locale),
+            plural_suffix: count > 1 ? 's' : '',
+          })
+          : _tsc(locale, 'companion_companion_label', {
+            count: fmtNumber(count, locale),
+            plural_suffix: count > 1 ? 's' : '',
+          });
+        return _tsc(locale, 'companion_line', { emoji, name, label });
       });
-      sections.push({ header: '🐾 Companions', lines });
+      sections.push({ header: _tsc(locale, 'header_companions'), lines });
     }
 
     // ── Challenges ──
     if (deltas.challengeDeltas.length > 0 && this._config.enableChallengeFeed) {
       const lines = deltas.challengeDeltas.flatMap(({ name, completed }) =>
-        completed.map(c => `**${name}** completed **${c.name}** — *${c.desc}*`)
+        completed.map(c => _tsc(locale, 'challenge_line', {
+          name,
+          challenge: c.name,
+          description: c.desc,
+        }))
       );
-      sections.push({ header: '🏆 Challenges', lines });
+      sections.push({ header: _tsc(locale, 'header_challenges'), lines });
     }
 
     if (sections.length === 0) return;
@@ -949,7 +1046,7 @@ class PlayerStatsChannel {
         const embed = new EmbedBuilder()
           .setDescription(chunks[i])
           .setColor(0x5865F2);
-        if (i === 0) embed.setAuthor({ name: '📊 Activity Summary' });
+        if (i === 0) embed.setAuthor({ name: _tsc(locale, 'activity_summary') });
         if (i === chunks.length - 1) embed.setTimestamp();
         await this._sendFeedEmbed(embed, targetDate);
       }
@@ -959,13 +1056,17 @@ class PlayerStatsChannel {
   }
 
   async _detectWorldEvents(prev, current) {
+    const locale = getLocale({ serverConfig: this._config });
     const lines = [];
 
     // Season change
     if (prev.currentSeason && current.currentSeason && prev.currentSeason !== current.currentSeason) {
       const seasonEmoji = { Spring: '🌱', Summer: '☀️', Autumn: '🍂', Winter: '❄️' };
       const emoji = seasonEmoji[current.currentSeason] || '🔄';
-      lines.push(`${emoji} Season changed to **${current.currentSeason}**`);
+      lines.push(_tsc(locale, 'world_season_changed', {
+        emoji,
+        season: _seasonLabel(locale, current.currentSeason),
+      }));
     }
 
     // Day milestone (every 10 days)
@@ -975,20 +1076,20 @@ class PlayerStatsChannel {
       if (curDay > prevDay) {
         // Post milestone at every 10th day, or the first day change after bot start
         if (curDay % 10 === 0 || Math.floor(prevDay / 10) < Math.floor(curDay / 10)) {
-          lines.push(`📅 **Day ${curDay}** reached`);
+          lines.push(_tsc(locale, 'world_day_reached', { day: fmtNumber(curDay, locale) }));
         }
       }
     }
 
     // Airdrop detected
     if (!prev.airdropActive && current.airdropActive) {
-      lines.push('📦 **Airdrop incoming!**');
+      lines.push(_tsc(locale, 'world_airdrop_incoming'));
     }
 
     if (lines.length === 0) return;
 
     const embed = new EmbedBuilder()
-      .setAuthor({ name: '🌍 World Event' })
+      .setAuthor({ name: _tsc(locale, 'world_event') })
       .setDescription(lines.join('\n'))
       .setColor(0x2c3e50)
       .setTimestamp();
@@ -1021,12 +1122,11 @@ class PlayerStatsChannel {
 
 function _parseIni(text) {
   const result = {};
-  let section = '';
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
     const secMatch = trimmed.match(/^\[(.+)\]$/);
-    if (secMatch) { section = secMatch[1]; continue; }
+    if (secMatch) continue;
     const kvMatch = trimmed.match(/^([^=]+?)=(.*)$/);
     if (kvMatch) {
       const key = kvMatch[1].trim();
@@ -1050,24 +1150,27 @@ function _cleanItemName(name) {
 
 /** Map UDS (Ultra Dynamic Sky) weather enum values to human-readable names */
 const UDS_WEATHER_MAP = {
-  'UDS_WeatherTypes::NewEnumerator0': 'Clear Skies',
-  'UDS_WeatherTypes::NewEnumerator1': 'Partly Cloudy',
-  'UDS_WeatherTypes::NewEnumerator2': 'Cloudy',
-  'UDS_WeatherTypes::NewEnumerator3': 'Overcast',
-  'UDS_WeatherTypes::NewEnumerator4': 'Foggy',
-  'UDS_WeatherTypes::NewEnumerator5': 'Light Rain',
-  'UDS_WeatherTypes::NewEnumerator6': 'Rain',
-  'UDS_WeatherTypes::NewEnumerator7': 'Thunderstorm',
-  'UDS_WeatherTypes::NewEnumerator8': 'Light Snow',
-  'UDS_WeatherTypes::NewEnumerator9': 'Snow',
-  'UDS_WeatherTypes::NewEnumerator10': 'Blizzard',
-  'UDS_WeatherTypes::NewEnumerator11': 'Heatwave',
-  'UDS_WeatherTypes::NewEnumerator12': 'Sandstorm',
+  'UDS_WeatherTypes::NewEnumerator0': 'weather_clear_skies',
+  'UDS_WeatherTypes::NewEnumerator1': 'weather_partly_cloudy',
+  'UDS_WeatherTypes::NewEnumerator2': 'weather_cloudy',
+  'UDS_WeatherTypes::NewEnumerator3': 'weather_overcast',
+  'UDS_WeatherTypes::NewEnumerator4': 'weather_foggy',
+  'UDS_WeatherTypes::NewEnumerator5': 'weather_light_rain',
+  'UDS_WeatherTypes::NewEnumerator6': 'weather_rain',
+  'UDS_WeatherTypes::NewEnumerator7': 'weather_thunderstorm',
+  'UDS_WeatherTypes::NewEnumerator8': 'weather_light_snow',
+  'UDS_WeatherTypes::NewEnumerator9': 'weather_snow',
+  'UDS_WeatherTypes::NewEnumerator10': 'weather_blizzard',
+  'UDS_WeatherTypes::NewEnumerator11': 'weather_heatwave',
+  'UDS_WeatherTypes::NewEnumerator12': 'weather_sandstorm',
 };
 
-function _resolveUdsWeather(enumValue) {
+function _resolveUdsWeather(enumValue, locale = 'en') {
   if (!enumValue) return null;
-  return UDS_WEATHER_MAP[enumValue] || enumValue.replace(/^UDS_WeatherTypes::/, '').replace(/NewEnumerator/, 'Weather ');
+  const key = UDS_WEATHER_MAP[enumValue];
+  if (key) return _tstatus(locale, key);
+  const fallback = enumValue.replace(/^UDS_WeatherTypes::/, '').replace(/NewEnumerator/, '').trim();
+  return _tstatus(locale, 'weather_fallback', { value: fallback || enumValue });
 }
 
 Object.assign(PlayerStatsChannel.prototype, require('./player-stats-embeds'));

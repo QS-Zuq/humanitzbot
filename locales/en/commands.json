@@ -1,0 +1,186 @@
+{
+  "players": {
+    "name": "players",
+    "description": "Show online players on the HumanitZ server",
+    "embeds": {
+      "title": "👥 Online Players",
+      "footer": "HumanitZ Server"
+    },
+    "reply": {
+      "no_players_online": "No players currently online.",
+      "players_online_count": "**{{count}}** player{{suffix}} online",
+      "players_field": "Players",
+      "players_field_paged": "Players ({{page}}/{{total}})",
+      "fetch_failed": "❌ Could not fetch player list. The server may be offline."
+    }
+  },
+  "playerstats": {
+    "name": "playerstats",
+    "description": "View player activity stats (deaths, builds, raids, etc.)",
+    "embeds": {
+      "title": "📊 Player Activity",
+      "tracked_survivors": "**{{count}}** tracked survivors",
+      "deaths": "💀 Deaths",
+      "builds": "🔨 Builds",
+      "looted": "📦 Looted",
+      "most_active": "Most Active"
+    },
+    "menus": {
+      "player_placeholder": "Select a player to view their stats…",
+      "player_option_description": "💀 {{deaths}} deaths · 🔨 {{builds}} builds{{playtime}}"
+    },
+    "reply": {
+      "no_data": "No player stats recorded yet. Stats are gathered from the game server log — play for a while and check back!",
+      "events_count": "{{count}} events",
+      "player_not_found": "Player not found."
+    }
+  },
+  "playtime": {
+    "name": "playtime",
+    "description": "Show playtime leaderboard or look up a player",
+    "options": {
+      "player": "Player name to look up (leave empty for leaderboard)"
+    },
+    "embeds": {
+      "player_title": "⏱️ {{name}}",
+      "leaderboard_title": "⏱️ Playtime Leaderboard",
+      "total_playtime": "Total Playtime",
+      "sessions": "Sessions",
+      "tracking_since": "Tracking since {{date}}"
+    },
+    "reply": {
+      "not_found": "No playtime data found for **{{player}}**.",
+      "rank_description": "{{rank}} on the leaderboard",
+      "no_data": "No playtime data recorded yet.",
+      "leaderboard_line": "{{medal}} **{{name}}** — {{playtime}} ({{sessions}} session{{suffix}})",
+      "more": "*…and {{count}} more*",
+      "fetch_failed": "❌ Failed to retrieve playtime data."
+    }
+  },
+  "server": {
+    "name": "server",
+    "description": "Show server info, world state, and difficulty schedule",
+    "embeds": {
+      "title": "🖥️ Server Info",
+      "tip_footer": "💡 {{tip}}",
+      "footer": "HumanitZ Server",
+      "online_field": "👥 Online",
+      "players_field": "🎮 Players"
+    },
+    "reply": {
+      "no_data_returned": "_No data returned from server._",
+      "unreachable": "❌ Could not reach the server. It may be offline or RCON is unavailable."
+    }
+  },
+  "rcon": {
+    "name": "rcon",
+    "description": "Send a raw RCON command to the server (Admin only)",
+    "options": {
+      "command": "The RCON command to send"
+    },
+    "reply": {
+      "blocked": "❌ The command `{{command}}` is blocked for safety. Use the server panel to perform this action.",
+      "no_response": "_No response from server._",
+      "response_template": "**Command:** `{{command}}`\n**Response:**\n{{response}}",
+      "failed": "❌ RCON command failed: {{error}}"
+    }
+  },
+  "qspanel": {
+    "name": "qspanel",
+    "description": "Server admin panel — power, console, backups, status (Admin only)",
+    "subcommands": {
+      "status": "Server power state, resources, and host details",
+      "start": "Start the game server",
+      "stop": "Gracefully stop the game server",
+      "restart": "Restart the game server",
+      "kill": "Force-kill the game server process (emergency only)",
+      "console": "Send a console command via the hosting panel",
+      "backups": "List server backups",
+      "backup_create": "Create a new server backup",
+      "backup_delete": "Delete a server backup by its UUID",
+      "schedules": "List panel schedules (auto-restart, etc.)"
+    },
+    "options": {
+      "command": "The console command to send",
+      "backup_name": "Backup name (optional — auto-generated if empty)",
+      "backup_uuid": "The backup UUID to delete"
+    },
+    "state": {
+      "running": "Running",
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "offline": "Offline",
+      "unknown": "Unknown"
+    },
+    "power": {
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "restarting": "Restarting",
+      "killing": "Killing"
+    },
+    "embeds": {
+      "status_title": "🖥️ Server Panel",
+      "resources_field": "📊 Resources",
+      "plan_limits_field": "📋 Plan Limits",
+      "features_field": "🔧 Features",
+      "node_field": "🌐 Node",
+      "footer": "Panel API · Pterodactyl",
+      "power_action_title": "{{emoji}} {{verb}} Server",
+      "console_title": "🖥️ Console Command Sent",
+      "backups_title": "💾 Server Backups",
+      "backup_created_title": "💾 Backup Created",
+      "schedules_title": "📅 Panel Schedules"
+    },
+    "reply": {
+      "panel_api_not_configured": "❌ Panel API is not configured. Set `PANEL_SERVER_URL` and `PANEL_API_KEY` in your `.env` file.",
+      "unknown_subcommand": "❌ Unknown subcommand: {{subcommand}}",
+      "status_fetch_failed": "❌ Failed to fetch server status: {{error}}",
+      "status_header": "**{{name}}**\n{{emoji}} **{{label}}**",
+      "game_server_fallback": "Game Server",
+      "unlimited": "Unlimited",
+      "power_signal_sent": "Power signal `{{signal}}` sent successfully.\nThe server may take a moment to respond.",
+      "power_action_failed": "❌ Power action `{{signal}}` failed: {{error}}",
+      "requested_by": "Requested by {{user}}",
+      "console_sent_body": "```\n{{command}}\n```\n{{note}}",
+      "panel_console_note": "*Note: Panel console is fire-and-forget — no response is returned. Use `/rcon` for commands that need a response.*",
+      "console_command_failed": "❌ Console command failed: {{error}}",
+      "no_backups_found": "No backups found.",
+      "backup_in_progress": "In progress...",
+      "backup_fallback_name": "Backup {{index}}",
+      "backup_line": "{{status}}{{lock}} **{{name}}** — {{size}}\n> {{date}}\n> `{{uuid}}`",
+      "backups_footer": "{{count}} backup(s) · Panel API",
+      "backups_fetch_failed": "❌ Failed to list backups: {{error}}",
+      "backup_created_body": "**{{name}}**\nUUID: `{{uuid}}`\n\nThe backup is being created. It may take a few minutes to complete.",
+      "new_backup_name": "New Backup",
+      "pending": "pending",
+      "backup_limit_reached": "❌ Backup limit reached. Delete an existing backup first, or upgrade your plan.",
+      "backup_create_failed": "❌ Failed to create backup: {{error}}",
+      "backup_deleted": "✅ Backup `{{uuid}}` deleted.",
+      "backup_delete_failed": "❌ Failed to delete backup: {{error}}",
+      "schedules_none": "No schedules configured.\nUse your hosting panel to create schedules (auto-restart, backups, etc.).",
+      "online_only_suffix": " (online only)",
+      "never": "Never",
+      "schedule_line": "{{active}} **{{name}}**{{onlineOnly}}\n> Cron: `{{cron}}` · Last: {{lastRun}} · Next: {{nextRun}}",
+      "schedules_footer": "{{count}} schedule(s) · Panel API",
+      "schedules_fetch_failed": "❌ Failed to list schedules: {{error}}",
+      "sent_by": "Sent by {{user}}"
+    }
+  },
+  "threads": {
+    "name": "threads",
+    "description": "Rebuild daily activity summary threads from log history (Admin only)",
+    "options": {
+      "days": "How many days back to rebuild (default: all)"
+    },
+    "reply": {
+      "downloading": "⏳ Downloading log files from server…",
+      "error": "❌ {{error}}",
+      "created": "✅ Created **{{count}}** activity summary thread(s)",
+      "replaced": "🗑️ Replaced **{{count}}** existing thread(s)",
+      "preserved": "📋 Preserved **{{count}}** message(s) from old threads",
+      "cleaned": "🧹 Cleaned **{{count}}** old summary message(s)",
+      "no_events": "ℹ️ No events found for the requested date range.",
+      "chat_note": "💬 *Chat threads are built from live RCON polling — historic chat can be replayed from the DB using `/threads source:db`.*"
+    }
+  }
+}

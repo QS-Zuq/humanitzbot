@@ -16,6 +16,7 @@ const fs = require('fs');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
 const panelApi = require('../server/panel-api');
+const { t, getLocale, fmtNumber } = require('../i18n');
 
 // ── Uptime formatter ────────────────────────────────────────
 
@@ -257,7 +258,7 @@ function _buildModuleLines(moduleStatus, logWatcher) {
   const lines = [];
   for (const [name, status] of Object.entries(moduleStatus)) {
     const icon = status.startsWith('🟢') ? '🟢' : status.startsWith('⚫') ? '⚫' : '🟡';
-    const detail = status.replace(/^[🟢⚫🟡]\s*/, '');
+    const detail = status.replace(/^(?:🟢|⚫|🟡)\s*/u, '');
     if (icon === '🟢') {
       lines.push(`${icon} **${name}** — ${detail}`);
     } else if (icon === '⚫') {
@@ -407,6 +408,7 @@ function _buildSuggestions(results, moduleStatus, saveResult) {
  * @returns {Promise<EmbedBuilder[]>}
  */
 async function buildDiagnostics({ client, db, saveService, logWatcher, moduleStatus, startedAt, hasSftp }) {
+  const locale = getLocale({ serverConfig: config });
   const rcon = require('../rcon/rcon');
   const playerStats = require('../tracking/player-stats');
   const playtime = require('../tracking/playtime-tracker');
@@ -448,17 +450,17 @@ async function buildDiagnostics({ client, db, saveService, logWatcher, moduleSta
 
   const dataLines = [];
   if (results.db.status === 'ok' && results.db.players > 0) {
-    dataLines.push(`👥 **${results.db.players}** players in database (${results.db.online} online)`);
-    dataLines.push(`🪦 **${results.db.totalKills?.toLocaleString() || 0}** lifetime kills tracked`);
+    dataLines.push(`👥 **${fmtNumber(results.db.players, locale)}** players in database (${fmtNumber(results.db.online, locale)} online)`);
+    dataLines.push(`🪦 **${fmtNumber(results.db.totalKills || 0, locale)}** lifetime kills tracked`);
   }
-  if (psCount > 0) dataLines.push(`📊 **${psCount}** players in log stats`);
-  if (ptCount > 0) dataLines.push(`⏱️ **${ptCount}** players with playtime (${ptActive} active session${ptActive !== 1 ? 's' : ''})`);
+  if (psCount > 0) dataLines.push(`📊 **${fmtNumber(psCount, locale)}** players in log stats`);
+  if (ptCount > 0) dataLines.push(`⏱️ **${fmtNumber(ptCount, locale)}** players with playtime (${fmtNumber(ptActive, locale)} active session${ptActive !== 1 ? 's' : ''})`);
   if (dataLines.length === 0) dataLines.push('No player data loaded yet');
 
   // ── Build embeds ──
   const skippedModules = Object.entries(moduleStatus).filter(([, s]) => s.startsWith('🟡'));
   const embed = new EmbedBuilder()
-    .setTitle('🔍 System Diagnostics')
+    .setTitle(t('discord:panel_diagnostics.title', locale))
     .setColor(
       results.rcon.status === 'disconnected' || results.sftp.status === 'error' || results.db.status === 'error'
         ? 0xe74c3c
@@ -466,27 +468,30 @@ async function buildDiagnostics({ client, db, saveService, logWatcher, moduleSta
           ? 0xf1c40f
           : 0x2ecc71
     )
-    .setDescription(`Uptime: **${_formatUptime(upMs)}** · Modules: **${Object.keys(moduleStatus).length}**`)
+    .setDescription(t('discord:panel_diagnostics.uptime_modules', locale, {
+      uptime: `**${_formatUptime(upMs)}**`,
+      count: `**${fmtNumber(Object.keys(moduleStatus).length, locale)}**`,
+    }))
     .addFields(
-      { name: '🔌 Live Connectivity', value: connLines.join('\n') },
-      { name: '📺 Channels', value: chLines.join('\n') || 'None configured' },
-      { name: '📦 Modules', value: moduleLines.join('\n') || 'None registered' },
+      { name: `🔌 ${t('discord:panel_diagnostics.live_connectivity', locale)}`, value: connLines.join('\n') },
+      { name: `📺 ${t('discord:panel_diagnostics.channels', locale)}`, value: chLines.join('\n') || t('discord:panel_diagnostics.none_configured', locale) },
+      { name: `📦 ${t('discord:panel_diagnostics.modules', locale)}`, value: moduleLines.join('\n') || t('discord:panel_diagnostics.none_registered', locale) },
     )
     .setTimestamp()
-    .setFooter({ text: 'This information is only visible to you' });
+    .setFooter({ text: t('discord:panel_diagnostics.visible_to_you', locale) });
 
   if (dataLines.length > 0) {
-    embed.addFields({ name: '📈 Data Summary', value: dataLines.join('\n') });
+    embed.addFields({ name: `📈 ${t('discord:panel_diagnostics.data_summary', locale)}`, value: dataLines.join('\n') });
   }
 
   const tipsText = tips.join('\n\n');
   const embeds = [embed];
   if (tipsText.length > 0) {
     if (tipsText.length <= 1024) {
-      embed.addFields({ name: '💡 Suggestions & Guidance', value: tipsText });
+      embed.addFields({ name: `💡 ${t('discord:panel_diagnostics.suggestions_guidance', locale)}`, value: tipsText });
     } else {
       const tipsEmbed = new EmbedBuilder()
-        .setTitle('💡 Suggestions & Guidance')
+        .setTitle(`💡 ${t('discord:panel_diagnostics.suggestions_guidance', locale)}`)
         .setColor(0xf1c40f)
         .setDescription(tipsText.slice(0, 4096));
       embeds.push(tipsEmbed);

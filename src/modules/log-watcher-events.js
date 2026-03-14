@@ -7,6 +7,11 @@
  */
 
 const { EmbedBuilder } = require('discord.js');
+const { t, getLocale, fmtDate, fmtTime, fmtNumber } = require('../i18n');
+
+function _te(locale, key, vars = {}) {
+  return t(`discord:events.${key}`, locale, vars);
+}
 
 // ═════════════════════════════════════════════════════════════════════
 //  _onBuild — Build event handler (batched)
@@ -44,6 +49,7 @@ function _onBuild(playerName, steamId, itemName, timestamp) {
 //  _onDeath — Death event handler (PvP, PvE, death-loop detection)
 // ═════════════════════════════════════════════════════════════════════
 function _onDeath(playerName, timestamp) {
+  const locale = getLocale({ serverConfig: this._config });
   // ALWAYS record stats — every death counts, no suppression
   this._playerStats.recordDeath(playerName, timestamp);
   this._incDayCount('deaths');
@@ -106,17 +112,28 @@ function _onDeath(playerName, timestamp) {
 
     // PvP kills always post individually (they're rare and important)
     const killEmbed = new EmbedBuilder()
-      .setAuthor({ name: '⚔️ PvP Kill' })
-      .setDescription(`**${pvpKill.attacker}** killed **${playerName}**`)
+      .setAuthor({ name: _te(locale, 'pvp_kill') })
+      .setDescription(_te(locale, 'pvp_kill_description', {
+        attacker: pvpKill.attacker,
+        victim: playerName,
+      }))
       .setColor(0xe74c3c)
-      .setFooter({ text: `${pvpKill.totalDamage.toFixed(0)} damage dealt · ${this._formatTime(timestamp)}` });
+      .setFooter({
+        text: _te(locale, 'pvp_kill_footer', {
+          damage: fmtNumber(Math.round(pvpKill.totalDamage), locale),
+          time: this._formatTime(timestamp),
+        }),
+      });
     this._sendToThread(killEmbed);
 
     const deathEmbed = new EmbedBuilder()
-      .setAuthor({ name: '💀 Player Death' })
-      .setDescription(`**${playerName}** was killed by **${pvpKill.attacker}**`)
+      .setAuthor({ name: _te(locale, 'player_death') })
+      .setDescription(_te(locale, 'pvp_death_description', {
+        victim: playerName,
+        attacker: pvpKill.attacker,
+      }))
       .setColor(0x992d22)
-      .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+      .setFooter({ text: timestamp ? this._formatTime(timestamp) : _te(locale, 'just_now') });
     this._sendToThread(deathEmbed);
     return;
   }
@@ -150,9 +167,12 @@ function _onDeath(playerName, timestamp) {
   }
 
   // Build death description with cause attribution
-  let deathDesc = `**${playerName}** died`;
+  let deathDesc = _te(locale, 'death_plain', { victim: playerName });
   if (deathCause && deathCause.name !== 'Unknown') {
-    deathDesc = `**${playerName}** was killed by **${deathCause.name}**`;
+    deathDesc = _te(locale, 'death_with_cause', {
+      victim: playerName,
+      cause: deathCause.name,
+    });
   }
 
   // DB: log PvE death event with cause details
@@ -165,23 +185,29 @@ function _onDeath(playerName, timestamp) {
 
   // Normal death embed with cause attribution
   const embed = new EmbedBuilder()
-    .setAuthor({ name: '💀 Player Death' })
+    .setAuthor({ name: _te(locale, 'player_death') })
     .setDescription(deathDesc)
     .setColor(0x992d22)
-    .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
+    .setFooter({ text: timestamp ? this._formatTime(timestamp) : _te(locale, 'just_now') });
   this._sendToThread(embed);
 }
 
 /** Post a single summary embed for a death loop, then clear the tracker entry. */
 function _flushDeathLoop(key, playerName) {
+  const locale = getLocale({ serverConfig: this._config });
   const entry = this._deathLoopTracker.get(key);
   if (!entry || entry.count < this._config.deathLoopThreshold) return;
   if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
 
   const elapsed = Math.round((entry.lastTimestamp - entry.firstTimestamp) / 1000);
   const embed = new EmbedBuilder()
-    .setAuthor({ name: '💀 Death Loop' })
-    .setDescription(`**${playerName}** died **${entry.count}** times in ${elapsed}s — likely a respawn bug`)
+    .setAuthor({ name: _te(locale, 'death_loop') })
+    .setDescription(_te(locale, 'death_loop_description', {
+      victim: playerName,
+      count: fmtNumber(entry.count, locale),
+      seconds: fmtNumber(elapsed, locale),
+      hint: _te(locale, 'respawn_bug_hint'),
+    }))
     .setColor(0xf39c12)
     .setFooter({ text: this._formatTime(entry.lastTimestamp) });
   this._sendToThread(embed);
@@ -262,19 +288,27 @@ function _batchLoot(playerName, steamId, containerType, ownerSteamId, timestamp)
 }
 
 function _flushLootBatch() {
+  const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._lootBatch);
   if (entries.length === 0) return;
   this._lootBatch = {};
 
   const lines = entries.map(entry => {
     const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
-    const ownerName = ownerData ? ownerData.name : `Unknown (${entry.ownerSteamId.slice(0, 8)}...)`;
+    const ownerName = ownerData
+      ? ownerData.name
+      : _te(locale, 'unknown_owner', { owner_id: entry.ownerSteamId.slice(0, 8) });
     const containerList = [...entry.containers].join(', ');
-    return `**${entry.looter}** opened **${entry.count}** container(s) owned by **${ownerName}**\n> ${containerList}`;
+    return _te(locale, 'container_activity_line', {
+      looter: entry.looter,
+      count: fmtNumber(entry.count, locale),
+      owner: ownerName,
+      container_list: containerList,
+    });
   });
 
   const embed = new EmbedBuilder()
-    .setAuthor({ name: '📦 Container Activity' })
+    .setAuthor({ name: _te(locale, 'container_activity') })
     .setDescription(lines.join('\n\n'))
     .setColor(0xe67e22)
     .setTimestamp();
@@ -283,6 +317,7 @@ function _flushLootBatch() {
 }
 
 function _flushBuildBatch() {
+  const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._buildBatch);
   if (entries.length === 0) return;
   this._buildBatch = {};
@@ -291,11 +326,14 @@ function _flushBuildBatch() {
     const itemList = Object.entries(entry.items)
       .map(([item, count]) => count > 1 ? `${item} ×${count}` : item)
       .join(', ');
-    return `**${entry.playerName}** built ${itemList}`;
+    return _te(locale, 'build_activity_line', {
+      player: entry.playerName,
+      item_list: itemList,
+    });
   });
 
   const embed = new EmbedBuilder()
-    .setAuthor({ name: '🔨 Build Activity' })
+    .setAuthor({ name: _te(locale, 'build_activity') })
     .setDescription(lines.join('\n'))
     .setColor(0xf39c12)
     .setTimestamp();
@@ -304,25 +342,37 @@ function _flushBuildBatch() {
 }
 
 function _flushRaidBatch() {
+  const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._raidBatch);
   if (entries.length === 0) return;
   this._raidBatch = {};
 
   const lines = entries.map(entry => {
     const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
-    const ownerName = ownerData ? ownerData.name : `Unknown (${entry.ownerSteamId.slice(0, 8)}...)`;
+    const ownerName = ownerData
+      ? ownerData.name
+      : _te(locale, 'unknown_owner', { owner_id: entry.ownerSteamId.slice(0, 8) });
     const buildingList = Object.entries(entry.buildings)
       .map(([b, count]) => count > 1 ? `${b} ×${count}` : b)
       .join(', ');
     const summary = [];
-    if (entry.destroyedCount > 0) summary.push(`**${entry.destroyedCount}** destroyed`);
-    if (entry.damagedCount > 0) summary.push(`**${entry.damagedCount}** damaged`);
-    return `**${entry.attacker}** raided **${ownerName}** — ${summary.join(', ')}\n> ${buildingList}`;
+    if (entry.destroyedCount > 0) {
+      summary.push(_te(locale, 'raid_summary_destroyed', { count: fmtNumber(entry.destroyedCount, locale) }));
+    }
+    if (entry.damagedCount > 0) {
+      summary.push(_te(locale, 'raid_summary_damaged', { count: fmtNumber(entry.damagedCount, locale) }));
+    }
+    return _te(locale, 'raid_activity_line', {
+      attacker: entry.attacker,
+      owner: ownerName,
+      summary: summary.join(', '),
+      building_list: buildingList,
+    });
   });
 
   const hasDestruction = entries.some(e => e.destroyedCount > 0);
   const embed = new EmbedBuilder()
-    .setAuthor({ name: hasDestruction ? '💥 Raid Alert' : '⚠️ Raid Activity' })
+    .setAuthor({ name: hasDestruction ? _te(locale, 'raid_alert') : _te(locale, 'raid_activity') })
     .setDescription(lines.join('\n\n'))
     .setColor(hasDestruction ? 0xe74c3c : 0xe67e22)
     .setTimestamp();

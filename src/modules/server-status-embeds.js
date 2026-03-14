@@ -1,21 +1,3 @@
-/**
- * Server-status embed builders — presentation layer.
- *
- * Builds the Discord embeds for the live server-status channel.
- * All display helpers imported from server-display.js (single source of truth).
- *
- * Mixed into ServerStatus.prototype by server-status.js.
- *
- * Display hierarchy (online embed):
- *   1. Dynamic difficulty schedule   (THE selling point — always first)
- *   2. Server identity + connect     (name, status, uptime, address)
- *   3. World state                   (players, time, day, season, weather)
- *   4. Quick stats & peaks
- *   5. Performance + resources (compact)
- */
-
-'use strict';
-
 const { EmbedBuilder } = require('discord.js');
 const {
   formatTime: _formatTime,
@@ -29,18 +11,56 @@ const {
   buildWeatherOdds: _buildWeatherOdds,
   buildResourceField: _buildResourceField,
 } = require('../server/server-display');
+const { t, getLocale, fmtDate, fmtNumber } = require('../i18n');
 
-// ─── Shared helpers ──────────────────────────────────────────────
-
-/** Build tracking footer text. */
-function _footer(playtimeTracker, cfg) {
-  const since = new Date(playtimeTracker.getTrackingSince())
-    .toLocaleDateString('en-GB', { timeZone: cfg.botTimezone });
-  return `Tracking since ${since} \xB7 Last updated`;
+function _ts(locale, key, vars = {}) {
+  return t(`discord:status.${key}`, locale, vars);
 }
 
-/** Build settings + loot + weather fields from cached settings. */
-function _settingsBlock(settings, cfg) {
+function _normalizeLabel(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function _seasonLabel(locale, season) {
+  const norm = _normalizeLabel(season);
+  const keyMap = {
+    spring: 'season_spring',
+    summer: 'season_summer',
+    autumn: 'season_autumn',
+    fall: 'season_autumn',
+    winter: 'season_winter',
+  };
+  return keyMap[norm] ? _ts(locale, keyMap[norm]) : (season || '--');
+}
+
+function _weatherLabel(locale, weather) {
+  const norm = _normalizeLabel(weather);
+  const keyMap = {
+    clear: 'weather_clear',
+    'clear skies': 'weather_clear_skies',
+    'partly cloudy': 'weather_partly_cloudy',
+    cloudy: 'weather_cloudy',
+    overcast: 'weather_overcast',
+    foggy: 'weather_foggy',
+    'light rain': 'weather_light_rain',
+    rain: 'weather_rain',
+    thunderstorm: 'weather_thunderstorm',
+    'light snow': 'weather_light_snow',
+    snow: 'weather_snow',
+    blizzard: 'weather_blizzard',
+    heatwave: 'weather_heatwave',
+    sandstorm: 'weather_sandstorm',
+  };
+  return keyMap[norm] ? _ts(locale, keyMap[norm]) : (weather || '--');
+}
+
+function _footer(playtimeTracker, cfg) {
+  const locale = getLocale({ serverConfig: cfg });
+  const since = fmtDate(playtimeTracker.getTrackingSince(), locale);
+  return _ts(locale, 'tracking_footer', { since });
+}
+
+function _settingsBlock(settings, cfg, locale) {
   const fields = [];
   if (cfg.showServerSettings && Object.keys(settings).length > 0) {
     const sf = _buildSettingsFields(settings, cfg);
@@ -54,80 +74,85 @@ function _settingsBlock(settings, cfg) {
 
   if (lootLine && weatherLine) {
     fields.push(
-      { name: '\uD83D\uDCE6 Loot Scarcity', value: lootLine, inline: true },
-      { name: '\uD83C\uDF24\uFE0F Weather Odds', value: weatherLine, inline: true },
+      { name: _ts(locale, 'loot_scarcity'), value: lootLine, inline: true },
+      { name: _ts(locale, 'weather_odds'), value: weatherLine, inline: true },
     );
   } else if (lootLine) {
-    fields.push({ name: '\uD83D\uDCE6 Loot Scarcity', value: lootLine });
+    fields.push({ name: _ts(locale, 'loot_scarcity'), value: lootLine });
   } else if (weatherLine) {
-    fields.push({ name: '\uD83C\uDF24\uFE0F Weather Odds', value: weatherLine });
+    fields.push({ name: _ts(locale, 'weather_odds'), value: weatherLine });
   }
 
   return fields;
 }
 
-/** Build aggregate activity + playtime stats fields. */
-function _statsBlock(playtimeTracker, playerStats, cfg) {
+function _statsBlock(playtimeTracker, playerStats, cfg, locale) {
   const fields = [];
 
-  // Playtime top 3
   const leaderboard = playtimeTracker.getLeaderboard();
   if (leaderboard.length > 0) {
     const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
     const top3 = leaderboard.slice(0, 3)
       .map((e, i) => `${medals[i]} **${e.name}** \u2014 ${e.totalFormatted}`);
-    fields.push({ name: '\u23F1\uFE0F Top Playtime', value: top3.join('\n'), inline: true });
+    fields.push({ name: _ts(locale, 'top_playtime'), value: top3.join('\n'), inline: true });
   }
 
-  // Activity totals
   const all = playerStats.getAllPlayers();
   if (all.length > 0) {
     const parts = [
-      `\uD83D\uDC80 **${all.reduce((s, p) => s + p.deaths, 0)}** deaths`,
-      `\uD83D\uDD28 **${all.reduce((s, p) => s + p.builds, 0)}** builds`,
-      `\uD83D\uDCE6 **${all.reduce((s, p) => s + p.containersLooted, 0)}** looted`,
+      _ts(locale, 'activity_deaths', { count: fmtNumber(all.reduce((s, p) => s + p.deaths, 0), locale) }),
+      _ts(locale, 'activity_builds', { count: fmtNumber(all.reduce((s, p) => s + p.builds, 0), locale) }),
+      _ts(locale, 'activity_looted', { count: fmtNumber(all.reduce((s, p) => s + p.containersLooted, 0), locale) }),
     ];
     if (cfg.showRaidStats) {
       const r = all.reduce((s, p) => s + p.raidsOut, 0);
-      if (r > 0) parts.push(`\u2694\uFE0F **${r}** raids`);
+      if (r > 0) parts.push(_ts(locale, 'activity_raids', { count: fmtNumber(r, locale) }));
     }
-    fields.push({ name: '\uD83D\uDCCA Activity', value: parts.join('  \xB7  '), inline: true });
+    fields.push({ name: _ts(locale, 'activity'), value: parts.join('  \xB7  '), inline: true });
   }
 
-  // Peaks
   const peaks = playtimeTracker.getPeaks();
+  const allTimePeakDate = peaks.allTimePeakDate ? fmtDate(peaks.allTimePeakDate, locale) : '';
   fields.push(
-    { name: "\uD83D\uDCC8 Today's Peak", value: `${peaks.todayPeak} online \xB7 ${peaks.uniqueToday} unique`, inline: true },
-    { name: '\uD83C\uDFC6 All-Time Peak', value: `${peaks.allTimePeak}${peaks.allTimePeakDate ? ` (${new Date(peaks.allTimePeakDate).toLocaleDateString('en-GB', { timeZone: cfg.botTimezone })})` : ''}`, inline: true },
+    {
+      name: _ts(locale, 'todays_peak'),
+      value: _ts(locale, 'todays_peak_value', {
+        online: fmtNumber(peaks.todayPeak, locale),
+        unique: fmtNumber(peaks.uniqueToday, locale),
+      }),
+      inline: true,
+    },
+    {
+      name: _ts(locale, 'all_time_peak'),
+      value: _ts(locale, 'all_time_peak_value', {
+        peak: fmtNumber(peaks.allTimePeak, locale),
+        date_suffix: allTimePeakDate ? ` (${allTimePeakDate})` : '',
+      }),
+      inline: true,
+    },
   );
 
   return fields;
 }
 
-
-// ═════════════════════════════════════════════════════════════════════
-//  _buildEmbed — Online server status
-// ═════════════════════════════════════════════════════════════════════
-
 function _buildEmbed(info, playerList, resources) {
+  const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
-    .setTitle(`HumanitZ Server Status${serverTag}`)
+    .setTitle(`${_ts(locale, 'title')}${serverTag}`)
     .setColor(0x2ecc71)
     .setTimestamp()
     .setFooter({ text: _footer(this._playtime, this._config) });
 
   if (!info || !playerList) {
-    embed.setDescription('Fetching server data\u2026');
+    embed.setDescription(_ts(locale, 'fetching_server_data'));
     return embed;
   }
 
-  // ── 1. SCHEDULE — Always first ──
   const schedField = _buildScheduleField(this._config);
   if (schedField) embed.addFields(schedField);
 
-  // ── 2. SERVER IDENTITY ──
-  const host = this._config.publicHost || this._config.rconHost || 'unknown';
+  const host = this._config.publicHost || this._config.rconHost || _ts(locale, 'unknown');
   const port = this._config.gamePort || null;
   const connectStr = port ? `${host}:${port}` : host;
 
@@ -138,16 +163,21 @@ function _buildEmbed(info, playerList, resources) {
   if (resources?.uptime != null) {
     const { formatUptime: fmtUp } = require('../server/server-resources');
     const up = fmtUp(resources.uptime);
-    if (up) uptimeStr = ` \xB7 Uptime: ${up}`;
+    if (up) uptimeStr = ` \xB7 ${_ts(locale, 'uptime')}: ${up}`;
   } else if (this._onlineSince) {
     const ms = Date.now() - this._onlineSince.getTime();
     const mins = Math.floor(ms / 60000);
-    uptimeStr = mins < 60 ? ` \xB7 Uptime: ${mins}m` : ` \xB7 Uptime: ${Math.floor(mins / 60)}h ${mins % 60}m`;
+    uptimeStr = mins < 60
+      ? ` \xB7 ${_ts(locale, 'uptime')}: ${_ts(locale, 'uptime_minutes', { minutes: fmtNumber(mins, locale) })}`
+      : ` \xB7 ${_ts(locale, 'uptime')}: ${_ts(locale, 'uptime_hours_minutes', { hours: fmtNumber(Math.floor(mins / 60), locale), minutes: fmtNumber(mins % 60, locale) })}`;
   }
-  descParts.push(`\uD83D\uDFE2 **Online**${uptimeStr}\n\`${connectStr}\``);
+  descParts.push(_ts(locale, 'online_status_line', {
+    online: _ts(locale, 'online'),
+    uptime: uptimeStr,
+    connect: connectStr,
+  }));
   embed.setDescription(descParts.join('\n'));
 
-  // ── 3. WORLD STATE ──
   const settings = this._loadServerSettings();
 
   let playerCount = '--';
@@ -155,93 +185,104 @@ function _buildEmbed(info, playerList, resources) {
   if (info.players != null) {
     const max = parseInt(info.maxPlayers, 10) || 0;
     const cur = parseInt(info.players, 10) || 0;
-    playerCount = max ? `${cur} / ${max}` : `${cur}`;
+    playerCount = max ? `${fmtNumber(cur, locale)} / ${fmtNumber(max, locale)}` : `${fmtNumber(cur, locale)}`;
     if (max > 0) playerBar = `\n${_progressBar(cur / max, 12)}`;
   } else {
-    playerCount = `${playerList.count}`;
+    playerCount = `${fmtNumber(playerList.count, locale)}`;
   }
 
   const time = _formatTime(info.time) || '--';
   embed.addFields(
-    { name: '\uD83D\uDC65 Players', value: `${playerCount}${playerBar}`, inline: true },
-    { name: `${_timeEmoji(time)} Time`, value: time, inline: true },
+    { name: _ts(locale, 'players'), value: `${playerCount}${playerBar}`, inline: true },
+    { name: _ts(locale, 'time', { emoji: _timeEmoji(time) }), value: time, inline: true },
   );
 
   const dayValue = info.day || (settings._daysPassed != null ? String(Math.floor(settings._daysPassed)) : null);
   if (this._config.showServerDay && dayValue) {
-    embed.addFields({ name: '\uD83D\uDCC5 Day', value: dayValue, inline: true });
+    embed.addFields({ name: _ts(locale, 'day'), value: fmtNumber(dayValue, locale), inline: true });
   }
 
-  // Season + Weather (single combined field)
-  const season = info.season || settings._currentSeason || '--';
-  const weather = info.weather || settings._currentWeather || '--';
-  let seasonDisplay = `${_seasonEmoji(season)}${season}`;
+  const rawSeason = info.season || settings._currentSeason || '--';
+  const season = _seasonLabel(locale, rawSeason);
+  const rawWeather = info.weather || settings._currentWeather || '--';
+  const weather = _weatherLabel(locale, rawWeather);
+  let seasonDisplay = `${_seasonEmoji(rawSeason)}${season}`;
   if (this._config.showSeasonProgress && settings.DaysPerSeason) {
     const dps = parseInt(settings.DaysPerSeason, 10);
     if (dps > 0 && settings._currentSeasonDay != null) {
       const dayInSeason = Math.floor(settings._currentSeasonDay) + 1;
-      seasonDisplay = `${_seasonEmoji(season)}${season} (Day ${dayInSeason}/${dps})`;
+      seasonDisplay = _ts(locale, 'season_with_day', {
+        season: `${_seasonEmoji(rawSeason)}${season}`,
+        day: fmtNumber(dayInSeason, locale),
+        total: fmtNumber(dps, locale),
+      });
     } else if (dps > 0 && dayValue) {
       const day = parseInt(dayValue, 10);
-      if (day > 0) seasonDisplay = `${_seasonEmoji(season)}${season} (Day ${((day - 1) % dps) + 1}/${dps})`;
+      if (day > 0) {
+        seasonDisplay = _ts(locale, 'season_with_day', {
+          season: `${_seasonEmoji(rawSeason)}${season}`,
+          day: fmtNumber(((day - 1) % dps) + 1, locale),
+          total: fmtNumber(dps, locale),
+        });
+      }
     }
   }
-  embed.addFields({ name: '\uD83C\uDF0D Season / Weather', value: `${seasonDisplay} \xB7 ${_weatherEmoji(weather)}${weather}`, inline: true });
+  embed.addFields({
+    name: _ts(locale, 'season_weather'),
+    value: _ts(locale, 'season_weather_value', {
+      season: seasonDisplay,
+      weather: `${_weatherEmoji(rawWeather)}${weather}`,
+    }),
+    inline: true,
+  });
 
-  // Online player names
   if (playerList.players?.length > 0) {
     const names = playerList.players.map(p => p.name).join(', ');
-    embed.addFields({ name: '\uD83C\uDFAE Online Now', value: names.substring(0, 1024) });
+    embed.addFields({ name: _ts(locale, 'online_now'), value: names.substring(0, 1024) });
   }
 
-  // ── 4. STATS + PEAKS ──
-  embed.addFields(..._statsBlock(this._playtime, this._playerStats, this._config));
+  embed.addFields(..._statsBlock(this._playtime, this._playerStats, this._config, locale));
 
-  // ── 5. PERFORMANCE + RESOURCES (compact) ──
   if (this._config.showServerPerformance) {
     const perfParts = [];
-    if (info.fps) perfParts.push(`FPS: **${info.fps}**`);
-    if (info.ai) perfParts.push(`AI: **${info.ai}**`);
-    if (perfParts.length > 0) embed.addFields({ name: '\u26A1 Performance', value: perfParts.join('  \xB7  '), inline: true });
+    if (info.fps) perfParts.push(_ts(locale, 'performance_fps', { value: fmtNumber(info.fps, locale) }));
+    if (info.ai) perfParts.push(_ts(locale, 'performance_ai', { value: fmtNumber(info.ai, locale) }));
+    if (perfParts.length > 0) embed.addFields({ name: _ts(locale, 'performance'), value: perfParts.join('  \xB7  '), inline: true });
   }
   if (this._config.showServerVersion && info.version) {
-    embed.addFields({ name: '\uD83D\uDCCB Version', value: info.version, inline: true });
+    embed.addFields({ name: _ts(locale, 'version'), value: info.version, inline: true });
   }
   if (this._config.showHostResources && resources) {
     embed.addFields(..._buildResourceField(resources));
   }
 
-  // Settings + loot + weather
-  embed.addFields(..._settingsBlock(settings, this._config));
+  embed.addFields(..._settingsBlock(settings, this._config, locale));
 
-  // World stats
   if (this._config.showWorldStats) {
     const wp = [];
-    if (settings._totalPlayers != null) wp.push(`\uD83D\uDC65 **${settings._totalPlayers}** players`);
-    if (settings._totalZombieKills != null) wp.push(`\uD83E\uDDDF **${settings._totalZombieKills.toLocaleString()}** killed`);
-    if (settings._totalStructures != null) wp.push(`\uD83C\uDFD7\uFE0F **${settings._totalStructures.toLocaleString()}** structures`);
-    if (settings._totalVehicles != null) wp.push(`\uD83D\uDE97 **${settings._totalVehicles}** vehicles`);
-    if (settings._totalCompanions != null && settings._totalCompanions > 0) wp.push(`\uD83D\uDC15 **${settings._totalCompanions}** companions`);
-    if (wp.length > 0) embed.addFields({ name: '\uD83C\uDF0E World', value: wp.join('  \xB7  ') });
+    if (settings._totalPlayers != null) wp.push(_ts(locale, 'world_players', { count: fmtNumber(settings._totalPlayers, locale) }));
+    if (settings._totalZombieKills != null) wp.push(_ts(locale, 'world_killed', { count: fmtNumber(settings._totalZombieKills, locale) }));
+    if (settings._totalStructures != null) wp.push(_ts(locale, 'world_structures', { count: fmtNumber(settings._totalStructures, locale) }));
+    if (settings._totalVehicles != null) wp.push(_ts(locale, 'world_vehicles', { count: fmtNumber(settings._totalVehicles, locale) }));
+    if (settings._totalCompanions != null && settings._totalCompanions > 0) {
+      wp.push(_ts(locale, 'world_companions', { count: fmtNumber(settings._totalCompanions, locale) }));
+    }
+    if (wp.length > 0) embed.addFields({ name: _ts(locale, 'world'), value: wp.join('  \xB7  ') });
   }
 
   return embed;
 }
 
-
-// ═════════════════════════════════════════════════════════════════════
-//  _buildOfflineEmbed — Offline server status
-// ═════════════════════════════════════════════════════════════════════
-
 async function _buildOfflineEmbed() {
+  const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
-    .setTitle(`HumanitZ Server Status${serverTag}`)
+    .setTitle(`${_ts(locale, 'title')}${serverTag}`)
     .setColor(0xe74c3c)
     .setTimestamp()
     .setFooter({ text: _footer(this._playtime, this._config) });
 
-  const host = this._config.publicHost || this._config.rconHost || 'unknown';
+  const host = this._config.publicHost || this._config.rconHost || _ts(locale, 'unknown');
   const port = this._config.gamePort || null;
   const connectStr = port ? `\`${host}:${port}\`` : `\`${host}\``;
 
@@ -249,22 +290,25 @@ async function _buildOfflineEmbed() {
   if (this._offlineSince) {
     const ms = Date.now() - this._offlineSince.getTime();
     const mins = Math.floor(ms / 60000);
-    downtime = mins < 60 ? ` (${mins}m)` : ` (${Math.floor(mins / 60)}h ${mins % 60}m)`;
+    downtime = mins < 60
+      ? _ts(locale, 'downtime_minutes', { minutes: fmtNumber(mins, locale) })
+      : _ts(locale, 'downtime_hours_minutes', {
+        hours: fmtNumber(Math.floor(mins / 60), locale),
+        minutes: fmtNumber(mins % 60, locale),
+      });
   }
 
   const serverName = this._lastInfo?.name || '';
   embed.setDescription(serverName
-    ? `**${serverName}**\n\n\uD83D\uDD34 **Server Offline**${downtime}`
-    : `\uD83D\uDD34 **Server Offline**${downtime}`);
+    ? _ts(locale, 'offline_with_name', { name: serverName, downtime })
+    : _ts(locale, 'offline_no_name', { downtime }));
 
-  embed.addFields({ name: '\uD83D\uDD17 Direct Connect', value: connectStr, inline: true });
-  if (this._lastInfo?.version) embed.addFields({ name: '\uD83D\uDCCB Version', value: this._lastInfo.version, inline: true });
+  embed.addFields({ name: _ts(locale, 'direct_connect'), value: connectStr, inline: true });
+  if (this._lastInfo?.version) embed.addFields({ name: _ts(locale, 'version'), value: this._lastInfo.version, inline: true });
 
-  // Schedule — still useful when offline (shows what's next)
   const schedField = _buildScheduleField(this._config);
   if (schedField) embed.addFields(schedField);
 
-  // Resources (panel API may work when game is offline)
   if (this._config.showHostResources && this._serverResources.backend) {
     try {
       const resources = await this._serverResources.getResources();
@@ -272,13 +316,10 @@ async function _buildOfflineEmbed() {
     } catch (_) {}
   }
 
-  // Cached settings + loot + weather
   const settings = (this._config.showServerSettings || this._config.showLootScarcity)
     ? this._loadServerSettings() : {};
-  embed.addFields(..._settingsBlock(settings, this._config));
-
-  // Stats + peaks (reuse same block as online)
-  embed.addFields(..._statsBlock(this._playtime, this._playerStats, this._config));
+  embed.addFields(..._settingsBlock(settings, this._config, locale));
+  embed.addFields(..._statsBlock(this._playtime, this._playerStats, this._config, locale));
 
   return embed;
 }

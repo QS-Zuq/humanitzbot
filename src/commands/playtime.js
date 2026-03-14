@@ -8,81 +8,92 @@
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const playtime = require('../tracking/playtime-tracker');
-const config = require('../config');
+const { t, getLocalizations, fmtDate } = require('../i18n');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('playtime')
-    .setDescription('Show playtime leaderboard or look up a player')
-    .addStringOption(option =>
+    .setNameLocalizations(getLocalizations('commands:playtime.name'))
+    .setDescription(t('commands:playtime.description', 'en'))
+    .setDescriptionLocalizations(getLocalizations('commands:playtime.description'))
+    .addStringOption((option) =>
       option
         .setName('player')
-        .setDescription('Player name to look up (leave empty for leaderboard)')
-        .setRequired(false)
+        .setDescription(t('commands:playtime.options.player', 'en'))
+        .setDescriptionLocalizations(getLocalizations('commands:playtime.options.player'))
+        .setRequired(false),
     ),
 
   async execute(interaction) {
     await interaction.deferReply();
+    const locale = interaction.locale || 'en';
 
     try {
       const search = interaction.options.getString('player');
-      const trackingSince = new Date(playtime.getTrackingSince())
-        .toLocaleDateString('en-GB', { timeZone: config.botTimezone });
+      const trackingSince = fmtDate(new Date(playtime.getTrackingSince()), locale);
 
       if (search) {
-        // ── Player lookup ──
+        // Player lookup
         const leaderboard = playtime.getLeaderboard();
         const match = leaderboard.find(
-          e => e.name.toLowerCase() === search.toLowerCase()
+          (e) => e.name.toLowerCase() === search.toLowerCase(),
         ) || leaderboard.find(
-          e => e.name.toLowerCase().includes(search.toLowerCase())
+          (e) => e.name.toLowerCase().includes(search.toLowerCase()),
         );
 
         if (!match) {
-          await interaction.editReply(`No playtime data found for **${search}**.`);
+          await interaction.editReply(t('commands:playtime.reply.not_found', locale, { player: search }));
           return;
         }
 
-        // Rank position
         const rank = leaderboard.indexOf(match) + 1;
-        const rankStr = rank <= 3 ? ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'][rank - 1] : `#${rank}`;
+        const rankStr = rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : `#${rank}`;
 
         const embed = new EmbedBuilder()
-          .setTitle(`\u23F1\uFE0F ${match.name}`)
+          .setTitle(t('commands:playtime.embeds.player_title', locale, { name: match.name }))
           .setColor(0x9b59b6)
-          .setDescription(`${rankStr} on the leaderboard`)
+          .setDescription(t('commands:playtime.reply.rank_description', locale, { rank: rankStr }))
           .addFields(
-            { name: 'Total Playtime', value: match.totalFormatted, inline: true },
-            { name: 'Sessions', value: `${match.sessions}`, inline: true },
+            { name: t('commands:playtime.embeds.total_playtime', locale), value: match.totalFormatted, inline: true },
+            { name: t('commands:playtime.embeds.sessions', locale), value: `${match.sessions}`, inline: true },
           )
-          .setFooter({ text: `Tracking since ${trackingSince}` })
+          .setFooter({ text: t('commands:playtime.embeds.tracking_since', locale, { date: trackingSince }) })
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
       } else {
-        // ── Leaderboard ──
+        // Leaderboard
         const leaderboard = playtime.getLeaderboard();
 
         const embed = new EmbedBuilder()
-          .setTitle('\u23F1\uFE0F Playtime Leaderboard')
+          .setTitle(t('commands:playtime.embeds.leaderboard_title', locale))
           .setColor(0x9b59b6)
-          .setFooter({ text: `Tracking since ${trackingSince}` })
+          .setFooter({ text: t('commands:playtime.embeds.tracking_since', locale, { date: trackingSince }) })
           .setTimestamp();
 
         if (leaderboard.length === 0) {
-          embed.setDescription('No playtime data recorded yet.');
+          embed.setDescription(t('commands:playtime.reply.no_data', locale));
         } else {
           const top = leaderboard.slice(0, 20);
-          const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
+          const medals = ['🥇', '🥈', '🥉'];
           const lines = top.map((entry, i) => {
             const medal = medals[i] || `\`${i + 1}.\``;
-            return `${medal} **${entry.name}** \u2014 ${entry.totalFormatted} (${entry.sessions} session${entry.sessions !== 1 ? 's' : ''})`;
+            return t('commands:playtime.reply.leaderboard_line', locale, {
+              medal,
+              name: entry.name,
+              playtime: entry.totalFormatted,
+              sessions: entry.sessions,
+              suffix: entry.sessions !== 1 ? 's' : '',
+            });
           });
 
           embed.setDescription(lines.join('\n'));
 
           if (leaderboard.length > 20) {
-            embed.addFields({ name: '\u200b', value: `*\u2026and ${leaderboard.length - 20} more*` });
+            embed.addFields({
+              name: '\u200b',
+              value: t('commands:playtime.reply.more', locale, { count: leaderboard.length - 20 }),
+            });
           }
         }
 
@@ -90,7 +101,7 @@ module.exports = {
       }
     } catch (err) {
       console.error('[CMD:playtime]', err.message);
-      await interaction.editReply('\u274C Failed to retrieve playtime data.');
+      await interaction.editReply(t('commands:playtime.reply.fetch_failed', locale));
     }
   },
 };

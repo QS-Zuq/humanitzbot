@@ -1,0 +1,73 @@
+{
+  "status": {
+    "online": "線上",
+    "offline": "離線",
+    "starting": "啟動中",
+    "stopping": "停止中",
+    "running": "運行中",
+    "stopped": "已停止",
+    "unknown": "未知",
+    "unconfigured": "未設定",
+    "disconnected": "已斷線",
+    "error": "錯誤"
+  },
+  "actions": {
+    "save": "儲存",
+    "cancel": "取消",
+    "close": "關閉",
+    "confirm": "確認",
+    "delete": "刪除",
+    "edit": "編輯",
+    "refresh": "重新整理",
+    "run": "執行",
+    "send": "發送",
+    "start": "啟動",
+    "stop": "停止",
+    "restart": "重啟",
+    "backup": "備份"
+  },
+  "labels": {
+    "players": "玩家",
+    "name": "名稱",
+    "server": "伺服器",
+    "time": "時間",
+    "date": "日期",
+    "status": "狀態",
+    "profile": "個人檔案",
+    "channels": "頻道",
+    "modules": "模組",
+    "resources": "資源",
+    "uptime": "運行時間",
+    "version": "版本",
+    "world": "世界"
+  },
+  "time": {
+    "days": "天",
+    "hours": "小時",
+    "minutes": "分鐘",
+    "seconds": "秒",
+    "day": "天",
+    "hour": "小時",
+    "minute": "分鐘",
+    "second": "秒",
+    "ago": "前",
+    "never": "從未",
+    "now": "現在",
+    "just_now": "剛剛",
+    "in_progress": "進行中..."
+  },
+  "quantity": {
+    "player": "名玩家",
+    "players": "名玩家",
+    "session": "次連線",
+    "sessions": "次連線",
+    "total": "總計",
+    "more": "更多"
+  },
+  "messages": {
+    "loading": "載入中...",
+    "no_data": "無資料",
+    "no_results": "無結果",
+    "not_configured": "未設定"
+  }
+}

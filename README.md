@@ -1,4 +1,8 @@
 <p align="center">
+  <strong>English</strong> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="src/web-map/public/favicon.svg" width="80" height="80" alt="HumanitZ Bot" />
 </p>
 
@@ -15,8 +19,9 @@
   <img src="https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white" alt="discord.js v14" />
   <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
+  <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-767_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-920_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -76,6 +81,7 @@
 | **Bot Config Editor** | Edit `.env` settings from the browser with validation |
 | **Server Scheduler** | Visual restart schedule with profile rotation |
 | **Discord OAuth2** | Role-based access tiers: public landing, survivor, mod, admin |
+| **Multi-Language** | Full i18n support — English, 繁體中文, 简体中文 with browser language detection and instant switching |
 
 ### ⚙️ Server Management
 
@@ -129,6 +135,14 @@ Fill in the required values:
 | `PANEL_CHANNEL_ID` | Discord channel for the bot control panel |
 
 Everything else has sensible defaults or is auto-discovered on first run. See `.env.example` for the full list of 80+ configurable options.
+
+#### Language / Locale
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `BOT_LOCALE` | `en` | Discord bot display language (`en`, `zh-TW`, `zh-CN`) |
+
+The web dashboard detects your browser language automatically. You can also switch manually via the language selector in the bottom-left corner. Per-server locale overrides are supported in `servers.json` for multi-server setups.
 
 ### First Run
 

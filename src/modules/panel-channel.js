@@ -13,6 +13,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const config = require('../config');
+const { t, getLocale, fmtDate, fmtTime } = require('../i18n');
 const panelApi = require('../server/panel-api');
 const SftpClient = require('ssh2-sftp-client');
 const { formatBytes, formatUptime } = require('../server/server-resources');
@@ -23,14 +24,19 @@ const { cleanOwnMessages } = require('./discord-utils');
 
 //  State colour map 
 const STATE_DISPLAY = {
-  running:  { emoji: '🟢', label: 'Running',  color: 0x2ecc71 },
-  starting: { emoji: '🟡', label: 'Starting', color: 0xf1c40f },
-  stopping: { emoji: '🟠', label: 'Stopping', color: 0xe67e22 },
-  offline:  { emoji: '🔴', label: 'Offline',  color: 0xe74c3c },
+  running:  { emoji: '🟢', key: 'running',  color: 0x2ecc71 },
+  starting: { emoji: '🟡', key: 'starting', color: 0xf1c40f },
+  stopping: { emoji: '🟠', key: 'stopping', color: 0xe67e22 },
+  offline:  { emoji: '🔴', key: 'offline',  color: 0xe74c3c },
 };
 
-function _stateInfo(state) {
-  return STATE_DISPLAY[state] || { emoji: '⚪', label: state || 'Unknown', color: 0x95a5a6 };
+function _stateInfo(state, locale = 'en') {
+  const info = STATE_DISPLAY[state] || { emoji: '⚪', key: 'unknown', color: 0x95a5a6 };
+  return {
+    emoji: info.emoji,
+    label: t(`discord:panel_channel.state.${info.key}`, locale),
+    color: info.color,
+  };
 }
 
 //  .env file helpers (shared via panel-env.js) 
@@ -135,7 +141,7 @@ function _errorSummary(err) {
   return parts.join(' | ');
 }
 
-function _diagnosticToMarkdown(diagnosticLike) {
+function _diagnosticToMarkdown(diagnosticLike, emptyText = '', sectionLabel = '—') {
   const raw = typeof diagnosticLike?.toJSON === 'function'
     ? diagnosticLike.toJSON()
     : (diagnosticLike?.data || diagnosticLike || {});
@@ -146,14 +152,14 @@ function _diagnosticToMarkdown(diagnosticLike) {
   if (Array.isArray(raw.fields)) {
     for (const f of raw.fields) {
       if (!f) continue;
-      const name = f.name || 'Section';
+      const name = f.name || sectionLabel;
       const value = f.value || '-';
       parts.push(`### ${name}\n${value}`);
     }
   }
   if (raw.footer?.text) parts.push(`-# ${raw.footer.text}`);
   const text = parts.join('\n\n').trim();
-  if (!text) return 'No diagnostic details.';
+  if (!text) return emptyText;
   return text.length > 3900 ? `${text.slice(0, 3897)}...` : text;
 }
 
@@ -215,6 +221,25 @@ class PanelChannel {
     return interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) || false;
   }
 
+  _sharedLocale() {
+    return getLocale({ locale: config.botLocale });
+  }
+
+  _interactionLocale(interaction) {
+    return getLocale({
+      locale: interaction?.locale,
+      serverConfig: { locale: config.botLocale },
+    });
+  }
+
+  _tp(key, vars = {}, locale = this._sharedLocale()) {
+    return t(`discord:panel_channel.${key}`, locale, vars);
+  }
+
+  _ti(interaction, key, vars = {}) {
+    return this._tp(key, vars, this._interactionLocale(interaction));
+  }
+
   /**
    * @deprecated Use _isAdmin() + manual editReply instead. This causes interaction timeout issues.
    * Check admin permission. Returns true if admin, false (with ephemeral reply) if not.
@@ -222,7 +247,10 @@ class PanelChannel {
    */
   async _requireAdmin(interaction, action) {
     if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({ content: `[ERR] Only administrators can ${action}.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_only_admin', { action }),
+        flags: MessageFlags.Ephemeral,
+      });
       return false;
     }
     return true;
@@ -266,6 +294,7 @@ class PanelChannel {
 
       //  Single unified message with Components v2 containers 
       const { components } = await this._buildUnifiedPanel();
+      const locale = this._sharedLocale();
       try {
         this.panelMessage = await this.channel.send({ flags: COMPONENTS_V2_FLAG, components });
       } catch (sendErr) {
@@ -273,7 +302,7 @@ class PanelChannel {
         // Minimal fallback so the panel is always visible after restart.
         this.panelMessage = await this.channel.send({
           flags: COMPONENTS_V2_FLAG,
-          components: [_container(['Panel started, but the full layout was rejected by Discord. Check logs.'], [], 0xe67e22)],
+          components: [_container([this._tp('panel_layout_rejected_initial', {}, locale)], [], 0xe67e22)],
         });
       }
       this.botMessage = this.panelMessage; // alias for interaction handler compat
@@ -452,7 +481,10 @@ class PanelChannel {
       case 'factory_reset':
         return this._handleNukeButton(interaction);
       default:
-        await interaction.reply({ content: '[ERR] Unknown action.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'err_unknown_action'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
     }
   }
@@ -475,7 +507,10 @@ class PanelChannel {
       case 'broadcasts':
         return this._handleBroadcastsButton(interaction);
       default:
-        await interaction.reply({ content: '[ERR] Unknown action.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'err_unknown_action'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
     }
   }
@@ -484,14 +519,20 @@ class PanelChannel {
     const raw = interaction.values?.[0] || '';
     const sep = raw.indexOf(':');
     if (sep <= 0 || sep === raw.length - 1) {
-      await interaction.reply({ content: '[ERR] Invalid action.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_invalid_action'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
     const action = raw.slice(0, sep);
     const serverId = raw.slice(sep + 1);
     const allowed = new Set(['start', 'stop', 'restart', 'edit', 'remove', 'channels', 'sftp', 'welcome', 'automsg']);
     if (!allowed.has(action)) {
-      await interaction.reply({ content: '[ERR] Unknown action.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_unknown_action'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
     return this._handleServerAction(interaction, `panel_srv_${action}:${serverId}`);
@@ -506,12 +547,12 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can use panel controls.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_panel_controls'));
       return true;
     }
 
     if (!panelApi.available) {
-      await interaction.editReply('[ERR] Panel API is not configured. Power controls require PANEL_SERVER_URL and PANEL_API_KEY.');
+      await interaction.editReply(this._ti(interaction, 'err_panel_api_not_configured'));
       return true;
     }
 
@@ -519,38 +560,38 @@ class PanelChannel {
       switch (id) {
         case BTN.START:
           await panelApi.sendPowerAction('start');
-          await interaction.editReply('[OK] **Start** signal sent. The server is booting up...');
+          await interaction.editReply(this._ti(interaction, 'ok_start_sent'));
           break;
         case BTN.STOP:
           await panelApi.sendPowerAction('stop');
-          await interaction.editReply('[OK] **Stop** signal sent. The server is shutting down gracefully...');
+          await interaction.editReply(this._ti(interaction, 'ok_stop_sent'));
           break;
         case BTN.RESTART:
           await panelApi.sendPowerAction('restart');
-          await interaction.editReply('[OK] **Restart** signal sent. The server will restart shortly...');
+          await interaction.editReply(this._ti(interaction, 'ok_restart_sent'));
           break;
         case BTN.KILL:
           await panelApi.sendPowerAction('kill');
-          await interaction.editReply('[WARN] **Kill** signal sent. The server process was forcefully terminated.');
+          await interaction.editReply(this._ti(interaction, 'warn_kill_sent'));
           break;
         case BTN.BACKUP:
           await panelApi.createBackup();
-          await interaction.editReply('[OK] **Backup** creation started. It will appear in the panel shortly.');
+          await interaction.editReply(this._ti(interaction, 'ok_backup_started'));
           break;
       }
       setTimeout(() => this._update(true), 3000);
     } catch (err) {
-      await interaction.editReply(`[ERR] Action failed: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_action_failed', { message: err.message }));
     }
 
     return true;
   }
 
   async _handleBotRestart(interaction) {
-    if (!await this._requireAdmin(interaction, 'restart the bot')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_restart_bot'))) return true;
 
     await interaction.reply({
-      content: '[RESTART] Restarting bot... The process will exit and your process manager should restart it.',
+      content: this._ti(interaction, 'restart_notice'),
       flags: MessageFlags.Ephemeral,
     });
 
@@ -560,20 +601,20 @@ class PanelChannel {
   }
 
   async _handleNukeButton(interaction) {
-    if (!await this._requireAdmin(interaction, 'factory reset the bot')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_factory_reset_bot'))) return true;
 
     // Confirmation modal  user must type "NUKE" to proceed
     const modal = new ModalBuilder()
       .setCustomId('panel_nuke_confirm')
-      .setTitle('[WARN] Factory Reset - Confirm');
+      .setTitle(this._ti(interaction, 'factory_reset_confirm_title'));
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('confirm')
-          .setLabel('Type NUKE to confirm (deletes ALL bot data)')
+          .setLabel(this._ti(interaction, 'factory_reset_confirm_label'))
           .setStyle(TextInputStyle.Short)
-          .setPlaceholder('NUKE')
+          .setPlaceholder(this._ti(interaction, 'factory_reset_confirm_placeholder'))
           .setRequired(true)
           .setMinLength(4)
           .setMaxLength(4)
@@ -585,18 +626,21 @@ class PanelChannel {
   }
 
   async _handleNukeConfirmModal(interaction) {
-    if (!await this._requireAdmin(interaction, 'factory reset the bot')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_factory_reset_bot'))) return true;
 
     const confirm = interaction.fields.getTextInputValue('confirm').trim().toUpperCase();
     if (confirm !== 'NUKE') {
-      await interaction.reply({ content: '[ERR] Factory reset cancelled - you must type `NUKE` exactly.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'factory_reset_cancelled'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
     // Set NUKE_BOT=true in .env and restart
     _writeEnvValues({ NUKE_BOT: 'true' });
     await interaction.reply({
-      content: '[NUKE] **Factory Reset initiated.** The bot will restart, wipe all Discord messages and local data, then rebuild from server logs.\n\nThis may take a minute...',
+      content: `${this._ti(interaction, 'nuke_started')}\n\n${this._ti(interaction, 'nuke_timing_notice')}`,
       flags: MessageFlags.Ephemeral,
     });
 
@@ -605,12 +649,12 @@ class PanelChannel {
   }
 
   async _handleReimportButton(interaction) {
-    if (!await this._requireAdmin(interaction, 're-import data')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_reimport_data'))) return true;
 
     // Set FIRST_RUN=true and restart  re-downloads logs and rebuilds stats
     _writeEnvValues({ FIRST_RUN: 'true' });
     await interaction.reply({
-      content: '[IMPORT] **Re-Import started.** The bot will restart and re-download server logs to rebuild player stats and playtime data.\n\nExisting Discord messages are preserved - only local data is refreshed.',
+      content: `${this._ti(interaction, 'reimport_started')}\n\n${this._ti(interaction, 'reimport_preserves_messages')}`,
       flags: MessageFlags.Ephemeral,
     });
 
@@ -630,7 +674,7 @@ class PanelChannel {
         flags: COMPONENTS_V2_FLAG,
         content: null,
         embeds: [],
-        components: [_container(['[ERR] Only administrators can view diagnostics.'], [], 0xe74c3c)],
+        components: [_container([this._ti(interaction, 'err_only_admin_view_diagnostics')], [], 0xe74c3c)],
       });
       return true;
     }
@@ -645,9 +689,11 @@ class PanelChannel {
       hasSftp: this._hasSftp,
     });
 
-    const components = (diagnosticData || []).map(e => _container([_diagnosticToMarkdown(e)], [], 0x5865f2));
+    const noDetails = this._ti(interaction, 'no_diagnostic_details');
+    const sectionLabel = this._ti(interaction, 'diagnostic_section_fallback');
+    const components = (diagnosticData || []).map(e => _container([_diagnosticToMarkdown(e, noDetails, sectionLabel)], [], 0x5865f2));
     if (components.length === 0) {
-      components.push(_container(['No diagnostic details.'], [], 0x5865f2));
+      components.push(_container([noDetails], [], 0x5865f2));
     }
 
     await interaction.editReply({
@@ -683,19 +729,24 @@ class PanelChannel {
   // 
 
   async _handleEnvSelect(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit bot config')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_bot_config'))) return true;
 
     const categoryId = interaction.values[0];
     const category = ENV_CATEGORIES.find(c => c.id === categoryId);
     if (!category) {
-      await interaction.reply({ content: '[ERR] Unknown category.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_unknown_category'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
-    const restartTag = category.restart ? ' ( Bot Restart)' : ' ( Live)';
+    const restartTag = category.restart
+      ? this._ti(interaction, 'modal_restart_tag_bot')
+      : this._ti(interaction, 'modal_restart_tag_live');
     const modal = new ModalBuilder()
       .setCustomId(`panel_env_modal:${categoryId}`)
-      .setTitle(_modalTitle(`Edit: ${category.label}${restartTag}`));
+      .setTitle(_modalTitle(this._ti(interaction, 'modal_edit_category_title', { category: category.label, mode: restartTag })));
 
     for (const field of category.fields) {
       const style = field.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short;
@@ -707,7 +758,9 @@ class PanelChannel {
 
       if (field.sensitive) {
         const current = _getEnvValue(field);
-        input.setPlaceholder(current ? 'Leave empty to keep current' : 'Enter value');
+        input.setPlaceholder(current
+          ? this._ti(interaction, 'modal_sensitive_placeholder_keep_current')
+          : this._ti(interaction, 'modal_sensitive_placeholder_enter_value'));
         input.setValue('');
       } else {
         input.setValue(_getEnvValue(field));
@@ -721,17 +774,23 @@ class PanelChannel {
   }
 
   async _handleGameSettingsSelect(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_server_settings'))) return true;
 
     if (!this._hasSftp) {
-      await interaction.reply({ content: '[ERR] SFTP credentials not configured. Game settings require FTP_HOST, FTP_USER, and FTP_PASSWORD.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_sftp_credentials_settings'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
     const categoryId = interaction.values[0];
     const category = GAME_SETTINGS_CATEGORIES.find(c => c.id === categoryId);
     if (!category) {
-      await interaction.reply({ content: '[ERR] Unknown category.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_unknown_category'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
@@ -739,7 +798,7 @@ class PanelChannel {
 
     const modal = new ModalBuilder()
       .setCustomId(`panel_game_modal:${categoryId}`)
-      .setTitle(_modalTitle(`Server: ${category.label} ( Server Restart)`));
+      .setTitle(_modalTitle(this._ti(interaction, 'modal_server_settings_title', { category: category.label, mode: this._ti(interaction, 'modal_restart_tag_server') })));
 
     for (const setting of category.settings) {
       const currentValue = cached[setting.ini] != null ? String(cached[setting.ini]) : '';
@@ -764,14 +823,14 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can edit bot config.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_edit_bot_config'));
       return true;
     }
 
     const categoryId = interaction.customId.replace('panel_env_modal:', '');
     const category = ENV_CATEGORIES.find(c => c.id === categoryId);
     if (!category) {
-      await interaction.editReply('[ERR] Unknown category.');
+      await interaction.editReply(this._ti(interaction, 'err_unknown_category'));
       return true;
     }
 
@@ -789,8 +848,9 @@ class PanelChannel {
         const oldValue = _getEnvValue(field);
 
         if (newValue !== oldValue) {
-          const displayOld = field.sensitive ? '' : (oldValue || '(empty)');
-          const displayNew = field.sensitive ? '' : (newValue || '(empty)');
+          const emptyMarker = this._ti(interaction, 'value_empty_marker');
+          const displayOld = field.sensitive ? '' : (oldValue || emptyMarker);
+          const displayNew = field.sensitive ? '' : (newValue || emptyMarker);
           changes.push(`**${field.label}:** \`${displayOld}\`  \`${displayNew}\``);
 
           if (!category.restart) {
@@ -805,7 +865,7 @@ class PanelChannel {
       }
 
       if (changes.length === 0) {
-        await interaction.editReply('[INFO] No changes detected.');
+        await interaction.editReply(this._ti(interaction, 'info_no_changes_detected'));
         return true;
       }
 
@@ -818,11 +878,14 @@ class PanelChannel {
         config.saveDisplaySettings(this._db, dbUpdates);
       }
 
-      let msg = `[OK] **${category.label}** updated:\n${changes.join('\n')}`;
+      let msg = this._ti(interaction, 'ok_category_updated', {
+        category: category.label,
+        changes: changes.join('\n'),
+      });
       if (category.restart) {
-        msg += '\n\n[WARN] **Restart the bot** for these changes to take effect.';
+        msg += `\n\n${this._ti(interaction, 'warn_restart_bot_required')}`;
       } else {
-        msg += '\n\n Changes applied immediately.';
+        msg += `\n\n${this._ti(interaction, 'info_changes_applied_immediately')}`;
       }
 
       await interaction.editReply(msg);
@@ -832,24 +895,30 @@ class PanelChannel {
         setTimeout(() => this._update(true), 1000);
       }
     } catch (err) {
-      await interaction.editReply(`[ERR] Failed to save: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_failed_to_save', { message: err.message }));
     }
 
     return true;
   }
 
   async _handleGameSettingsModal(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit server settings')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_server_settings'))) return true;
 
     if (!this._hasSftp) {
-      await interaction.reply({ content: '[ERR] SFTP credentials not configured.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_sftp_credentials_not_configured'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
     const categoryId = interaction.customId.replace('panel_game_modal:', '');
     const category = GAME_SETTINGS_CATEGORIES.find(c => c.id === categoryId);
     if (!category) {
-      await interaction.reply({ content: '[ERR] Unknown category.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'err_unknown_category'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
@@ -871,7 +940,7 @@ class PanelChannel {
         content = (await sftp.get(settingsPath)).toString('utf8');
       } catch (readErr) {
         await sftp.end().catch(() => {});
-        throw new Error(`Could not read settings file: ${readErr.message}`);
+        throw new Error(this._ti(interaction, 'err_could_not_read_settings_file', { message: readErr.message }));
       }
 
       const changes = [];
@@ -887,14 +956,14 @@ class PanelChannel {
           if (regex.test(content)) {
             content = content.replace(regex, `$1${newValue}`);
           }
-          changes.push(`**${setting.label}:** \`${oldValue || '?'}\`  \`${newValue}\``);
+          changes.push(`**${setting.label}:** \`${oldValue || this._ti(interaction, 'value_unknown_marker')}\`  \`${newValue}\``);
           cached[setting.ini] = newValue;
         }
       }
 
       if (changes.length === 0) {
         await sftp.end().catch(() => {});
-        await interaction.editReply('[INFO] No changes detected.');
+        await interaction.editReply(this._ti(interaction, 'info_no_changes_detected'));
         return true;
       }
 
@@ -905,12 +974,15 @@ class PanelChannel {
       // Update local cache so subsequent reads are fresh
       if (this._db) try { this._db.setStateJSON('server_settings', cached); } catch (_) {}
 
-      let msg = `[OK] **${category.label}** updated:\n${changes.join('\n')}`;
-      msg += '\n\n[WARN] **Restart the server** for these changes to take effect.';
+      let msg = this._ti(interaction, 'ok_category_updated', {
+        category: category.label,
+        changes: changes.join('\n'),
+      });
+      msg += `\n\n${this._ti(interaction, 'warn_restart_server_required')}`;
 
       await interaction.editReply(msg);
     } catch (err) {
-      await interaction.editReply(`[ERR] Failed to save: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_failed_to_save', { message: err.message }));
     }
 
     return true;
@@ -924,14 +996,14 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can sync .env configuration.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_sync_env'));
       return true;
     }
 
     const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync');
 
     if (!needsSync()) {
-      await interaction.editReply('[OK] Your `.env` is already up to date with `.env.example`.');
+      await interaction.editReply(this._ti(interaction, 'ok_env_already_up_to_date'));
       return true;
     }
 
@@ -941,21 +1013,25 @@ class PanelChannel {
       const result = syncEnv();
 
       const changes = [];
-      if (result.added > 0) changes.push(`${result.added} new key(s) added`);
-      if (result.deprecated > 0) changes.push(`${result.deprecated} deprecated key(s) commented out`);
+      if (result.added > 0) {
+        changes.push(this._ti(interaction, 'env_sync_change_added', { count: result.added }));
+      }
+      if (result.deprecated > 0) {
+        changes.push(this._ti(interaction, 'env_sync_change_deprecated', { count: result.deprecated }));
+      }
 
       await interaction.editReply(
-        `[OK] **.env synchronized!**\n\n` +
-        `**Schema:** v${currentVer} -> v${targetVer}\n` +
-        `**Changes:** ${changes.join(', ')}\n\n` +
-        `A backup was saved to \`data/backups/\`\n\n` +
-        `[WARN] **Restart the bot** to apply new configuration keys.`
+        `${this._ti(interaction, 'ok_env_synchronized')}\n\n` +
+        `${this._ti(interaction, 'env_sync_schema_line', { currentVer, targetVer })}\n` +
+        `${this._ti(interaction, 'env_sync_changes_line', { changes: changes.join(', ') || this._ti(interaction, 'env_sync_no_changes') })}\n\n` +
+        `${this._ti(interaction, 'env_sync_backup_line')}\n\n` +
+        `${this._ti(interaction, 'warn_restart_bot_apply_env')}`
       );
 
       // Refresh panel to update action menu state
       setTimeout(() => this._update(true), 2000);
     } catch (err) {
-      await interaction.editReply(`[ERR] Failed to sync .env: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_failed_to_sync_env', { message: err.message }));
     }
 
     return true;
@@ -969,12 +1045,12 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can edit the welcome message.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_edit_welcome'));
       return true;
     }
 
     if (!this._hasSftp) {
-      await interaction.editReply('[ERR] SFTP credentials not configured.');
+      await interaction.editReply(this._ti(interaction, 'err_sftp_credentials_not_configured'));
       return true;
     }
 
@@ -990,36 +1066,36 @@ class PanelChannel {
       });
       currentContent = (await sftp.get(config.ftpWelcomePath)).toString('utf8');
       await sftp.end().catch(() => {});
-    } catch (err) {
+    } catch {
       // File may not exist yet  that's fine, start with empty
       currentContent = '';
     }
 
     // Discord modals can't be shown after deferReply  use a message with a button instead
     const helpText = [
-      '** Welcome Message Editor**',
+      this._ti(interaction, 'welcome_help_title'),
       '',
-      'Click **Open Editor** below to edit your `WelcomeMessage.txt`.',
-      'This is the popup players see when they join your server.',
+      this._ti(interaction, 'welcome_help_intro_1'),
+      this._ti(interaction, 'welcome_help_intro_2'),
       '',
-      '**Color Tags** (game rich text):',
-      '`<PN>text</>`  Red',
-      '`<PR>text</>`  Green',
-      '`<SP>text</>`  Ember/Orange',
-      '`<FO>text</>`  Gray',
-      '`<CL>text</>`  Blue',
+      this._ti(interaction, 'welcome_help_color_tags_title'),
+      this._ti(interaction, 'welcome_help_color_tag_pn'),
+      this._ti(interaction, 'welcome_help_color_tag_pr'),
+      this._ti(interaction, 'welcome_help_color_tag_sp'),
+      this._ti(interaction, 'welcome_help_color_tag_fo'),
+      this._ti(interaction, 'welcome_help_color_tag_cl'),
       '',
-      '**Placeholders** (auto-replaced):',
-      '`{server_name}`  Server name from settings',
-      '`{day}`  Current in-game day',
-      '`{season}`  Current season',
-      '`{weather}`  Current weather',
-      '`{pvp_schedule}`  PvP schedule times',
-      '`{discord_link}`  Your Discord invite link',
+      this._ti(interaction, 'welcome_help_placeholders_title'),
+      this._ti(interaction, 'welcome_help_placeholder_server_name'),
+      this._ti(interaction, 'welcome_help_placeholder_day'),
+      this._ti(interaction, 'welcome_help_placeholder_season'),
+      this._ti(interaction, 'welcome_help_placeholder_weather'),
+      this._ti(interaction, 'welcome_help_placeholder_pvp_schedule'),
+      this._ti(interaction, 'welcome_help_placeholder_discord_link'),
       '',
-      '**Tip:** Leave the message blank and save to restore the default auto-generated welcome with leaderboards.',
+      this._ti(interaction, 'welcome_help_tip'),
       '',
-      `Current length: ${currentContent.length} chars`,
+      this._ti(interaction, 'welcome_help_current_length', { length: currentContent.length }),
     ].join('\n');
 
     // Store current content for the modal
@@ -1027,7 +1103,7 @@ class PanelChannel {
 
     const openBtn = new ButtonBuilder()
       .setCustomId('panel_welcome_open_modal')
-      .setLabel('Open Editor')
+      .setLabel(this._ti(interaction, 'button_open_editor'))
       .setStyle(ButtonStyle.Primary);
 
     await interaction.editReply({
@@ -1038,7 +1114,7 @@ class PanelChannel {
   }
 
   async _handleWelcomeOpenModal(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit the welcome message')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_welcome_message'))) return true;
 
     const pending = this._pendingWelcome;
     // Truncate to Discord's 4000-char modal value limit
@@ -1046,13 +1122,13 @@ class PanelChannel {
 
     const modal = new ModalBuilder()
       .setCustomId('panel_welcome_modal')
-      .setTitle('Welcome Message ( Live)');
+      .setTitle(this._ti(interaction, 'welcome_modal_title'));
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('welcome_content')
-          .setLabel('Message content (blank = auto-generated)')
+          .setLabel(this._ti(interaction, 'welcome_modal_content_label'))
           .setStyle(TextInputStyle.Paragraph)
           .setValue(currentValue)
           .setRequired(false)
@@ -1068,7 +1144,7 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can edit the welcome message.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_edit_welcome'));
       return true;
     }
 
@@ -1091,9 +1167,11 @@ class PanelChannel {
         _writeEnvValues({ WELCOME_FILE_LINES: newContent.split('\n').join('|') });
 
         await interaction.editReply(
-          `[OK] **Welcome message updated!** (${newContent.length} chars)\n` +
-          `Written to server via SFTP and saved to .env.\n` +
-          `Players will see this on their next join.`
+          this._ti(interaction, 'ok_welcome_updated', {
+            length: newContent.length,
+            details: this._ti(interaction, 'welcome_updated_details'),
+            next: this._ti(interaction, 'welcome_updated_next_join'),
+          })
         );
       } else {
         // Clear custom  revert to auto-generated
@@ -1115,13 +1193,11 @@ class PanelChannel {
         await sftp.end().catch(() => {});
 
         await interaction.editReply(
-          '[OK] **Welcome message reset to auto-generated default!**\n' +
-          'The welcome popup will now show leaderboards, server info, and stats.\n' +
-          'Cleared WELCOME_FILE_LINES in .env.'
+          this._ti(interaction, 'ok_welcome_reset')
         );
       }
     } catch (err) {
-      await interaction.editReply(`[ERR] Failed to save: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_failed_to_save', { message: err.message }));
     }
 
     return true;
@@ -1132,39 +1208,47 @@ class PanelChannel {
   // 
 
   async _handleBroadcastsButton(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit broadcasts')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_broadcasts'))) return true;
 
     const linkText = config.autoMsgLinkText || '';
     const promoText = config.autoMsgPromoText || '';
 
     const helpText = [
-      '** Broadcast Message Editor**',
+      this._ti(interaction, 'broadcast_help_title'),
       '',
-      'Edit the periodic RCON messages sent to in-game chat.',
-      'Leave a field blank to use the built-in default message.',
+      this._ti(interaction, 'broadcast_help_intro_1'),
+      this._ti(interaction, 'broadcast_help_intro_2'),
       '',
-      '**Current defaults:**',
-      '- **Link:** `Join our Discord! <your link>`',
-      '- **Promo:** `Have any issues...? Join our Discord: <your link>`',
+      this._ti(interaction, 'broadcast_help_defaults_title'),
+      this._ti(interaction, 'broadcast_help_default_link'),
+      this._ti(interaction, 'broadcast_help_default_promo'),
       '',
-      '**Placeholders** (auto-replaced):',
-      '`{server_name}`  Server name',
-      '`{day}`  In-game day    `{season}`  Season',
-      '`{weather}`  Weather    `{pvp_schedule}`  PvP times',
-      '`{discord_link}`  Your Discord invite link',
+      this._ti(interaction, 'broadcast_help_placeholders_title'),
+      this._ti(interaction, 'broadcast_help_placeholder_server_name'),
+      this._ti(interaction, 'broadcast_help_placeholder_day_season'),
+      this._ti(interaction, 'broadcast_help_placeholder_weather_pvp'),
+      this._ti(interaction, 'broadcast_help_placeholder_discord_link'),
       '',
-      '**Note:** These are plain-text RCON messages.',
-      'Color tags (`<PN>`, `<PR>`, etc.) only work in WelcomeMessage.txt.',
+      this._ti(interaction, 'broadcast_help_note_1'),
+      this._ti(interaction, 'broadcast_help_note_2'),
       '',
-      `Link: ${linkText ? `\`${linkText.slice(0, 80)}${linkText.length > 80 ? '...' : ''}\`` : '*(default)*'}`,
-      `Promo: ${promoText ? `\`${promoText.slice(0, 80)}${promoText.length > 80 ? '...' : ''}\`` : '*(default)*'}`,
+      this._ti(interaction, 'broadcast_help_link_value', {
+        value: linkText
+          ? `\`${linkText.slice(0, 80)}${linkText.length > 80 ? '...' : ''}\``
+          : this._ti(interaction, 'broadcast_default_marker'),
+      }),
+      this._ti(interaction, 'broadcast_help_promo_value', {
+        value: promoText
+          ? `\`${promoText.slice(0, 80)}${promoText.length > 80 ? '...' : ''}\``
+          : this._ti(interaction, 'broadcast_default_marker'),
+      }),
     ].join('\n');
 
     this._pendingBroadcasts = { userId: interaction.user.id, linkText, promoText };
 
     const openBtn = new ButtonBuilder()
       .setCustomId('panel_broadcasts_open_modal')
-      .setLabel('Open Editor')
+      .setLabel(this._ti(interaction, 'button_open_editor'))
       .setStyle(ButtonStyle.Primary);
 
     await interaction.reply({
@@ -1176,7 +1260,7 @@ class PanelChannel {
   }
 
   async _handleBroadcastsOpenModal(interaction) {
-    if (!await this._requireAdmin(interaction, 'edit broadcasts')) return true;
+    if (!await this._requireAdmin(interaction, this._ti(interaction, 'action_edit_broadcasts'))) return true;
 
     const pending = this._pendingBroadcasts;
     const linkVal = (pending?.linkText || '').slice(0, 4000);
@@ -1184,28 +1268,28 @@ class PanelChannel {
 
     const modal = new ModalBuilder()
       .setCustomId('panel_broadcasts_modal')
-      .setTitle('Edit Broadcasts ( Bot Restart)');
+      .setTitle(this._ti(interaction, 'broadcast_modal_title'));
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('link_text')
-          .setLabel('Discord Link Broadcast (blank = default)')
+          .setLabel(this._ti(interaction, 'broadcast_modal_link_label'))
           .setStyle(TextInputStyle.Paragraph)
           .setValue(linkVal)
           .setRequired(false)
           .setMaxLength(4000)
-          .setPlaceholder('Join our Discord! {discord_link}')
+          .setPlaceholder(this._ti(interaction, 'broadcast_modal_link_placeholder'))
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('promo_text')
-          .setLabel('Promo Broadcast (blank = default)')
+          .setLabel(this._ti(interaction, 'broadcast_modal_promo_label'))
           .setStyle(TextInputStyle.Paragraph)
           .setValue(promoVal)
           .setRequired(false)
           .setMaxLength(4000)
-          .setPlaceholder('Have any issues? Join our Discord: {discord_link}')
+          .setPlaceholder(this._ti(interaction, 'broadcast_modal_promo_placeholder'))
       ),
     );
 
@@ -1217,7 +1301,7 @@ class PanelChannel {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     
     if (!this._isAdmin(interaction)) {
-      await interaction.editReply('[ERR] Only administrators can edit broadcasts.');
+      await interaction.editReply(this._ti(interaction, 'err_only_admin_edit_broadcasts'));
       return true;
     }
 
@@ -1238,17 +1322,27 @@ class PanelChannel {
       if (Object.keys(updates).length > 0) {
         _writeEnvValues(updates);
         const parts = [];
-        if ('AUTO_MSG_LINK_TEXT' in updates) parts.push(`Link: ${linkText || '*(default)*'}`);
-        if ('AUTO_MSG_PROMO_TEXT' in updates) parts.push(`Promo: ${promoText || '*(default)*'}`);
+        if ('AUTO_MSG_LINK_TEXT' in updates) {
+          parts.push(this._ti(interaction, 'broadcast_value_link', {
+            value: linkText || this._ti(interaction, 'broadcast_default_marker'),
+          }));
+        }
+        if ('AUTO_MSG_PROMO_TEXT' in updates) {
+          parts.push(this._ti(interaction, 'broadcast_value_promo', {
+            value: promoText || this._ti(interaction, 'broadcast_default_marker'),
+          }));
+        }
         await interaction.editReply(
-          `[OK] **Broadcast messages updated!**\n${parts.join('\n')}\n` +
-          `Saved to .env. Restart bot to apply changes.`
+          this._ti(interaction, 'ok_broadcasts_updated', {
+            changes: parts.join('\n'),
+            restart: this._ti(interaction, 'warn_restart_bot_apply_broadcasts'),
+          })
         );
       } else {
-        await interaction.editReply('[INFO] No changes detected.');
+        await interaction.editReply(this._ti(interaction, 'info_no_changes_detected'));
       }
     } catch (err) {
-      await interaction.editReply(`[ERR] Failed to save: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'err_failed_to_save', { message: err.message }));
     }
 
     return true;
@@ -1272,14 +1366,15 @@ class PanelChannel {
   _isPanelMessage(message) {
     if (!message) return false;
     const controlIds = new Set([...Object.values(BTN), ...Object.values(SELECT)]);
+    const locale = this._sharedLocale();
     const markers = [
-      'control center',
-      'bot controls',
-      'primary server',
-      'primary server panel',
-      'managed server',
-      'panel api',
-    ];
+      this._tp('marker_control_center', {}, locale),
+      this._tp('marker_bot_controls', {}, locale),
+      this._tp('marker_primary_server', {}, locale),
+      this._tp('marker_primary_server_panel', {}, locale),
+      this._tp('marker_managed_server', {}, locale),
+      this._tp('marker_panel_api', {}, locale),
+    ].map(v => String(v || '').toLowerCase());
 
     // Legacy embeds/content (non-components-v2) can still be old panel messages.
     const messageContent = String(message.content || '').toLowerCase();
@@ -1362,6 +1457,7 @@ class PanelChannel {
       if (!this.panelMessage) return;
 
       const { components } = await this._buildUnifiedPanel();
+      const locale = this._sharedLocale();
       const contentKey = _componentsKey(components);
 
       if (force || contentKey !== this._lastBotKey) {
@@ -1377,7 +1473,7 @@ class PanelChannel {
               console.error('[PANEL CH] Re-create failed:', _errorSummary(sendErr));
               this.panelMessage = await this.channel.send({
                 flags: COMPONENTS_V2_FLAG,
-                components: [_container(['Panel update failed - layout rejected by Discord.'], [], 0xe74c3c)],
+                components: [_container([this._tp('panel_layout_rejected_update', {}, locale)], [], 0xe74c3c)],
               });
             }
             this.botMessage = this.panelMessage;
@@ -1397,6 +1493,7 @@ class PanelChannel {
    */
   async _buildUnifiedPanel() {
     const components = [];
+    const locale = this._sharedLocale();
     const view = this._activeView || 'bot';
     const managedServers = this.multiServerManager?.getAllServers() || [];
 
@@ -1440,7 +1537,7 @@ class PanelChannel {
 
     if (omittedManaged > 0) {
       const omittedNotice = _container(
-        [`Additional managed server containers omitted: **${omittedManaged}** (Discord limit: ${MAX_V2_COMPONENTS} components/message).`],
+        [this._tp('managed_servers_omitted_notice', { count: omittedManaged, limit: MAX_V2_COMPONENTS }, locale)],
         [],
         0xe67e22
       );
@@ -1457,16 +1554,17 @@ class PanelChannel {
    * Row 1 is always the view selector. Rows 2-5 depend on the view.
    */
   _buildViewComponents(view, managedServers = []) {
+    const locale = this._sharedLocale();
     const rows = [];
 
     //  Row 1: View selector 
     const viewOptions = [
-      { label: 'Bot Controls', value: 'bot', default: view === 'bot' },
+      { label: this._tp('view_option_bot_controls', {}, locale), value: 'bot', default: view === 'bot' },
     ];
     if (panelApi.available) {
-      viewOptions.push({ label: 'Primary Server', value: 'server', default: view === 'server' });
+      viewOptions.push({ label: this._tp('view_option_primary_server', {}, locale), value: 'server', default: view === 'server' });
     } else if (this._hasSftp) {
-      viewOptions.push({ label: 'Server Tools', value: 'server', default: view === 'server' });
+      viewOptions.push({ label: this._tp('view_option_server_tools', {}, locale), value: 'server', default: view === 'server' });
     }
     for (const s of managedServers) {
       viewOptions.push({
@@ -1479,7 +1577,7 @@ class PanelChannel {
     if (viewOptions.length > 1) {
       const viewSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.VIEW)
-        .setPlaceholder('Select panel view...')
+        .setPlaceholder(this._tp('placeholder_select_panel_view', {}, locale))
         .addOptions(viewOptions);
       rows.push(new ActionRowBuilder().addComponents(viewSelect));
     }
@@ -1517,33 +1615,34 @@ class PanelChannel {
    * Build components for SFTP-only server view (no panel API).
    */
   _buildSftpOnlyServerComponents() {
+    const locale = this._sharedLocale();
     const rows = [];
     const actionOptions = [];
     if (config.enableWelcomeFile) {
       actionOptions.push({
-        label: 'Welcome Message',
-        description: 'Edit WelcomeMessage.txt',
+        label: this._tp('option_welcome_message', {}, locale),
+        description: this._tp('option_desc_edit_welcome_message', {}, locale),
         value: 'welcome',
       });
     }
     if (config.enableAutoMessages) {
       actionOptions.push({
-        label: 'Broadcasts',
-        description: 'Edit automatic broadcast messages',
+        label: this._tp('option_broadcasts', {}, locale),
+        description: this._tp('option_desc_edit_auto_broadcasts', {}, locale),
         value: 'broadcasts',
       });
     }
     if (actionOptions.length > 0) {
       const actionSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.ACTIONS_SERVER)
-        .setPlaceholder('Server actions...')
+        .setPlaceholder(this._tp('placeholder_server_actions', {}, locale))
         .addOptions(actionOptions);
       rows.push(new ActionRowBuilder().addComponents(actionSelect));
     }
     if (config.enableGameSettingsEditor) {
       const settingsSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.SETTINGS)
-        .setPlaceholder('Edit game server settings...')
+        .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map(c => ({
             label: c.label,
@@ -1563,15 +1662,18 @@ class PanelChannel {
    * Build control container for the currently selected view.
    */
   _buildControlsContainer(view, rows = []) {
+    const locale = this._sharedLocale();
     const labels = {
-      bot: 'Bot Controls',
-      server: panelApi.available ? 'Primary Server' : 'Server Tools',
+      bot: this._tp('view_option_bot_controls', {}, locale),
+      server: panelApi.available
+        ? this._tp('view_option_primary_server', {}, locale)
+        : this._tp('view_option_server_tools', {}, locale),
     };
-    const viewLabel = labels[view] || `Managed Server: ${view}`;
+    const viewLabel = labels[view] || this._tp('view_label_managed_server', { id: view }, locale);
     return _container(
       [
-        '## Control Center',
-        `Active view: **${viewLabel}**\nUse the menus below to manage the bot and servers.`,
+        this._tp('control_center_heading', {}, locale),
+        this._tp('control_center_active_view_help', { viewLabel }, locale),
       ],
       rows,
       0x5865f2
@@ -1584,38 +1686,52 @@ class PanelChannel {
    * @param {object|undefined} instance - Running ServerInstance (or undefined)
    */
   _buildManagedServerContainer(serverDef, instance) {
+    const locale = this._sharedLocale();
     const running = instance?.running || false;
-    const statusIcon = running ? '[RUN]' : '[OFF]';
-    const statusText = running ? 'Running' : 'Stopped';
+    const statusIcon = running
+      ? this._tp('managed_status_run_tag', {}, locale)
+      : this._tp('managed_status_off_tag', {}, locale);
+    const statusText = running
+      ? this._tp('state.running', {}, locale)
+      : this._tp('managed_status_stopped', {}, locale);
+    const onOff = (enabled) => enabled
+      ? this._tp('toggle_on', {}, locale)
+      : this._tp('toggle_off', {}, locale);
 
     const blocks = [
-      `## Managed Server: ${serverDef.name || serverDef.id}`,
+      this._tp('managed_server_heading', { name: serverDef.name || serverDef.id }, locale),
       [
-        `${statusIcon} **${statusText}**`,
-        `RCON: \`${serverDef.rcon?.host || '?'}:${serverDef.rcon?.port || 14541}\``,
-        `Game Port: \`${serverDef.gamePort || 14242}\``,
+        this._tp('managed_server_status_line', { icon: statusIcon, status: statusText }, locale),
+        this._tp('managed_server_rcon_line', {
+          host: serverDef.rcon?.host || '?',
+          port: serverDef.rcon?.port || 14541,
+        }, locale),
+        this._tp('managed_server_game_port_line', { port: serverDef.gamePort || 14242 }, locale),
         serverDef.sftp?.host
-          ? `SFTP: \`${serverDef.sftp.host}:${serverDef.sftp.port || 22}\``
-          : 'SFTP: Inherited from primary',
-        `-# Server ID: ${serverDef.id}`,
+          ? this._tp('managed_server_sftp_line', {
+            host: serverDef.sftp.host,
+            port: serverDef.sftp.port || 22,
+          }, locale)
+          : this._tp('managed_server_sftp_inherited', {}, locale),
+        this._tp('managed_server_id_line', { id: serverDef.id }, locale),
       ].join('\n'),
     ];
 
     const ch = serverDef.channels || {};
     const channelLines = [];
-    if (ch.serverStatus) channelLines.push(`Status: <#${ch.serverStatus}>`);
-    if (ch.playerStats) channelLines.push(`Stats: <#${ch.playerStats}>`);
-    if (ch.log) channelLines.push(`Log: <#${ch.log}>`);
-    if (ch.chat) channelLines.push(`Chat: <#${ch.chat}>`);
-    if (ch.admin) channelLines.push(`Admin: <#${ch.admin}>`);
-    blocks.push(`### Channels\n${channelLines.length > 0 ? channelLines.join('\n') : 'None configured'}`);
+    if (ch.serverStatus) channelLines.push(this._tp('managed_server_channel_status', { channelId: ch.serverStatus }, locale));
+    if (ch.playerStats) channelLines.push(this._tp('managed_server_channel_stats', { channelId: ch.playerStats }, locale));
+    if (ch.log) channelLines.push(this._tp('managed_server_channel_log', { channelId: ch.log }, locale));
+    if (ch.chat) channelLines.push(this._tp('managed_server_channel_chat', { channelId: ch.chat }, locale));
+    if (ch.admin) channelLines.push(this._tp('managed_server_channel_admin', { channelId: ch.admin }, locale));
+    blocks.push(`${this._tp('managed_server_channels_heading', {}, locale)}\n${channelLines.length > 0 ? channelLines.join('\n') : this._tp('managed_server_none_configured', {}, locale)}`);
 
     if (instance) {
       const status = instance.getStatus();
-      const modLines = status.modules?.length > 0 ? status.modules.join('\n') : 'None';
-      blocks.push(`### Modules\n${modLines}`);
+      const modLines = status.modules?.length > 0 ? status.modules.join('\n') : this._tp('managed_server_modules_none', {}, locale);
+      blocks.push(`${this._tp('managed_server_modules_heading', {}, locale)}\n${modLines}`);
     } else {
-      blocks.push('### Modules\nNot running');
+      blocks.push(`${this._tp('managed_server_modules_heading', {}, locale)}\n${this._tp('managed_server_not_running', {}, locale)}`);
     }
 
     const am = serverDef.autoMessages || {};
@@ -1625,14 +1741,26 @@ class PanelChannel {
     const welcomeFile = am.enableWelcomeFile ?? cfg.enableWelcomeFile ?? true;
     const linkBcast   = am.enableAutoMsgLink ?? cfg.enableAutoMsgLink ?? true;
     const promoBcast  = am.enableAutoMsgPromo ?? cfg.enableAutoMsgPromo ?? true;
-    amLines.push(`RCON Welcome: ${welcomeMsg ? 'ON' : 'OFF'}`);
-    amLines.push(`Welcome File: ${welcomeFile ? 'ON' : 'OFF'}`);
-    amLines.push(`Link Broadcast: ${linkBcast ? 'ON' : 'OFF'}`);
-    amLines.push(`Promo Broadcast: ${promoBcast ? 'ON' : 'OFF'}`);
-    if (am.linkText) amLines.push(`Link: \`${am.linkText.slice(0, 40)}${am.linkText.length > 40 ? '...' : ''}\``);
-    if (am.promoText) amLines.push(`Promo: \`${am.promoText.slice(0, 40)}${am.promoText.length > 40 ? '...' : ''}\``);
-    if (am.discordLink) amLines.push(`Discord: \`${am.discordLink.slice(0, 40)}\``);
-    blocks.push(`### Auto Messages\n${amLines.join('\n')}`);
+    amLines.push(this._tp('managed_server_auto_rcon_welcome', { state: onOff(welcomeMsg) }, locale));
+    amLines.push(this._tp('managed_server_auto_welcome_file', { state: onOff(welcomeFile) }, locale));
+    amLines.push(this._tp('managed_server_auto_link_broadcast', { state: onOff(linkBcast) }, locale));
+    amLines.push(this._tp('managed_server_auto_promo_broadcast', { state: onOff(promoBcast) }, locale));
+    if (am.linkText) {
+      amLines.push(this._tp('managed_server_auto_link_line', {
+        value: `\`${am.linkText.slice(0, 40)}${am.linkText.length > 40 ? '...' : ''}\``,
+      }, locale));
+    }
+    if (am.promoText) {
+      amLines.push(this._tp('managed_server_auto_promo_line', {
+        value: `\`${am.promoText.slice(0, 40)}${am.promoText.length > 40 ? '...' : ''}\``,
+      }, locale));
+    }
+    if (am.discordLink) {
+      amLines.push(this._tp('managed_server_auto_discord_line', {
+        value: `\`${am.discordLink.slice(0, 40)}\``,
+      }, locale));
+    }
+    blocks.push(`${this._tp('managed_server_auto_messages_heading', {}, locale)}\n${amLines.join('\n')}`);
 
     return _container(blocks, [], running ? 0x57f287 : 0xed4245);
   }
@@ -1643,27 +1771,28 @@ class PanelChannel {
    * @param {boolean} running
    */
   _buildManagedServerComponents(serverId, running) {
+    const locale = this._sharedLocale();
     const actionOptions = [];
     if (running) {
       actionOptions.push(
-        { label: 'Stop', description: 'Stop this managed server', value: `stop:${serverId}` },
-        { label: 'Restart', description: 'Restart this managed server', value: `restart:${serverId}` },
+        { label: this._tp('option_stop', {}, locale), description: this._tp('option_desc_stop_managed_server', {}, locale), value: `stop:${serverId}` },
+        { label: this._tp('option_restart', {}, locale), description: this._tp('option_desc_restart_managed_server', {}, locale), value: `restart:${serverId}` },
       );
     } else {
-      actionOptions.push({ label: 'Start', description: 'Start this managed server', value: `start:${serverId}` });
+      actionOptions.push({ label: this._tp('option_start', {}, locale), description: this._tp('option_desc_start_managed_server', {}, locale), value: `start:${serverId}` });
     }
     actionOptions.push(
-      { label: 'Edit Connection', description: 'Edit RCON and game port settings', value: `edit:${serverId}` },
-      { label: 'Edit Channels', description: 'Update Discord channel IDs', value: `channels:${serverId}` },
-      { label: 'Edit SFTP', description: 'Update SFTP host and credentials', value: `sftp:${serverId}` },
-      { label: 'Welcome Message', description: 'Edit this server welcome popup', value: `welcome:${serverId}` },
-      { label: 'Auto Messages', description: 'Edit this server auto-messages', value: `automsg:${serverId}` },
-      { label: 'Remove Server', description: 'Remove this managed server', value: `remove:${serverId}` },
+      { label: this._tp('option_edit_connection', {}, locale), description: this._tp('option_desc_edit_connection', {}, locale), value: `edit:${serverId}` },
+      { label: this._tp('option_edit_channels', {}, locale), description: this._tp('option_desc_edit_channels', {}, locale), value: `channels:${serverId}` },
+      { label: this._tp('option_edit_sftp', {}, locale), description: this._tp('option_desc_edit_sftp', {}, locale), value: `sftp:${serverId}` },
+      { label: this._tp('option_welcome_message', {}, locale), description: this._tp('option_desc_edit_server_welcome_popup', {}, locale), value: `welcome:${serverId}` },
+      { label: this._tp('option_auto_messages', {}, locale), description: this._tp('option_desc_edit_server_auto_messages', {}, locale), value: `automsg:${serverId}` },
+      { label: this._tp('option_remove_server', {}, locale), description: this._tp('option_desc_remove_managed_server', {}, locale), value: `remove:${serverId}` },
     );
 
     const actionSelect = new StringSelectMenuBuilder()
       .setCustomId(SELECT.ACTIONS_MANAGED)
-      .setPlaceholder('Managed server actions...')
+      .setPlaceholder(this._tp('placeholder_managed_server_actions', {}, locale))
       .addOptions(actionOptions);
 
     // Game settings dropdown (row 3)  uses server's SFTP
@@ -1673,7 +1802,7 @@ class PanelChannel {
     if (hasSftp) {
       const settingsSelect = new StringSelectMenuBuilder()
         .setCustomId(`panel_srv_settings:${serverId}`)
-        .setPlaceholder('Edit game server settings...')
+        .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map(c => ({
             label: c.label,
@@ -1687,21 +1816,22 @@ class PanelChannel {
   }
 
   _buildBotContainer(rows = [], view = 'bot') {
+    const locale = this._sharedLocale();
     const upMs = Date.now() - this.startedAt.getTime();
-    const username = this.client.user?.tag || 'Bot';
+    const username = this.client.user?.tag || this._tp('bot_name_fallback', {}, locale);
 
     const infoLines = [
-      '## Bot Controls',
+      this._tp('bot_controls_heading', {}, locale),
       `**${username}**`,
-      `Status: Online | Uptime: ${_formatBotUptime(upMs)}`,
-      `Timezone: \`${config.botTimezone}\``,
+      this._tp('bot_status_line', { uptime: _formatBotUptime(upMs) }, locale),
+      this._tp('bot_timezone_line', { timezone: config.botTimezone }, locale),
     ];
 
     const caps = [];
-    if (panelApi.available) caps.push('Panel API');
-    if (this._hasSftp) caps.push('SFTP');
+    if (panelApi.available) caps.push(this._tp('capability_panel_api', {}, locale));
+    if (this._hasSftp) caps.push(this._tp('capability_sftp', {}, locale));
     if (caps.length > 0 && caps.length < 2) {
-      infoLines.push(`Capabilities: ${caps.join(' | ')}`);
+      infoLines.push(this._tp('bot_capabilities_line', { capabilities: caps.join(' | ') }, locale));
     }
 
     const statusLines = [];
@@ -1728,35 +1858,38 @@ class PanelChannel {
     if (statusLines.length > 0) {
       let value = statusLines.join('\n');
       if (skippedCount > 0) {
-        value += `\n-# ${skippedCount} module(s) need attention - tap **Diagnostics** in Control Center`;
+        value += `\n${this._tp('modules_need_attention_note', { count: skippedCount }, locale)}`;
       }
-      infoLines.push(`### Modules\n${value}`);
+      infoLines.push(`${this._tp('modules_heading', {}, locale)}\n${value}`);
     }
 
     infoLines.push([
-      '### Quick Actions',
-      '-# **Restart Bot** - Restart the bot process (brief downtime)',
-      '-# **Factory Reset** - Wipe all data and re-build from scratch',
-      '-# **Re-Import** - Re-download server files and rebuild stats',
-      '-# **System Diagnostics** - Live connectivity probes, module health, suggestions',
+      this._tp('quick_actions_heading', {}, locale),
+      this._tp('quick_action_restart_bot_line', {}, locale),
+      this._tp('quick_action_factory_reset_line', {}, locale),
+      this._tp('quick_action_reimport_line', {}, locale),
+      this._tp('quick_action_diagnostics_line', {}, locale),
     ].join('\n'));
 
     const viewLabels = {
-      bot: 'Bot Controls',
-      server: panelApi.available ? 'Primary Server' : 'Server Tools',
+      bot: this._tp('view_option_bot_controls', {}, locale),
+      server: panelApi.available
+        ? this._tp('view_option_primary_server', {}, locale)
+        : this._tp('view_option_server_tools', {}, locale),
     };
-    const viewLabel = viewLabels[view] || `Managed Server: ${view}`;
-    infoLines.push(`### Control Center\nActive view: **${viewLabel}**`);
+    const viewLabel = viewLabels[view] || this._tp('view_label_managed_server', { id: view }, locale);
+    infoLines.push(this._tp('control_center_active_view_block', { viewLabel }, locale));
 
     return _container(infoLines, rows, 0x5865f2);
   }
 
   _buildBotComponents() {
+    const locale = this._sharedLocale();
     //  Select 1: Core & module settings 
     const coreCategories = ENV_CATEGORIES.filter(c => c.group === 1);
     const coreSelect = new StringSelectMenuBuilder()
       .setCustomId(SELECT.ENV)
-      .setPlaceholder('Core & module settings...')
+      .setPlaceholder(this._tp('placeholder_core_module_settings', {}, locale))
       .addOptions(
         coreCategories.map(c => ({
           label: c.label,
@@ -1769,7 +1902,7 @@ class PanelChannel {
     const displayCategories = ENV_CATEGORIES.filter(c => c.group === 2);
     const displaySelect = new StringSelectMenuBuilder()
       .setCustomId(SELECT.ENV2)
-      .setPlaceholder('Display & schedule settings...')
+      .setPlaceholder(this._tp('placeholder_display_schedule_settings', {}, locale))
       .addOptions(
         displayCategories.map(c => ({
           label: c.label,
@@ -1780,29 +1913,33 @@ class PanelChannel {
 
     const { needsSync } = require('../env-sync');
     const actionOptions = [
-      { label: 'System Diagnostics', description: 'Run live health checks', value: 'diagnostics' },
+      { label: this._tp('option_system_diagnostics', {}, locale), description: this._tp('option_desc_run_live_health_checks', {}, locale), value: 'diagnostics' },
       {
-        label: needsSync() ? 'Sync .env' : 'Env Synced',
-        description: needsSync() ? 'Apply pending env schema changes' : 'No pending env changes',
+        label: needsSync()
+          ? this._tp('option_sync_env', {}, locale)
+          : this._tp('option_env_synced', {}, locale),
+        description: needsSync()
+          ? this._tp('option_desc_apply_pending_env_schema_changes', {}, locale)
+          : this._tp('option_desc_no_pending_env_changes', {}, locale),
         value: 'env_sync',
       },
     ];
     if (this.multiServerManager) {
       actionOptions.push({
-        label: 'Add Server',
-        description: 'Add a new managed game server',
+        label: this._tp('option_add_server', {}, locale),
+        description: this._tp('option_desc_add_managed_server', {}, locale),
         value: 'add_server',
       });
     }
     actionOptions.push(
-      { label: 'Restart Bot', description: 'Restart the bot process', value: 'restart_bot' },
-      { label: 'Re-Import Data', description: 'Rebuild local data from server files', value: 'reimport' },
-      { label: 'Factory Reset', description: 'Wipe local data and rebuild from scratch', value: 'factory_reset' },
+      { label: this._tp('option_restart_bot', {}, locale), description: this._tp('option_desc_restart_bot_process', {}, locale), value: 'restart_bot' },
+      { label: this._tp('option_reimport_data', {}, locale), description: this._tp('option_desc_rebuild_local_data', {}, locale), value: 'reimport' },
+      { label: this._tp('option_factory_reset', {}, locale), description: this._tp('option_desc_factory_reset', {}, locale), value: 'factory_reset' },
     );
 
     const actionsSelect = new StringSelectMenuBuilder()
       .setCustomId(SELECT.ACTIONS_BOT)
-      .setPlaceholder('Quick actions...')
+      .setPlaceholder(this._tp('placeholder_quick_actions', {}, locale))
       .addOptions(actionOptions);
 
     const rows = [
@@ -1815,38 +1952,39 @@ class PanelChannel {
   }
 
   _buildServerComponents(state) {
+    const locale = this._sharedLocale();
     const isRunning = state === 'running';
     const isOff = state === 'offline';
     const isTransitioning = state === 'starting' || state === 'stopping';
 
     const actionOptions = [];
     if (!isRunning && !isTransitioning) {
-      actionOptions.push({ label: 'Start', description: 'Start the game server', value: 'start' });
+      actionOptions.push({ label: this._tp('option_start', {}, locale), description: this._tp('option_desc_start_game_server', {}, locale), value: 'start' });
     }
     if (!isOff && !isTransitioning) {
       actionOptions.push(
-        { label: 'Stop', description: 'Stop the game server gracefully', value: 'stop' },
-        { label: 'Restart', description: 'Restart the game server', value: 'restart' },
+        { label: this._tp('option_stop', {}, locale), description: this._tp('option_desc_stop_game_server_gracefully', {}, locale), value: 'stop' },
+        { label: this._tp('option_restart', {}, locale), description: this._tp('option_desc_restart_game_server', {}, locale), value: 'restart' },
       );
     }
     if (this._backupLimit !== 0) {
-      actionOptions.push({ label: 'Backup', description: 'Create a new backup', value: 'backup' });
+      actionOptions.push({ label: this._tp('option_backup', {}, locale), description: this._tp('option_desc_create_backup', {}, locale), value: 'backup' });
     }
     if (!isOff) {
-      actionOptions.push({ label: 'Kill', description: 'Force kill the server process', value: 'kill' });
+      actionOptions.push({ label: this._tp('option_kill', {}, locale), description: this._tp('option_desc_force_kill_server', {}, locale), value: 'kill' });
     }
     if (this._hasSftp && config.enableWelcomeFile) {
-      actionOptions.push({ label: 'Welcome Message', description: 'Edit WelcomeMessage.txt', value: 'welcome' });
+      actionOptions.push({ label: this._tp('option_welcome_message', {}, locale), description: this._tp('option_desc_edit_welcome_message', {}, locale), value: 'welcome' });
     }
     if (config.enableAutoMessages) {
-      actionOptions.push({ label: 'Broadcasts', description: 'Edit auto broadcast messages', value: 'broadcasts' });
+      actionOptions.push({ label: this._tp('option_broadcasts', {}, locale), description: this._tp('option_desc_edit_auto_broadcast_messages', {}, locale), value: 'broadcasts' });
     }
 
     const rows = [];
     if (actionOptions.length > 0) {
       const actionSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.ACTIONS_SERVER)
-        .setPlaceholder('Server actions...')
+        .setPlaceholder(this._tp('placeholder_server_actions', {}, locale))
         .addOptions(actionOptions);
       rows.push(new ActionRowBuilder().addComponents(actionSelect));
     }
@@ -1855,7 +1993,7 @@ class PanelChannel {
     if (this._hasSftp && config.enableGameSettingsEditor) {
       const settingsSelect = new StringSelectMenuBuilder()
         .setCustomId(SELECT.SETTINGS)
-        .setPlaceholder('Edit game server settings...')
+        .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map(c => ({
             label: c.label,
@@ -1869,15 +2007,16 @@ class PanelChannel {
   }
 
   _buildServerContainer(resources, details, backups, schedules) {
+    const locale = this._sharedLocale();
     const state = resources?.state || 'offline';
-    const si = _stateInfo(state);
+    const si = _stateInfo(state, locale);
 
-    const name = details?.name || 'Game Server';
+    const name = details?.name || this._tp('server_name_fallback', {}, locale);
     const desc = details?.description || '';
-    let header = `## Primary Server Panel\n**${name}**\n${si.emoji} **${si.label}**`;
+    let header = `${this._tp('primary_server_panel_heading', {}, locale)}\n**${name}**\n${si.emoji} **${si.label}**`;
     if (desc) header += `\n*${desc}*`;
 
-    const blocks = [header, '-# Panel API - Auto-updating - Controls require Administrator'];
+    const blocks = [header, this._tp('primary_server_panel_subtitle', {}, locale)];
 
     if (resources && state === 'running') {
       const lines = [];
@@ -1885,56 +2024,73 @@ class PanelChannel {
       if (resources.cpu != null) {
         const cpuLimit = details?.limits?.cpu || 100;
         const cpuRatio = Math.min(resources.cpu / cpuLimit, 1);
-        lines.push(`CPU: ${_progressBar(cpuRatio)} **${resources.cpu}%** / ${cpuLimit}%`);
+        lines.push(this._tp('server_resource_cpu', {
+          bar: _progressBar(cpuRatio),
+          value: resources.cpu,
+          limit: cpuLimit,
+        }, locale));
       }
 
       if (resources.memUsed != null && resources.memTotal != null) {
         const memRatio = resources.memTotal > 0 ? resources.memUsed / resources.memTotal : 0;
-        lines.push(`RAM: ${_progressBar(memRatio)} **${formatBytes(resources.memUsed)}** / ${formatBytes(resources.memTotal)}`);
+        lines.push(this._tp('server_resource_ram', {
+          bar: _progressBar(memRatio),
+          used: formatBytes(resources.memUsed),
+          total: formatBytes(resources.memTotal),
+        }, locale));
       }
 
       if (resources.diskUsed != null && resources.diskTotal != null) {
         const diskRatio = resources.diskTotal > 0 ? resources.diskUsed / resources.diskTotal : 0;
-        lines.push(`Disk: ${_progressBar(diskRatio)} **${formatBytes(resources.diskUsed)}** / ${formatBytes(resources.diskTotal)}`);
+        lines.push(this._tp('server_resource_disk', {
+          bar: _progressBar(diskRatio),
+          used: formatBytes(resources.diskUsed),
+          total: formatBytes(resources.diskTotal),
+        }, locale));
       }
 
       if (resources.uptime != null) {
         const up = formatUptime(resources.uptime);
-        if (up) lines.push(`Uptime: ${up}`);
+        if (up) lines.push(this._tp('server_resource_uptime', { uptime: up }, locale));
       }
 
-      if (lines.length > 0) blocks.push(`### Live Resources\n${lines.join('\n')}`);
+      if (lines.length > 0) blocks.push(`${this._tp('server_live_resources_heading', {}, locale)}\n${lines.join('\n')}`);
     } else if (state !== 'running') {
-      blocks.push('### Resources\n*Server is not running*');
+      blocks.push(`${this._tp('server_resources_heading', {}, locale)}\n${this._tp('server_not_running_line', {}, locale)}`);
     }
 
     const allocs = details?.relationships?.allocations?.data || [];
     if (allocs.length > 0) {
       const allocLines = allocs.map(a => {
         const attr = a.attributes || a;
-        const primary = attr.is_default ? ' (default)' : '';
-        const alias = attr.alias ? ` (${attr.alias})` : '';
-        const notes = attr.notes ? ` - ${attr.notes}` : '';
+        const primary = attr.is_default ? this._tp('server_allocation_default_suffix', {}, locale) : '';
+        const alias = attr.alias ? this._tp('server_allocation_alias_suffix', { alias: attr.alias }, locale) : '';
+        const notes = attr.notes ? this._tp('server_allocation_notes_suffix', { notes: attr.notes }, locale) : '';
         return `\`${attr.ip}:${attr.port}\`${alias}${primary}${notes}`;
       });
-      blocks.push(`### Allocations\n${allocLines.join('\n')}`);
+      blocks.push(`${this._tp('server_allocations_heading', {}, locale)}\n${allocLines.join('\n')}`);
     }
 
     if (details?.node) {
-      blocks.push(`### Node\n${details.node}`);
+      blocks.push(`${this._tp('server_node_heading', {}, locale)}\n${details.node}`);
     }
 
     const limits = details?.limits || {};
     const fl = details?.feature_limits || {};
     const planParts = [];
-    if (limits.memory) planParts.push(`RAM: ${limits.memory} MB`);
-    if (limits.disk != null) planParts.push(`Disk: ${limits.disk === 0 ? 'unlimited' : `${limits.disk} MB`}`);
-    if (limits.cpu) planParts.push(`CPU: ${limits.cpu}%`);
-    if (fl.backups != null) planParts.push(`Backups: ${fl.backups}`);
-    if (fl.databases != null) planParts.push(`DBs: ${fl.databases}`);
-    if (fl.allocations != null) planParts.push(`Ports: ${fl.allocations}`);
+    if (limits.memory) planParts.push(this._tp('server_plan_ram', { memory: limits.memory }, locale));
+    if (limits.disk != null) {
+      const diskValue = limits.disk === 0
+        ? this._tp('server_plan_disk_unlimited', {}, locale)
+        : `${limits.disk} MB`;
+      planParts.push(this._tp('server_plan_disk', { disk: diskValue }, locale));
+    }
+    if (limits.cpu) planParts.push(this._tp('server_plan_cpu', { cpu: limits.cpu }, locale));
+    if (fl.backups != null) planParts.push(this._tp('server_plan_backups', { backups: fl.backups }, locale));
+    if (fl.databases != null) planParts.push(this._tp('server_plan_dbs', { databases: fl.databases }, locale));
+    if (fl.allocations != null) planParts.push(this._tp('server_plan_ports', { allocations: fl.allocations }, locale));
     if (planParts.length > 0) {
-      blocks.push(`### Plan\n${planParts.join('    ')}`);
+      blocks.push(`${this._tp('server_plan_heading', {}, locale)}\n${planParts.join('    ')}`);
     }
 
     if (backups && backups.length > 0) {
@@ -1947,26 +2103,31 @@ class PanelChannel {
 
       const backupLines = sorted.slice(0, 5).map((b, i) => {
         const icon = b.is_successful ? '[OK]' : '[ERR]';
-        const locked = b.is_locked ? ' [LOCKED]' : '';
-        const date = new Date(b.completed_at).toLocaleDateString('en-GB', {
-          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-          timeZone: config.botTimezone,
-        });
-        return `${icon} **${b.name || `Backup ${i + 1}`}**${locked}\n ${formatBytes(b.bytes || 0)} - ${date}`;
+        const locked = b.is_locked ? this._tp('backup_locked_tag', {}, locale) : '';
+        const completedAt = new Date(b.completed_at);
+        const date = `${fmtDate(completedAt, locale)} ${fmtTime(completedAt, locale)}`;
+        const backupName = b.name || this._tp('backup_name_fallback', { index: i + 1 }, locale);
+        return `${icon} **${backupName}**${locked}\n ${formatBytes(b.bytes || 0)} - ${date}`;
       });
 
-      const headerLine = `${successCount}/${maxBackups} slots - ${formatBytes(totalSize)} total`;
-      blocks.push(`### Backups (${headerLine})\n${backupLines.join('\n') || 'None'}`);
+      const headerMeta = this._tp('backups_header_line', {
+        success: successCount,
+        max: maxBackups,
+        total: formatBytes(totalSize),
+      }, locale);
+      blocks.push(`${this._tp('backups_heading_with_meta', { meta: headerMeta }, locale)}\n${backupLines.join('\n') || this._tp('backups_none', {}, locale)}`);
     } else {
-      blocks.push('### Backups\nNo backups yet. Use **Server Actions -> Backup** to create one.');
+      blocks.push(`${this._tp('backups_heading', {}, locale)}\n${this._tp('backups_empty_help', {}, locale)}`);
     }
 
     if (schedules && schedules.length > 0) {
       const activeCount = schedules.filter(s => s.is_active).length;
       const scheduleLines = schedules.slice(0, 8).map(s => {
-        const active = s.is_active ? '[ACTIVE]' : '[OFF]';
-        const onlyOnline = s.only_when_online ? ' [ONLINE ONLY]' : '';
-        let next = '--';
+        const active = s.is_active
+          ? this._tp('schedule_active_tag', {}, locale)
+          : this._tp('schedule_off_tag', {}, locale);
+        const onlyOnline = s.only_when_online ? this._tp('schedule_online_only_tag', {}, locale) : '';
+        let next = this._tp('schedule_next_pending', {}, locale);
         if (s.next_run_at) {
           const nextDate = new Date(s.next_run_at);
           const now = new Date();
@@ -1975,24 +2136,23 @@ class PanelChannel {
             const diffMins = Math.floor(diffMs / 60000);
             const diffHrs = Math.floor(diffMins / 60);
             const remMins = diffMins % 60;
-            next = diffHrs > 0 ? `in ${diffHrs}h ${remMins}m` : `in ${diffMins}m`;
+            next = diffHrs > 0
+              ? this._tp('schedule_next_in_hours_minutes', { hours: diffHrs, minutes: remMins }, locale)
+              : this._tp('schedule_next_in_minutes', { minutes: diffMins }, locale);
           } else {
-            next = nextDate.toLocaleDateString('en-GB', {
-              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-              timeZone: config.botTimezone,
-            });
+            next = `${fmtDate(nextDate, locale)} ${fmtTime(nextDate, locale)}`;
           }
         }
         return `${active} **${s.name}**${onlyOnline} - ${next}`;
       });
-      blocks.push(`### Schedules (${activeCount}/${schedules.length} active)\n${scheduleLines.join('\n')}`);
+      blocks.push(`${this._tp('schedules_heading_with_meta', { active: activeCount, total: schedules.length }, locale)}\n${scheduleLines.join('\n')}`);
     }
 
     blocks.push([
-      '### Commands',
-      '`/qspanel console <cmd>` - Run a console command',
-      '`/qspanel schedules` - View all schedules',
-      '`/qspanel backup-delete` - Remove a backup',
+      this._tp('commands_heading', {}, locale),
+      this._tp('command_console', {}, locale),
+      this._tp('command_schedules', {}, locale),
+      this._tp('command_backup_delete', {}, locale),
     ].join('\n'));
 
     return _container(blocks, [], si.color);

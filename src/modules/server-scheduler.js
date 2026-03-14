@@ -168,11 +168,12 @@ class ServerScheduler {
 
   _getCurrentTime() {
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-GB', {
+    const parts = new Intl.DateTimeFormat(undefined, {
       hour: '2-digit', minute: '2-digit', hour12: false,
       timeZone: this._config.botTimezone,
-    });
-    const [h, m] = timeStr.split(':').map(Number);
+    }).formatToParts(now);
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
     return { hour: h, minute: m, totalMinutes: h * 60 + m };
   }
 

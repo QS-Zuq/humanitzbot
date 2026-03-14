@@ -108,21 +108,26 @@ class PvpScheduler {
 
   _getCurrentTime() {
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-GB', {
+    const timeParts = new Intl.DateTimeFormat(undefined, {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
       timeZone: this._config.botTimezone,
-    });
-    const [h, m] = timeStr.split(':').map(Number);
+    }).formatToParts(now);
+    const h = parseInt(timeParts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const m = parseInt(timeParts.find((p) => p.type === 'minute')?.value || '0', 10);
 
     // Day of week (0=Sun … 6=Sat) in bot timezone
-    const dayStr = now.toLocaleDateString('en-US', {
-      weekday: 'short',
+    const dateParts = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       timeZone: this._config.botTimezone,
-    });
-    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-    const dayOfWeek = dayMap[dayStr] ?? now.getDay();
+    }).formatToParts(now);
+    const year = parseInt(dateParts.find((p) => p.type === 'year')?.value || '1970', 10);
+    const month = parseInt(dateParts.find((p) => p.type === 'month')?.value || '1', 10);
+    const day = parseInt(dateParts.find((p) => p.type === 'day')?.value || '1', 10);
+    const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 
     return { hour: h, minute: m, totalMinutes: h * 60 + m, dayOfWeek };
   }

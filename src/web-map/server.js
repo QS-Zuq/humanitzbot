@@ -22,6 +22,7 @@ const playerStats = require('../tracking/player-stats');
 const playtime = require('../tracking/playtime-tracker');
 const rcon = require('../rcon/rcon');
 const { setupAuth, requireTier } = require('./auth');
+const { API_ERRORS, sendError, sendOk } = require('./api-errors');
 const serverResources = require('../server/server-resources');
 const { formatBytes, formatUptime } = require('../server/server-resources');
 
@@ -38,7 +39,7 @@ function rateLimit(windowMs, maxReqs) {
     }
     bucket.count++;
     if (bucket.count > maxReqs) {
-      return res.status(429).json({ error: 'Too many requests, try again later' });
+      return sendError(res, API_ERRORS.RATE_LIMITED, 429);
     }
     next();
   };
@@ -56,6 +57,28 @@ function safeError(err) {
   const msg = (err && err.message) || 'Internal server error';
   // Strip absolute paths
   return msg.replace(/\/[\w/.-]+/g, '[path]').substring(0, 200);
+}
+
+function stripControlChars(value) {
+  const input = String(value ?? '');
+  let out = '';
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    if ((code >= 0 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
+      continue;
+    }
+    out += input[i];
+  }
+  return out;
+}
+
+function sendErrorWithData(res, code, data, status = 400, details) {
+  const originalJson = res.json.bind(res);
+  res.json = (payload) => {
+    res.json = originalJson;
+    return originalJson({ ...payload, ...data });
+  };
+  return sendError(res, code, status, details);
 }
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -165,10 +188,10 @@ class WebMapServer {
       // CSP: allow self + CDN scripts/styles + Google Fonts used by the panel frontend
       res.setHeader('Content-Security-Policy', [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net",
+        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com",
         "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
         "img-src 'self' https://cdn.discordapp.com data: blob:",
-        "connect-src 'self'",
+        "connect-src 'self' https://unpkg.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com",
         "font-src 'self' https://fonts.gstatic.com",
         "frame-ancestors 'none'",
         "base-uri 'self'",
@@ -560,6 +583,9 @@ class WebMapServer {
       res.type('text/html').send(html);
     });
 
+    // Serve i18n locale files from project root locales/ directory
+    app.use('/locales', express.static(path.join(__dirname, '../../locales')));
+
     // Serve static files (HTML, JS, CSS, map images)
     app.use(express.static(PUBLIC_DIR, { dotfiles: 'deny' }));
     app.use(express.json());
@@ -641,7 +667,7 @@ class WebMapServer {
         res.json(points);
       } catch (err) {
         console.error('[WEB MAP] Calibration data error:', err.message);
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -823,7 +849,7 @@ class WebMapServer {
       const srv = req.srv;
       const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
       const data = players.get(req.params.steamId);
-      if (!data) return res.status(404).json({ error: 'Player not found' });
+      if (!data) return sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
 
       const name = srv.idMap[req.params.steamId] || req.params.steamId;
       const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
@@ -875,7 +901,7 @@ class WebMapServer {
     app.post('/api/calibration', requireTier('admin'), (req, res) => {
       const { xMin, xMax, yMin, yMax } = req.body;
       if ([xMin, xMax, yMin, yMax].some(v => typeof v !== 'number' || isNaN(v))) {
-        return res.status(400).json({ error: 'Invalid bounds — need xMin, xMax, yMin, yMax as numbers' });
+        return sendError(res, API_ERRORS.INVALID_BOUNDS, 400);
       }
       this._saveCalibration({ xMin, xMax, yMin, yMax });
       res.json({ ok: true, bounds: this._worldBounds });
@@ -886,7 +912,7 @@ class WebMapServer {
       // Each point: { worldX, worldY, pixelX, pixelY } where pixel is 0-4096
       const { point1, point2 } = req.body;
       if (!point1 || !point2) {
-        return res.status(400).json({ error: 'Need point1 and point2' });
+        return sendError(res, API_ERRORS.MISSING_POINTS, 400);
       }
 
       // Solve: pixelLat = ((worldX - xMin) / (xMax - xMin)) * 4096
@@ -907,7 +933,7 @@ class WebMapServer {
       const lng2 = point2.pixelX;
 
       if (Math.abs(lat2 - lat1) < 1 || Math.abs(lng2 - lng1) < 1) {
-        return res.status(400).json({ error: 'Points too close together — need distinct positions' });
+        return sendError(res, API_ERRORS.POINTS_TOO_CLOSE, 400);
       }
 
       const xSpan = (point2.worldX - point1.worldX) / ((lat2 - lat1) / 4096);
@@ -932,38 +958,38 @@ class WebMapServer {
     // ── API: Admin action — kick ──
     app.post('/api/admin/kick', requireTier('mod'), rateLimit(5000, 5), async (req, res) => {
       const { steamId } = req.body;
-      if (!steamId || typeof steamId !== 'string') return res.status(400).json({ error: 'Missing steamId' });
+      if (!steamId || typeof steamId !== 'string') return sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
       // Validate steam ID format
-      if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ error: 'Invalid steamId format' });
+      if (!/^\d{17}$/.test(steamId)) return sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
       try {
         const result = await req.srv.rcon.send(`kick ${steamId}`);
         res.json({ ok: true, result });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Admin action — ban ──
     app.post('/api/admin/ban', requireTier('admin'), rateLimit(5000, 3), async (req, res) => {
       const { steamId } = req.body;
-      if (!steamId || typeof steamId !== 'string') return res.status(400).json({ error: 'Missing steamId' });
-      if (!/^\d{17}$/.test(steamId)) return res.status(400).json({ error: 'Invalid steamId format' });
+      if (!steamId || typeof steamId !== 'string') return sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
+      if (!/^\d{17}$/.test(steamId)) return sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
       try {
         const result = await req.srv.rcon.send(`ban ${steamId}`);
         res.json({ ok: true, result });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: RCON send message ──
     app.post('/api/admin/message', requireTier('mod'), rateLimit(3000, 5), async (req, res) => {
       const { message } = req.body;
-      if (!message || typeof message !== 'string') return res.status(400).json({ error: 'Missing message' });
-      if (message.length > 500) return res.status(400).json({ error: 'Message too long' });
+      if (!message || typeof message !== 'string') return sendError(res, API_ERRORS.MISSING_MESSAGE, 400);
+      if (message.length > 500) return sendError(res, API_ERRORS.MESSAGE_TOO_LONG, 400);
       // Sanitize: strip control chars and collapse newlines to prevent RCON injection
-      const safe = message.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/[\r\n]+/g, ' ').trim();
-      if (!safe) return res.status(400).json({ error: 'Message is empty after sanitization' });
+      const safe = stripControlChars(message).replace(/[\r\n]+/g, ' ').trim();
+      if (!safe) return sendError(res, API_ERRORS.MESSAGE_EMPTY_AFTER_SANITIZATION, 400);
       try {
         // Use 'admin' command — 'say' no longer returns a response as of game update March 2026.
         // Lead with </> to close default yellow, then <CL> for Discord-blue styling.
@@ -986,7 +1012,7 @@ class WebMapServer {
 
         res.json({ ok: true, result });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1000,7 +1026,7 @@ class WebMapServer {
         this._setCache('online', req.srv.serverId, list);
         res.json({ players: list });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1149,7 +1175,7 @@ class WebMapServer {
 
         res.json({ events: resolved });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1240,7 +1266,7 @@ class WebMapServer {
           dateRange: { earliest: range?.earliest, latest: range?.latest },
         });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1285,26 +1311,26 @@ class WebMapServer {
 
         res.json({ tables });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Raw SQL query (SELECT only, admin) ──
     app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
       const srv = req.srv;
-      if (!srv.db) return res.json({ rows: [], columns: [], error: 'No database' });
+      if (!srv.db) return sendErrorWithData(res, API_ERRORS.NO_DATABASE, { rows: [], columns: [] });
 
       const sql = (req.body.sql || '').trim();
-      if (!sql) return res.status(400).json({ error: 'No SQL provided' });
+      if (!sql) return sendError(res, API_ERRORS.NO_SQL_PROVIDED, 400);
 
       // Only allow SELECT statements
       const upper = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').trim().toUpperCase();
       if (!upper.startsWith('SELECT')) {
-        return res.status(400).json({ error: 'Only SELECT queries are allowed' });
+        return sendError(res, API_ERRORS.ONLY_SELECT_ALLOWED, 400);
       }
       // Block dangerous keywords after SELECT
       if (/\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|ATTACH|DETACH|REPLACE|PRAGMA\s+\w+\s*=)\b/i.test(sql)) {
-        return res.status(400).json({ error: 'Query contains disallowed keywords' });
+        return sendError(res, API_ERRORS.QUERY_CONTAINS_DISALLOWED_KEYWORDS, 400);
       }
 
       const limit = Math.min(parseInt(req.body.limit, 10) || 200, 1000);
@@ -1322,7 +1348,7 @@ class WebMapServer {
 
         res.json({ rows, columns, count: rows.length });
       } catch (err) {
-        res.status(400).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 400, safeError(err));
       }
     });
 
@@ -1335,7 +1361,7 @@ class WebMapServer {
         const clans = srv.db.getAllClans?.() || [];
         res.json({ clans });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1424,7 +1450,7 @@ class WebMapServer {
 
         res.json(result);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1486,7 +1512,7 @@ class WebMapServer {
           },
         });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1497,12 +1523,12 @@ class WebMapServer {
       try {
         const id = parseInt(req.params.id, 10);
         const instance = srv.db.getItemInstance(id);
-        if (!instance) return res.status(404).json({ error: 'Instance not found' });
+        if (!instance) return sendError(res, API_ERRORS.INSTANCE_NOT_FOUND, 404);
 
         const movements = srv.db.getItemMovements(id);
         res.json({ instance, movements });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1513,13 +1539,13 @@ class WebMapServer {
       try {
         const id = parseInt(req.params.id, 10);
         const group = srv.db.getItemGroup(id);
-        if (!group) return res.status(404).json({ error: 'Group not found' });
+        if (!group) return sendError(res, API_ERRORS.GROUP_NOT_FOUND, 404);
         try { group.attachments = JSON.parse(group.attachments); } catch { group.attachments = []; }
 
         const movements = srv.db.getItemMovementsByGroup(id);
         res.json({ group, movements });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1544,7 +1570,7 @@ class WebMapServer {
 
         res.json({ movements });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1555,7 +1581,7 @@ class WebMapServer {
       if (!srv.db) return res.json({ match: null, movements: [] });
       try {
         const { fingerprint, item: itemName, steamId } = req.query;
-        if (!fingerprint && !itemName) return res.status(400).json({ error: 'Need fingerprint or item name' });
+        if (!fingerprint && !itemName) return sendError(res, API_ERRORS.NEED_FINGERPRINT_OR_ITEM_NAME, 400);
 
         let match = null;
         let movements = [];
@@ -1644,7 +1670,7 @@ class WebMapServer {
           totalMovements: movements.length,
         });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1703,7 +1729,7 @@ class WebMapServer {
 
         res.json(result);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1715,7 +1741,7 @@ class WebMapServer {
       const table = req.params.table;
       // Defense-in-depth: validate table name is alphanumeric + underscores only
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
-        return res.status(400).json({ error: 'Invalid table name' });
+        return sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
       }
       const limit = Math.min(parseInt(req.query.limit, 10) || 50, 1000);
       const search = req.query.search || '';
@@ -1739,11 +1765,11 @@ class WebMapServer {
       ]);
 
       if (!ALLOWED.has(table)) {
-        return res.status(400).json({ error: `Table '${table}' not queryable` });
+        return sendError(res, API_ERRORS.TABLE_NOT_QUERYABLE, 400, table);
       }
       // Defense-in-depth: validate table name is a safe SQL identifier
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
-        return res.status(400).json({ error: 'Invalid table name' });
+        return sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
       }
 
       try {
@@ -1791,7 +1817,7 @@ class WebMapServer {
 
         res.json({ table, columns, rows, total: rows.length });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1812,19 +1838,19 @@ class WebMapServer {
         }
         res.json({ messages: messages || [] });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: RCON command execution ──
     app.post('/api/panel/rcon', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
       const { command } = req.body;
-      if (!command || typeof command !== 'string') return res.status(400).json({ error: 'Missing command' });
-      if (command.length > 500) return res.status(400).json({ error: 'Command too long' });
+      if (!command || typeof command !== 'string') return sendError(res, API_ERRORS.MISSING_COMMAND, 400);
+      if (command.length > 500) return sendError(res, API_ERRORS.COMMAND_TOO_LONG, 400);
 
       // Sanitize: strip control chars and newlines to prevent RCON protocol injection
-      const sanitized = command.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/[\r\n]+/g, ' ').trim();
-      if (!sanitized) return res.status(400).json({ error: 'Command is empty after sanitization' });
+      const sanitized = stripControlChars(command).replace(/[\r\n]+/g, ' ').trim();
+      if (!sanitized) return sendError(res, API_ERRORS.COMMAND_EMPTY_AFTER_SANITIZATION, 400);
 
       // Safety: block dangerous commands by first word (consolidated blocklist)
       const cmdWord = sanitized.toLowerCase().split(/\s+/)[0];
@@ -1833,20 +1859,20 @@ class WebMapServer {
         'wipe', 'reset', 'restartnow', 'quickrestart', 'cancelrestart',
       ]);
       if (BLOCKED_RCON.has(cmdWord)) {
-        return res.status(403).json({ error: `Command '${cmdWord}' is blocked for safety` });
+        return sendError(res, API_ERRORS.COMMAND_BLOCKED_FOR_SAFETY, 403, cmdWord);
       }
 
       try {
         const response = await req.srv.rcon.send(sanitized);
         res.json({ ok: true, response });
       } catch (err) {
-        res.status(500).json({ ok: false, error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // POST /api/panel/refresh-snapshot — Force game save + re-poll save file + record fresh snapshot
     app.post('/api/panel/refresh-snapshot', requireTier('mod'), rateLimit(30000, 2), async (req, res) => {
-      if (!this._saveService) return res.status(503).json({ error: 'Save service not available' });
+      if (!this._saveService) return sendError(res, API_ERRORS.SAVE_SERVICE_NOT_AVAILABLE, 503);
 
       try {
         // Step 1: Tell the game server to save
@@ -1860,9 +1886,9 @@ class WebMapServer {
         // Step 3: Force save service to re-poll (downloads .sav, parses, syncs DB, emits 'sync' → snapshot recorded)
         await this._saveService._poll(true);
 
-        res.json({ ok: true, message: 'Snapshot refreshed' });
+        sendOk(res, { message: 'Snapshot refreshed' });
       } catch (err) {
-        res.status(500).json({ ok: false, error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -1871,7 +1897,7 @@ class WebMapServer {
     app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
       const { action } = req.body;
       const valid = ['start', 'stop', 'restart', 'backup'];
-      if (!valid.includes(action)) return res.status(400).json({ error: `Invalid action: ${action}` });
+      if (!valid.includes(action)) return sendError(res, API_ERRORS.INVALID_ACTION, 400, action);
 
       // Try Pterodactyl API first (per-server or primary singleton)
       const srvPanelApi = req.srv.panelApi;
@@ -1879,12 +1905,12 @@ class WebMapServer {
         try {
           if (action === 'backup') {
             await srvPanelApi.createBackup();
-            return res.json({ ok: true, message: 'Backup initiated via panel API' });
+            return sendOk(res, { message: 'Backup initiated via panel API' });
           }
           await srvPanelApi.sendPowerAction(action);
-          return res.json({ ok: true, message: `Server ${action} sent via panel API` });
+          return sendOk(res, { message: `Server ${action} sent via panel API` });
         } catch (err) {
-          return res.status(500).json({ ok: false, error: safeError(err) });
+          return sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
         }
       }
 
@@ -1896,17 +1922,17 @@ class WebMapServer {
       if (action === 'backup') {
         const backupDir = path.join(req.srv.dataDir, 'backups', new Date().toISOString().replace(/[:.]/g, '-'));
         execFile('docker', ['cp', `${dockerContainer}:/home/steam/hzserver/serverfiles/HumanitZServer/Saved`, backupDir], { timeout: 30000 }, (err) => {
-          if (err) return res.status(500).json({ ok: false, error: 'Backup failed' });
-          res.json({ ok: true, message: 'Backup created' });
+          if (err) return sendError(res, API_ERRORS.BACKUP_FAILED, 500);
+          sendOk(res, { message: 'Backup created' });
         });
         return;
       }
 
       execFile('docker', [action, dockerContainer], { timeout: 30000 }, (err, _stdout, stderr) => {
         if (err) {
-          return res.status(500).json({ ok: false, error: 'Docker command failed' });
+          return sendError(res, API_ERRORS.DOCKER_COMMAND_FAILED, 500);
         }
-        res.json({ ok: true, message: `Server ${action} executed` });
+        sendOk(res, { message: `Server ${action} executed` });
       });
     });
 
@@ -2003,10 +2029,10 @@ class WebMapServer {
           fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
           res.json({ settings: filterSettings(settings) });
         } catch (err) {
-          res.status(500).json({ error: `Failed to read settings: ${safeError(err)}` });
+          sendError(res, API_ERRORS.FAILED_TO_READ_SETTINGS, 500, safeError(err));
         }
       } else {
-        res.status(404).json({ error: 'No settings available (SFTP not configured)' });
+        sendError(res, API_ERRORS.NO_SETTINGS_AVAILABLE_SFTP_NOT_CONFIGURED, 404);
       }
     });
 
@@ -2014,24 +2040,24 @@ class WebMapServer {
     app.post('/api/panel/settings', requireTier('admin'), rateLimit(30000, 5), async (req, res) => {
       const { settings } = req.body;
       if (!settings || typeof settings !== 'object') {
-        return res.status(400).json({ error: 'Missing settings object' });
+        return sendError(res, API_ERRORS.MISSING_SETTINGS_OBJECT, 400);
       }
 
       // Block writes to sensitive keys — same set filtered on read, enforced on write
       const rejected = Object.keys(settings).filter(k => HIDDEN_SETTINGS.has(k) || k.startsWith('_'));
       if (rejected.length > 0) {
-        return res.status(403).json({ error: `Cannot write protected settings: ${rejected.join(', ')}` });
+        return sendError(res, API_ERRORS.CANNOT_WRITE_PROTECTED_SETTINGS, 403, rejected.join(', '));
       }
       // Validate values: no newlines, no INI section injection
       for (const [key, value] of Object.entries(settings)) {
         const v = String(value);
         if (/[\r\n]/.test(v) || /^\[/.test(v.trim())) {
-          return res.status(400).json({ error: `Invalid value for '${key}': contains illegal characters` });
+          return sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_ILLEGAL_CHARACTERS, 400, key);
         }
       }
 
       if (!req.srv.config.ftpHost || !req.srv.config.ftpUser) {
-        return res.status(400).json({ error: 'SFTP not configured' });
+        return sendError(res, API_ERRORS.SFTP_NOT_CONFIGURED, 400);
       }
 
       try {
@@ -2073,7 +2099,7 @@ class WebMapServer {
 
         res.json({ ok: true, updated: [...updated] });
       } catch (err) {
-        res.status(500).json({ error: `Failed to save settings: ${safeError(err)}` });
+        sendError(res, API_ERRORS.FAILED_TO_SAVE_SETTINGS, 500, safeError(err));
       }
     });
 
@@ -2091,12 +2117,12 @@ class WebMapServer {
     app.post('/api/panel/scheduler', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
       const { restartTimes, profiles, profileSettings, rotateDaily, serverNameTemplate } = req.body;
       if (!restartTimes || !Array.isArray(restartTimes)) {
-        return res.status(400).json({ error: 'restartTimes must be an array of HH:MM strings' });
+        return sendError(res, API_ERRORS.RESTART_TIMES_INVALID, 400);
       }
       // Validate restart times format
       for (const t of restartTimes) {
         if (!/^\d{1,2}:\d{2}$/.test(t)) {
-          return res.status(400).json({ error: `Invalid time format: ${t} (expected HH:MM)` });
+          return sendError(res, API_ERRORS.INVALID_TIME_FORMAT, 400, t);
         }
       }
       // Validate profiles
@@ -2106,12 +2132,12 @@ class WebMapServer {
       // Validate profile settings are JSON-safe objects
       for (const [name, val] of Object.entries(settings)) {
         if (typeof val !== 'object' || Array.isArray(val)) {
-          return res.status(400).json({ error: `Profile settings for '${name}' must be an object` });
+          return sendError(res, API_ERRORS.PROFILE_SETTINGS_MUST_BE_OBJECT, 400, name);
         }
         // Ensure all values are strings (game server INI format)
         for (const [k, v] of Object.entries(val)) {
           if (typeof v !== 'string' && typeof v !== 'number') {
-            return res.status(400).json({ error: `Invalid value type for ${name}.${k}` });
+            return sendError(res, API_ERRORS.INVALID_PROFILE_VALUE_TYPE, 400, `${name}.${k}`);
           }
         }
       }
@@ -2139,17 +2165,17 @@ class WebMapServer {
               delete serverDef.restartProfileSettings;
             }
           });
-          if (!ok) return res.status(404).json({ error: 'Server not found' });
-          return res.json({ ok: true, restartRequired: true, message: 'Schedule saved to servers.json. Restart the bot for changes to take effect.' });
+          if (!ok) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return sendOk(res, { restartRequired: true, message: 'Schedule saved to servers.json. Restart the bot for changes to take effect.' });
         } catch (err) {
-          return res.status(500).json({ error: `Failed to save: ${safeError(err)}` });
+          return sendError(res, API_ERRORS.FAILED_TO_SAVE, 500, safeError(err));
         }
       }
 
       // ── Primary: write to .env ──
       try {
         const envPath = path.join(__dirname, '..', '..', '.env');
-        if (!fs.existsSync(envPath)) return res.status(404).json({ error: '.env file not found' });
+        if (!fs.existsSync(envPath)) return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
 
         const content = fs.readFileSync(envPath, 'utf8');
         const lines = content.split('\n');
@@ -2214,14 +2240,13 @@ class WebMapServer {
         fs.writeFileSync(tmpPath, newLines.join('\n'));
         fs.renameSync(tmpPath, envPath);
 
-        res.json({
-          ok: true,
+        sendOk(res, {
           updated: [...updated],
           restartRequired: true,
           message: `Schedule saved (${updated.size} keys). Restart the bot for changes to take effect.`,
         });
       } catch (err) {
-        res.status(500).json({ error: `Failed to save schedule: ${safeError(err)}` });
+        sendError(res, API_ERRORS.FAILED_TO_SAVE_SCHEDULE, 500, safeError(err));
       }
     });
 
@@ -2442,7 +2467,7 @@ class WebMapServer {
         // ── Non-primary: read from servers.json ──
         if (!req.srv.isPrimary) {
           const serverDef = _getServerDef(req.srv.serverId);
-          if (!serverDef) return res.status(404).json({ error: 'Server not found in servers.json' });
+          if (!serverDef) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
           const sections = _buildServerDefSections(serverDef);
           return res.json({ sections, source: 'servers.json' });
         }
@@ -2450,7 +2475,7 @@ class WebMapServer {
         // ── Primary: read from .env ──
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
-          return res.status(404).json({ error: '.env file not found' });
+          return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
         }
 
         const content = fs.readFileSync(envPath, 'utf8');
@@ -2494,7 +2519,7 @@ class WebMapServer {
 
         res.json({ sections });
       } catch (err) {
-        res.status(500).json({ error: `Failed to read bot config: ${safeError(err)}` });
+        sendError(res, API_ERRORS.FAILED_TO_READ_BOT_CONFIG, 500, safeError(err));
       }
     });
 
@@ -2502,23 +2527,23 @@ class WebMapServer {
     app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
       const { changes } = req.body;
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
-        return res.status(400).json({ error: 'Missing changes object' });
+        return sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
       }
 
       // Block read-only keys
       const blocked = Object.keys(changes).filter(k => ENV_READONLY_KEYS.has(k));
       if (blocked.length > 0) {
-        return res.status(403).json({ error: `Cannot modify read-only keys: ${blocked.join(', ')}` });
+        return sendError(res, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS, 403, blocked.join(', '));
       }
 
       // Validate values — no newlines, reasonable length
       for (const [key, value] of Object.entries(changes)) {
         const v = String(value);
         if (/[\r\n]/.test(v)) {
-          return res.status(400).json({ error: `Invalid value for '${key}': contains newline` });
+          return sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_NEWLINE, 400, key);
         }
         if (v.length > 2000) {
-          return res.status(400).json({ error: `Value for '${key}' too long (max 2000 chars)` });
+          return sendError(res, API_ERRORS.VALUE_TOO_LONG, 400, key);
         }
       }
 
@@ -2551,21 +2576,20 @@ class WebMapServer {
                 if (cur && typeof cur === 'object') delete cur[parts[parts.length - 1]];
               } else {
                 _setNestedValue(serverDef, mapping.jsonPath, coerced);
-              }
-              updated.add(envKey);
             }
-          });
+            updated.add(envKey);
+          }
+        });
 
-          if (!ok) return res.status(404).json({ error: 'Server not found in servers.json' });
+          if (!ok) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
 
-          return res.json({
-            ok: true,
+          return sendOk(res, {
             updated: [...updated],
             restartRequired: true,
             message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''} in servers.json. Restart the bot for changes to take effect.`,
           });
         } catch (err) {
-          return res.status(500).json({ error: `Failed to save server config: ${safeError(err)}` });
+          return sendError(res, API_ERRORS.FAILED_TO_SAVE_SERVER_CONFIG, 500, safeError(err));
         }
       }
 
@@ -2573,7 +2597,7 @@ class WebMapServer {
       try {
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
-          return res.status(404).json({ error: '.env file not found' });
+          return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
         }
 
         const content = fs.readFileSync(envPath, 'utf8');
@@ -2622,14 +2646,13 @@ class WebMapServer {
         fs.writeFileSync(tmpPath, newLines.join('\n'));
         fs.renameSync(tmpPath, envPath);
 
-        res.json({
-          ok: true,
+        sendOk(res, {
           updated: [...updated],
           restartRequired: true,
           message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
         });
       } catch (err) {
-        res.status(500).json({ error: `Failed to save bot config: ${safeError(err)}` });
+        sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
       }
     });
 
@@ -2675,7 +2698,7 @@ class WebMapServer {
 
         res.json(flags);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2686,20 +2709,20 @@ class WebMapServer {
         const scores = req.srv.db.getAllRiskScores() || [];
         res.json(scores);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/anticheat/flags/:id/review — confirm, dismiss, or whitelist a flag */
     app.post('/api/panel/anticheat/flags/:id/review', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      if (!req.srv.db) return res.status(500).json({ error: 'Database not available' });
+      if (!req.srv.db) return sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 500);
       try {
         const flagId = parseInt(req.params.id, 10);
-        if (isNaN(flagId)) return res.status(400).json({ error: 'Invalid flag ID' });
+        if (isNaN(flagId)) return sendError(res, API_ERRORS.INVALID_FLAG_ID, 400);
 
         const { status, notes } = req.body || {};
         if (!status || !['confirmed', 'dismissed', 'whitelisted'].includes(status)) {
-          return res.status(400).json({ error: 'Invalid status. Must be confirmed, dismissed, or whitelisted' });
+          return sendError(res, API_ERRORS.INVALID_STATUS, 400);
         }
 
         // Get reviewer identity from session
@@ -2708,7 +2731,7 @@ class WebMapServer {
         req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes || '');
         res.json({ ok: true, flagId, status });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2729,7 +2752,7 @@ class WebMapServer {
         const total = countByStatus(null);
         res.json({ open, confirmed, dismissed, total });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2744,7 +2767,7 @@ class WebMapServer {
         const bounds = req.srv.db.getTimelineBounds();
         res.json(bounds || { earliest: null, latest: null, count: 0 });
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2761,19 +2784,19 @@ class WebMapServer {
         }
         res.json(snapshots);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/snapshot/:id — full snapshot data (all entities with map coords) */
     app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
-      if (!req.srv.db) return res.status(404).json({ error: 'Database not available' });
+      if (!req.srv.db) return sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 404);
       try {
         const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) return res.status(400).json({ error: 'Invalid snapshot ID' });
+        if (isNaN(id)) return sendError(res, API_ERRORS.INVALID_SNAPSHOT_ID, 400);
 
         const full = req.srv.db.getTimelineSnapshotFull(id);
-        if (!full) return res.status(404).json({ error: 'Snapshot not found' });
+        if (!full) return sendError(res, API_ERRORS.SNAPSHOT_NOT_FOUND, 404);
 
         // Convert world coordinates to leaflet coordinates for all entities
         const convert = (item) => {
@@ -2801,7 +2824,7 @@ class WebMapServer {
 
         res.json(full);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2811,7 +2834,7 @@ class WebMapServer {
       try {
         const { steamId } = req.params;
         const { from, to } = req.query;
-        if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+        if (!from || !to) return sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
 
         const positions = req.srv.db.getPlayerPositionHistory(steamId, from, to);
         // Convert to map coordinates
@@ -2825,7 +2848,7 @@ class WebMapServer {
 
         res.json(trail);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2834,11 +2857,11 @@ class WebMapServer {
       if (!req.srv.db) return res.json([]);
       try {
         const { from, to } = req.query;
-        if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+        if (!from || !to) return sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
         const data = req.srv.db.getAIPopulationHistory(from, to);
         res.json(data);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2863,7 +2886,7 @@ class WebMapServer {
         });
         res.json(deaths);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
@@ -2874,7 +2897,7 @@ class WebMapServer {
         const stats = req.srv.db.getDeathCauseStats();
         res.json(stats);
       } catch (err) {
-        res.status(500).json({ error: safeError(err) });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
   }
@@ -2885,7 +2908,7 @@ class WebMapServer {
     this._app.use((err, _req, res, _next) => {
       console.error('[WEB MAP] Unhandled route error:', err.message);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal server error' });
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
       }
     });
   }
