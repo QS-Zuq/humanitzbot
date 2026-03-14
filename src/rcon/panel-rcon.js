@@ -47,8 +47,8 @@ class PanelRcon extends EventEmitter {
     this._panelApi = options.panelApi || null;
     this._label = options.label || 'PANEL-RCON';
     this._cacheTtl = options.cacheTtl || null;
-    this._WebSocket = options.WebSocket || WebSocket;
-    this._silenceMs = options.silenceMs || 1500;
+    this._WebSocket = options.WebSocket ?? WebSocket;
+    this._silenceMs = options.silenceMs ?? 1500;
 
     // WebSocket state
     this._ws = null;
