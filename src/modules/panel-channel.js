@@ -2362,3 +2362,16 @@ PanelChannel.ENV_CATEGORIES = ENV_CATEGORIES;
 PanelChannel.GAME_SETTINGS_CATEGORIES = GAME_SETTINGS_CATEGORIES;
 
 module.exports = PanelChannel;
+
+// ── Test escape hatch ────────────────────────────────────────────────────────
+module.exports._test = {
+  _formatBotUptime,
+  _modalTitle,
+  _countComponents,
+  _errorSummary,
+  _diagnosticToMarkdown,
+  _toComponentJSON,
+  _textDisplay,
+  _container,
+  _componentsKey,
+};

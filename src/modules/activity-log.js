@@ -491,3 +491,10 @@ function _formatLocation(event) {
 module.exports = ActivityLog;
 module.exports._cleanActorName = _cleanActorName;
 module.exports._formatLocation = _formatLocation;
+
+// ── Test escape hatch ────────────────────────────────────────────────────────
+module.exports._test = {
+  _filterEvents: ActivityLog.prototype._filterEvents,
+  _formatTime,
+  _categoryTitle,
+};
