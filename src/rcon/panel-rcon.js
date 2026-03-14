@@ -47,6 +47,8 @@ class PanelRcon extends EventEmitter {
     this._panelApi = options.panelApi || null;
     this._label = options.label || 'PANEL-RCON';
     this._cacheTtl = options.cacheTtl || null;
+    this._WebSocket = options.WebSocket ?? WebSocket;
+    this._silenceMs = options.silenceMs ?? 1500;
 
     // WebSocket state
     this._ws = null;
@@ -119,7 +121,7 @@ class PanelRcon extends EventEmitter {
         reject(new Error('WebSocket connection timeout'));
       }, 15000);
 
-      this._ws = new WebSocket(this._wsUrl, {
+      this._ws = new this._WebSocket(this._wsUrl, {
         headers: { Origin: 'https://games.bisecthosting.com' },
       });
 
@@ -268,7 +270,7 @@ class PanelRcon extends EventEmitter {
   async _refreshToken() {
     try {
       const auth = await this._panelApi.getWebsocketAuth();
-      if (auth.token && this._ws && this._ws.readyState === WebSocket.OPEN) {
+      if (auth.token && this._ws && this._ws.readyState === this._WebSocket.OPEN) {
         this._token = auth.token;
         this._ws.send(
           JSON.stringify({
@@ -324,7 +326,7 @@ class PanelRcon extends EventEmitter {
    */
   _sendCommand(command) {
     return new Promise((resolve, reject) => {
-      if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+      if (!this._ws || this._ws.readyState !== this._WebSocket.OPEN) {
         return reject(new Error('WebSocket not connected'));
       }
 
@@ -374,7 +376,7 @@ class PanelRcon extends EventEmitter {
             resolved = true;
             resolve(responseLines.join('\n'));
           }
-        }, 1500); // 1.5s quiet period (slightly longer than TCP RCON's 1s
+        }, this._silenceMs); // quiet period (default 1.5s, slightly longer than TCP RCON's 1s
         // because WebSocket has more latency + daemon buffering)
       };
 

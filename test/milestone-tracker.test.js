@@ -3,57 +3,17 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const MilestoneTracker = require('../src/modules/milestone-tracker');
+const { mockDb: createMockDb } = require('./helpers/mock-db');
+const { makePlayer, mockClient } = require('./helpers/factories');
 
-// ── Minimal mock DB ──────────────────────────────────────────────────────────
+// ── Domain adapter: seeds initial state under MilestoneTracker.STATE_KEY ────
 
 function mockDb(players = [], clans = [], initialState = null) {
-  const store = new Map();
-  if (initialState) store.set(MilestoneTracker.STATE_KEY, JSON.stringify(initialState));
-
-  return {
-    getAllPlayers() {
-      return players;
-    },
-    getAllClans() {
-      return clans;
-    },
-    getState(key) {
-      return store.get(key) ?? null;
-    },
-    setState(key, value) {
-      store.set(key, value != null ? String(value) : null);
-    },
-    getStateJSON(key, defaultVal = null) {
-      const raw = store.get(key);
-      if (raw == null) return defaultVal;
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return defaultVal;
-      }
-    },
-    setStateJSON(key, value) {
-      store.set(key, JSON.stringify(value));
-    },
-    _store: store,
-  };
-}
-
-function mockClient() {
-  return { channels: { cache: new Map() } };
-}
-
-function makePlayer(overrides = {}) {
-  return {
-    steam_id: '76561198000000001',
-    name: 'TestPlayer',
-    lifetime_kills: 0,
-    playtime_seconds: 0,
-    days_survived: 0,
-    challenges: '[]',
-    unlocked_professions: '[]',
-    ...overrides,
-  };
+  return createMockDb({
+    players,
+    clans,
+    state: initialState ? { [MilestoneTracker.STATE_KEY]: initialState } : null,
+  });
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

@@ -3,100 +3,27 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const RecapService = require('../src/modules/recap-service');
+const { mockDb: createMockDb } = require('./helpers/mock-db');
+const { makePlayer, makeEvent, mockClient, mockConfig } = require('./helpers/factories');
 
-// ── Minimal mocks ────────────────────────────────────────────────────────────
+// ── Domain adapter: adds activity queries and ranking methods ────────────────
 
 function mockDb(players = [], clans = [], activityEvents = []) {
-  const store = new Map();
-  return {
-    getAllPlayers() {
-      return players;
+  return createMockDb({
+    players,
+    clans,
+    extras: {
+      getActivitySince(ts) {
+        return activityEvents.filter((e) => e.timestamp >= ts);
+      },
+      topKillers(limit) {
+        return [...players].sort((a, b) => (b.lifetime_kills || 0) - (a.lifetime_kills || 0)).slice(0, limit);
+      },
+      topPlaytime(limit) {
+        return [...players].sort((a, b) => (b.playtime_seconds || 0) - (a.playtime_seconds || 0)).slice(0, limit);
+      },
     },
-    getAllClans() {
-      return clans;
-    },
-    getActivitySince(ts) {
-      return activityEvents.filter((e) => e.timestamp >= ts);
-    },
-    topKillers(limit) {
-      return [...players].sort((a, b) => (b.lifetime_kills || 0) - (a.lifetime_kills || 0)).slice(0, limit);
-    },
-    topPlaytime(limit) {
-      return [...players].sort((a, b) => (b.playtime_seconds || 0) - (a.playtime_seconds || 0)).slice(0, limit);
-    },
-    getState(key) {
-      return store.get(key) ?? null;
-    },
-    setState(key, value) {
-      store.set(key, value != null ? String(value) : null);
-    },
-    getStateJSON(key, def = null) {
-      const raw = store.get(key);
-      if (raw == null) return def;
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return def;
-      }
-    },
-    setStateJSON(key, value) {
-      store.set(key, JSON.stringify(value));
-    },
-    _store: store,
-  };
-}
-
-function mockClient() {
-  return { channels: { cache: new Map() } };
-}
-
-function mockConfig(overrides = {}) {
-  return {
-    botTimezone: 'UTC',
-    logChannelId: null,
-    weeklyResetDay: 1, // Monday
-    getToday() {
-      return '2026-02-27';
-    },
-    getDateLabel(date) {
-      return (date || new Date()).toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      });
-    },
-    formatTime(date) {
-      return date.toISOString();
-    },
-    ...overrides,
-  };
-}
-
-function makeEvent(overrides = {}) {
-  return {
-    type: 'player_connect',
-    steam_id: '76561198000000001',
-    player_name: 'TestPlayer',
-    timestamp: '2026-02-26T12:00:00.000Z',
-    ...overrides,
-  };
-}
-
-function makePlayer(overrides = {}) {
-  return {
-    steam_id: '76561198000000001',
-    name: 'TestPlayer',
-    lifetime_kills: 0,
-    playtime_seconds: 0,
-    log_deaths: 0,
-    log_builds: 0,
-    log_loots: 0,
-    log_pvp_kills: 0,
-    fish_caught: 0,
-    playtime_first_seen: null,
-    updated_at: '2026-02-26T10:00:00.000Z',
-    ...overrides,
-  };
+  });
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
