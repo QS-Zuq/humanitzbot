@@ -1211,6 +1211,26 @@
       if (tabLoaders[S.currentTab]) tabLoaders[S.currentTab]();
     }
 
+    // Re-render map player detail sidebar if open
+    var mapDetail = $('#map-player-detail');
+    if (mapDetail && !mapDetail.classList.contains('hidden')) {
+      var steamId = $('#map-detail-content')?.dataset?.steamId;
+      if (steamId && S.players) {
+        var p = S.players.find(function(pl) { return pl.steamId === steamId; });
+        if (p) showMapPlayerDetail(p);
+      }
+    }
+
+    // Re-render player modal if open
+    var playerModal = $('#player-modal');
+    if (playerModal && !playerModal.classList.contains('hidden')) {
+      var modalSteamId = $('#player-modal-content')?.dataset?.steamId;
+      if (modalSteamId && S.players) {
+        var mp = S.players.find(function(pl) { return pl.steamId === modalSteamId; });
+        if (mp) showPlayerModal(mp);
+      }
+    }
+
     // Update Chart.js instances with new locale labels
     if (window.Chart) {
       Object.keys(Chart.instances || {}).forEach(function(id) {
