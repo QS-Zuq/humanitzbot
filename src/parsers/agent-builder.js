@@ -320,7 +320,19 @@ function writeAgent(outputPath) {
   const target = outputPath || path.join(__dirname, '..', 'game-server', 'humanitz-agent.js');
   const script = buildAgentScript();
   fs.writeFileSync(target, script, 'utf-8');
-  console.log(`[AgentBuilder] Wrote ${(script.length / 1024).toFixed(1)}KB → ${target}`);
+
+  // Format with Prettier so the generated file follows project style.
+  // Uses sync exec to keep writeAgent() synchronous.
+  try {
+    const { execFileSync } = require('child_process');
+    const prettierBin = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'prettier');
+    execFileSync(prettierBin, ['--write', target], { stdio: 'ignore' });
+  } catch {
+    // Prettier not installed (e.g. on game server) — skip silently
+  }
+
+  const finalSize = fs.statSync(target).size;
+  console.log(`[AgentBuilder] Wrote ${(finalSize / 1024).toFixed(1)}KB → ${target}`);
   return target;
 }
 

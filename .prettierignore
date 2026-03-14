@@ -5,7 +5,6 @@ node_modules/
 data/
 
 # Generated files
-src/game-server/humanitz-agent.js
 src/web-map/public/tailwind.css
 src/web-map/public/tiles/
 CHANGELOG.json
