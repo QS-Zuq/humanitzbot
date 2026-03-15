@@ -534,10 +534,15 @@ Panel.tabs = Panel.tabs || {};
   function reset() {
     if (TL.timer) clearInterval(TL.timer);
     TL.playing = false;
-    TL.ready = false;
+    TL.timer = null;
+    TL.snapshots = [];
+    TL.idx = -1;
+    TL.data = null;
+    TL.nameMap = {};
     if (TL.map) {
-      TL.map.remove();
-      TL.map = null;
+      Object.keys(TL.layers).forEach(function (k) {
+        TL.layers[k].clearLayers();
+      });
     }
   }
 

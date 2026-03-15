@@ -147,6 +147,17 @@ window.Panel = window.Panel || {};
   //  CLICK-TO-PROFILE DELEGATION
   // ══════════════════════════════════════════════════
 
+  // ── data-nav click delegation (e.g. "view in Items tab") ──
+
+  document.addEventListener('click', function (e) {
+    var navTarget = e.target.closest('[data-nav]');
+    if (!navTarget) return;
+    var requiredTier = parseInt(navTarget.dataset.requireTier, 10) || 0;
+    if (S.tier >= requiredTier) {
+      switchTab(navTarget.dataset.nav);
+    }
+  });
+
   document.addEventListener('click', function (e) {
     // Player link click → open player modal
     var link = e.target.closest('.player-link');

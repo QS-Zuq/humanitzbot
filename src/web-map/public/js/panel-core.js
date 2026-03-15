@@ -11,7 +11,7 @@ window.Panel = window.Panel || {};
 
   // ── Shared State ──────────────────────────────────
 
-  var S = {
+  const S = {
     user: null,
     tier: 0,
     currentTab: 'dashboard',
@@ -47,17 +47,19 @@ window.Panel = window.Panel || {};
     dbMode: 'browse',
     dbTablesLive: [],
     dbSchemaCache: {},
+    _itemsData: null,
+    _itemsMovements: null,
   };
 
   // ── DOM Utilities ─────────────────────────────────
 
-  var $ = function (sel, ctx) {
+  const $ = function (sel, ctx) {
     return (ctx || document).querySelector(sel);
   };
-  var $$ = function (sel, ctx) {
-    return [].slice.call((ctx || document).querySelectorAll(sel));
+  const $$ = function (sel, ctx) {
+    return Array.from((ctx || document).querySelectorAll(sel));
   };
-  var el = function (tag, cls, html) {
+  const el = function (tag, cls, html) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
     if (html != null) e.innerHTML = html;
@@ -89,7 +91,7 @@ window.Panel = window.Panel || {};
 
   // ── Constants ─────────────────────────────────────
 
-  var SETTING_CATEGORY_KEY_MAP = {
+  const SETTING_CATEGORY_KEY_MAP = {
     server: [
       'ServerName',
       'MaxPlayers',
@@ -180,7 +182,7 @@ window.Panel = window.Panel || {};
     };
   }
 
-  var SETTING_DESC_KEY_OVERRIDES = {
+  const SETTING_DESC_KEY_OVERRIDES = {
     AIEvent: 'aievent',
   };
 
@@ -215,7 +217,7 @@ window.Panel = window.Panel || {};
   }
 
   // Boolean env keys — render as toggles instead of text inputs
-  var ENV_BOOLEANS = new Set([
+  const ENV_BOOLEANS = new Set([
     'FIRST_RUN',
     'ENABLE_STATUS_CHANNELS',
     'ENABLE_SERVER_STATUS',
@@ -273,7 +275,7 @@ window.Panel = window.Panel || {};
     'ENABLE_WORLD_EVENT_FEED',
   ]);
 
-  var DB_TABLE_VALUES = [
+  const DB_TABLE_VALUES = [
     'activity_log',
     'chat_log',
     'players',

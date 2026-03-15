@@ -141,7 +141,7 @@ window.Panel = window.Panel || {};
         id: '',
       });
       if (d.servers) {
-        for (var ai = 0; ai < d.servers.length; ai++) allServers.push(d.servers[ai]);
+        allServers = allServers.concat(d.servers);
       }
 
       // Build server tabs + carousel slides
@@ -416,7 +416,8 @@ window.Panel = window.Panel || {};
         } else {
           $('#landing-links').classList.remove('hidden');
           discordLink.style.display = 'none';
-          if (discordLink.nextElementSibling) discordLink.nextElementSibling.remove();
+          var sep = discordLink.parentElement.querySelector('.text-border');
+          if (sep) sep.remove();
         }
       }
     } catch (e) {

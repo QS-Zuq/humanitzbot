@@ -237,145 +237,78 @@ window.Panel = window.Panel || {};
     popup.className = 'item-popup';
 
     // Build header with close button
-    var html =
-      '<div class="item-popup-header">' +
-      esc(name) +
-      '<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>';
+    var html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
     html += '<div class="item-popup-body">';
 
     // Instance badge — highlight that this is a tracked specific item
     if (isTrackedInstance) {
       html +=
         '<div class="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-2 py-1 mb-2 flex items-center gap-1">';
-      html += '\ud83d\udd0d ' + i18next.t('web:item_popup.tracked_instance');
+      html += `\ud83d\udd0d ${i18next.t('web:item_popup.tracked_instance')}`;
       if (instanceHolder)
-        html +=
-          ' \u2014 ' +
-          i18next.t('web:item_popup.held_by') +
-          ' <span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="' +
-          esc(contextSteamId) +
-          '">' +
-          esc(instanceHolder) +
-          '</span>';
+        html += ` \u2014 ${i18next.t('web:item_popup.held_by')} <span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="${esc(contextSteamId)}">${esc(instanceHolder)}</span>`;
       html += '</div>';
     }
 
     // Basic stats grid
     html += '<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mb-2">';
-    if (qty)
-      html += '<div><span class="text-muted">' + i18next.t('web:item_popup.quantity') + ':</span> ' + qty + '</div>';
+    if (qty) html += `<div><span class="text-muted">${i18next.t('web:item_popup.quantity')}:</span> ${qty}</div>`;
     if (dur) {
       var durN = parseInt(dur, 10);
       var durCol = durN > 60 ? 'text-emerald-400' : durN > 25 ? 'text-amber-400' : 'text-red-400';
-      html +=
-        '<div><span class="text-muted">' +
-        i18next.t('web:item_popup.durability') +
-        ':</span> <span class="' +
-        durCol +
-        '">' +
-        dur +
-        '%</span>';
+      html += `<div><span class="text-muted">${i18next.t('web:item_popup.durability')}:</span> <span class="${durCol}">${dur}%</span>`;
       if (maxDur)
-        html +=
-          ' <span class="text-muted text-[10px]">(' +
-          i18next.t('web:item_popup.max') +
-          ' ' +
-          parseFloat(maxDur).toFixed(1) +
-          ')</span>';
+        html += ` <span class="text-muted text-[10px]">(${i18next.t('web:item_popup.max')} ${parseFloat(maxDur).toFixed(1)})</span>`;
       html += '</div>';
     }
-    if (ammo)
-      html += '<div><span class="text-muted">' + i18next.t('web:item_popup.ammo') + ':</span> ' + ammo + '</div>';
+    if (ammo) html += `<div><span class="text-muted">${i18next.t('web:item_popup.ammo')}:</span> ${ammo}</div>`;
     if (fp)
-      html +=
-        '<div><span class="text-muted">' +
-        i18next.t('web:item_popup.fingerprint') +
-        ':</span> <span class="font-mono text-[10px]">' +
-        esc(fp) +
-        '</span></div>';
+      html += `<div><span class="text-muted">${i18next.t('web:item_popup.fingerprint')}:</span> <span class="font-mono text-[10px]">${esc(fp)}</span></div>`;
     html += '</div>';
 
     // Attachments
     if (attachments.length > 0) {
-      html +=
-        '<div class="text-xs mb-2"><span class="text-muted">' +
-        i18next.t('web:item_popup.attachments') +
-        ':</span> <span class="text-accent">' +
-        attachments
-          .map(function (a) {
-            return esc(a);
-          })
-          .join(', ') +
-        '</span></div>';
+      html += `<div class="text-xs mb-2"><span class="text-muted">${i18next.t('web:item_popup.attachments')}:</span> <span class="text-accent">${attachments
+        .map(function (a) {
+          return esc(a);
+        })
+        .join(', ')}</span></div>`;
     }
 
     // Owners section — for tracked instances, show as "Other holders of this item type" (secondary)
     if (owners.length > 0) {
       if (isTrackedInstance) {
-        html +=
-          '<div class="text-xs text-muted mt-1 mb-1">' +
-          i18next.t('web:item_popup.players_hold', { count: owners.length, name: esc(name) }) +
-          '</div>';
+        html += `<div class="text-xs text-muted mt-1 mb-1">${i18next.t('web:item_popup.players_hold', { count: owners.length, name: esc(name) })}</div>`;
       } else {
-        html +=
-          '<div class="text-xs text-muted mt-1 mb-1">' +
-          i18next.t('web:item_popup.held_by_players', { count: owners.length }) +
-          '</div>';
+        html += `<div class="text-xs text-muted mt-1 mb-1">${i18next.t('web:item_popup.held_by_players', { count: owners.length })}</div>`;
       }
       html += '<div class="item-popup-owners">';
       for (var oi = 0; oi < Math.min(owners.length, 6); oi++) {
-        html +=
-          '<div class="text-xs"><span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="' +
-          esc(owners[oi].steamId) +
-          '">' +
-          esc(owners[oi].name) +
-          '</span> <span class="text-muted">\u00d7' +
-          owners[oi].count +
-          '</span></div>';
+        html += `<div class="text-xs"><span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="${esc(owners[oi].steamId)}">${esc(owners[oi].name)}</span> <span class="text-muted">\u00d7${owners[oi].count}</span></div>`;
       }
       if (owners.length > 6)
-        html +=
-          '<div class="text-[10px] text-muted">+' +
-          (owners.length - 6) +
-          ' ' +
-          i18next.t('web:item_popup.more') +
-          '</div>';
+        html += `<div class="text-[10px] text-muted">+${owners.length - 6} ${i18next.t('web:item_popup.more')}</div>`;
       html += '</div>';
     }
 
     // Tracking data container — will be populated async (prioritizes fingerprint-specific data)
     html += '<div id="item-tracking-data" class="mt-2 border-t border-border/30 pt-2">';
     if (fp) {
-      html += '<div class="text-[10px] text-muted">' + i18next.t('web:item_popup.loading_instance') + '</div>';
+      html += `<div class="text-[10px] text-muted">${i18next.t('web:item_popup.loading_instance')}</div>`;
     } else if (name) {
-      html += '<div class="text-[10px] text-muted">' + i18next.t('web:item_popup.loading_tracking') + '</div>';
+      html += `<div class="text-[10px] text-muted">${i18next.t('web:item_popup.loading_tracking')}</div>`;
     }
     html += '</div>';
 
     // Quick links
     html += '<div class="mt-2 flex gap-2 flex-wrap">';
     var actSearchVal = fp ? name + '#' + fp : name;
-    html +=
-      '<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="' +
-      esc(actSearchVal) +
-      '">' +
-      (fp ? '\ud83d\udd0d ' + i18next.t('web:item_popup.track_item') : i18next.t('web:item_popup.activity_log')) +
-      ' \u2192</span>';
+    html += `<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="${esc(actSearchVal)}">${fp ? '\ud83d\udd0d ' + i18next.t('web:item_popup.track_item') : i18next.t('web:item_popup.activity_log')} \u2192</span>`;
     if (S.tier >= 3) {
       // admin
       var dbSearch = fp || name;
-      html +=
-        '<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_instances" data-search="' +
-        esc(dbSearch) +
-        '">' +
-        i18next.t('web:item_popup.item_db') +
-        ' \u2192</span>';
-      html +=
-        '<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_movements" data-search="' +
-        esc(dbSearch) +
-        '">' +
-        i18next.t('web:item_popup.movements') +
-        ' \u2192</span>';
+      html += `<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_instances" data-search="${esc(dbSearch)}">${i18next.t('web:item_popup.item_db')} \u2192</span>`;
+      html += `<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_movements" data-search="${esc(dbSearch)}">${i18next.t('web:item_popup.movements')} \u2192</span>`;
     }
     html += '</div>';
     html += '</div>';
@@ -417,8 +350,7 @@ window.Panel = window.Panel || {};
 
       var data = await r.json();
       if (!data.match) {
-        container.innerHTML =
-          '<div class="text-[10px] text-muted">' + i18next.t('web:item_popup.not_tracked') + '</div>';
+        container.innerHTML = `<div class="text-[10px] text-muted">${i18next.t('web:item_popup.not_tracked')}</div>`;
         return;
       }
 
@@ -429,59 +361,36 @@ window.Panel = window.Panel || {};
       html += '<div class="text-[10px] font-semibold text-white mb-1">';
       html +=
         data.matchType === 'group'
-          ? '\ud83d\udce6 ' + i18next.t('web:item_popup.fungible_group')
-          : '\ud83d\udd0d ' + i18next.t('web:item_popup.tracked_instance');
-      html += ' #' + m.id + '</div>';
+          ? `\ud83d\udce6 ${i18next.t('web:item_popup.fungible_group')}`
+          : `\ud83d\udd0d ${i18next.t('web:item_popup.tracked_instance')}`;
+      html += ` #${m.id}</div>`;
 
       // Tracking metadata
       html += '<div class="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] mb-1.5">';
       if (m.first_seen)
-        html +=
-          '<div><span class="text-muted">' +
-          i18next.t('web:item_popup.first_seen') +
-          ':</span> ' +
-          _timeAgo(m.first_seen) +
-          '</div>';
+        html += `<div><span class="text-muted">${i18next.t('web:item_popup.first_seen')}:</span> ${_timeAgo(m.first_seen)}</div>`;
       if (m.last_seen)
-        html +=
-          '<div><span class="text-muted">' +
-          i18next.t('web:item_popup.last_seen') +
-          ':</span> ' +
-          _timeAgo(m.last_seen) +
-          '</div>';
+        html += `<div><span class="text-muted">${i18next.t('web:item_popup.last_seen')}:</span> ${_timeAgo(m.last_seen)}</div>`;
       if (data.matchType === 'group') {
-        html +=
-          '<div><span class="text-muted">' +
-          i18next.t('web:item_popup.qty_tracked') +
-          ':</span> ' +
-          (m.quantity || 0) +
-          '</div>';
+        html += `<div><span class="text-muted">${i18next.t('web:item_popup.qty_tracked')}:</span> ${m.quantity || 0}</div>`;
       }
-      html +=
-        '<div><span class="text-muted">' +
-        i18next.t('web:item_popup.movements') +
-        ':</span> ' +
-        data.totalMovements +
-        '</div>';
+      html += `<div><span class="text-muted">${i18next.t('web:item_popup.movements')}:</span> ${data.totalMovements}</div>`;
       html += '</div>';
 
       // Ownership chain
       if (data.ownershipChain && data.ownershipChain.length > 0) {
-        html += '<div class="text-[10px] text-muted mb-0.5">' + i18next.t('web:item_popup.ownership_chain') + ':</div>';
+        html += `<div class="text-[10px] text-muted mb-0.5">${i18next.t('web:item_popup.ownership_chain')}:</div>`;
         html += '<div class="flex flex-wrap gap-1 mb-1.5">';
         for (var oi = 0; oi < Math.min(data.ownershipChain.length, 8); oi++) {
           var owner = data.ownershipChain[oi];
-          html +=
-            '<span class="player-link cursor-pointer hover:underline inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" data-steam-id="' +
-            esc(owner.steamId) +
-            '">';
+          html += `<span class="player-link cursor-pointer hover:underline inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" data-steam-id="${esc(owner.steamId)}">`;
           html += esc(owner.name);
           html += '</span>';
           if (oi < Math.min(data.ownershipChain.length, 8) - 1)
             html += '<span class="text-muted text-[10px]">\u2192</span>';
         }
         if (data.ownershipChain.length > 8)
-          html += '<span class="text-[10px] text-muted">+' + (data.ownershipChain.length - 8) + ' more</span>';
+          html += `<span class="text-[10px] text-muted">+${data.ownershipChain.length - 8} more</span>`;
         html += '</div>';
       }
 
@@ -496,25 +405,19 @@ window.Panel = window.Panel || {};
         for (var mi = 0; mi < recentMovements.length; mi++) {
           var mv = recentMovements[mi];
           html += '<div class="flex items-center gap-1 text-[10px] py-0.5">';
-          html += '<span class="text-muted font-mono shrink-0">' + _timeAgo(mv.created_at) + '</span>';
+          html += `<span class="text-muted font-mono shrink-0">${_timeAgo(mv.created_at)}</span>`;
           html += _locationBadgeMini(mv.from_type, mv.from_id, mv.from_name);
           html += '<span class="text-muted">\u2192</span>';
           html += _locationBadgeMini(mv.to_type, mv.to_id, mv.to_name);
           if (mv.attributed_name) {
-            html +=
-              '<span class="text-calm ml-auto player-link cursor-pointer hover:underline" data-steam-id="' +
-              esc(mv.attributed_steam_id || '') +
-              '">' +
-              esc(mv.attributed_name) +
-              '</span>';
+            html += `<span class="text-calm ml-auto player-link cursor-pointer hover:underline" data-steam-id="${esc(mv.attributed_steam_id || '')}">${esc(mv.attributed_name)}</span>`;
           }
           html += '</div>';
         }
         html += '</div>';
         if (movements.length > 5) {
-          html += '<div class="text-[10px] text-muted mt-0.5">' + (movements.length - 5) + ' more movements \u2014 ';
-          html +=
-            '<span class="text-accent cursor-pointer hover:underline" onclick="if(Panel.core.S.tier>=3){switchTab(\'items\');}">';
+          html += `<div class="text-[10px] text-muted mt-0.5">${movements.length - 5} more movements \u2014 `;
+          html += '<span class="text-accent cursor-pointer hover:underline" data-nav="items" data-require-tier="3">';
           html += 'view in Items tab</span></div>';
         }
       }
@@ -540,33 +443,13 @@ window.Panel = window.Panel || {};
     var cls = colors[type] || 'text-muted';
     var label = resolvedName || _shortenId(id);
     if (type === 'player') {
-      return (
-        '<span class="' +
-        cls +
-        ' player-link cursor-pointer hover:underline" data-steam-id="' +
-        esc(id || '') +
-        '">' +
-        esc(label) +
-        '</span>'
-      );
+      return `<span class="${cls} player-link cursor-pointer hover:underline" data-steam-id="${esc(id || '')}">${esc(label)}</span>`;
     }
     if ((type === 'container' || type === 'vehicle' || type === 'structure' || type === 'horse') && id) {
       var entityTable = type === 'horse' ? 'world_horses' : type + 's';
-      return (
-        '<span class="' +
-        cls +
-        ' entity-link cursor-pointer hover:underline" data-entity-table="' +
-        entityTable +
-        '" data-entity-search="' +
-        esc(id) +
-        '">' +
-        esc(_formatLocationType(type)) +
-        ':' +
-        esc(label) +
-        '</span>'
-      );
+      return `<span class="${cls} entity-link cursor-pointer hover:underline" data-entity-table="${entityTable}" data-entity-search="${esc(id)}">${esc(_formatLocationType(type))}:${esc(label)}</span>`;
     }
-    return '<span class="' + cls + '">' + esc(_formatLocationType(type)) + ':' + esc(label) + '</span>';
+    return `<span class="${cls}">${esc(_formatLocationType(type))}:${esc(label)}</span>`;
   }
 
   function countItemInPlayer(player, itemName) {
