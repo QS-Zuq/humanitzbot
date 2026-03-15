@@ -9,14 +9,6 @@ Panel.core = Panel.core || {};
 (function () {
   'use strict';
 
-  function toI18nSnakeCase(key) {
-    return String(key)
-      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-      .replace(/-/g, '_')
-      .toLowerCase();
-  }
-
   function formatPlaytime(minutes) {
     if (!minutes) return '0m';
     if (minutes < 60) return minutes + 'm';
@@ -46,7 +38,7 @@ Panel.core = Panel.core || {};
   // ── Expose API ────────────────────────────────────
 
   Panel.core.utils = {
-    toI18nSnakeCase: toI18nSnakeCase,
+    toI18nSnakeCase: Panel.core.toI18nSnakeCase,
     fmtDateTime: fmtDateTime,
     formatPlaytime: formatPlaytime,
     humanizeSettingKey: humanizeSettingKey,

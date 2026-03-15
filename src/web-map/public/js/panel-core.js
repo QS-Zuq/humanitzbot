@@ -182,6 +182,14 @@ window.Panel = window.Panel || {};
     };
   }
 
+  function toI18nSnakeCase(key) {
+    return String(key)
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+      .replace(/-/g, '_')
+      .toLowerCase();
+  }
+
   const SETTING_DESC_KEY_OVERRIDES = {
     AIEvent: 'aievent',
   };
@@ -192,7 +200,7 @@ window.Panel = window.Panel || {};
       {
         get: function (_, prop) {
           if (typeof prop !== 'string') return undefined;
-          const i18nKey = SETTING_DESC_KEY_OVERRIDES[prop] || Panel.core.utils.toI18nSnakeCase(prop);
+          const i18nKey = SETTING_DESC_KEY_OVERRIDES[prop] || toI18nSnakeCase(prop);
           const fullKey = 'web:setting_descs.' + i18nKey;
           const translated = i18next.t(fullKey);
           return translated === fullKey ? '' : translated;
@@ -328,6 +336,7 @@ window.Panel = window.Panel || {};
     esc: esc,
     apiUrl: apiUrl,
     apiFetch: apiFetch,
+    toI18nSnakeCase: toI18nSnakeCase,
     SETTING_CATEGORY_KEY_MAP: SETTING_CATEGORY_KEY_MAP,
     SETTING_DESC_KEY_OVERRIDES: SETTING_DESC_KEY_OVERRIDES,
     ENV_BOOLEANS: ENV_BOOLEANS,
