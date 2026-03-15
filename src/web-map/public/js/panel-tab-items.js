@@ -8,25 +8,25 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var switchTab = Panel.nav.switchTab;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const switchTab = Panel.nav.switchTab;
 
-  var _inited = false;
-  var _itemsData = { instances: [], groups: [], locations: [], counts: {} };
-  var _itemsMovements = [];
+  let _inited = false;
+  let _itemsData = { instances: [], groups: [], locations: [], counts: {} };
+  let _itemsMovements = [];
 
   function init() {
     if (_inited) return;
     _inited = true;
 
     // Wire up event handlers
-    var searchInput = $('#items-search');
+    const searchInput = $('#items-search');
     if (searchInput) {
-      var debounceTimer = null;
+      let debounceTimer = null;
       searchInput.addEventListener('input', function () {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(function () {
@@ -34,22 +34,22 @@ Panel.tabs = Panel.tabs || {};
         }, 300);
       });
     }
-    var viewSelect = $('#items-view');
+    const viewSelect = $('#items-view');
     if (viewSelect)
       viewSelect.addEventListener('change', function () {
         if (S.currentTab === 'items') loadItems();
       });
-    var locFilter = $('#items-location-filter');
+    const locFilter = $('#items-location-filter');
     if (locFilter)
       locFilter.addEventListener('change', function () {
         if (S.currentTab === 'items') loadItems();
       });
-    var closeBtn = $('#item-detail-close');
+    const closeBtn = $('#item-detail-close');
     if (closeBtn)
       closeBtn.addEventListener('click', function () {
         $('#item-detail-modal').classList.add('hidden');
       });
-    var modal = $('#item-detail-modal');
+    const modal = $('#item-detail-modal');
     if (modal)
       modal.addEventListener('click', function (e) {
         if (e.target === modal) modal.classList.add('hidden');
@@ -60,48 +60,48 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadItems() {
     try {
-      var search = ($('#items-search') ? $('#items-search').value : '').trim();
-      var view = $('#items-view') ? $('#items-view').value : 'all';
+      let search = ($('#items-search') ? $('#items-search').value : '').trim();
+      const view = $('#items-view') ? $('#items-view').value : 'all';
 
-      var url = '/api/panel/items?limit=500';
+      let url = '/api/panel/items?limit=500';
       if (search) url += '&search=' + encodeURIComponent(search);
-      var locFilter = $('#items-location-filter') ? $('#items-location-filter').value : '';
+      const locFilter = $('#items-location-filter') ? $('#items-location-filter').value : '';
       if (locFilter) {
-        var parts = locFilter.split('|');
+        const parts = locFilter.split('|');
         url += '&locationType=' + encodeURIComponent(parts[0]) + '&locationId=' + encodeURIComponent(parts[1]);
       }
 
-      var resp = await apiFetch(url);
+      const resp = await apiFetch(url);
       _itemsData = await resp.json();
 
-      var movResp = await apiFetch('/api/panel/movements?limit=50');
-      var movData = await movResp.json();
+      const movResp = await apiFetch('/api/panel/movements?limit=50');
+      const movData = await movResp.json();
       _itemsMovements = movData.movements || [];
 
-      var uc = $('#items-unique-count');
+      const uc = $('#items-unique-count');
       if (uc) uc.textContent = _itemsData.counts?.instances ?? _itemsData.instances.length;
-      var gc = $('#items-group-count');
+      const gc = $('#items-group-count');
       if (gc) gc.textContent = _itemsData.counts?.groups ?? _itemsData.groups.length;
-      var lc = $('#items-location-count');
+      const lc = $('#items-location-count');
       if (lc) lc.textContent = _itemsData.locations?.length ?? '-';
-      var mc = $('#items-movement-count');
+      const mc = $('#items-movement-count');
       if (mc) mc.textContent = _itemsMovements.length;
 
-      var locSelect = $('#items-location-filter');
+      const locSelect = $('#items-location-filter');
       if (locSelect && locSelect.options.length <= 1 && _itemsData.locations) {
         _itemsData.locations.sort(function (a, b) {
           return (a.type + a.id).localeCompare(b.type + b.id);
         });
-        for (var i = 0; i < _itemsData.locations.length; i++) {
-          var loc = _itemsData.locations[i];
-          var opt = document.createElement('option');
+        for (let i = 0; i < _itemsData.locations.length; i++) {
+          const loc = _itemsData.locations[i];
+          const opt = document.createElement('option');
           opt.value = loc.type + '|' + loc.id;
           opt.textContent = _formatLocationType(loc.type) + ': ' + _shortenId(loc.id) + ' (' + loc.totalItems + ')';
           locSelect.appendChild(opt);
         }
       }
 
-      var container = $('#items-content');
+      const container = $('#items-content');
       if (!container) return;
 
       if (view === 'movements') {
@@ -115,7 +115,7 @@ Panel.tabs = Panel.tabs || {};
       }
     } catch (err) {
       console.error('Failed to load items:', err);
-      var c = $('#items-content');
+      const c = $('#items-content');
       if (c)
         c.innerHTML =
           '<div class="text-xs text-horde">' +
@@ -127,7 +127,7 @@ Panel.tabs = Panel.tabs || {};
   // ── Rendering ───────────────────────────────────────────────────
 
   function _renderCombinedView(container, data) {
-    var html = '';
+    let html = '';
 
     if (data.groups.length > 0) {
       html +=
@@ -151,8 +151,8 @@ Panel.tabs = Panel.tabs || {};
         '</th><th class="px-2 py-1.5">' +
         i18next.t('web:table.last_seen', { defaultValue: 'Last Seen' }) +
         '</th><th class="px-2 py-1.5"></th></tr></thead><tbody>';
-      for (var i = 0; i < data.groups.length; i++) {
-        var g = data.groups[i];
+      for (let i = 0; i < data.groups.length; i++) {
+        const g = data.groups[i];
         html += '<tr class="border-b border-border/30 hover:bg-surface-50/50">';
         html += '<td class="px-2 py-1.5 text-white font-medium">' + esc(g.item) + '</td>';
         html += '<td class="px-2 py-1.5"><span class="text-surge font-mono">' + g.quantity + '×</span></td>';
@@ -253,7 +253,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _buildInstanceTable(instances) {
-    var html = '<div class="overflow-x-auto"><table class="w-full text-xs">';
+    let html = '<div class="overflow-x-auto"><table class="w-full text-xs">';
     html +=
       '<thead><tr class="text-muted text-left border-b border-border"><th class="px-2 py-1.5">' +
       i18next.t('web:table.item', { defaultValue: 'Item' }) +
@@ -268,15 +268,15 @@ Panel.tabs = Panel.tabs || {};
       '</th><th class="px-2 py-1.5">' +
       i18next.t('web:table.last_seen', { defaultValue: 'Last Seen' }) +
       '</th><th class="px-2 py-1.5"></th></tr></thead><tbody>';
-    for (var i = 0; i < instances.length; i++) {
-      var inst = instances[i];
-      var durPct =
+    for (let i = 0; i < instances.length; i++) {
+      const inst = instances[i];
+      const durPct =
         inst.max_dur > 0
           ? Math.round((inst.durability / inst.max_dur) * 100)
           : inst.durability > 0
             ? Math.round(inst.durability * 100)
             : 0;
-      var durColor = durPct > 60 ? 'text-calm' : durPct > 25 ? 'text-surge' : 'text-horde';
+      const durColor = durPct > 60 ? 'text-calm' : durPct > 25 ? 'text-surge' : 'text-horde';
       html += '<tr class="border-b border-border/30 hover:bg-surface-50/50">';
       html +=
         '<td class="px-2 py-1.5 text-white font-medium">' +
@@ -311,11 +311,11 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _buildMovementList(movements) {
-    var html = '<div class="space-y-1 max-h-96 overflow-y-auto">';
-    for (var i = 0; i < movements.length; i++) {
-      var m = movements[i];
-      var icon = m.move_type === 'group_transfer' ? '⇄' : m.move_type === 'move' ? '→' : '↔';
-      var typeLabel =
+    let html = '<div class="space-y-1 max-h-96 overflow-y-auto">';
+    for (let i = 0; i < movements.length; i++) {
+      const m = movements[i];
+      const icon = m.move_type === 'group_transfer' ? '⇄' : m.move_type === 'move' ? '→' : '↔';
+      const typeLabel =
         m.move_type === 'group_transfer'
           ? '<span class="text-surge">group</span>'
           : '<span class="text-accent">move</span>';
@@ -327,7 +327,7 @@ Panel.tabs = Panel.tabs || {};
       html += '<span class="text-muted">from</span>' + _locationBadge(m.from_type, m.from_id, m.from_slot);
       html += '<span class="text-muted">to</span>' + _locationBadge(m.to_type, m.to_id, m.to_slot);
       if (m.attributed_name) {
-        var attrSid = m.attributed_steam_id || '';
+        const attrSid = m.attributed_steam_id || '';
         if (attrSid) {
           html +=
             '<span class="text-calm ml-auto player-link cursor-pointer hover:underline" data-steam-id="' +
@@ -349,7 +349,7 @@ Panel.tabs = Panel.tabs || {};
   // ── Location Helpers ────────────────────────────────────────────
 
   function _locationBadge(type, id, slot) {
-    var colors = {
+    const colors = {
       player: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
       container: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
       vehicle: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
@@ -359,8 +359,8 @@ Panel.tabs = Panel.tabs || {};
       backpack: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
       global_container: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
     };
-    var cls = colors[type] || 'bg-surface-50 text-muted border-border';
-    var label = _formatLocationType(type) + ': ' + _resolveLocationLabel(type, id);
+    const cls = colors[type] || 'bg-surface-50 text-muted border-border';
+    let label = _formatLocationType(type) + ': ' + _resolveLocationLabel(type, id);
     if (slot && slot !== 'items' && slot !== 'ground') label += ' (' + slot + ')';
 
     if (type === 'player' && id && /^\d{17}$/.test(id)) {
@@ -376,7 +376,7 @@ Panel.tabs = Panel.tabs || {};
     }
 
     if ((type === 'container' || type === 'vehicle' || type === 'structure' || type === 'horse') && id) {
-      var entityTable = type === 'horse' ? 'world_horses' : type + 's';
+      const entityTable = type === 'horse' ? 'world_horses' : type + 's';
       return (
         '<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] border cursor-pointer hover:brightness-125 entity-link ' +
         cls +
@@ -393,7 +393,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _formatLocationType(type) {
-    var map = {
+    const map = {
       player: i18next.t('web:location_type.player'),
       container: i18next.t('web:location_type.container'),
       vehicle: i18next.t('web:location_type.vehicle'),
@@ -409,7 +409,7 @@ Panel.tabs = Panel.tabs || {};
   function _resolveLocationLabel(type, id) {
     if (!id) return '?';
     if (type === 'player' && /^\d{17}$/.test(id)) {
-      var p = S.players.find(function (pl) {
+      const p = S.players.find(function (pl) {
         return pl.steamId === id;
       });
       if (p && p.name) return p.name;
@@ -422,7 +422,7 @@ Panel.tabs = Panel.tabs || {};
     if (!id) return '?';
     if (/^\d{17}$/.test(id)) return '…' + id.slice(-6);
     if (id.startsWith('pickup_') || id.startsWith('backpack_')) {
-      var parts = id.split('_');
+      const parts = id.split('_');
       return parts[0] + ' @' + parts.slice(1).join(',');
     }
     if (id.length > 24) return id.slice(0, 20) + '…';
@@ -431,9 +431,9 @@ Panel.tabs = Panel.tabs || {};
 
   function _timeAgo(dateStr) {
     if (!dateStr) return '-';
-    var d = new Date(dateStr + 'Z');
-    var now = Date.now();
-    var diff = Math.max(0, now - d.getTime());
+    const d = new Date(dateStr + 'Z');
+    const now = Date.now();
+    const diff = Math.max(0, now - d.getTime());
     if (diff < 60000) return 'now';
     if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
     if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
@@ -456,10 +456,10 @@ Panel.tabs = Panel.tabs || {};
     // Fingerprint → Activity tracker navigation
     $$('.fp-track-link').forEach(function (fpEl) {
       fpEl.addEventListener('click', function () {
-        var fpHash = fpEl.dataset.fp;
-        var fpItem = fpEl.dataset.item;
+        const fpHash = fpEl.dataset.fp;
+        const fpItem = fpEl.dataset.item;
         if (fpHash && fpItem) {
-          var searchEl = $('#activity-search');
+          const searchEl = $('#activity-search');
           if (searchEl) searchEl.value = fpItem + '#' + fpHash;
           switchTab('activity');
           setTimeout(function () {
@@ -472,8 +472,8 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function _showItemDetail(type, id) {
-    var modal = $('#item-detail-modal');
-    var content = $('#item-detail-content');
+    const modal = $('#item-detail-modal');
+    const content = $('#item-detail-content');
     if (!modal || !content) return;
 
     content.innerHTML =
@@ -481,14 +481,14 @@ Panel.tabs = Panel.tabs || {};
     modal.classList.remove('hidden');
 
     try {
-      var url = type === 'group' ? '/api/panel/groups/' + id : '/api/panel/items/' + id + '/movements';
-      var resp = await apiFetch(url);
-      var data = await resp.json();
+      const url = type === 'group' ? '/api/panel/groups/' + id : '/api/panel/items/' + id + '/movements';
+      const resp = await apiFetch(url);
+      const data = await resp.json();
 
-      var html = '';
+      let html = '';
 
       if (type === 'group') {
-        var g = data.group;
+        const g = data.group;
         html +=
           '<h2 class="text-lg font-semibold text-white mb-1">' +
           esc(g.item) +
@@ -530,8 +530,8 @@ Panel.tabs = Panel.tabs || {};
           '</div>';
         html += '</div>';
       } else {
-        var inst = data.instance;
-        var durPct =
+        const inst = data.instance;
+        const durPct =
           inst.max_dur > 0
             ? Math.round((inst.durability / inst.max_dur) * 100)
             : inst.durability > 0
@@ -587,7 +587,7 @@ Panel.tabs = Panel.tabs || {};
         html += '</div>';
       }
 
-      var movements = data.movements || [];
+      const movements = data.movements || [];
       if (movements.length > 0) {
         html +=
           '<h3 class="text-sm font-semibold text-white mb-2">' +
@@ -597,8 +597,8 @@ Panel.tabs = Panel.tabs || {};
           }) +
           '</h3>';
         html += '<div class="space-y-1 max-h-80 overflow-y-auto">';
-        for (var i = 0; i < movements.length; i++) {
-          var m = movements[i];
+        for (let i = 0; i < movements.length; i++) {
+          const m = movements[i];
           html += '<div class="flex items-center gap-2 text-xs py-1.5 border-b border-border/20">';
           html += '<span class="text-muted w-32 shrink-0 font-mono text-[10px]">' + esc(m.created_at || '') + '</span>';
           html += '<span class="text-white">' + (m.move_type || 'move') + '</span>';
@@ -607,7 +607,7 @@ Panel.tabs = Panel.tabs || {};
           html += '<span class="text-muted">→</span>';
           html += _locationBadge(m.to_type, m.to_id, m.to_slot);
           if (m.attributed_name) {
-            var attrSteamId = m.attributed_steam_id || '';
+            const attrSteamId = m.attributed_steam_id || '';
             if (attrSteamId) {
               html +=
                 '<span class="text-calm ml-auto player-link cursor-pointer hover:underline" data-steam-id="' +

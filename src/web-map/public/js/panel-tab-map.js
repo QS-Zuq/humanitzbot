@@ -8,16 +8,16 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var entityLink = Panel.core.utils.entityLink;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const entityLink = Panel.core.utils.entityLink;
 
-  var _inited = false;
-  var mapWorldLayers = {};
+  let _inited = false;
+  let mapWorldLayers = {};
 
   function init() {
     if (_inited) return;
@@ -29,12 +29,12 @@ Panel.tabs = Panel.tabs || {};
 
   function initMap() {
     if (S.mapReady && S.map) return;
-    var container = $('#map-container');
+    const container = $('#map-container');
     if (!container || !window.L) return;
     // Destroy existing map instance before creating a new one (e.g. after server switch)
     if (S.map) {
       clearMapWorldLayers();
-      for (var id in S.mapMarkers) {
+      for (const id in S.mapMarkers) {
         S.map.removeLayer(S.mapMarkers[id]);
       }
       S.mapMarkers = {};
@@ -48,7 +48,7 @@ Panel.tabs = Panel.tabs || {};
       zoomControl: true,
       attributionControl: false,
     });
-    var bounds = [
+    const bounds = [
       [0, 0],
       [4096, 4096],
     ];
@@ -61,25 +61,25 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadMapData() {
     try {
-      var r = await apiFetch('/api/players');
+      const r = await apiFetch('/api/players');
       if (!r.ok) return;
-      var d = await r.json();
+      const d = await r.json();
       S.players = d.players || [];
       S.toggles = d.toggles || {};
       S.worldBounds = d.worldBounds || null;
       updateMapMarkers();
       updateMapSidebar();
 
-      var wantLayers = [];
+      const wantLayers = [];
       ['structures', 'vehicles', 'containers', 'companions', 'zombies', 'animals', 'bandits'].forEach(function (l) {
-        var cb = $('#map-layer-' + l);
+        const cb = $('#map-layer-' + l);
         if (cb && cb.checked) wantLayers.push(l);
       });
       if (wantLayers.length > 0) {
         try {
-          var lr = await apiFetch('/api/panel/mapdata?layers=' + wantLayers.join(','));
+          const lr = await apiFetch('/api/panel/mapdata?layers=' + wantLayers.join(','));
           if (lr.ok) {
-            var ld = await lr.json();
+            const ld = await lr.json();
             updateMapWorldLayers(ld, wantLayers);
           }
         } catch (_e) {}
@@ -94,7 +94,7 @@ Panel.tabs = Panel.tabs || {};
   // ── World Layers ────────────────────────────────────────────────
 
   function clearMapWorldLayers() {
-    for (var k in mapWorldLayers) {
+    for (const k in mapWorldLayers) {
       if (mapWorldLayers[k] && S.map) S.map.removeLayer(mapWorldLayers[k]);
     }
     mapWorldLayers = {};
@@ -108,20 +108,20 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.structures = L.layerGroup();
       data.structures.forEach(function (s) {
         if (s.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: '',
           html: '<div style="width:5px;height:5px;background:#3b82f6;border-radius:1px;border:1px solid #12100e"></div>',
           iconSize: [5, 5],
           iconAnchor: [2.5, 2.5],
         });
-        var m = L.marker([s.lat, s.lng], { icon: icon });
+        const m = L.marker([s.lat, s.lng], { icon: icon });
         m.bindTooltip(esc(s.name || i18next.t('web:activity.structure')), { direction: 'top', offset: [0, -4] });
-        var ownerName = s.owner && data.nameMap ? data.nameMap[s.owner] || s.owner : 'Unknown';
-        var hpPct = s.maxHealth ? Math.round((s.health / s.maxHealth) * 100) : 0;
-        var ownerHtml = s.owner
+        const ownerName = s.owner && data.nameMap ? data.nameMap[s.owner] || s.owner : 'Unknown';
+        const hpPct = s.maxHealth ? Math.round((s.health / s.maxHealth) * 100) : 0;
+        const ownerHtml = s.owner
           ? '<span class="player-link" data-steam-id="' + esc(s.owner) + '">' + esc(ownerName) + '</span>'
           : esc(ownerName);
-        var popupHtml =
+        const popupHtml =
           '<div class="tl-popup" style="min-width:160px"><b>' +
           entityLink(s.name || i18next.t('web:activity.structure'), 'structure') +
           '</b>' +
@@ -143,17 +143,17 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.vehicles = L.layerGroup();
       data.vehicles.forEach(function (v) {
         if (v.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: '',
           html: '<div style="width:7px;height:7px;background:#d4a843;border-radius:1px;border:1px solid #12100e"></div>',
           iconSize: [7, 7],
           iconAnchor: [3.5, 3.5],
         });
-        var m = L.marker([v.lat, v.lng], { icon: icon });
+        const m = L.marker([v.lat, v.lng], { icon: icon });
         m.bindTooltip(esc(v.name || i18next.t('web:activity.vehicle')), { direction: 'top', offset: [0, -5] });
-        var hpPct = v.maxHealth ? Math.round((v.health / v.maxHealth) * 100) : 0;
-        var hpColor = hpPct > 60 ? '#6dba82' : hpPct > 30 ? '#d4a843' : '#c45a4a';
-        var popupHtml =
+        const hpPct = v.maxHealth ? Math.round((v.health / v.maxHealth) * 100) : 0;
+        const hpColor = hpPct > 60 ? '#6dba82' : hpPct > 30 ? '#d4a843' : '#c45a4a';
+        const popupHtml =
           '<div class="tl-popup" style="min-width:160px"><b>' +
           entityLink(v.name || i18next.t('web:activity.vehicle'), 'vehicle') +
           '</b>' +
@@ -179,18 +179,18 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.containers = L.layerGroup();
       data.containers.forEach(function (c) {
         if (c.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: '',
           html: '<div style="width:4px;height:4px;background:#a855f7;border-radius:50%;border:1px solid #12100e"></div>',
           iconSize: [4, 4],
           iconAnchor: [2, 2],
         });
-        var m = L.marker([c.lat, c.lng], { icon: icon });
+        const m = L.marker([c.lat, c.lng], { icon: icon });
         m.bindTooltip(esc(c.name || 'Container') + ' (' + (c.itemCount || 0) + ')', {
           direction: 'top',
           offset: [0, -4],
         });
-        var popupHtml =
+        const popupHtml =
           '<div class="tl-popup" style="min-width:140px"><b>' +
           entityLink(c.name || 'Container', 'container') +
           '</b>' +
@@ -209,19 +209,19 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.companions = L.layerGroup();
       data.companions.forEach(function (c) {
         if (c.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: '',
           html: '<div style="width:6px;height:6px;background:#ec4899;border-radius:50%;border:1px solid #12100e"></div>',
           iconSize: [6, 6],
           iconAnchor: [3, 3],
         });
-        var m = L.marker([c.lat, c.lng], { icon: icon });
+        const m = L.marker([c.lat, c.lng], { icon: icon });
         m.bindTooltip(esc(c.type || 'Companion'), { direction: 'top', offset: [0, -4] });
-        var ownerName = c.owner && data.nameMap ? data.nameMap[c.owner] || c.owner : 'Unknown';
-        var ownerHtml = c.owner
+        const ownerName = c.owner && data.nameMap ? data.nameMap[c.owner] || c.owner : 'Unknown';
+        const ownerHtml = c.owner
           ? '<span class="player-link" data-steam-id="' + esc(c.owner) + '">' + esc(ownerName) + '</span>'
           : esc(ownerName);
-        var popupHtml =
+        const popupHtml =
           '<div class="tl-popup" style="min-width:140px"><b>' +
           entityLink(c.type || 'Companion', 'animal') +
           '</b>' +
@@ -239,13 +239,13 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.zombies = L.layerGroup();
       data.zombies.forEach(function (z) {
         if (z.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: 'timeline-marker',
           html: '<div style="width:6px;height:6px;border-radius:50%;background:#9b59b6;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #9b59b660;" title="Zombie"></div>',
           iconSize: [6, 6],
           iconAnchor: [3, 3],
         });
-        var m = L.marker([z.lat, z.lng], { icon: icon });
+        const m = L.marker([z.lat, z.lng], { icon: icon });
         m.bindTooltip(z.name || 'Zombie', { direction: 'top', offset: [0, -4] });
         m.addTo(mapWorldLayers.zombies);
       });
@@ -256,13 +256,13 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.animals = L.layerGroup();
       data.animals.forEach(function (a) {
         if (a.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: 'timeline-marker',
           html: '<div style="width:7px;height:7px;transform:rotate(45deg);border-radius:2px;background:#e67e22;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #e67e2260;" title="Animal"></div>',
           iconSize: [7, 7],
           iconAnchor: [3.5, 3.5],
         });
-        var m = L.marker([a.lat, a.lng], { icon: icon });
+        const m = L.marker([a.lat, a.lng], { icon: icon });
         m.bindTooltip(a.name || 'Animal', { direction: 'top', offset: [0, -4] });
         m.addTo(mapWorldLayers.animals);
       });
@@ -273,13 +273,13 @@ Panel.tabs = Panel.tabs || {};
       mapWorldLayers.bandits = L.layerGroup();
       data.bandits.forEach(function (b) {
         if (b.lat == null) return;
-        var icon = L.divIcon({
+        const icon = L.divIcon({
           className: 'timeline-marker',
           html: '<div style="width:8px;height:8px;border-radius:2px;background:#e74c3c;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #e74c3c60;" title="Bandit"></div>',
           iconSize: [8, 8],
           iconAnchor: [4, 4],
         });
-        var m = L.marker([b.lat, b.lng], { icon: icon });
+        const m = L.marker([b.lat, b.lng], { icon: icon });
         m.bindTooltip(b.name || 'Bandit', { direction: 'top', offset: [0, -4] });
         m.addTo(mapWorldLayers.bandits);
       });
@@ -291,23 +291,23 @@ Panel.tabs = Panel.tabs || {};
 
   function updateMapMarkers() {
     if (!S.map) return;
-    var showOffline = true;
-    var offlineChk = $('#map-show-offline');
+    let showOffline = true;
+    const offlineChk = $('#map-show-offline');
     if (offlineChk) showOffline = offlineChk.checked;
 
-    for (var id in S.mapMarkers) {
+    for (const id in S.mapMarkers) {
       S.map.removeLayer(S.mapMarkers[id]);
       delete S.mapMarkers[id];
     }
 
-    for (var i = 0; i < S.players.length; i++) {
-      var p = S.players[i];
+    for (let i = 0; i < S.players.length; i++) {
+      const p = S.players[i];
       if (!p.hasPosition) continue;
       if (!showOffline && !p.isOnline) continue;
       if (p.lat == null || p.lng == null) continue;
 
-      var color = p.isOnline ? '#6dba82' : '#7a746c';
-      var icon = L.divIcon({
+      const color = p.isOnline ? '#6dba82' : '#7a746c';
+      const icon = L.divIcon({
         className: '',
         html:
           '<div style="width:10px;height:10px;border-radius:50%;background:' +
@@ -317,7 +317,7 @@ Panel.tabs = Panel.tabs || {};
         iconAnchor: [5, 5],
       });
 
-      var marker = L.marker([p.lat, p.lng], { icon: icon }).addTo(S.map);
+      const marker = L.marker([p.lat, p.lng], { icon: icon }).addTo(S.map);
       marker.bindTooltip(p.name, { className: 'leaflet-tooltip-dark', offset: [8, 0] });
       (function (player) {
         marker.on('click', function () {
@@ -327,26 +327,26 @@ Panel.tabs = Panel.tabs || {};
       S.mapMarkers[p.steamId] = marker;
     }
 
-    var count = S.players.filter(function (p) {
+    const count = S.players.filter(function (p) {
       return p.isOnline;
     }).length;
-    var cEl = $('#map-player-count');
+    const cEl = $('#map-player-count');
     if (cEl) cEl.textContent = count + ' ' + i18next.t('web:map.online');
   }
 
   // ── Sidebar ─────────────────────────────────────────────────────
 
   function updateMapSidebar() {
-    var list = $('#map-player-list');
+    const list = $('#map-player-list');
     if (!list) return;
     list.innerHTML = '';
-    var sorted = S.players.slice().sort(function (a, b) {
+    const sorted = S.players.slice().sort(function (a, b) {
       if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
       return (a.name || '').localeCompare(b.name || '');
     });
-    for (var i = 0; i < sorted.length; i++) {
-      var p = sorted[i];
-      var entry = el('div', 'map-player-entry');
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      const entry = el('div', 'map-player-entry');
       entry.innerHTML =
         '<span class="status-dot ' +
         (p.isOnline ? 'online' : 'offline') +
@@ -368,10 +368,10 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function filterMapPlayers() {
-    var q = ($('#map-search') ? $('#map-search').value : '').toLowerCase();
+    const q = ($('#map-search') ? $('#map-search').value : '').toLowerCase();
     $$('.map-player-entry', $('#map-player-list')).forEach(function (entry) {
-      var name = entry.querySelector('.mp-name');
-      var text = name ? name.textContent.toLowerCase() : '';
+      const name = entry.querySelector('.mp-name');
+      const text = name ? name.textContent.toLowerCase() : '';
       entry.style.display = text.includes(q) ? '' : 'none';
     });
   }
@@ -379,14 +379,14 @@ Panel.tabs = Panel.tabs || {};
   // ── Snapshot Refresh ────────────────────────────────────────────
 
   async function refreshMapSnapshot() {
-    var btn = $('#map-refresh-btn');
+    const btn = $('#map-refresh-btn');
     if (!btn) return;
-    var origHTML = btn.innerHTML;
+    const origHTML = btn.innerHTML;
     btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Saving…';
     if (window.lucide) lucide.createIcons({ nodes: [btn] });
     btn.disabled = true;
     try {
-      var r = await (typeof authFetch === 'function' ? authFetch : apiFetch)('/api/panel/refresh-snapshot', {
+      const r = await (typeof authFetch === 'function' ? authFetch : apiFetch)('/api/panel/refresh-snapshot', {
         method: 'POST',
       });
       if (r.ok) {
@@ -399,7 +399,7 @@ Panel.tabs = Panel.tabs || {};
           btn.disabled = false;
         }, 1000);
       } else {
-        var d = await r.json().catch(function () {
+        const d = await r.json().catch(function () {
           return {};
         });
         btn.innerHTML = '<i data-lucide="x" class="w-3 h-3"></i> ' + (d.error || 'Failed');
@@ -422,11 +422,11 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function showMapPlayerDetail(p) {
-    var panel = $('#map-player-detail');
-    var content = $('#map-detail-content');
+    const panel = $('#map-player-detail');
+    const content = $('#map-detail-content');
     if (!panel || !content) return;
     // buildPlayerDetail is on Panel.tabs.players (or fallback to Panel._internal)
-    var buildFn =
+    const buildFn =
       (Panel.tabs.players && Panel.tabs.players.buildPlayerDetail) || Panel._internal.buildPlayerDetail || null;
     if (buildFn) {
       content.innerHTML = buildFn(p);
@@ -439,7 +439,7 @@ Panel.tabs = Panel.tabs || {};
     _inited = false;
     clearMapWorldLayers();
     if (S.map) {
-      for (var id in S.mapMarkers) {
+      for (const id in S.mapMarkers) {
         S.map.removeLayer(S.mapMarkers[id]);
       }
       S.mapMarkers = {};

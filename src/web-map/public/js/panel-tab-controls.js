@@ -8,12 +8,12 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtDateTime = Panel.core.utils.fmtDateTime;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtDateTime = Panel.core.utils.fmtDateTime;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -22,16 +22,16 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function doPowerAction(action) {
-    var log = $('#controls-log');
-    var time = window.fmtTime ? window.fmtTime(new Date()) : new Date().toLocaleTimeString();
+    const log = $('#controls-log');
+    const time = window.fmtTime ? window.fmtTime(new Date()) : new Date().toLocaleTimeString();
     appendLog(log, '[' + time + '] Sending ' + action + '...', 'text-muted');
     try {
-      var r = await apiFetch('/api/panel/power', {
+      const r = await apiFetch('/api/panel/power', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: action }),
       });
-      var d = await r.json();
+      const d = await r.json();
       if (d.ok) appendLog(log, '[' + time + '] \u2713 ' + d.message, 'text-calm');
       else appendLog(log, '[' + time + '] \u2715 ' + (d.error || 'Failed'), 'text-red-400');
     } catch (e) {
@@ -41,39 +41,39 @@ Panel.tabs = Panel.tabs || {};
 
   function appendLog(container, text, cls) {
     if (!container) return;
-    var placeholder = container.querySelector('.text-muted');
+    const placeholder = container.querySelector('.text-muted');
     if (
       placeholder &&
       (placeholder.textContent === 'No actions yet' ||
         placeholder.textContent === i18next.t('web:controls.no_actions_yet'))
     )
       placeholder.remove();
-    var line = el('div', 'text-xs ' + (cls || ''));
+    const line = el('div', 'text-xs ' + (cls || ''));
     line.textContent = text;
     container.appendChild(line);
     container.scrollTop = container.scrollHeight;
   }
 
   async function loadBackupList() {
-    var container = $('#backup-list');
+    const container = $('#backup-list');
     if (!container) return;
     try {
-      var r = await apiFetch('/api/panel/backups');
+      const r = await apiFetch('/api/panel/backups');
       if (!r.ok) return;
-      var d = await r.json();
-      var backups = d.backups || [];
+      const d = await r.json();
+      const backups = d.backups || [];
       if (!backups.length) {
         container.classList.add('hidden');
         return;
       }
       container.classList.remove('hidden');
       container.innerHTML = '<div class="text-[10px] text-muted uppercase tracking-wider mb-1">Recent Backups</div>';
-      for (var i = 0; i < Math.min(backups.length, 10); i++) {
-        var b = backups[i];
-        var row = el('div', 'flex items-center justify-between text-xs py-1 border-b border-border/20');
-        var dateStr = b.created ? fmtDateTime(b.created) : '-';
-        var sizeStr = b.size > 0 ? formatBytes(b.size) : '';
-        var sourceBadge =
+      for (let i = 0; i < Math.min(backups.length, 10); i++) {
+        const b = backups[i];
+        const row = el('div', 'flex items-center justify-between text-xs py-1 border-b border-border/20');
+        const dateStr = b.created ? fmtDateTime(b.created) : '-';
+        const sizeStr = b.size > 0 ? formatBytes(b.size) : '';
+        const sourceBadge =
           b.source === 'panel'
             ? '<span class="text-[9px] bg-accent/10 text-accent px-1 py-0.5 rounded">Panel</span>'
             : '<span class="text-[9px] bg-surface-50 text-muted px-1 py-0.5 rounded">Local</span>';

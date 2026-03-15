@@ -9,9 +9,9 @@ Panel.shared = Panel.shared || {};
 (function () {
   'use strict';
 
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
 
   // ── Utilities (also exposed on Panel.core.utils for other modules) ──
 
@@ -38,7 +38,7 @@ Panel.shared = Panel.shared || {};
   function entityLink(name, type, opts) {
     if (!name) return '';
     opts = opts || {};
-    var escaped = esc(name);
+    const escaped = esc(name);
     // Players — use player-link with steam ID
     if (type === 'player') {
       return (
@@ -50,8 +50,8 @@ Panel.shared = Panel.shared || {};
       );
     }
     // Everything else — use entity-link which navigates to DB tab
-    var table = opts.table || '';
-    var search = opts.search || name;
+    let table = opts.table || '';
+    let search = opts.search || name;
     if (!table) {
       // Infer table from type
       if (type === 'item') table = 'item_instances';
@@ -62,7 +62,7 @@ Panel.shared = Panel.shared || {};
       else if (type === 'ai' || type === 'zombie') table = 'activity_log';
       else table = 'activity_log';
     }
-    var cls = opts.cls || 'text-accent';
+    const cls = opts.cls || 'text-accent';
     return (
       '<span class="entity-link cursor-pointer hover:underline ' +
       cls +
@@ -98,11 +98,11 @@ Panel.shared = Panel.shared || {};
 
   function groupActivityEvents(events) {
     if (!events || !events.length) return [];
-    var grouped = [];
-    var i = 0;
+    const grouped = [];
+    let i = 0;
     while (i < events.length) {
-      var e = events[i];
-      var groupable =
+      const e = events[i];
+      const groupable =
         e.type === 'container_loot' ||
         e.type === 'player_build' ||
         e.type === 'container_item_added' ||
@@ -117,15 +117,15 @@ Panel.shared = Panel.shared || {};
         i++;
         continue;
       }
-      var batch = [e];
-      var j = i + 1;
+      const batch = [e];
+      let j = i + 1;
       while (
         j < events.length &&
         events[j].type === e.type &&
         (events[j].actor || events[j].steam_id) === (e.actor || e.steam_id)
       ) {
-        var tA = e.created_at ? new Date(e.created_at).getTime() : 0;
-        var tB = events[j].created_at ? new Date(events[j].created_at).getTime() : 0;
+        const tA = e.created_at ? new Date(e.created_at).getTime() : 0;
+        const tB = events[j].created_at ? new Date(events[j].created_at).getTime() : 0;
         if (Math.abs(tA - tB) > 120000) break;
         batch.push(events[j]);
         j++;
@@ -137,16 +137,16 @@ Panel.shared = Panel.shared || {};
   }
 
   function formatActivityEvent(e) {
-    var actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
-    var target = stripRconTags(e.target_name || e.target_steam_id || '');
-    var actorHtml =
+    const actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
+    const target = stripRconTags(e.target_name || e.target_steam_id || '');
+    const actorHtml =
       '<span class="player-link" data-steam-id="' + esc(e.steam_id || e.actor || '') + '">' + esc(actor) + '</span>';
-    var targetHtml = target
+    const targetHtml = target
       ? '<span class="player-link" data-steam-id="' + esc(e.target_steam_id || '') + '">' + esc(target) + '</span>'
       : '';
-    var itemName = stripRconTags(e.item || '');
+    const itemName = stripRconTags(e.item || '');
 
-    var _itype = 'item';
+    let _itype = 'item';
     if (
       e.type === 'player_build' ||
       e.type === 'structure_placed' ||
@@ -171,12 +171,12 @@ Panel.shared = Panel.shared || {};
     )
       _itype = 'item';
     else if (e.type === 'raid_damage') _itype = 'structure';
-    var itemHtml = itemName ? entityLink(itemName, _itype) : '';
+    const itemHtml = itemName ? entityLink(itemName, _itype) : '';
 
-    var _a = function (k) {
+    const _a = function (k) {
       return i18next.t('web:activity.' + k);
     };
-    var map = {
+    const map = {
       player_connect: { icon: '\u2192', text: actorHtml + ' <strong>' + _a('connected') + '</strong>' },
       player_disconnect: { icon: '\u2190', text: actorHtml + ' <strong>' + _a('disconnected') + '</strong>' },
       player_death: {
@@ -384,20 +384,20 @@ Panel.shared = Panel.shared || {};
         container.innerHTML = '<div class="feed-empty">' + i18next.t('web:empty_states.no_events') + '</div>';
       return;
     }
-    var limit = compact ? 15 : events.length;
-    var sliced = events.slice(0, limit);
-    var groups = groupActivityEvents(sliced);
-    for (var g = 0; g < groups.length; g++) {
-      var group = groups[g];
-      var e = group.events[0];
+    const limit = compact ? 15 : events.length;
+    const sliced = events.slice(0, limit);
+    const groups = groupActivityEvents(sliced);
+    for (let g = 0; g < groups.length; g++) {
+      const group = groups[g];
+      const e = group.events[0];
       if (group.count === 1) {
-        var item = el('div', 'feed-item fade-in');
-        var time = e.created_at
+        const item = el('div', 'feed-item fade-in');
+        const time = e.created_at
           ? window.fmtTime
             ? window.fmtTime(new Date(e.created_at))
             : new Date(e.created_at).toLocaleTimeString()
           : '';
-        var fmt = formatActivityEvent(e);
+        const fmt = formatActivityEvent(e);
         item.innerHTML =
           '<span class="feed-time">' +
           time +
@@ -408,32 +408,32 @@ Panel.shared = Panel.shared || {};
           '</span>';
         container.appendChild(item);
       } else {
-        var items = {};
-        for (var k = 0; k < group.events.length; k++) {
-          var ev = group.events[k];
-          var name = stripRconTags(ev.item || ev.type);
+        const items = {};
+        for (let k = 0; k < group.events.length; k++) {
+          const ev = group.events[k];
+          const name = stripRconTags(ev.item || ev.type);
           items[name] = (items[name] || 0) + (ev.amount || 1);
         }
-        var summary = Object.keys(items)
+        const summary = Object.keys(items)
           .map(function (n) {
-            var t = /built|placed|destroyed/.test(e.type) ? 'structure' : 'item';
+            const t = /built|placed|destroyed/.test(e.type) ? 'structure' : 'item';
             return entityLink(n, t) + (items[n] > 1 ? ' \u00d7' + items[n] : '');
           })
           .join(', ');
-        var fmt0 = formatActivityEvent(e);
-        var actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
-        var actorHtml =
+        const fmt0 = formatActivityEvent(e);
+        const actor = stripRconTags(e.actor_name || e.actor || e.steam_id || 'Unknown');
+        const actorHtml =
           '<span class="player-link" data-steam-id="' +
           esc(e.steam_id || e.actor || '') +
           '">' +
           esc(actor) +
           '</span>';
-        var time0 = e.created_at
+        const time0 = e.created_at
           ? window.fmtTime
             ? window.fmtTime(new Date(e.created_at))
             : new Date(e.created_at).toLocaleTimeString()
           : '';
-        var actionWord =
+        const actionWord =
           {
             container_loot: i18next.t('web:activity.looted'),
             player_build: i18next.t('web:activity.built'),
@@ -445,7 +445,7 @@ Panel.shared = Panel.shared || {};
             inventory_item_removed: i18next.t('web:activity.dropped'),
             container_destroyed: i18next.t('web:activity.destroyed'),
           }[e.type] || i18next.t('web:activity.did');
-        var groupEl = el('div', 'feed-item feed-group fade-in');
+        const groupEl = el('div', 'feed-item feed-group fade-in');
         groupEl.innerHTML =
           '<span class="feed-time">' +
           time0 +
@@ -463,28 +463,28 @@ Panel.shared = Panel.shared || {};
         groupEl.title = i18next.t('web:activity.click_to_expand', { count: group.count });
         groupEl.style.cursor = 'pointer';
         (function (groupEl2, groupEvents) {
-          var expanded = false;
+          let expanded = false;
           groupEl2.addEventListener('click', function () {
             if (expanded) {
-              var next = groupEl2.nextSibling;
+              let next = groupEl2.nextSibling;
               while (next && next.classList && next.classList.contains('feed-group-detail')) {
-                var rm = next;
+                const rm = next;
                 next = next.nextSibling;
                 rm.remove();
               }
               expanded = false;
               groupEl2.classList.remove('feed-group-open');
             } else {
-              var frag = document.createDocumentFragment();
-              for (var d = 0; d < groupEvents.length; d++) {
-                var de = groupEvents[d];
-                var di = el('div', 'feed-item feed-group-detail fade-in');
-                var dt = de.created_at
+              const frag = document.createDocumentFragment();
+              for (let d = 0; d < groupEvents.length; d++) {
+                const de = groupEvents[d];
+                const di = el('div', 'feed-item feed-group-detail fade-in');
+                const dt = de.created_at
                   ? window.fmtTime
                     ? window.fmtTime(new Date(de.created_at))
                     : new Date(de.created_at).toLocaleTimeString()
                   : '';
-                var df = formatActivityEvent(de);
+                const df = formatActivityEvent(de);
                 di.innerHTML =
                   '<span class="feed-time">' +
                   dt +
@@ -508,16 +508,16 @@ Panel.shared = Panel.shared || {};
 
   // ── Paging state (shared so nav can reset) ──────────────────────
 
-  var ACTIVITY_PAGE_SIZE = 100;
-  var activityOffset = 0;
-  var activityHasMore = false;
+  const ACTIVITY_PAGE_SIZE = 100;
+  let activityOffset = 0;
+  let activityHasMore = false;
 
   function resetActivityPaging() {
     activityOffset = 0;
     activityHasMore = false;
-    var container = $('#activity-feed');
+    const container = $('#activity-feed');
     if (container) container.innerHTML = '';
-    var btn = $('#activity-load-more');
+    const btn = $('#activity-load-more');
     if (btn) btn.classList.add('hidden');
   }
 
@@ -526,7 +526,7 @@ Panel.shared = Panel.shared || {};
   }
 
   // Wire up the "Load More" button (no inline onclick needed)
-  var _lmBtn = $('#activity-load-more-btn');
+  const _lmBtn = $('#activity-load-more-btn');
   if (_lmBtn)
     _lmBtn.addEventListener('click', function () {
       loadMore();

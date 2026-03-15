@@ -10,29 +10,29 @@ window.Panel = window.Panel || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var getDbTables = Panel.core.getDbTables;
-  var switchTab = Panel.nav.switchTab;
-  var setBreadcrumbs = Panel.nav.setBreadcrumbs;
-  var getTabLabels = Panel.nav.getTabLabels;
-  var showToast = Panel.core.utils.showToast;
-  var clampToViewport = Panel.core.utils.clampToViewport;
-  var resetActivityPaging = Panel.shared.activityFeed.resetPaging;
-  var showEntityPopup = Panel.shared.entityPopup.show;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const getDbTables = Panel.core.getDbTables;
+  const switchTab = Panel.nav.switchTab;
+  const setBreadcrumbs = Panel.nav.setBreadcrumbs;
+  const getTabLabels = Panel.nav.getTabLabels;
+  const showToast = Panel.core.utils.showToast;
+  const clampToViewport = Panel.core.utils.clampToViewport;
+  const resetActivityPaging = Panel.shared.activityFeed.resetPaging;
+  const showEntityPopup = Panel.shared.entityPopup.show;
 
   // ══════════════════════════════════════════════════
   //  UTILITIES
   // ══════════════════════════════════════════════════
 
   function debounce(fn, ms) {
-    var timer;
+    let timer;
     return function () {
-      var args = arguments;
+      const args = arguments;
       clearTimeout(timer);
       timer = setTimeout(function () {
         fn.apply(null, args);
@@ -42,14 +42,14 @@ window.Panel = window.Panel || {};
 
   function appendLog(container, text, cls) {
     if (!container) return;
-    var placeholder = container.querySelector('.text-muted');
+    const placeholder = container.querySelector('.text-muted');
     if (
       placeholder &&
       (placeholder.textContent === 'No actions yet' ||
         placeholder.textContent === i18next.t('web:controls.no_actions_yet'))
     )
       placeholder.remove();
-    var line = el('div', 'text-xs ' + (cls || ''));
+    const line = el('div', 'text-xs ' + (cls || ''));
     line.textContent = text;
     container.appendChild(line);
     container.scrollTop = container.scrollHeight;
@@ -60,19 +60,19 @@ window.Panel = window.Panel || {};
   // ══════════════════════════════════════════════════
 
   function setupCopyBtn(btnSel, textSel) {
-    var btn = $(btnSel);
-    var textEl = $(textSel);
+    const btn = $(btnSel);
+    const textEl = $(textSel);
     if (!btn || !textEl) return;
     btn.addEventListener('click', async function (e) {
       e.preventDefault();
       e.stopPropagation();
-      var text = textEl.textContent.trim();
+      const text = textEl.textContent.trim();
       if (!text || text === '-') return;
       try {
         await navigator.clipboard.writeText(text);
         showCopyFeedback(btn);
       } catch (_err) {
-        var ta = document.createElement('textarea');
+        const ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed';
         ta.style.left = '-999px';
@@ -91,13 +91,13 @@ window.Panel = window.Panel || {};
 
   function showCopyFeedback(btn) {
     // Works with both Lucide <i> elements and raw <svg>
-    var icon = btn.querySelector('svg') || btn.querySelector('i[data-lucide]');
+    const icon = btn.querySelector('svg') || btn.querySelector('i[data-lucide]');
     if (icon) {
-      var origHtml = icon.outerHTML;
+      const origHtml = icon.outerHTML;
       icon.outerHTML = '<i data-lucide="check" class="w-4 h-4 text-calm"></i>';
       if (window.lucide) lucide.createIcons({ nodes: [btn] });
       setTimeout(function () {
-        var check = btn.querySelector('svg') || btn.querySelector('i[data-lucide]');
+        const check = btn.querySelector('svg') || btn.querySelector('i[data-lucide]');
         if (check) {
           check.outerHTML = origHtml;
           if (window.lucide) lucide.createIcons({ nodes: [btn] });
@@ -113,33 +113,33 @@ window.Panel = window.Panel || {};
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     // Item popup
-    var popup = document.querySelector('.item-popup');
+    const popup = document.querySelector('.item-popup');
     if (popup) {
       popup.remove();
       return;
     }
     // Settings diff modal
-    var sdm = $('#settings-diff-modal');
+    const sdm = $('#settings-diff-modal');
     if (sdm && !sdm.classList.contains('hidden')) {
       sdm.classList.add('hidden');
       return;
     }
     // Player modal
-    var pm = $('#player-modal');
+    const pm = $('#player-modal');
     if (pm && !pm.classList.contains('hidden')) {
       pm.classList.add('hidden');
       setBreadcrumbs([{ label: getTabLabels()[S.currentTab] || S.currentTab }]);
       return;
     }
     // Item detail modal
-    var idm = $('#item-detail-modal');
+    const idm = $('#item-detail-modal');
     if (idm && !idm.classList.contains('hidden')) {
       idm.classList.add('hidden');
       setBreadcrumbs([{ label: getTabLabels()[S.currentTab] || S.currentTab }]);
       return;
     }
     // Map detail panel
-    var mdp = $('#map-player-detail');
+    const mdp = $('#map-player-detail');
     if (mdp && !mdp.classList.contains('hidden')) {
       mdp.classList.add('hidden');
       return;
@@ -152,9 +152,9 @@ window.Panel = window.Panel || {};
 
   function _timeAgo(dateStr) {
     if (!dateStr) return '-';
-    var d = new Date(dateStr + 'Z');
-    var now = Date.now();
-    var diff = Math.max(0, now - d.getTime());
+    let d = new Date(dateStr + 'Z');
+    const now = Date.now();
+    const diff = Math.max(0, now - d.getTime());
     if (diff < 60000) return 'now';
     if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
     if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
@@ -165,7 +165,7 @@ window.Panel = window.Panel || {};
     if (!id) return '?';
     if (/^\d{17}$/.test(id)) return '…' + id.slice(-6);
     if (id.startsWith('pickup_') || id.startsWith('backpack_')) {
-      var parts = id.split('_');
+      const parts = id.split('_');
       return parts[0] + ' @' + parts.slice(1).join(',');
     }
     if (id.length > 24) return id.slice(0, 20) + '…';
@@ -173,7 +173,7 @@ window.Panel = window.Panel || {};
   }
 
   function _formatLocationType(type) {
-    var map = {
+    const map = {
       player: i18next.t('web:location_type.player'),
       container: i18next.t('web:location_type.container'),
       vehicle: i18next.t('web:location_type.vehicle'),
@@ -188,19 +188,19 @@ window.Panel = window.Panel || {};
 
   function showItemPopup(slot) {
     // Remove any existing popup
-    var old = document.querySelector('.item-popup');
+    const old = document.querySelector('.item-popup');
     if (old) old.remove();
 
-    var name = slot.dataset.itemName || 'Unknown';
-    var qty = slot.dataset.itemQty || '';
-    var dur = slot.dataset.itemDur || '';
-    var fp = slot.dataset.itemFp || '';
-    var ammo = slot.dataset.itemAmmo || '';
-    var attachStr = slot.dataset.itemAttach || '';
-    var maxDur = slot.dataset.itemMaxdur || '';
+    const name = slot.dataset.itemName || 'Unknown';
+    const qty = slot.dataset.itemQty || '';
+    const dur = slot.dataset.itemDur || '';
+    const fp = slot.dataset.itemFp || '';
+    const ammo = slot.dataset.itemAmmo || '';
+    const attachStr = slot.dataset.itemAttach || '';
+    const maxDur = slot.dataset.itemMaxdur || '';
 
     // Parse attachments
-    var attachments = [];
+    let attachments = [];
     if (attachStr) {
       try {
         attachments = JSON.parse(attachStr);
@@ -208,15 +208,15 @@ window.Panel = window.Panel || {};
     }
 
     // Determine the player context (whose inventory is this item in?)
-    var contextSteamId = '';
-    var parentContent = slot.closest('#player-modal-content, #map-detail-content');
+    let contextSteamId = '';
+    const parentContent = slot.closest('#player-modal-content, #map-detail-content');
     if (parentContent) contextSteamId = parentContent.dataset.steamId || '';
 
     // Count how many players have this item (client-side scan)
-    var owners = [];
-    for (var i = 0; i < S.players.length; i++) {
-      var p = S.players[i];
-      var count = countItemInPlayer(p, name);
+    const owners = [];
+    for (let i = 0; i < S.players.length; i++) {
+      const p = S.players[i];
+      let count = countItemInPlayer(p, name);
       if (count > 0) owners.push({ name: p.name, steamId: p.steamId, count: count });
     }
     owners.sort(function (a, b) {
@@ -224,20 +224,20 @@ window.Panel = window.Panel || {};
     });
 
     // If this specific item has a fingerprint, identify who holds THIS instance
-    var isTrackedInstance = !!fp;
-    var instanceHolder = '';
+    const isTrackedInstance = !!fp;
+    let instanceHolder = '';
     if (isTrackedInstance && contextSteamId) {
-      var holder = S.players.find(function (pl) {
+      const holder = S.players.find(function (pl) {
         return pl.steamId === contextSteamId;
       });
       if (holder) instanceHolder = holder.name;
     }
 
-    var popup = document.createElement('div');
+    const popup = document.createElement('div');
     popup.className = 'item-popup';
 
     // Build header with close button
-    var html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
+    let html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
     html += '<div class="item-popup-body">';
 
     // Instance badge — highlight that this is a tracked specific item
@@ -254,8 +254,8 @@ window.Panel = window.Panel || {};
     html += '<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mb-2">';
     if (qty) html += `<div><span class="text-muted">${i18next.t('web:item_popup.quantity')}:</span> ${qty}</div>`;
     if (dur) {
-      var durN = parseInt(dur, 10);
-      var durCol = durN > 60 ? 'text-emerald-400' : durN > 25 ? 'text-amber-400' : 'text-red-400';
+      const durN = parseInt(dur, 10);
+      const durCol = durN > 60 ? 'text-emerald-400' : durN > 25 ? 'text-amber-400' : 'text-red-400';
       html += `<div><span class="text-muted">${i18next.t('web:item_popup.durability')}:</span> <span class="${durCol}">${dur}%</span>`;
       if (maxDur)
         html += ` <span class="text-muted text-[10px]">(${i18next.t('web:item_popup.max')} ${parseFloat(maxDur).toFixed(1)})</span>`;
@@ -283,7 +283,7 @@ window.Panel = window.Panel || {};
         html += `<div class="text-xs text-muted mt-1 mb-1">${i18next.t('web:item_popup.held_by_players', { count: owners.length })}</div>`;
       }
       html += '<div class="item-popup-owners">';
-      for (var oi = 0; oi < Math.min(owners.length, 6); oi++) {
+      for (let oi = 0; oi < Math.min(owners.length, 6); oi++) {
         html += `<div class="text-xs"><span class="player-link cursor-pointer hover:underline text-accent" data-steam-id="${esc(owners[oi].steamId)}">${esc(owners[oi].name)}</span> <span class="text-muted">\u00d7${owners[oi].count}</span></div>`;
       }
       if (owners.length > 6)
@@ -302,11 +302,11 @@ window.Panel = window.Panel || {};
 
     // Quick links
     html += '<div class="mt-2 flex gap-2 flex-wrap">';
-    var actSearchVal = fp ? name + '#' + fp : name;
+    const actSearchVal = fp ? name + '#' + fp : name;
     html += `<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="${esc(actSearchVal)}">${fp ? '\ud83d\udd0d ' + i18next.t('web:item_popup.track_item') : i18next.t('web:item_popup.activity_log')} \u2192</span>`;
     if (S.tier >= 3) {
       // admin
-      var dbSearch = fp || name;
+      const dbSearch = fp || name;
       html += `<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_instances" data-search="${esc(dbSearch)}">${i18next.t('web:item_popup.item_db')} \u2192</span>`;
       html += `<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_movements" data-search="${esc(dbSearch)}">${i18next.t('web:item_popup.movements')} \u2192</span>`;
     }
@@ -315,7 +315,7 @@ window.Panel = window.Panel || {};
     popup.innerHTML = html;
 
     // Position near the slot, then clamp to viewport
-    var rect = slot.getBoundingClientRect();
+    const rect = slot.getBoundingClientRect();
     popup.style.position = 'fixed';
     popup.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + 'px';
     popup.style.top = Math.max(rect.top - 20, 8) + 'px';
@@ -332,30 +332,30 @@ window.Panel = window.Panel || {};
 
   /** Fetch item tracking data from the fingerprint API and update the popup */
   async function _fetchItemTrackingData(fingerprint, itemName, steamId) {
-    var container = document.getElementById('item-tracking-data');
+    const container = document.getElementById('item-tracking-data');
     if (!container) return;
 
     try {
-      var params = [];
+      const params = [];
       if (fingerprint) params.push('fingerprint=' + encodeURIComponent(fingerprint));
       if (itemName) params.push('item=' + encodeURIComponent(itemName));
       if (steamId) params.push('steamId=' + encodeURIComponent(steamId));
-      var url = '/api/panel/items/lookup?' + params.join('&');
+      const url = '/api/panel/items/lookup?' + params.join('&');
 
-      var r = await apiFetch(url);
+      const r = await apiFetch(url);
       if (!r.ok) {
         container.innerHTML = '<div class="text-[10px] text-muted">No tracking data available</div>';
         return;
       }
 
-      var data = await r.json();
+      const data = await r.json();
       if (!data.match) {
         container.innerHTML = `<div class="text-[10px] text-muted">${i18next.t('web:item_popup.not_tracked')}</div>`;
         return;
       }
 
-      var html = '';
-      var m = data.match;
+      let html = '';
+      const m = data.match;
 
       // Instance/group identity
       html += '<div class="text-[10px] font-semibold text-white mb-1">';
@@ -381,8 +381,8 @@ window.Panel = window.Panel || {};
       if (data.ownershipChain && data.ownershipChain.length > 0) {
         html += `<div class="text-[10px] text-muted mb-0.5">${i18next.t('web:item_popup.ownership_chain')}:</div>`;
         html += '<div class="flex flex-wrap gap-1 mb-1.5">';
-        for (var oi = 0; oi < Math.min(data.ownershipChain.length, 8); oi++) {
-          var owner = data.ownershipChain[oi];
+        for (let oi = 0; oi < Math.min(data.ownershipChain.length, 8); oi++) {
+          const owner = data.ownershipChain[oi];
           html += `<span class="player-link cursor-pointer hover:underline inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" data-steam-id="${esc(owner.steamId)}">`;
           html += esc(owner.name);
           html += '</span>';
@@ -395,15 +395,15 @@ window.Panel = window.Panel || {};
       }
 
       // Recent movements (last 5)
-      var movements = data.movements || [];
+      const movements = data.movements || [];
       if (movements.length > 0) {
-        var showCount = Math.min(movements.length, 5);
+        const showCount = Math.min(movements.length, 5);
         html += '<div class="text-[10px] text-muted mb-0.5">Recent movements:</div>';
         html += '<div class="space-y-0.5 max-h-28 overflow-y-auto">';
         // Show most recent first
-        var recentMovements = movements.slice(-showCount).reverse();
-        for (var mi = 0; mi < recentMovements.length; mi++) {
-          var mv = recentMovements[mi];
+        const recentMovements = movements.slice(-showCount).reverse();
+        for (let mi = 0; mi < recentMovements.length; mi++) {
+          const mv = recentMovements[mi];
           html += '<div class="flex items-center gap-1 text-[10px] py-0.5">';
           html += `<span class="text-muted font-mono shrink-0">${_timeAgo(mv.created_at)}</span>`;
           html += _locationBadgeMini(mv.from_type, mv.from_id, mv.from_name);
@@ -430,7 +430,7 @@ window.Panel = window.Panel || {};
 
   /** Mini location badge for item popup movement history */
   function _locationBadgeMini(type, id, resolvedName) {
-    var colors = {
+    const colors = {
       player: 'text-emerald-400',
       container: 'text-purple-400',
       vehicle: 'text-amber-400',
@@ -440,28 +440,28 @@ window.Panel = window.Panel || {};
       backpack: 'text-orange-400',
       global_container: 'text-indigo-400',
     };
-    var cls = colors[type] || 'text-muted';
-    var label = resolvedName || _shortenId(id);
+    const cls = colors[type] || 'text-muted';
+    const label = resolvedName || _shortenId(id);
     if (type === 'player') {
       return `<span class="${cls} player-link cursor-pointer hover:underline" data-steam-id="${esc(id || '')}">${esc(label)}</span>`;
     }
     if ((type === 'container' || type === 'vehicle' || type === 'structure' || type === 'horse') && id) {
-      var entityTable = type === 'horse' ? 'world_horses' : type + 's';
+      const entityTable = type === 'horse' ? 'world_horses' : type + 's';
       return `<span class="${cls} entity-link cursor-pointer hover:underline" data-entity-table="${entityTable}" data-entity-search="${esc(id)}">${esc(_formatLocationType(type))}:${esc(label)}</span>`;
     }
     return `<span class="${cls}">${esc(_formatLocationType(type))}:${esc(label)}</span>`;
   }
 
   function countItemInPlayer(player, itemName) {
-    var count = 0;
-    var bags = [player.equipment, player.quickSlots, player.inventory, player.backpackItems];
-    for (var b = 0; b < bags.length; b++) {
-      var bag = bags[b];
+    let count = 0;
+    const bags = [player.equipment, player.quickSlots, player.inventory, player.backpackItems];
+    for (let b = 0; b < bags.length; b++) {
+      const bag = bags[b];
       if (!bag) continue;
-      for (var j = 0; j < bag.length; j++) {
-        var item = bag[j];
+      for (let j = 0; j < bag.length; j++) {
+        const item = bag[j];
         if (!item) continue;
-        var n = typeof item === 'string' ? item : item.item || item.name || '';
+        const n = typeof item === 'string' ? item : item.item || item.name || '';
         if (n === itemName) count += typeof item === 'object' ? item.amount || item.quantity || 1 : 1;
       }
     }
@@ -475,9 +475,9 @@ window.Panel = window.Panel || {};
   /** Load server list and build the carousel switcher */
   async function loadServerList() {
     try {
-      var r = await fetch('/api/servers');
+      const r = await fetch('/api/servers');
       if (!r.ok) return;
-      var d = await r.json();
+      let d = await r.json();
       S.multiServer = d.multiServer || false;
       S.serverList = d.servers || [];
       if (!S.multiServer || !d.servers || d.servers.length <= 1) return;
@@ -490,13 +490,13 @@ window.Panel = window.Panel || {};
   }
 
   function populateDbTableSelects() {
-    var dbTables = getDbTables();
-    var dbSelect = $('#db-table');
+    const dbTables = getDbTables();
+    const dbSelect = $('#db-table');
     if (dbSelect) {
-      var prevDb = dbSelect.value;
+      const prevDb = dbSelect.value;
       dbSelect.innerHTML = '';
-      for (var i = 0; i < dbTables.length; i++) {
-        var opt = document.createElement('option');
+      for (let i = 0; i < dbTables.length; i++) {
+        const opt = document.createElement('option');
         opt.value = dbTables[i].value;
         opt.textContent = dbTables[i].label;
         dbSelect.appendChild(opt);
@@ -504,12 +504,12 @@ window.Panel = window.Panel || {};
       if (prevDb) dbSelect.value = prevDb;
     }
 
-    var qbTableSelect = $('#qb-table');
+    const qbTableSelect = $('#qb-table');
     if (qbTableSelect) {
-      var prevQb = qbTableSelect.value;
+      const prevQb = qbTableSelect.value;
       qbTableSelect.innerHTML = '';
-      for (var j = 0; j < dbTables.length; j++) {
-        var opt2 = document.createElement('option');
+      for (let j = 0; j < dbTables.length; j++) {
+        const opt2 = document.createElement('option');
         opt2.value = dbTables[j].value;
         opt2.textContent = dbTables[j].label;
         qbTableSelect.appendChild(opt2);
@@ -520,12 +520,12 @@ window.Panel = window.Panel || {};
 
   /** Render the server carousel (left/right arrows + server name) */
   function renderServerCarousel(servers) {
-    var bar = $('#server-bar');
+    const bar = $('#server-bar');
     if (!bar || servers.length <= 1) return;
 
     // Find current index
-    var idx = 0;
-    for (var i = 0; i < servers.length; i++) {
+    let idx = 0;
+    for (let i = 0; i < servers.length; i++) {
       if (servers[i].id === S.currentServer) {
         idx = i;
         break;
@@ -533,16 +533,16 @@ window.Panel = window.Panel || {};
     }
 
     function updateDisplay() {
-      var srv = servers[idx];
-      var nameEl = $('#srv-carousel-name');
-      var countEl = $('#srv-carousel-count');
-      var dotEl = $('#srv-carousel-dot');
+      const srv = servers[idx];
+      const nameEl = $('#srv-carousel-name');
+      const countEl = $('#srv-carousel-count');
+      const dotEl = $('#srv-carousel-dot');
       if (nameEl) nameEl.textContent = srv.name || srv.id;
       if (countEl) countEl.textContent = idx + 1 + '/' + servers.length;
       // Update dot status from cached statuses
       if (dotEl) {
         dotEl.classList.remove('online', 'stale');
-        var st = S.serverStatuses[srv.id];
+        const st = S.serverStatuses[srv.id];
         if (st && st.status === 'online') dotEl.classList.add('online');
         else if (st && st.status === 'stale') dotEl.classList.add('stale');
       }
@@ -569,20 +569,20 @@ window.Panel = window.Panel || {};
   /** Update server carousel dot based on landing API statuses */
   async function updateServerCarouselStatus() {
     try {
-      var r = await fetch('/api/landing');
+      const r = await fetch('/api/landing');
       if (!r.ok) return;
-      var d = await r.json();
-      var allServers = [];
+      let d = await r.json();
+      const allServers = [];
       if (d.primary) allServers.push(d.primary);
-      if (d.servers) for (var i = 0; i < d.servers.length; i++) allServers.push(d.servers[i]);
+      if (d.servers) for (let i = 0; i < d.servers.length; i++) allServers.push(d.servers[i]);
       S.serverStatuses = {};
-      for (var j = 0; j < allServers.length; j++) {
-        var s = allServers[j];
+      for (let j = 0; j < allServers.length; j++) {
+        const s = allServers[j];
         S.serverStatuses[s.id || 'primary'] = s;
       }
       // Refresh dot for the currently displayed server
-      var dotEl = $('#srv-carousel-dot');
-      var st = S.serverStatuses[S.currentServer];
+      const dotEl = $('#srv-carousel-dot');
+      const st = S.serverStatuses[S.currentServer];
       if (dotEl) {
         dotEl.classList.remove('online', 'stale');
         if (st && st.status === 'online') dotEl.classList.add('online');
@@ -597,10 +597,10 @@ window.Panel = window.Panel || {};
   function switchServer(id) {
     S.currentServer = id;
     // Update carousel dot status
-    var dotEl = $('#srv-carousel-dot');
+    const dotEl = $('#srv-carousel-dot');
     if (dotEl) {
       dotEl.classList.remove('online', 'stale');
-      var st = S.serverStatuses[id];
+      const st = S.serverStatuses[id];
       if (st && st.status === 'online') dotEl.classList.add('online');
       else if (st && st.status === 'stale') dotEl.classList.add('stale');
     }
@@ -647,7 +647,7 @@ window.Panel = window.Panel || {};
 
     // Console — clear output so old server responses don't bleed through
     S.consoleBuf = [];
-    var consoleEl = $('#console-output');
+    const consoleEl = $('#console-output');
     if (consoleEl) consoleEl.innerHTML = '';
 
     // Database tab
@@ -663,9 +663,9 @@ window.Panel = window.Panel || {};
     if (Panel.tabs.timeline && Panel.tabs.timeline.reset) Panel.tabs.timeline.reset();
 
     // Dashboard cards — hide all so they don't carry between servers
-    var hideDash = ['schedule-card', 'resources-card', 'hzmod-card', 'dashboard-connect'];
+    const hideDash = ['schedule-card', 'resources-card', 'hzmod-card', 'dashboard-connect'];
     hideDash.forEach(function (elId) {
-      var elem = document.getElementById(elId);
+      const elem = document.getElementById(elId);
       if (elem) elem.classList.add('hidden');
     });
 
@@ -680,9 +680,9 @@ window.Panel = window.Panel || {};
 
   async function loadPlayersInBackground() {
     try {
-      var r = await apiFetch('/api/players');
+      const r = await apiFetch('/api/players');
       if (!r.ok) return;
-      var d = await r.json();
+      let d = await r.json();
       S.players = d.players || [];
       S.toggles = d.toggles || {};
       S.worldBounds = d.worldBounds || null;
@@ -692,11 +692,11 @@ window.Panel = window.Panel || {};
   function toggleViewMode() {
     if (S.tier < 3) return;
     S.viewMode = S.viewMode === 'admin' ? 'survivor' : 'admin';
-    var badge = $('#view-mode-badge');
+    const badge = $('#view-mode-badge');
     if (badge) badge.classList.toggle('hidden', S.viewMode === 'admin');
     $$('[data-min-tier]').forEach(function (elem) {
-      var min = parseInt(elem.dataset.minTier, 10);
-      var effectiveTier = S.viewMode === 'survivor' ? 1 : S.tier;
+      const min = parseInt(elem.dataset.minTier, 10);
+      const effectiveTier = S.viewMode === 'survivor' ? 1 : S.tier;
       if (effectiveTier < min) elem.classList.add('tier-hidden');
       else elem.classList.remove('tier-hidden');
     });
@@ -714,10 +714,10 @@ window.Panel = window.Panel || {};
 
     // Update breadcrumbs with new language
     if (S.breadcrumbs && S.breadcrumbs.length) {
-      var rootLabel = getTabLabels()[S.currentTab] || S.currentTab;
+      const rootLabel = getTabLabels()[S.currentTab] || S.currentTab;
       if (S.breadcrumbs.length > 1) {
-        var nextCrumbs = [{ label: rootLabel, action: 'tab' }];
-        for (var i = 1; i < S.breadcrumbs.length; i++) nextCrumbs.push(S.breadcrumbs[i]);
+        const nextCrumbs = [{ label: rootLabel, action: 'tab' }];
+        for (let i = 1; i < S.breadcrumbs.length; i++) nextCrumbs.push(S.breadcrumbs[i]);
         setBreadcrumbs(nextCrumbs);
       } else {
         setBreadcrumbs([{ label: rootLabel }]);
@@ -726,7 +726,7 @@ window.Panel = window.Panel || {};
 
     // Re-render current tab content with new language
     if (S.currentTab === 'settings') {
-      var settingsContainer = $('#settings-grid');
+      const settingsContainer = $('#settings-grid');
       if (!settingsContainer) return;
       if (S.settingsMode === 'bot') {
         if (S.botConfigSections && S.botConfigSections.length && Panel.tabs.settings)
@@ -738,7 +738,7 @@ window.Panel = window.Panel || {};
       }
     } else {
       // Re-render other tabs by reloading their content
-      var tabLoaders = {
+      const tabLoaders = {
         dashboard: Panel.tabs.dashboard ? Panel.tabs.dashboard.load : null,
         players: Panel.tabs.players ? Panel.tabs.players.load : null,
         activity: Panel.tabs.activity ? Panel.tabs.activity.loadActivity : null,
@@ -749,11 +749,11 @@ window.Panel = window.Panel || {};
     }
 
     // Re-render map player detail sidebar if open
-    var mapDetail = $('#map-player-detail');
+    const mapDetail = $('#map-player-detail');
     if (mapDetail && !mapDetail.classList.contains('hidden')) {
-      var steamId = $('#map-detail-content')?.dataset?.steamId;
+      const steamId = $('#map-detail-content')?.dataset?.steamId;
       if (steamId && S.players) {
-        var p = S.players.find(function (pl) {
+        const p = S.players.find(function (pl) {
           return pl.steamId === steamId;
         });
         if (p && Panel.tabs.map) Panel.tabs.map.showPlayerDetail(p);
@@ -761,11 +761,11 @@ window.Panel = window.Panel || {};
     }
 
     // Re-render player modal if open
-    var playerModal = $('#player-modal');
+    const playerModal = $('#player-modal');
     if (playerModal && !playerModal.classList.contains('hidden')) {
-      var modalSteamId = $('#player-modal-content')?.dataset?.steamId;
+      const modalSteamId = $('#player-modal-content')?.dataset?.steamId;
       if (modalSteamId && S.players) {
-        var mp = S.players.find(function (pl) {
+        const mp = S.players.find(function (pl) {
           return pl.steamId === modalSteamId;
         });
         if (mp && Panel.tabs.players) Panel.tabs.players.showPlayerModal(mp);
@@ -800,8 +800,8 @@ window.Panel = window.Panel || {};
     // Periodically re-check roles while in the panel (detects role revocation)
     S._panelRefreshPoll = setInterval(async function () {
       try {
-        var r = await fetch('/auth/refresh');
-        var d = await r.json();
+        const r = await fetch('/auth/refresh');
+        let d = await r.json();
         if (!d.authenticated || d.tierLevel < 1) {
           clearInterval(S._panelRefreshPoll);
           location.reload();
@@ -813,7 +813,7 @@ window.Panel = window.Panel || {};
           $('#user-tier').textContent = d.tier || '-';
           // Re-apply tier visibility on tab elements
           $$('[data-min-tier]').forEach(function (elem) {
-            var min = parseInt(elem.dataset.minTier, 10);
+            const min = parseInt(elem.dataset.minTier, 10);
             elem.classList.toggle('tier-hidden', S.tier < min);
           });
         }
@@ -821,7 +821,7 @@ window.Panel = window.Panel || {};
         /* ignore */
       }
     }, 120000); // every 2 minutes
-    var skyBg = $('#skyline-bg');
+    const skyBg = $('#skyline-bg');
     if (skyBg) skyBg.classList.add('panel-active');
 
     if (typeof gsap !== 'undefined') {
@@ -829,7 +829,7 @@ window.Panel = window.Panel || {};
     }
 
     if (S.user.avatar) {
-      var av = $('#user-avatar');
+      const av = $('#user-avatar');
       av.src = S.user.avatar;
       av.classList.remove('hidden');
     }
@@ -837,11 +837,11 @@ window.Panel = window.Panel || {};
     $('#user-tier').textContent = S.user.tier || '-';
 
     $$('[data-min-tier]').forEach(function (elem) {
-      var min = parseInt(elem.dataset.minTier, 10);
+      const min = parseInt(elem.dataset.minTier, 10);
       if (S.tier < min) elem.classList.add('tier-hidden');
     });
 
-    var userBlock = $('#user-block');
+    const userBlock = $('#user-block');
     if (userBlock && S.tier >= 3) userBlock.addEventListener('click', toggleViewMode);
 
     $$('.nav-link').forEach(function (link) {
@@ -855,52 +855,52 @@ window.Panel = window.Panel || {};
     setupCopyBtn('#copy-address-btn', '#landing-address');
     setupCopyBtn('#d-copy-btn', '#d-address');
 
-    var chatSendBtn = $('#chat-send-btn');
+    const chatSendBtn = $('#chat-send-btn');
     if (chatSendBtn) {
       chatSendBtn.addEventListener('click', function () {
         Panel.tabs.chat.send();
       });
-      var chatInput = $('#chat-msg-input');
+      const chatInput = $('#chat-msg-input');
       if (chatInput)
         chatInput.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') Panel.tabs.chat.send();
         });
     }
-    var chatSearchInput = $('#chat-search');
+    const chatSearchInput = $('#chat-search');
     if (chatSearchInput) chatSearchInput.addEventListener('input', debounce(Panel.tabs.chat.load, 400));
 
-    var rconSendBtn = $('#rcon-send-btn');
+    const rconSendBtn = $('#rcon-send-btn');
     if (rconSendBtn) {
       rconSendBtn.addEventListener('click', function () {
         if (Panel.tabs.console) Panel.tabs.console.sendRcon();
       });
-      var rconInput = $('#rcon-input');
+      const rconInput = $('#rcon-input');
       if (rconInput)
         rconInput.addEventListener('keydown', function (e) {
           if (Panel.tabs.console) Panel.tabs.console.handleKeydown(e);
         });
     }
-    var clearBtn = $('#console-clear-btn');
+    const clearBtn = $('#console-clear-btn');
     if (clearBtn)
       clearBtn.addEventListener('click', function () {
         S.consoleBuf = [];
-        var out = $('#console-output');
+        const out = $('#console-output');
         if (out) out.innerHTML = '<div class="console-line sys">Console cleared</div>';
       });
 
-    var cmdBtn = $('#cmd-helper-btn');
-    var cmdList = $('#cmd-helper-list');
+    const cmdBtn = $('#cmd-helper-btn');
+    const cmdList = $('#cmd-helper-list');
     if (cmdBtn && cmdList) {
       cmdBtn.addEventListener('click', function () {
         cmdList.classList.toggle('hidden');
       });
       document.addEventListener('click', function (e) {
-        var wrap = $('#cmd-helper-wrap');
+        const wrap = $('#cmd-helper-wrap');
         if (wrap && !wrap.contains(e.target)) cmdList.classList.add('hidden');
       });
       $$('.cmd-item', cmdList).forEach(function (item) {
         item.addEventListener('click', function () {
-          var input = $('#rcon-input');
+          const input = $('#rcon-input');
           if (input) {
             input.value = item.dataset.cmd;
             input.focus();
@@ -910,12 +910,12 @@ window.Panel = window.Panel || {};
       });
     }
 
-    var acWrap = $('#console-autocomplete');
+    const acWrap = $('#console-autocomplete');
     if (acWrap) {
       acWrap.addEventListener('click', function (e) {
-        var item = e.target.closest('.cmd-item');
+        const item = e.target.closest('.cmd-item');
         if (!item) return;
-        var input = $('#rcon-input');
+        const input = $('#rcon-input');
         if (input) {
           input.value = item.dataset.cmd;
           input.focus();
@@ -931,7 +931,7 @@ window.Panel = window.Panel || {};
       });
     });
 
-    var mapRefreshBtn = $('#map-refresh-btn');
+    const mapRefreshBtn = $('#map-refresh-btn');
     if (mapRefreshBtn)
       mapRefreshBtn.addEventListener('click', function () {
         if (Panel.tabs.map) Panel.tabs.map.refreshSnapshot();
@@ -939,17 +939,17 @@ window.Panel = window.Panel || {};
 
     $$('.quick-cmd[data-cmd]').forEach(function (btn) {
       btn.addEventListener('click', async function () {
-        var log = $('#controls-log');
-        var time = window.fmtTime ? window.fmtTime(new Date()) : new Date().toLocaleTimeString();
+        const log = $('#controls-log');
+        const time = window.fmtTime ? window.fmtTime(new Date()) : new Date().toLocaleTimeString();
         appendLog(log, '[' + time + '] > ' + btn.dataset.cmd, 'text-muted');
         try {
-          var r = await apiFetch('/api/panel/rcon', {
+          const r = await apiFetch('/api/panel/rcon', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: btn.dataset.cmd }),
           });
-          var d = await r.json();
-          var resp = d.response || d.error || i18next.t('web:rcon.no_response');
+          let d = await r.json();
+          const resp = d.response || d.error || i18next.t('web:rcon.no_response');
           appendLog(log, '[' + time + '] ' + resp, d.ok ? 'text-calm' : 'text-red-400');
           if (Panel.tabs.console) {
             Panel.tabs.console.appendConsole(btn.dataset.cmd, 'cmd');
@@ -963,19 +963,19 @@ window.Panel = window.Panel || {};
       });
     });
 
-    var ps = $('#player-search');
+    const ps = $('#player-search');
     if (ps)
       ps.addEventListener('input', function () {
         if (Panel.tabs.players) Panel.tabs.players.renderPlayers();
       });
-    var pso = $('#player-sort');
+    const pso = $('#player-sort');
     if (pso)
       pso.addEventListener('change', function () {
         if (Panel.tabs.players) Panel.tabs.players.renderPlayers();
       });
 
-    var pvTable = $('#player-view-table');
-    var pvCards = $('#player-view-cards');
+    const pvTable = $('#player-view-table');
+    const pvCards = $('#player-view-cards');
     if (pvTable)
       pvTable.addEventListener('click', function () {
         S.playerViewMode = 'table';
@@ -991,14 +991,14 @@ window.Panel = window.Panel || {};
         if (Panel.tabs.players) Panel.tabs.players.renderPlayers();
       });
 
-    var pmc = $('#player-modal-close');
+    const pmc = $('#player-modal-close');
     if (pmc)
       pmc.addEventListener('click', function () {
-        var m = $('#player-modal');
+        const m = $('#player-modal');
         if (m) m.classList.add('hidden');
         setBreadcrumbs([{ label: getTabLabels()[S.currentTab] || S.currentTab }]);
       });
-    var pm = $('#player-modal');
+    const pm = $('#player-modal');
     if (pm)
       pm.addEventListener('click', function (e) {
         if (e.target.id === 'player-modal') {
@@ -1007,19 +1007,19 @@ window.Panel = window.Panel || {};
         }
       });
 
-    var mdc = $('#map-detail-close');
+    const mdc = $('#map-detail-close');
     if (mdc)
       mdc.addEventListener('click', function () {
-        var mapPanel = $('#map-player-detail');
+        const mapPanel = $('#map-player-detail');
         if (mapPanel) mapPanel.classList.add('hidden');
       });
 
-    var ms = $('#map-search');
+    const ms = $('#map-search');
     if (ms)
       ms.addEventListener('input', function () {
         if (Panel.tabs.map) Panel.tabs.map.filterPlayers();
       });
-    var mso = $('#map-show-offline');
+    const mso = $('#map-show-offline');
     if (mso)
       mso.addEventListener('change', function () {
         if (Panel.tabs.map) {
@@ -1029,7 +1029,7 @@ window.Panel = window.Panel || {};
       });
 
     ['structures', 'vehicles', 'containers', 'companions'].forEach(function (layer) {
-      var cb = $('#map-layer-' + layer);
+      const cb = $('#map-layer-' + layer);
       if (cb)
         cb.addEventListener('change', function () {
           if (Panel.tabs.map) Panel.tabs.map.load();
@@ -1037,7 +1037,7 @@ window.Panel = window.Panel || {};
     });
 
     // Activity category pills
-    var pills = $$('.activity-pill');
+    const pills = $$('.activity-pill');
     pills.forEach(function (pill) {
       pill.addEventListener('click', function () {
         pills.forEach(function (p2) {
@@ -1049,7 +1049,7 @@ window.Panel = window.Panel || {};
         if (Panel.tabs.activity) Panel.tabs.activity.loadActivity();
       });
     });
-    var as = $('#activity-search');
+    const as = $('#activity-search');
     if (as)
       as.addEventListener(
         'input',
@@ -1058,19 +1058,19 @@ window.Panel = window.Panel || {};
           if (Panel.tabs.activity) Panel.tabs.activity.loadActivity();
         }, 300),
       );
-    var ad = $('#activity-date');
+    const ad = $('#activity-date');
     if (ad)
       ad.addEventListener('change', function () {
         resetActivityPaging();
         if (Panel.tabs.activity) Panel.tabs.activity.loadActivity();
       });
     // Charts toggle
-    var actChartToggle = $('#activity-toggle-charts');
+    const actChartToggle = $('#activity-toggle-charts');
     if (actChartToggle)
       actChartToggle.addEventListener('click', function () {
-        var chartPanel = $('#activity-charts-panel');
+        const chartPanel = $('#activity-charts-panel');
         if (chartPanel) {
-          var show = chartPanel.classList.toggle('hidden');
+          const show = chartPanel.classList.toggle('hidden');
           if (!show && !S.activityChartsLoaded) {
             if (Panel.tabs.activity) Panel.tabs.activity.loadActivityStats();
             S.activityChartsLoaded = true;
@@ -1079,15 +1079,15 @@ window.Panel = window.Panel || {};
       });
 
     // Fingerprint tracker controls
-    var fpClose = $('#fp-close');
+    const fpClose = $('#fp-close');
     if (fpClose)
       fpClose.addEventListener('click', function () {
         if (Panel.tabs.items) Panel.tabs.items.hideFingerprintTracker();
-        var searchEl = $('#activity-search');
+        const searchEl = $('#activity-search');
         if (searchEl) {
           // Strip the #fingerprint part, keep just the item name
-          var val = searchEl.value;
-          var hashIdx = val.indexOf('#');
+          const val = searchEl.value;
+          const hashIdx = val.indexOf('#');
           if (hashIdx > -1) {
             searchEl.value = val.slice(0, hashIdx);
             resetActivityPaging();
@@ -1095,20 +1095,20 @@ window.Panel = window.Panel || {};
           }
         }
       });
-    var fpLimit = $('#fp-limit');
+    const fpLimit = $('#fp-limit');
     if (fpLimit)
       fpLimit.addEventListener('change', function () {
         // Re-trigger the tracker with updated limit
-        var searchEl = $('#activity-search');
+        const searchEl = $('#activity-search');
         if (searchEl) {
-          var val = searchEl.value;
-          var fpMatch = val.match(/^(.+)#([a-f0-9]{6,})$/i);
+          const val = searchEl.value;
+          const fpMatch = val.match(/^(.+)#([a-f0-9]{6,})$/i);
           if (fpMatch && Panel.tabs.items)
             Panel.tabs.items.showFingerprintTracker(fpMatch[1].trim(), fpMatch[2].trim());
         }
       });
 
-    var cs = $('#clan-search');
+    const cs = $('#clan-search');
     if (cs)
       cs.addEventListener(
         'input',
@@ -1116,45 +1116,45 @@ window.Panel = window.Panel || {};
           if (Panel.tabs.clans) Panel.tabs.clans.load();
         }, 300),
       );
-    var cso = $('#clan-sort');
+    const cso = $('#clan-sort');
     if (cso)
       cso.addEventListener('change', function () {
         if (Panel.tabs.clans) Panel.tabs.clans.load();
       });
 
-    var ss = $('#settings-search');
+    const ss = $('#settings-search');
     if (ss)
       ss.addEventListener('input', function () {
         if (Panel.tabs.settings) Panel.tabs.settings.filterSettings();
       });
-    var sb = $('#settings-save-btn');
+    const sb = $('#settings-save-btn');
     if (sb)
       sb.addEventListener('click', function () {
         if (Panel.tabs.settings) Panel.tabs.settings.showSettingsDiff();
       });
-    var srb = $('#settings-reset-btn');
+    const srb = $('#settings-reset-btn');
     if (srb)
       srb.addEventListener('click', function () {
         if (Panel.tabs.settings) Panel.tabs.settings.resetSettingsChanges();
       });
 
-    var sdc = $('#settings-diff-close');
+    const sdc = $('#settings-diff-close');
     if (sdc)
       sdc.addEventListener('click', function () {
         $('#settings-diff-modal').classList.add('hidden');
       });
-    var sdCancel = $('#settings-diff-cancel');
+    const sdCancel = $('#settings-diff-cancel');
     if (sdCancel)
       sdCancel.addEventListener('click', function () {
         $('#settings-diff-modal').classList.add('hidden');
       });
-    var sdConfirm = $('#settings-diff-confirm');
+    const sdConfirm = $('#settings-diff-confirm');
     if (sdConfirm)
       sdConfirm.addEventListener('click', function () {
         $('#settings-diff-modal').classList.add('hidden');
         if (Panel.tabs.settings) Panel.tabs.settings.commitSettings();
       });
-    var sdModal = $('#settings-diff-modal');
+    const sdModal = $('#settings-diff-modal');
     if (sdModal)
       sdModal.addEventListener('click', function (e) {
         if (e.target === sdModal) sdModal.classList.add('hidden');
@@ -1163,22 +1163,22 @@ window.Panel = window.Panel || {};
     // Settings mode toggle (Game Server / Bot Config / Schedule)
     $$('.settings-mode-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var mode = btn.dataset.mode;
+        const mode = btn.dataset.mode;
         if (mode === S.settingsMode) return;
         S.settingsMode = mode;
         $$('.settings-mode-btn').forEach(function (b) {
           b.classList.toggle('active', b.dataset.mode === mode);
         });
-        var searchEl = $('#settings-search');
+        const searchEl = $('#settings-search');
         if (searchEl) searchEl.value = '';
-        var restartBadge = $('#settings-restart-badge');
+        const restartBadge = $('#settings-restart-badge');
         if (restartBadge) restartBadge.classList.add('hidden');
         // Hide/show settings-specific toolbar items based on mode
-        var saveBtn = $('#settings-save-btn');
-        var resetBtn = $('#settings-reset-btn');
-        var changeCount = $('#settings-change-count');
-        var settingsCount = $('#settings-count');
-        var isSchedule = mode === 'schedule';
+        const saveBtn = $('#settings-save-btn');
+        const resetBtn = $('#settings-reset-btn');
+        const changeCount = $('#settings-change-count');
+        const settingsCount = $('#settings-count');
+        const isSchedule = mode === 'schedule';
         if (saveBtn) saveBtn.classList.toggle('hidden', isSchedule);
         if (resetBtn) resetBtn.classList.toggle('hidden', isSchedule);
         if (changeCount) changeCount.classList.toggle('hidden', isSchedule);
@@ -1196,7 +1196,7 @@ window.Panel = window.Panel || {};
       });
     });
 
-    var dbt = $('#db-table');
+    const dbt = $('#db-table');
     if (dbt)
       dbt.addEventListener('change', function () {
         if (Panel.tabs.database) {
@@ -1204,7 +1204,7 @@ window.Panel = window.Panel || {};
           Panel.tabs.database.showSchema();
         }
       });
-    var dbs = $('#db-search');
+    const dbs = $('#db-search');
     if (dbs)
       dbs.addEventListener(
         'input',
@@ -1212,12 +1212,12 @@ window.Panel = window.Panel || {};
           if (Panel.tabs.database) Panel.tabs.database.load();
         }, 300),
       );
-    var dbl = $('#db-limit');
+    const dbl = $('#db-limit');
     if (dbl)
       dbl.addEventListener('change', function () {
         if (Panel.tabs.database) Panel.tabs.database.load();
       });
-    var dbCsv = $('#db-export-csv');
+    const dbCsv = $('#db-export-csv');
     if (dbCsv)
       dbCsv.addEventListener('click', function () {
         if (Panel.tabs.database) Panel.tabs.database.exportCsv();
@@ -1226,20 +1226,20 @@ window.Panel = window.Panel || {};
     // DB mode toggle (Browse / Query)
     $$('#db-mode-browse, #db-mode-query').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var mode = btn.dataset.mode;
+        const mode = btn.dataset.mode;
         S.dbMode = mode;
         $$('#db-mode-browse, #db-mode-query').forEach(function (b) {
           b.classList.toggle('active', b.dataset.mode === mode);
         });
-        var browsePanel = $('#db-browse-panel');
-        var queryPanel = $('#db-query-panel');
+        const browsePanel = $('#db-browse-panel');
+        const queryPanel = $('#db-query-panel');
         if (browsePanel) browsePanel.classList.toggle('hidden', mode !== 'browse');
         if (queryPanel) queryPanel.classList.toggle('hidden', mode !== 'query');
       });
     });
 
     // Query builder event wiring
-    var qbTable = $('#qb-table');
+    const qbTable = $('#qb-table');
     if (qbTable)
       qbTable.addEventListener('change', function () {
         if (Panel.tabs.database) {
@@ -1247,60 +1247,60 @@ window.Panel = window.Panel || {};
           Panel.tabs.database.updateQbPreview();
         }
       });
-    var qbCols = $('#qb-columns');
+    const qbCols = $('#qb-columns');
     if (qbCols)
       qbCols.addEventListener('input', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbWhereCol = $('#qb-where-col');
+    const qbWhereCol = $('#qb-where-col');
     if (qbWhereCol)
       qbWhereCol.addEventListener('change', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbWhereOp = $('#qb-where-op');
+    const qbWhereOp = $('#qb-where-op');
     if (qbWhereOp)
       qbWhereOp.addEventListener('change', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbWhereVal = $('#qb-where-val');
+    const qbWhereVal = $('#qb-where-val');
     if (qbWhereVal)
       qbWhereVal.addEventListener('input', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbOrderCol = $('#qb-order-col');
+    const qbOrderCol = $('#qb-order-col');
     if (qbOrderCol)
       qbOrderCol.addEventListener('change', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbOrderDir = $('#qb-order-dir');
+    const qbOrderDir = $('#qb-order-dir');
     if (qbOrderDir)
       qbOrderDir.addEventListener('change', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbLimit = $('#qb-limit');
+    const qbLimit = $('#qb-limit');
     if (qbLimit)
       qbLimit.addEventListener('input', function () {
         if (Panel.tabs.database) Panel.tabs.database.updateQbPreview();
       });
-    var qbRun = $('#qb-run');
+    const qbRun = $('#qb-run');
     if (qbRun)
       qbRun.addEventListener('click', function () {
         if (Panel.tabs.database) Panel.tabs.database.runQueryBuilder();
       });
-    var qbCopy = $('#qb-copy-sql');
+    const qbCopy = $('#qb-copy-sql');
     if (qbCopy)
       qbCopy.addEventListener('click', function () {
-        var sql = Panel.tabs.database && Panel.tabs.database.buildQbSql ? Panel.tabs.database.buildQbSql() : '';
+        const sql = Panel.tabs.database && Panel.tabs.database.buildQbSql ? Panel.tabs.database.buildQbSql() : '';
         navigator.clipboard.writeText(sql).then(function () {
           showToast(i18next.t('web:toast.sql_copied'));
         });
       });
-    var rawRun = $('#db-raw-run');
+    const rawRun = $('#db-raw-run');
     if (rawRun)
       rawRun.addEventListener('click', function () {
         if (Panel.tabs.database) Panel.tabs.database.runRawSql();
       });
-    var rawInput = $('#db-raw-sql');
+    const rawInput = $('#db-raw-sql');
     if (rawInput)
       rawInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && Panel.tabs.database) Panel.tabs.database.runRawSql();
@@ -1329,7 +1329,7 @@ window.Panel = window.Panel || {};
 
     if (window.tippy) tippy('[data-tippy-content]', { theme: 'translucent', delay: [200, 0] });
 
-    var res = await fetch('/auth/me');
+    const res = await fetch('/auth/me');
     S.user = await res.json();
     S.tier = S.user.tierLevel || 0;
     if (!S.user.authenticated || S.tier < 1) {
@@ -1340,7 +1340,7 @@ window.Panel = window.Panel || {};
       }
       // Non-guild member: swap button to open invite in new tab + poll for join
       if (S.user.authenticated && S.tier < 1) {
-        var authBtn = $('#landing-auth-btn');
+        const authBtn = $('#landing-auth-btn');
         if (authBtn) {
           authBtn.innerHTML =
             '<svg width="18" height="14" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.7 40.7 0 00-1.8 3.7c-5.5-.8-11-.8-16.3 0A37.3 37.3 0 0025.3.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.4 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32 .3 45.1v.1a58.8 58.8 0 0017.8 9 .2.2 0 00.3-.1c1.4-1.9 2.6-3.9 3.6-6a.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 010-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .3 36.4 36.4 0 01-5.5 2.7.2.2 0 00-.1.3c1.1 2.1 2.3 4.1 3.7 6a.2.2 0 00.2.1 58.6 58.6 0 0017.9-9v-.1c1.4-15-2.3-28-9.8-39.6a.2.2 0 00-.1-.1zM23.7 37c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7zm23.2 0c-3.4 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.1 6.3 7-2.8 7-6.3 7z"/></svg> Join our Discord for full access';
@@ -1354,8 +1354,8 @@ window.Panel = window.Panel || {};
         // When user joins Discord and we detect it, auto-redirect to panel
         S._refreshPoll = setInterval(async function () {
           try {
-            var r = await fetch('/auth/refresh');
-            var d = await r.json();
+            const r = await fetch('/auth/refresh');
+            const d = await r.json();
             if (d.tierLevel >= 1) {
               clearInterval(S._refreshPoll);
               S.user = d;

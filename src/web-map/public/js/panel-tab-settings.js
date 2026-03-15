@@ -8,20 +8,20 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var ENV_BOOLEANS = Panel.core.ENV_BOOLEANS;
-  var getSettingCategories = Panel.core.getSettingCategories;
-  var getSettingDescs = Panel.core.getSettingDescs;
-  var getEnvDescs = Panel.core.getEnvDescs;
-  var humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
-  var showToast = Panel.core.utils.showToast;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const ENV_BOOLEANS = Panel.core.ENV_BOOLEANS;
+  const getSettingCategories = Panel.core.getSettingCategories;
+  const getSettingDescs = Panel.core.getSettingDescs;
+  const getEnvDescs = Panel.core.getEnvDescs;
+  const humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
+  const showToast = Panel.core.utils.showToast;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -33,21 +33,21 @@ Panel.tabs = Panel.tabs || {};
   // ══════════════════════════════════════════════════════════════════
 
   async function loadSettings() {
-    var container = $('#settings-grid');
+    const container = $('#settings-grid');
     if (!container) return;
     try {
-      var r = await apiFetch('/api/panel/settings');
+      const r = await apiFetch('/api/panel/settings');
       if (!r.ok) {
         container.innerHTML =
           '<div class="feed-empty">' + i18next.t('web:empty_states.settings_unavailable') + '</div>';
         return;
       }
-      var d = await r.json();
-      var settings = d.settings || {};
+      const d = await r.json();
+      const settings = d.settings || {};
       S.settingsOriginal = Object.assign({}, settings);
       S.settingsChanged = {};
       renderSettingsCategories(container, settings);
-      var countEl = $('#settings-count');
+      const countEl = $('#settings-count');
       if (countEl) countEl.textContent = Object.keys(settings).length + ' settings';
     } catch (_e) {
       container.innerHTML =
@@ -57,16 +57,16 @@ Panel.tabs = Panel.tabs || {};
 
   function renderSettingsCategories(container, settings) {
     container.innerHTML = '';
-    var assigned = {};
-    var categories = [];
+    const assigned = {};
+    const categories = [];
 
-    var settingCategories = getSettingCategories();
-    var settingDescs = getSettingDescs();
-    for (var catName in settingCategories) {
+    const settingCategories = getSettingCategories();
+    const settingDescs = getSettingDescs();
+    for (const catName in settingCategories) {
       if (!settingCategories.hasOwnProperty(catName)) continue;
-      var keys = settingCategories[catName];
-      var items = [];
-      for (var ki = 0; ki < keys.length; ki++) {
+      const keys = settingCategories[catName];
+      const items = [];
+      for (let ki = 0; ki < keys.length; ki++) {
         if (keys[ki] in settings) {
           items.push({ key: keys[ki], value: settings[keys[ki]] });
           assigned[keys[ki]] = true;
@@ -75,18 +75,18 @@ Panel.tabs = Panel.tabs || {};
       if (items.length) categories.push({ name: catName, items: items });
     }
 
-    var other = [];
-    for (var key in settings) {
+    const other = [];
+    for (const key in settings) {
       if (!settings.hasOwnProperty(key)) continue;
       if (!assigned[key]) other.push({ key: key, value: settings[key] });
     }
     if (other.length)
       categories.push({ name: i18next.t('web:settings.other', { defaultValue: 'Other' }), items: other });
 
-    for (var ci = 0; ci < categories.length; ci++) {
-      var cat = categories[ci];
-      var section = el('div', 'settings-category');
-      var header = el('div', 'settings-category-header');
+    for (let ci = 0; ci < categories.length; ci++) {
+      const cat = categories[ci];
+      const section = el('div', 'settings-category');
+      const header = el('div', 'settings-category-header');
       header.innerHTML =
         '<span class="cat-arrow">\u25B8</span><span class="cat-label">' +
         cat.name +
@@ -94,12 +94,12 @@ Panel.tabs = Panel.tabs || {};
         cat.items.length +
         '</span>';
 
-      var body = el('div', 'settings-category-items');
-      for (var ii = 0; ii < cat.items.length; ii++) {
-        var item = cat.items[ii];
-        var row = el('div', 'setting-row');
+      const body = el('div', 'settings-category-items');
+      for (let ii = 0; ii < cat.items.length; ii++) {
+        const item = cat.items[ii];
+        const row = el('div', 'setting-row');
         row.dataset.key = item.key;
-        var desc = settingDescs[item.key] || '';
+        const desc = settingDescs[item.key] || '';
         row.innerHTML =
           '<div class="setting-name">' +
           esc(humanizeSettingKey(item.key)) +
@@ -134,9 +134,9 @@ Panel.tabs = Panel.tabs || {};
 
     container.addEventListener('input', function (e) {
       if (!e.target.classList.contains('setting-input')) return;
-      var key = e.target.dataset.key;
-      var orig = e.target.dataset.original;
-      var val = e.target.value;
+      let key = e.target.dataset.key;
+      const orig = e.target.dataset.original;
+      const val = e.target.value;
       if (val !== orig) {
         S.settingsChanged[key] = val;
         e.target.classList.add('changed');
@@ -145,81 +145,81 @@ Panel.tabs = Panel.tabs || {};
         e.target.classList.remove('changed');
       }
 
-      var changeCount = Object.keys(S.settingsChanged).length;
-      var hasChanges = changeCount > 0;
-      var btn = $('#settings-save-btn');
+      const changeCount = Object.keys(S.settingsChanged).length;
+      const hasChanges = changeCount > 0;
+      const btn = $('#settings-save-btn');
       if (btn) {
         btn.disabled = !hasChanges;
         btn.classList.toggle('opacity-50', !hasChanges);
         btn.classList.toggle('cursor-not-allowed', !hasChanges);
       }
-      var countBadge = $('#settings-change-count');
+      const countBadge = $('#settings-change-count');
       if (countBadge) {
         countBadge.classList.toggle('hidden', !hasChanges);
         countBadge.textContent = changeCount + ' change' + (changeCount !== 1 ? 's' : '');
       }
-      var resetBtn = $('#settings-reset-btn');
+      const resetBtn = $('#settings-reset-btn');
       if (resetBtn) resetBtn.classList.toggle('hidden', !hasChanges);
     });
   }
 
   function filterSettings() {
-    var q = ($('#settings-search') ? $('#settings-search').value : '').toLowerCase();
+    const q = ($('#settings-search') ? $('#settings-search').value : '').toLowerCase();
     $$('.setting-row').forEach(function (row) {
-      var key = (row.dataset.key || '').toLowerCase();
-      var nameEl = row.querySelector('.setting-name');
-      var descEl = row.querySelector('.setting-desc');
-      var name = nameEl ? nameEl.textContent.toLowerCase() : '';
-      var desc = descEl ? descEl.textContent.toLowerCase() : '';
+      let key = (row.dataset.key || '').toLowerCase();
+      const nameEl = row.querySelector('.setting-name');
+      const descEl = row.querySelector('.setting-desc');
+      const name = nameEl ? nameEl.textContent.toLowerCase() : '';
+      const desc = descEl ? descEl.textContent.toLowerCase() : '';
       row.style.display = key.includes(q) || name.includes(q) || desc.includes(q) ? '' : 'none';
     });
     $$('.settings-category').forEach(function (cat) {
-      var visibleRows = cat.querySelectorAll('.setting-row:not([style*="display: none"])');
+      const visibleRows = cat.querySelectorAll('.setting-row:not([style*="display: none"])');
       cat.style.display = visibleRows.length ? '' : 'none';
       if (q && visibleRows.length) {
-        var items = cat.querySelector('.settings-category-items');
+        const items = cat.querySelector('.settings-category-items');
         if (items) items.classList.add('open');
-        var arrow = cat.querySelector('.cat-arrow');
+        const arrow = cat.querySelector('.cat-arrow');
         if (arrow) arrow.classList.add('open');
       }
     });
   }
 
   function showSettingsDiff() {
-    var changed = S.settingsMode === 'bot' ? S.botConfigChanged : S.settingsChanged;
-    var originals = S.settingsMode === 'bot' ? S.botConfigOriginal : S.settingsOriginal;
-    var keys = Object.keys(changed);
+    const changed = S.settingsMode === 'bot' ? S.botConfigChanged : S.settingsChanged;
+    const originals = S.settingsMode === 'bot' ? S.botConfigOriginal : S.settingsOriginal;
+    const keys = Object.keys(changed);
     if (keys.length === 0) return;
 
-    var content = $('#settings-diff-content');
+    let content = $('#settings-diff-content');
     if (!content) return;
     content.innerHTML = '';
 
-    var catOrder = {};
-    var orderIdx = 0;
-    var settingCategories = getSettingCategories();
-    for (var catName in settingCategories) {
+    const catOrder = {};
+    let orderIdx = 0;
+    const settingCategories = getSettingCategories();
+    for (const catName in settingCategories) {
       if (!settingCategories.hasOwnProperty(catName)) continue;
-      var catKeys = settingCategories[catName];
-      for (var ci = 0; ci < catKeys.length; ci++) {
+      const catKeys = settingCategories[catName];
+      for (let ci = 0; ci < catKeys.length; ci++) {
         catOrder[catKeys[ci]] = orderIdx++;
       }
     }
     keys.sort(function (a, b) {
-      var oa = catOrder[a] != null ? catOrder[a] : 9999;
-      var ob = catOrder[b] != null ? catOrder[b] : 9999;
+      const oa = catOrder[a] != null ? catOrder[a] : 9999;
+      const ob = catOrder[b] != null ? catOrder[b] : 9999;
       return oa - ob;
     });
 
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      var oldVal = originals[key] != null ? String(originals[key]) : '';
-      var newVal = changed[key];
-      var isSensitive = S.settingsMode === 'bot' && !oldVal && newVal;
-      var displayOld = isSensitive ? '(hidden)' : oldVal;
-      var displayNew = isSensitive ? '(updated)' : newVal;
-      var row = el('div', 'diff-row');
-      var descKey = S.settingsMode === 'bot' ? key : humanizeSettingKey(key);
+    for (let i = 0; i < keys.length; i++) {
+      let key = keys[i];
+      const oldVal = originals[key] != null ? String(originals[key]) : '';
+      const newVal = changed[key];
+      const isSensitive = S.settingsMode === 'bot' && !oldVal && newVal;
+      const displayOld = isSensitive ? '(hidden)' : oldVal;
+      const displayNew = isSensitive ? '(updated)' : newVal;
+      const row = el('div', 'diff-row');
+      const descKey = S.settingsMode === 'bot' ? key : humanizeSettingKey(key);
       row.innerHTML =
         '<div class="diff-key">' +
         esc(descKey) +
@@ -238,7 +238,7 @@ Panel.tabs = Panel.tabs || {};
       content.appendChild(row);
     }
 
-    var modal = $('#settings-diff-modal');
+    const modal = $('#settings-diff-modal');
     if (modal) modal.classList.remove('hidden');
 
     if (window.lucide) lucide.createIcons();
@@ -247,47 +247,47 @@ Panel.tabs = Panel.tabs || {};
   function resetSettingsChanges() {
     if (S.settingsMode === 'bot') return resetBotConfigChanges();
 
-    var keys = Object.keys(S.settingsChanged);
-    for (var i = 0; i < keys.length; i++) {
-      var input = $('input[data-key="' + keys[i] + '"]');
+    const keys = Object.keys(S.settingsChanged);
+    for (let i = 0; i < keys.length; i++) {
+      let input = $('input[data-key="' + keys[i] + '"]');
       if (input) {
         input.value = input.dataset.original;
         input.classList.remove('changed');
       }
     }
     S.settingsChanged = {};
-    var btn = $('#settings-save-btn');
+    const btn = $('#settings-save-btn');
     if (btn) {
       btn.disabled = true;
       btn.classList.add('opacity-50', 'cursor-not-allowed');
     }
-    var countBadge = $('#settings-change-count');
+    const countBadge = $('#settings-change-count');
     if (countBadge) countBadge.classList.add('hidden');
-    var resetBtn = $('#settings-reset-btn');
+    const resetBtn = $('#settings-reset-btn');
     if (resetBtn) resetBtn.classList.add('hidden');
   }
 
   async function commitSettings() {
     if (S.settingsMode === 'bot') return commitBotConfig();
     if (Object.keys(S.settingsChanged).length === 0) return;
-    var btn = $('#settings-save-btn');
+    const btn = $('#settings-save-btn');
     if (btn) {
       btn.disabled = true;
       btn.textContent = i18next.t('web:schedule_editor.saving');
     }
     try {
-      var r = await apiFetch('/api/panel/settings', {
+      const r = await apiFetch('/api/panel/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: S.settingsChanged }),
       });
-      var d = await r.json();
+      const d = await r.json();
       if (d.ok) {
-        var updated = d.updated || [];
-        for (var ui = 0; ui < updated.length; ui++) {
-          var key = updated[ui];
+        const updated = d.updated || [];
+        for (let ui = 0; ui < updated.length; ui++) {
+          let key = updated[ui];
           S.settingsOriginal[key] = S.settingsChanged[key];
-          var input = $('input[data-key="' + key + '"]');
+          let input = $('input[data-key="' + key + '"]');
           if (input) {
             input.dataset.original = S.settingsChanged[key];
             input.classList.remove('changed');
@@ -295,9 +295,9 @@ Panel.tabs = Panel.tabs || {};
         }
         S.settingsChanged = {};
         if (btn) btn.textContent = i18next.t('web:schedule_editor.saved') + ' ✓';
-        var countBadge = $('#settings-change-count');
+        const countBadge = $('#settings-change-count');
         if (countBadge) countBadge.classList.add('hidden');
-        var resetBtn = $('#settings-reset-btn');
+        const resetBtn = $('#settings-reset-btn');
         if (resetBtn) resetBtn.classList.add('hidden');
         setTimeout(function () {
           if (btn) {
@@ -324,42 +324,42 @@ Panel.tabs = Panel.tabs || {};
   // ══════════════════════════════════════════════════════════════════
 
   async function loadBotConfig() {
-    var container = $('#settings-grid');
+    const container = $('#settings-grid');
     if (!container) return;
     try {
-      var r = await apiFetch('/api/panel/bot-config');
+      const r = await apiFetch('/api/panel/bot-config');
       if (!r.ok) {
         container.innerHTML =
           '<div class="feed-empty">' + i18next.t('web:empty_states.bot_configuration_unavailable') + '</div>';
         return;
       }
-      var d = await r.json();
+      const d = await r.json();
       S.botConfigSections = d.sections || [];
       S.botConfigOriginal = {};
       S.botConfigChanged = {};
-      for (var si = 0; si < S.botConfigSections.length; si++) {
-        var sec = S.botConfigSections[si];
-        for (var ki = 0; ki < sec.keys.length; ki++) {
-          var k = sec.keys[ki];
+      for (let si = 0; si < S.botConfigSections.length; si++) {
+        const sec = S.botConfigSections[si];
+        for (let ki = 0; ki < sec.keys.length; ki++) {
+          const k = sec.keys[ki];
           S.botConfigOriginal[k.key] = k.value;
         }
       }
       renderBotConfig(container, S.botConfigSections);
-      var countEl = $('#settings-count');
-      var total = S.botConfigSections.reduce(function (sum, s) {
+      const countEl = $('#settings-count');
+      const total = S.botConfigSections.reduce(function (sum, s) {
         return sum + s.keys.length;
       }, 0);
       if (countEl) countEl.textContent = total + ' settings';
-      var btn = $('#settings-save-btn');
+      const btn = $('#settings-save-btn');
       if (btn) {
         btn.disabled = true;
         btn.classList.add('opacity-50', 'cursor-not-allowed');
       }
-      var countBadge = $('#settings-change-count');
+      const countBadge = $('#settings-change-count');
       if (countBadge) countBadge.classList.add('hidden');
-      var resetBtn = $('#settings-reset-btn');
+      const resetBtn = $('#settings-reset-btn');
       if (resetBtn) resetBtn.classList.add('hidden');
-      var restartBadge = $('#settings-restart-badge');
+      const restartBadge = $('#settings-restart-badge');
       if (restartBadge) restartBadge.classList.add('hidden');
     } catch (e) {
       container.innerHTML =
@@ -371,13 +371,13 @@ Panel.tabs = Panel.tabs || {};
   function renderBotConfig(container, sections) {
     container.innerHTML = '';
 
-    var envDescs = getEnvDescs();
-    for (var si = 0; si < sections.length; si++) {
-      var sec = sections[si];
+    const envDescs = getEnvDescs();
+    for (let si = 0; si < sections.length; si++) {
+      const sec = sections[si];
       if (!sec.keys.length) continue;
 
-      var section = el('div', 'settings-category');
-      var header = el('div', 'settings-category-header');
+      const section = el('div', 'settings-category');
+      const header = el('div', 'settings-category-header');
       header.innerHTML =
         '<span class="cat-arrow">\u25B8</span><span class="cat-label">' +
         esc(sec.label) +
@@ -385,21 +385,21 @@ Panel.tabs = Panel.tabs || {};
         sec.keys.length +
         '</span>';
 
-      var body = el('div', 'settings-category-items');
-      for (var ki = 0; ki < sec.keys.length; ki++) {
-        var item = sec.keys[ki];
-        var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
+      const body = el('div', 'settings-category-items');
+      for (let ki = 0; ki < sec.keys.length; ki++) {
+        const item = sec.keys[ki];
+        const row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
         row.dataset.key = item.key;
-        var desc = envDescs[item.key] || '';
-        var isBool = ENV_BOOLEANS.has(item.key);
-        var nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
+        const desc = envDescs[item.key] || '';
+        const isBool = ENV_BOOLEANS.has(item.key);
+        let nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
         if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
         if (item.readOnly)
           nameHtml +=
             ' <span class="setting-sensitive-badge" style="color:#d4a843;border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
-        var inputHtml;
+        let inputHtml;
         if (item.readOnly) {
           inputHtml = '<span class="text-xs text-muted font-mono">' + esc(item.value || '-') + '</span>';
         } else if (item.sensitive) {
@@ -413,7 +413,7 @@ Panel.tabs = Panel.tabs || {};
             '" data-original="" data-sensitive="true" autocomplete="off">';
           inputHtml += '</div>';
         } else if (isBool) {
-          var isOn = item.value === 'true';
+          const isOn = item.value === 'true';
           inputHtml =
             '<label class="setting-toggle"><input type="checkbox" class="bot-config-toggle" data-key="' +
             esc(item.key) +
@@ -456,10 +456,10 @@ Panel.tabs = Panel.tabs || {};
 
     container.addEventListener('input', function (e) {
       if (!e.target.classList.contains('bot-config-input')) return;
-      var key = e.target.dataset.key;
-      var orig = e.target.dataset.original;
-      var val = e.target.value;
-      var isSensitive = e.target.dataset.sensitive === 'true';
+      let key = e.target.dataset.key;
+      const orig = e.target.dataset.original;
+      const val = e.target.value;
+      const isSensitive = e.target.dataset.sensitive === 'true';
 
       if (isSensitive) {
         if (val.length > 0) {
@@ -483,9 +483,9 @@ Panel.tabs = Panel.tabs || {};
 
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('bot-config-toggle')) return;
-      var key = e.target.dataset.key;
-      var orig = e.target.dataset.original;
-      var val = e.target.checked ? 'true' : 'false';
+      let key = e.target.dataset.key;
+      const orig = e.target.dataset.original;
+      const val = e.target.checked ? 'true' : 'false';
       if (val !== orig) {
         S.botConfigChanged[key] = val;
       } else {
@@ -496,22 +496,22 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function updateBotConfigBadges() {
-    var changeCount = Object.keys(S.botConfigChanged).length;
-    var hasChanges = changeCount > 0;
-    var btn = $('#settings-save-btn');
+    const changeCount = Object.keys(S.botConfigChanged).length;
+    const hasChanges = changeCount > 0;
+    const btn = $('#settings-save-btn');
     if (btn) {
       btn.disabled = !hasChanges;
       btn.classList.toggle('opacity-50', !hasChanges);
       btn.classList.toggle('cursor-not-allowed', !hasChanges);
     }
-    var countBadge = $('#settings-change-count');
+    const countBadge = $('#settings-change-count');
     if (countBadge) {
       countBadge.classList.toggle('hidden', !hasChanges);
       countBadge.textContent = changeCount + ' change' + (changeCount !== 1 ? 's' : '');
     }
-    var resetBtn = $('#settings-reset-btn');
+    const resetBtn = $('#settings-reset-btn');
     if (resetBtn) resetBtn.classList.toggle('hidden', !hasChanges);
-    var restartBadge = $('#settings-restart-badge');
+    const restartBadge = $('#settings-restart-badge');
     if (restartBadge) restartBadge.classList.toggle('hidden', !hasChanges);
   }
 
@@ -523,16 +523,16 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function resetBotConfigChanges() {
-    var keys = Object.keys(S.botConfigChanged);
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      var input = $('input.bot-config-input[data-key="' + key + '"]');
+    const keys = Object.keys(S.botConfigChanged);
+    for (let i = 0; i < keys.length; i++) {
+      let key = keys[i];
+      let input = $('input.bot-config-input[data-key="' + key + '"]');
       if (input) {
         if (input.dataset.sensitive === 'true') input.value = '';
         else input.value = input.dataset.original;
         input.classList.remove('changed');
       }
-      var toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
+      const toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
       if (toggle) {
         toggle.checked = toggle.dataset.original === 'true';
       }
@@ -543,37 +543,37 @@ Panel.tabs = Panel.tabs || {};
 
   async function commitBotConfig() {
     if (Object.keys(S.botConfigChanged).length === 0) return;
-    var btn = $('#settings-save-btn');
+    const btn = $('#settings-save-btn');
     if (btn) {
       btn.disabled = true;
       btn.textContent = i18next.t('web:schedule_editor.saving');
     }
     try {
-      var r = await apiFetch('/api/panel/bot-config', {
+      const r = await apiFetch('/api/panel/bot-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ changes: S.botConfigChanged }),
       });
-      var d = await r.json();
+      const d = await r.json();
       if (d.ok) {
-        var updated = d.updated || [];
-        for (var ui = 0; ui < updated.length; ui++) {
-          var key = updated[ui];
-          var newVal = S.botConfigChanged[key];
+        const updated = d.updated || [];
+        for (let ui = 0; ui < updated.length; ui++) {
+          let key = updated[ui];
+          const newVal = S.botConfigChanged[key];
           if ($('input.bot-config-input[data-key="' + key + '"][data-sensitive="true"]')) {
-            var sens = $('input.bot-config-input[data-key="' + key + '"]');
+            const sens = $('input.bot-config-input[data-key="' + key + '"]');
             if (sens) {
               sens.value = '';
               sens.classList.remove('changed');
             }
           } else {
             S.botConfigOriginal[key] = newVal;
-            var input = $('input.bot-config-input[data-key="' + key + '"]');
+            let input = $('input.bot-config-input[data-key="' + key + '"]');
             if (input) {
               input.dataset.original = newVal;
               input.classList.remove('changed');
             }
-            var toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
+            const toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
             if (toggle) {
               toggle.dataset.original = newVal;
             }
@@ -582,7 +582,7 @@ Panel.tabs = Panel.tabs || {};
         S.botConfigChanged = {};
         if (btn) btn.textContent = i18next.t('web:schedule_editor.saved') + ' ✓';
         updateBotConfigBadges();
-        var restartBadge = $('#settings-restart-badge');
+        const restartBadge = $('#settings-restart-badge');
         if (restartBadge) restartBadge.classList.remove('hidden');
         showToast(
           d.code ? i18next.t('api:errors.' + d.code) : d.message || i18next.t('web:toast.settings_saved'),
@@ -613,16 +613,16 @@ Panel.tabs = Panel.tabs || {};
   //  Schedule Editor
   // ══════════════════════════════════════════════════════════════════
 
-  var SCHED_SKIP_KEYS = { ServerName: 1, MaxPlayers: 1, PVP: 1 };
-  var _schedEdit = { times: [], profiles: [], settings: {}, rotateDaily: false, serverNameTemplate: '' };
+  const SCHED_SKIP_KEYS = { ServerName: 1, MaxPlayers: 1, PVP: 1 };
+  const _schedEdit = { times: [], profiles: [], settings: {}, rotateDaily: false, serverNameTemplate: '' };
 
   function _deathLabel(v) {
-    var k = { 0: 'keep_items', 1: 'drop_items', 2: 'destroy_items' };
+    const k = { 0: 'keep_items', 1: 'drop_items', 2: 'destroy_items' };
     return i18next.t('web:on_death.' + (k[v] || 'drop_items'));
   }
 
   function _schedLabel(k) {
-    var m = {
+    const m = {
       ZombieAmountMulti: 'schedule.zombies',
       ZombieDiffHealth: 'schedule.zombie_hp',
       ZombieDiffDamage: 'schedule.zombie_damage',
@@ -647,17 +647,17 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _schedDiffLabel(v) {
-    var k = { 1: 'low', 2: 'normal', 3: 'high', 4: 'very_high' };
+    const k = { 1: 'low', 2: 'normal', 3: 'high', 4: 'very_high' };
     return i18next.t('web:difficulty.' + (k[v] || v));
   }
 
   function _schedRarityLabel(v) {
-    var k = { 1: 'scarce', 2: 'normal', 3: 'plenty', 4: 'abundant' };
+    const k = { 1: 'scarce', 2: 'normal', 3: 'plenty', 4: 'abundant' };
     return i18next.t('web:loot_level.' + (k[v] || v));
   }
 
   function formatSettingVal(key, val) {
-    var s = String(val).replace(/^"|"$/g, '');
+    const s = String(val).replace(/^"|"$/g, '');
     if (/^ZombieDiff/.test(key)) return _schedDiffLabel(s);
     if (/^Rarity/.test(key)) return _schedRarityLabel(s);
     if (/Multi$|Multiplier$/.test(key))
@@ -671,13 +671,13 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function buildScheduleTip(name, colorCls, ps) {
-    var accent =
+    const accent =
       colorCls === 'calm' ? '#6dba82' : colorCls === 'surge' ? '#d4a843' : colorCls === 'horde' ? '#c45a4a' : '#c8c2b8';
-    var h = '<div class="sched-tip"><div class="sched-tip-title" style="color:' + accent + '">' + esc(name) + '</div>';
-    for (var k in ps) {
+    let h = '<div class="sched-tip"><div class="sched-tip-title" style="color:' + accent + '">' + esc(name) + '</div>';
+    for (const k in ps) {
       if (!ps.hasOwnProperty(k) || SCHED_SKIP_KEYS[k]) continue;
-      var label = _schedLabel(k) || humanizeSettingKey(k);
-      var val = formatSettingVal(k, ps[k]);
+      const label = _schedLabel(k) || humanizeSettingKey(k);
+      const val = formatSettingVal(k, ps[k]);
       h +=
         '<div class="sched-tip-row"><span class="sched-tip-key">' +
         esc(label) +
@@ -691,13 +691,13 @@ Panel.tabs = Panel.tabs || {};
 
   function getRelativeHint(slot, sched) {
     if (!sched.todaySchedule) return '';
-    var now = minutesFromTimeStr(getCurrentTimeInTz(sched.timezone));
-    var start = minutesFromTimeStr(slot.startTime);
-    var diff = start - now;
+    const now = minutesFromTimeStr(getCurrentTimeInTz(sched.timezone));
+    const start = minutesFromTimeStr(slot.startTime);
+    const diff = start - now;
     if (diff <= 0) return '';
     if (diff < 60) return i18next.t('web:schedule.in_minutes', { m: diff });
-    var h = Math.floor(diff / 60);
-    var m = diff % 60;
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
     return m > 0
       ? i18next.t('web:schedule.in_hours_minutes', { h: h, m: m })
       : i18next.t('web:schedule.in_hours', { h: h });
@@ -705,7 +705,7 @@ Panel.tabs = Panel.tabs || {};
 
   function minutesFromTimeStr(ts) {
     if (!ts) return 0;
-    var parts = ts.split(':');
+    const parts = ts.split(':');
     return parseInt(parts[0], 10) * 60 + (parseInt(parts[1], 10) || 0);
   }
 
@@ -725,33 +725,33 @@ Panel.tabs = Panel.tabs || {};
   function renderSchedule(container, sched, _context) {
     if (!container || !sched || !sched.todaySchedule) return;
     container.innerHTML = '';
-    var profileSettings = sched.profileSettings || {};
-    var slots = sched.todaySchedule.slots || [];
+    const profileSettings = sched.profileSettings || {};
+    const slots = sched.todaySchedule.slots || [];
     if (!slots.length) return;
-    var now = getCurrentTimeInTz(sched.timezone);
-    var nowMins = minutesFromTimeStr(now);
+    const now = getCurrentTimeInTz(sched.timezone);
+    const nowMins = minutesFromTimeStr(now);
 
-    var html = '<div class="sched-timeline">';
-    for (var i = 0; i < slots.length; i++) {
-      var slot = slots[i];
-      var startMins = minutesFromTimeStr(slot.startTime);
-      var endMins = i + 1 < slots.length ? minutesFromTimeStr(slots[i + 1].startTime) : 1440;
-      var duration = endMins - startMins;
+    let html = '<div class="sched-timeline">';
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const startMins = minutesFromTimeStr(slot.startTime);
+      const endMins = i + 1 < slots.length ? minutesFromTimeStr(slots[i + 1].startTime) : 1440;
+      let duration = endMins - startMins;
       if (duration < 0) duration += 1440;
-      var pct = (duration / 1440) * 100;
-      var profile = slot.profile || 'default';
-      var colorCls = profile.includes('calm')
+      const pct = (duration / 1440) * 100;
+      const profile = slot.profile || 'default';
+      const colorCls = profile.includes('calm')
         ? 'calm'
         : profile.includes('surge')
           ? 'surge'
           : profile.includes('horde')
             ? 'horde'
             : 'text';
-      var isActive =
+      const isActive =
         nowMins >= startMins && (i + 1 >= slots.length || nowMins < minutesFromTimeStr(slots[i + 1].startTime));
-      var hint = getRelativeHint(slot, sched);
-      var ps = profileSettings[profile] || {};
-      var tip = buildScheduleTip(profile.charAt(0).toUpperCase() + profile.slice(1), colorCls, ps);
+      const hint = getRelativeHint(slot, sched);
+      const ps = profileSettings[profile] || {};
+      const tip = buildScheduleTip(profile.charAt(0).toUpperCase() + profile.slice(1), colorCls, ps);
 
       html +=
         '<div class="sched-slot' +
@@ -781,34 +781,34 @@ Panel.tabs = Panel.tabs || {};
 
   function renderTomorrowSchedule(container, sched) {
     if (!container || !sched.tomorrowSchedule) return;
-    var tmrw = sched.tomorrowSchedule;
-    var slots = tmrw.slots || [];
+    const tmrw = sched.tomorrowSchedule;
+    const slots = tmrw.slots || [];
     if (!slots.length) return;
-    var profileSettings = sched.profileSettings || {};
+    const profileSettings = sched.profileSettings || {};
 
-    var html = '<div class="mt-3">';
+    let html = '<div class="mt-3">';
     html +=
       '<div class="text-[10px] text-muted mb-1">' +
       i18next.t('web:schedule.tomorrow', { defaultValue: 'Tomorrow' }) +
       '</div>';
     html += '<div class="sched-timeline sched-tomorrow">';
-    for (var i = 0; i < slots.length; i++) {
-      var slot = slots[i];
-      var startMins = minutesFromTimeStr(slot.startTime);
-      var endMins = i + 1 < slots.length ? minutesFromTimeStr(slots[i + 1].startTime) : 1440;
-      var duration = endMins - startMins;
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const startMins = minutesFromTimeStr(slot.startTime);
+      const endMins = i + 1 < slots.length ? minutesFromTimeStr(slots[i + 1].startTime) : 1440;
+      let duration = endMins - startMins;
       if (duration < 0) duration += 1440;
-      var pct = (duration / 1440) * 100;
-      var profile = slot.profile || 'default';
-      var colorCls = profile.includes('calm')
+      const pct = (duration / 1440) * 100;
+      const profile = slot.profile || 'default';
+      const colorCls = profile.includes('calm')
         ? 'calm'
         : profile.includes('surge')
           ? 'surge'
           : profile.includes('horde')
             ? 'horde'
             : 'text';
-      var ps = profileSettings[profile] || {};
-      var tip = buildScheduleTip(profile.charAt(0).toUpperCase() + profile.slice(1), colorCls, ps);
+      const ps = profileSettings[profile] || {};
+      const tip = buildScheduleTip(profile.charAt(0).toUpperCase() + profile.slice(1), colorCls, ps);
 
       html += '<div class="sched-slot" style="flex:' + pct + '" data-tippy-content="' + esc(tip) + '">';
       html += '<div class="sched-slot-label text-' + colorCls + '">';
@@ -830,7 +830,7 @@ Panel.tabs = Panel.tabs || {};
   // ── Schedule Editor Core ────────────────────────────────────────
 
   function _getSchedSettingGroups() {
-    var _d = function () {
+    const _d = function () {
       return {
         1: i18next.t('web:difficulty.low'),
         2: i18next.t('web:difficulty.normal'),
@@ -838,7 +838,7 @@ Panel.tabs = Panel.tabs || {};
         4: i18next.t('web:difficulty.very_high'),
       };
     };
-    var _r = function () {
+    const _r = function () {
       return {
         1: i18next.t('web:loot_level.scarce'),
         2: i18next.t('web:loot_level.normal'),
@@ -914,7 +914,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function loadScheduleEditor() {
-    var container = $('#settings-grid');
+    const container = $('#settings-grid');
     if (!container) return;
     container.innerHTML =
       '<div class="feed-empty">' +
@@ -922,32 +922,32 @@ Panel.tabs = Panel.tabs || {};
       '</div>';
 
     try {
-      var r = await apiFetch('/api/panel/scheduler');
-      var sched = await r.json();
+      const r = await apiFetch('/api/panel/scheduler');
+      const sched = await r.json();
       S.scheduleData = sched;
     } catch (_e) {
       S.scheduleData = null;
     }
 
-    var data = S.scheduleData || {};
+    const data = S.scheduleData || {};
     _schedEdit.times = (data.restartTimes || []).slice();
     _schedEdit.profiles = (data.profiles || []).slice();
     _schedEdit.settings = {};
-    var ps = data.profileSettings || {};
-    for (var i = 0; i < _schedEdit.profiles.length; i++) {
-      var n = _schedEdit.profiles[i];
+    const ps = data.profileSettings || {};
+    for (let i = 0; i < _schedEdit.profiles.length; i++) {
+      const n = _schedEdit.profiles[i];
       _schedEdit.settings[n] = ps[n] ? Object.assign({}, ps[n]) : {};
     }
     _schedEdit.rotateDaily = !!data.rotateDaily;
     _schedEdit.serverNameTemplate = data.serverNameTemplate || '';
     if (!_schedEdit.serverNameTemplate) {
-      for (var pi = 0; pi < _schedEdit.profiles.length; pi++) {
-        var pSettings = _schedEdit.settings[_schedEdit.profiles[pi]] || {};
-        var sn = pSettings.ServerName;
+      for (let pi = 0; pi < _schedEdit.profiles.length; pi++) {
+        const pSettings = _schedEdit.settings[_schedEdit.profiles[pi]] || {};
+        let sn = pSettings.ServerName;
         if (sn) {
           sn = sn.replace(/^"|"$/g, '');
-          var pName = _schedEdit.profiles[pi];
-          var capName = pName.charAt(0).toUpperCase() + pName.slice(1);
+          const pName = _schedEdit.profiles[pi];
+          const capName = pName.charAt(0).toUpperCase() + pName.slice(1);
           if (sn.includes(capName)) {
             _schedEdit.serverNameTemplate = sn.replace(capName, '{mode}');
           }
@@ -965,8 +965,8 @@ Panel.tabs = Panel.tabs || {};
 
   function _renderScheduleInline(container, data) {
     container.innerHTML = '';
-    var isActive = data && data.active;
-    var banner = el(
+    const isActive = data && data.active;
+    const banner = el(
       'div',
       'flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ' +
         (isActive ? 'bg-accent/5 border-accent/20 text-accent' : 'bg-surface-50 border-border text-muted'),
@@ -987,14 +987,14 @@ Panel.tabs = Panel.tabs || {};
     container.appendChild(banner);
 
     if (isActive) {
-      var preview = el('div', 'card');
-      var prevHdr = el('div', 'flex items-center justify-between mb-3');
+      const preview = el('div', 'card');
+      const prevHdr = el('div', 'flex items-center justify-between mb-3');
       prevHdr.innerHTML =
         '<h3 class="card-title mb-0">' +
         i18next.t('web:settings.current_schedule', { defaultValue: 'Current Schedule' }) +
         '</h3>';
       preview.appendChild(prevHdr);
-      var prevBody = el('div', 'space-y-2');
+      const prevBody = el('div', 'space-y-2');
       prevBody.id = 'sched-inline-preview';
       renderSchedule(prevBody, data, 'dashboard');
       if (data.rotateDaily && data.tomorrowSchedule) {
@@ -1012,10 +1012,10 @@ Panel.tabs = Panel.tabs || {};
       return;
     }
 
-    var editorWrap = el('div', 'space-y-5');
+    const editorWrap = el('div', 'space-y-5');
 
     // Restart Times
-    var timesSection = el('div', 'card');
+    const timesSection = el('div', 'card');
     timesSection.innerHTML =
       '<h3 class="card-title flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4 text-muted"></i> ' +
       i18next.t('web:settings.restart_times') +
@@ -1023,10 +1023,10 @@ Panel.tabs = Panel.tabs || {};
       '<p class="text-[10px] text-muted mb-3">' +
       i18next.t('web:settings.restart_times_description') +
       '</p>';
-    var timesList = el('div', 'flex flex-wrap gap-2 mb-3');
+    const timesList = el('div', 'flex flex-wrap gap-2 mb-3');
     timesList.id = 'sched-times-list';
     timesSection.appendChild(timesList);
-    var addTimeRow = el('div', 'flex items-center gap-2');
+    const addTimeRow = el('div', 'flex items-center gap-2');
     addTimeRow.innerHTML =
       '<input type="time" id="sched-add-time" class="input-field w-28 text-xs py-1">' +
       '<button id="sched-add-time-btn" class="text-xs px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors">' +
@@ -1036,7 +1036,7 @@ Panel.tabs = Panel.tabs || {};
     editorWrap.appendChild(timesSection);
 
     // Profiles
-    var profilesSection = el('div', 'card');
+    const profilesSection = el('div', 'card');
     profilesSection.innerHTML =
       '<h3 class="card-title flex items-center gap-2"><i data-lucide="layers" class="w-4 h-4 text-muted"></i> ' +
       i18next.t('web:settings.profiles') +
@@ -1044,10 +1044,10 @@ Panel.tabs = Panel.tabs || {};
       '<p class="text-[10px] text-muted mb-3">' +
       i18next.t('web:settings.profiles_description') +
       '</p>';
-    var profilesList = el('div', '');
+    const profilesList = el('div', '');
     profilesList.id = 'sched-profiles-list';
     profilesSection.appendChild(profilesList);
-    var addProfileRow = el('div', 'flex items-center gap-2 mt-3');
+    const addProfileRow = el('div', 'flex items-center gap-2 mt-3');
     addProfileRow.innerHTML =
       '<input type="text" id="sched-add-profile" placeholder="' +
       i18next.t('web:settings.profile_name_placeholder') +
@@ -1059,7 +1059,7 @@ Panel.tabs = Panel.tabs || {};
     editorWrap.appendChild(profilesSection);
 
     // Server Name Template
-    var nameSection = el('div', 'card');
+    const nameSection = el('div', 'card');
     nameSection.innerHTML =
       '<h3 class="card-title flex items-center gap-2"><i data-lucide="type" class="w-4 h-4 text-muted"></i> ' +
       i18next.t('web:settings.server_name_template') +
@@ -1075,8 +1075,8 @@ Panel.tabs = Panel.tabs || {};
     editorWrap.appendChild(nameSection);
 
     // Options
-    var optSection = el('div', 'card');
-    var rotateLabel = el('label', 'flex items-center gap-2 text-xs text-text cursor-pointer select-none');
+    const optSection = el('div', 'card');
+    const rotateLabel = el('label', 'flex items-center gap-2 text-xs text-text cursor-pointer select-none');
     rotateLabel.innerHTML =
       '<input type="checkbox" id="sched-rotate-daily" class="accent-accent rounded w-3.5 h-3.5"' +
       (_schedEdit.rotateDaily ? ' checked' : '') +
@@ -1086,7 +1086,7 @@ Panel.tabs = Panel.tabs || {};
     editorWrap.appendChild(optSection);
 
     // Save bar
-    var saveBar = el('div', 'flex items-center justify-end gap-3 pt-2');
+    const saveBar = el('div', 'flex items-center justify-end gap-3 pt-2');
     saveBar.innerHTML =
       '<span id="sched-editor-status" class="text-[10px] text-muted"></span>' +
       '<button id="sched-editor-save" class="btn-primary flex items-center gap-1.5"><i data-lucide="save" class="w-3.5 h-3.5"></i> ' +
@@ -1102,25 +1102,25 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _wireScheduleEvents() {
-    var addTimeBtn = $('#sched-add-time-btn');
+    const addTimeBtn = $('#sched-add-time-btn');
     if (addTimeBtn)
       addTimeBtn.onclick = function () {
-        var inp = $('#sched-add-time');
-        var val = inp.value;
+        const inp = $('#sched-add-time');
+        const val = inp.value;
         if (!val) return;
-        var parts = val.split(':');
-        var t =
+        const parts = val.split(':');
+        const t =
           String(parseInt(parts[0], 10)).padStart(2, '0') + ':' + String(parseInt(parts[1], 10) || 0).padStart(2, '0');
         if (_schedEdit.times.indexOf(t) === -1) _schedEdit.times.push(t);
         inp.value = '';
         _renderSchedTimes();
       };
 
-    var addProfileBtn = $('#sched-add-profile-btn');
+    const addProfileBtn = $('#sched-add-profile-btn');
     if (addProfileBtn)
       addProfileBtn.onclick = function () {
-        var inp = $('#sched-add-profile');
-        var name = inp.value
+        const inp = $('#sched-add-profile');
+        const name = inp.value
           .trim()
           .toLowerCase()
           .replace(/[^a-z0-9_-]/g, '');
@@ -1133,36 +1133,36 @@ Panel.tabs = Panel.tabs || {};
         _renderSchedProfiles();
       };
 
-    var rotateCb = $('#sched-rotate-daily');
+    const rotateCb = $('#sched-rotate-daily');
     if (rotateCb)
       rotateCb.onchange = function () {
         _schedEdit.rotateDaily = rotateCb.checked;
       };
 
-    var tplInput = $('#sched-name-template');
+    const tplInput = $('#sched-name-template');
     if (tplInput)
       tplInput.oninput = function () {
         _schedEdit.serverNameTemplate = tplInput.value;
       };
 
-    var saveBtn = $('#sched-editor-save');
+    const saveBtn = $('#sched-editor-save');
     if (saveBtn) saveBtn.onclick = _saveSchedule;
   }
 
   function _renderSchedTimes() {
-    var c = $('#sched-times-list');
+    const c = $('#sched-times-list');
     if (!c) return;
     c.innerHTML = '';
     _schedEdit.times.sort();
-    for (var i = 0; i < _schedEdit.times.length; i++) {
+    for (let i = 0; i < _schedEdit.times.length; i++) {
       (function (idx) {
-        var t = _schedEdit.times[idx];
-        var chip = el(
+        const t = _schedEdit.times[idx];
+        const chip = el(
           'div',
           'flex items-center gap-1.5 bg-surface-50 border border-border rounded px-2.5 py-1 text-xs font-mono',
         );
         chip.innerHTML = '<span>' + esc(t) + '</span>';
-        var btn = el('button', 'text-muted hover:text-horde transition-colors');
+        const btn = el('button', 'text-muted hover:text-horde transition-colors');
         btn.innerHTML = '<i data-lucide="x" class="w-3 h-3"></i>';
         btn.onclick = function () {
           _schedEdit.times.splice(idx, 1);
@@ -1176,16 +1176,16 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _renderSchedProfiles() {
-    var c = $('#sched-profiles-list');
+    const c = $('#sched-profiles-list');
     if (!c) return;
     c.innerHTML = '';
-    for (var i = 0; i < _schedEdit.profiles.length; i++) {
+    for (let i = 0; i < _schedEdit.profiles.length; i++) {
       (function (idx) {
-        var name = _schedEdit.profiles[idx];
-        var settings = _schedEdit.settings[name] || {};
-        var card = el('div', 'sched-profile-card');
-        var hdr = el('div', 'sched-profile-hdr');
-        var colorCls = name.includes('calm')
+        const name = _schedEdit.profiles[idx];
+        const settings = _schedEdit.settings[name] || {};
+        const card = el('div', 'sched-profile-card');
+        const hdr = el('div', 'sched-profile-hdr');
+        const colorCls = name.includes('calm')
           ? 'text-calm'
           : name.includes('surge')
             ? 'text-surge'
@@ -1198,12 +1198,12 @@ Panel.tabs = Panel.tabs || {};
           '">' +
           esc(name.charAt(0).toUpperCase() + name.slice(1)) +
           '</span>';
-        var actions = el('div', 'flex items-center gap-2');
-        var dupeBtn = el('button', 'text-[10px] text-muted hover:text-accent transition-colors');
+        const actions = el('div', 'flex items-center gap-2');
+        const dupeBtn = el('button', 'text-[10px] text-muted hover:text-accent transition-colors');
         dupeBtn.textContent = i18next.t('web:schedule_editor.duplicate');
         dupeBtn.onclick = function () {
-          var newName = name + '-copy';
-          var suffix = 2;
+          let newName = name + '-copy';
+          let suffix = 2;
           while (_schedEdit.profiles.indexOf(newName) >= 0) newName = name + '-copy' + suffix++;
           _schedEdit.profiles.push(newName);
           _schedEdit.settings[newName] = Object.assign({}, _schedEdit.settings[name] || {});
@@ -1211,7 +1211,7 @@ Panel.tabs = Panel.tabs || {};
           _renderSchedProfiles();
         };
         actions.appendChild(dupeBtn);
-        var removeBtn = el('button', 'text-[10px] text-muted hover:text-horde transition-colors');
+        const removeBtn = el('button', 'text-[10px] text-muted hover:text-horde transition-colors');
         removeBtn.textContent = i18next.t('web:schedule_editor.remove');
         removeBtn.onclick = function () {
           _schedEdit.profiles.splice(idx, 1);
@@ -1222,32 +1222,32 @@ Panel.tabs = Panel.tabs || {};
         hdr.appendChild(actions);
         card.appendChild(hdr);
 
-        var _groups = _getSchedSettingGroups();
-        for (var gi = 0; gi < _groups.length; gi++) {
+        const _groups = _getSchedSettingGroups();
+        for (let gi = 0; gi < _groups.length; gi++) {
           (function (group) {
-            var section = el('div', 'sched-settings-group');
-            var groupHdr = el('div', 'sched-group-hdr');
+            const section = el('div', 'sched-settings-group');
+            const groupHdr = el('div', 'sched-group-hdr');
             groupHdr.innerHTML =
               '<i data-lucide="' + group.icon + '" class="w-3 h-3"></i><span>' + group.header + '</span>';
             section.appendChild(groupHdr);
-            var grid = el('div', 'sched-settings-grid');
-            for (var si = 0; si < group.items.length; si++) {
+            const grid = el('div', 'sched-settings-grid');
+            for (let si = 0; si < group.items.length; si++) {
               (function (opt) {
-                var row = el('div', 'sched-setting-row');
-                var lbl = el('span', 'sched-setting-label');
+                const row = el('div', 'sched-setting-row');
+                const lbl = el('span', 'sched-setting-label');
                 lbl.textContent = opt.label;
                 row.appendChild(lbl);
-                var curVal = settings[opt.key] != null ? String(settings[opt.key]) : '';
-                var input;
+                const curVal = settings[opt.key] != null ? String(settings[opt.key]) : '';
+                let input;
                 if (opt.type === 'select') {
                   input = document.createElement('select');
                   input.className = 'input-field text-[10px] py-0.5 px-1.5 w-24';
-                  var emptyOpt = document.createElement('option');
+                  const emptyOpt = document.createElement('option');
                   emptyOpt.value = '';
                   emptyOpt.textContent = '— ' + i18next.t('web:schedule.default') + ' —';
                   input.appendChild(emptyOpt);
-                  for (var val in opt.opts) {
-                    var o = document.createElement('option');
+                  for (const val in opt.opts) {
+                    const o = document.createElement('option');
                     o.value = val;
                     o.textContent = opt.opts[val];
                     if (val === curVal) o.selected = true;
@@ -1282,21 +1282,21 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _saveSchedule() {
-    var statusEl = $('#sched-editor-status');
+    const statusEl = $('#sched-editor-status');
     if (statusEl) {
       statusEl.textContent = i18next.t('web:schedule_editor.saving');
       statusEl.style.color = '#d4a843';
     }
-    var tpl = ($('#sched-name-template') || {}).value || '';
+    const tpl = ($('#sched-name-template') || {}).value || '';
     if (tpl) {
-      for (var pi = 0; pi < _schedEdit.profiles.length; pi++) {
-        var pn = _schedEdit.profiles[pi];
-        var capName = pn.charAt(0).toUpperCase() + pn.slice(1);
+      for (let pi = 0; pi < _schedEdit.profiles.length; pi++) {
+        const pn = _schedEdit.profiles[pi];
+        const capName = pn.charAt(0).toUpperCase() + pn.slice(1);
         if (!_schedEdit.settings[pn]) _schedEdit.settings[pn] = {};
         _schedEdit.settings[pn].ServerName = '"' + tpl.replace(/\{mode\}/gi, capName) + '"';
       }
     }
-    var payload = {
+    const payload = {
       restartTimes: _schedEdit.times,
       profiles: _schedEdit.profiles,
       profileSettings: _schedEdit.settings,
@@ -1337,12 +1337,12 @@ Panel.tabs = Panel.tabs || {};
 
   // Wire up schedule editor modal close buttons
   (function () {
-    var closeBtn = $('#sched-editor-close');
+    const closeBtn = $('#sched-editor-close');
     if (closeBtn)
       closeBtn.onclick = function () {
         $('#sched-editor-modal').classList.add('hidden');
       };
-    var cancelBtn = $('#sched-editor-cancel');
+    const cancelBtn = $('#sched-editor-cancel');
     if (cancelBtn)
       cancelBtn.onclick = function () {
         $('#sched-editor-modal').classList.add('hidden');

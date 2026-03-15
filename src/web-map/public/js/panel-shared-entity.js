@@ -9,18 +9,18 @@ Panel.shared = Panel.shared || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtNum = Panel.core.utils.fmtNum;
+  const S = Panel.core.S;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtNum = Panel.core.utils.fmtNum;
 
   // ── Utilities (also exposed on Panel.core.utils) ────────────────
 
   /** Clamp a popup element within the viewport so it never goes off-screen */
   function clampToViewport(popup) {
     requestAnimationFrame(function () {
-      var rect = popup.getBoundingClientRect();
-      var pad = 8;
+      const rect = popup.getBoundingClientRect();
+      const pad = 8;
       if (rect.right > window.innerWidth - pad)
         popup.style.left = Math.max(pad, window.innerWidth - rect.width - pad) + 'px';
       if (rect.bottom > window.innerHeight - pad)
@@ -32,8 +32,8 @@ Panel.shared = Panel.shared || {};
 
   /** Show a brief toast notification at the bottom of the screen */
   function showToast(message, duration) {
-    var el = Panel.core.el;
-    var t = el(
+    const el = Panel.core.el;
+    const t = el(
       'div',
       'fixed bottom-4 left-1/2 -translate-x-1/2 bg-surface-200 border border-border text-text text-xs px-4 py-2 rounded-lg shadow-lg z-10001 fade-in',
     );
@@ -49,7 +49,7 @@ Panel.shared = Panel.shared || {};
 
   // ── Entity info popup ───────────────────────────────────────────
 
-  var ENTITY_TABLE_TO_TYPE = {
+  const ENTITY_TABLE_TO_TYPE = {
     item_instances: 'item',
     game_items: 'item',
     item_movements: 'item',
@@ -69,7 +69,7 @@ Panel.shared = Panel.shared || {};
   };
 
   // Properties to hide in entity popups (internal/noisy fields)
-  var ENTITY_HIDE_KEYS = new Set([
+  const ENTITY_HIDE_KEYS = new Set([
     'id',
     'rowid',
     'created_at',
@@ -94,7 +94,7 @@ Panel.shared = Panel.shared || {};
       if (val !== Math.floor(val)) return val.toFixed(2);
       return fmtNum(val);
     }
-    var s = String(val);
+    const s = String(val);
     if (s.length > 200) return s.slice(0, 200) + '\u2026';
     return s;
   }
@@ -109,15 +109,15 @@ Panel.shared = Panel.shared || {};
   }
 
   function showEntityPopup(triggerEl, name, table) {
-    var old = document.querySelector('.item-popup');
+    const old = document.querySelector('.item-popup');
     if (old) old.remove();
 
-    var type = ENTITY_TABLE_TO_TYPE[table] || 'item';
+    const type = ENTITY_TABLE_TO_TYPE[table] || 'item';
 
-    var popup = document.createElement('div');
+    const popup = document.createElement('div');
     popup.className = 'item-popup';
 
-    var html =
+    let html =
       '<div class="item-popup-header">' +
       esc(name) +
       '<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>';
@@ -136,7 +136,7 @@ Panel.shared = Panel.shared || {};
     html += '</div>';
     popup.innerHTML = html;
 
-    var rect = triggerEl.getBoundingClientRect();
+    const rect = triggerEl.getBoundingClientRect();
     popup.style.position = 'fixed';
     popup.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + 'px';
     popup.style.top = Math.max(rect.top - 20, 8) + 'px';
@@ -150,19 +150,19 @@ Panel.shared = Panel.shared || {};
   }
 
   async function _fetchEntityData(name, type, _table) {
-    var container = document.getElementById('entity-popup-data');
-    var linksContainer = document.getElementById('entity-popup-links');
+    const container = document.getElementById('entity-popup-data');
+    const linksContainer = document.getElementById('entity-popup-links');
     if (!container) return;
 
     try {
-      var r = await (typeof authFetch === 'function' ? authFetch : apiFetch)(
+      const r = await (typeof authFetch === 'function' ? authFetch : apiFetch)(
         '/api/panel/lookup/' + encodeURIComponent(type) + '/' + encodeURIComponent(name),
       );
       if (!r.ok) {
         container.innerHTML = '<div class="text-[10px] text-muted">No data available</div>';
         return;
       }
-      var result = await r.json();
+      const result = await r.json();
 
       if (!result.found) {
         container.innerHTML = '<div class="text-[10px] text-muted">Not found in game reference data</div>';
@@ -175,12 +175,12 @@ Panel.shared = Panel.shared || {};
         return;
       }
 
-      var data = result.data;
-      var html = '<div class="grid gap-y-0.5 text-xs" style="grid-template-columns: auto 1fr">';
-      var shown = 0;
-      for (var key in data) {
+      const data = result.data;
+      let html = '<div class="grid gap-y-0.5 text-xs" style="grid-template-columns: auto 1fr">';
+      let shown = 0;
+      for (const key in data) {
         if (ENTITY_HIDE_KEYS.has(key)) continue;
-        var val = _formatEntityValue(key, data[key]);
+        const val = _formatEntityValue(key, data[key]);
         if (val == null) continue;
         html += '<div class="text-muted pr-2 whitespace-nowrap">' + esc(_formatEntityKey(key)) + '</div>';
         html += '<div class="text-gray-300 truncate" title="' + esc(val) + '">' + esc(val) + '</div>';

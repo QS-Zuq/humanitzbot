@@ -8,17 +8,17 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtDateTime = Panel.core.utils.fmtDateTime;
-  var fmtNum = Panel.core.utils.fmtNum;
-  var humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
-  var showToast = Panel.core.utils.showToast;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtDateTime = Panel.core.utils.fmtDateTime;
+  const fmtNum = Panel.core.utils.fmtNum;
+  const humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
+  const showToast = Panel.core.utils.showToast;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -28,30 +28,30 @@ Panel.tabs = Panel.tabs || {};
   // ── Data Loading ────────────────────────────────────────────────
 
   async function loadDatabase() {
-    var container = $('#db-results');
+    const container = $('#db-results');
     if (!container) return;
-    var table = $('#db-table') ? $('#db-table').value : 'activity_log';
-    var search = ($('#db-search') ? $('#db-search').value : '').trim();
-    var limit = parseInt($('#db-limit') ? $('#db-limit').value : '50', 10);
+    const table = $('#db-table') ? $('#db-table').value : 'activity_log';
+    const search = ($('#db-search') ? $('#db-search').value : '').trim();
+    const limit = parseInt($('#db-limit') ? $('#db-limit').value : '50', 10);
 
     container.innerHTML =
       '<div class="feed-empty">' + i18next.t('web:loading.generic', { defaultValue: 'Loading...' }) + '</div>';
 
     try {
-      var params = new URLSearchParams({ limit: String(limit) });
+      const params = new URLSearchParams({ limit: String(limit) });
       if (search) params.set('search', search);
-      var r = await apiFetch('/api/panel/db/' + table + '?' + params);
+      const r = await apiFetch('/api/panel/db/' + table + '?' + params);
       if (!r.ok) {
-        var err = {};
+        let err = {};
         try {
           err = await r.json();
         } catch (_e) {}
         container.innerHTML = '<div class="feed-empty">Error: ' + esc(err.error || r.statusText) + '</div>';
         return;
       }
-      var d = await r.json();
-      var rows = d.rows || [];
-      var columns = d.columns || [];
+      const d = await r.json();
+      const rows = d.rows || [];
+      const columns = d.columns || [];
       S.dbLastResult = { table: table, rows: rows, columns: columns };
       if (!rows.length) {
         container.innerHTML = '<div class="feed-empty">' + i18next.t('web:empty_states.no_data_found') + '</div>';
@@ -76,23 +76,23 @@ Panel.tabs = Panel.tabs || {};
       container.innerHTML = '<div class="feed-empty">' + i18next.t('web:empty_states.no_data') + '</div>';
       return;
     }
-    var hasResolved = rows.some(function (r) {
+    const hasResolved = rows.some(function (r) {
       return r._resolved_name;
     });
 
-    var steamToName = {};
-    for (var pi = 0; pi < S.players.length; pi++) {
+    const steamToName = {};
+    for (let pi = 0; pi < S.players.length; pi++) {
       if (S.players[pi].steamId) steamToName[S.players[pi].steamId] = S.players[pi].name;
     }
 
-    var steamCols = {};
-    for (var sc = 0; sc < columns.length; sc++) {
-      var cn = columns[sc].toLowerCase();
+    const steamCols = {};
+    for (let sc = 0; sc < columns.length; sc++) {
+      const cn = columns[sc].toLowerCase();
       if (cn === 'steam_id' || cn === 'target_steam_id' || cn === 'steamid' || cn === 'owner_steam_id')
         steamCols[columns[sc]] = true;
     }
 
-    var fkMap = {
+    const fkMap = {
       player_id: 'players',
       clan_id: 'clans',
       steam_id: 'activity_log',
@@ -100,10 +100,10 @@ Panel.tabs = Panel.tabs || {};
       owner_steam_id: 'players',
     };
 
-    var table = el('table', 'db-table');
-    var thead = el('thead');
-    var headRow = el('tr');
-    for (var ci = 0; ci < columns.length; ci++) {
+    const table = el('table', 'db-table');
+    const thead = el('thead');
+    const headRow = el('tr');
+    for (let ci = 0; ci < columns.length; ci++) {
       headRow.appendChild(el('th', '', humanizeSettingKey(columns[ci])));
     }
     if (hasResolved)
@@ -111,14 +111,14 @@ Panel.tabs = Panel.tabs || {};
     thead.appendChild(headRow);
     table.appendChild(thead);
 
-    var tbody = el('tbody');
-    for (var ri = 0; ri < rows.length; ri++) {
-      var row = rows[ri];
-      var tr = el('tr');
-      for (var ci2 = 0; ci2 < columns.length; ci2++) {
-        var col = columns[ci2];
-        var td = el('td');
-        var val = row[col];
+    const tbody = el('tbody');
+    for (let ri = 0; ri < rows.length; ri++) {
+      const row = rows[ri];
+      const tr = el('tr');
+      for (let ci2 = 0; ci2 < columns.length; ci2++) {
+        const col = columns[ci2];
+        const td = el('td');
+        let val = row[col];
         if (val == null) val = '';
         else if (typeof val === 'object') val = JSON.stringify(val);
         if (
@@ -135,7 +135,7 @@ Panel.tabs = Panel.tabs || {};
         }
 
         if (steamCols[col] && val && String(val).length > 10) {
-          var resolved = steamToName[String(val)] || '';
+          const resolved = steamToName[String(val)] || '';
           td.innerHTML =
             '<span class="player-link text-accent cursor-pointer" data-steam-id="' +
             esc(String(val)) +
@@ -145,7 +145,7 @@ Panel.tabs = Panel.tabs || {};
           if (resolved) td.title = String(val);
           else td.title = String(val);
         } else if (fkMap[col] && val && !steamCols[col]) {
-          var linkEl = document.createElement('span');
+          const linkEl = document.createElement('span');
           linkEl.className = 'db-link text-accent cursor-pointer hover:underline';
           linkEl.dataset.table = fkMap[col];
           linkEl.dataset.search = String(val);
@@ -162,7 +162,7 @@ Panel.tabs = Panel.tabs || {};
         tr.appendChild(td);
       }
       if (hasResolved) {
-        var nameTd = el('td');
+        const nameTd = el('td');
         nameTd.textContent = row._resolved_name || '';
         nameTd.className = 'text-accent';
         tr.appendChild(nameTd);
@@ -178,16 +178,16 @@ Panel.tabs = Panel.tabs || {};
 
   function exportDbCsv() {
     if (!S.dbLastResult || !S.dbLastResult.rows.length) return;
-    var d = S.dbLastResult;
-    var cols = d.columns;
-    var rows = d.rows;
+    const d = S.dbLastResult;
+    const cols = d.columns;
+    const rows = d.rows;
 
-    var lines = [];
+    const lines = [];
     lines.push(cols.map(csvEsc).join(','));
-    for (var i = 0; i < rows.length; i++) {
-      var cells = [];
-      for (var j = 0; j < cols.length; j++) {
-        var val = rows[i][cols[j]];
+    for (let i = 0; i < rows.length; i++) {
+      const cells = [];
+      for (let j = 0; j < cols.length; j++) {
+        let val = rows[i][cols[j]];
         if (val == null) val = '';
         else if (typeof val === 'object') val = JSON.stringify(val);
         cells.push(csvEsc(String(val)));
@@ -195,10 +195,10 @@ Panel.tabs = Panel.tabs || {};
       lines.push(cells.join(','));
     }
 
-    var csv = lines.join('\n');
-    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
     a.href = url;
     a.download = d.table + '_' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a);
@@ -219,19 +219,19 @@ Panel.tabs = Panel.tabs || {};
 
   async function fetchDbTableList() {
     try {
-      var r = await apiFetch('/api/panel/db/tables');
+      const r = await apiFetch('/api/panel/db/tables');
       if (!r.ok) return;
-      var d = await r.json();
+      const d = await r.json();
       S.dbTablesLive = d.tables || [];
-      var selects = [$('#db-table'), $('#qb-table')];
-      for (var si = 0; si < selects.length; si++) {
-        var sel = selects[si];
+      const selects = [$('#db-table'), $('#qb-table')];
+      for (let si = 0; si < selects.length; si++) {
+        const sel = selects[si];
         if (!sel) continue;
-        var prevVal = sel.value;
+        const prevVal = sel.value;
         sel.innerHTML = '';
-        for (var i = 0; i < S.dbTablesLive.length; i++) {
-          var t = S.dbTablesLive[i];
-          var opt = document.createElement('option');
+        for (let i = 0; i < S.dbTablesLive.length; i++) {
+          const t = S.dbTablesLive[i];
+          const opt = document.createElement('option');
           opt.value = t.name;
           opt.textContent =
             t.name +
@@ -244,7 +244,7 @@ Panel.tabs = Panel.tabs || {};
         }
         if (prevVal) sel.value = prevVal;
       }
-      for (var j = 0; j < S.dbTablesLive.length; j++) {
+      for (let j = 0; j < S.dbTablesLive.length; j++) {
         S.dbSchemaCache[S.dbTablesLive[j].name] = S.dbTablesLive[j].columns || [];
       }
     } catch (_e) {
@@ -255,16 +255,16 @@ Panel.tabs = Panel.tabs || {};
   // ── Schema Viewer ───────────────────────────────────────────────
 
   function showDbSchema() {
-    var table = $('#db-table') ? $('#db-table').value : '';
-    var container = $('#db-schema-info');
+    const table = $('#db-table') ? $('#db-table').value : '';
+    const container = $('#db-schema-info');
     if (!container) return;
-    var cols = S.dbSchemaCache[table];
+    const cols = S.dbSchemaCache[table];
     if (!cols || !cols.length) {
       container.innerHTML =
         '<span class="text-muted text-xs">' + i18next.t('web:empty_states.no_schema_info_available') + '</span>';
       return;
     }
-    var html = '<div class="overflow-x-auto"><table class="db-table text-xs"><thead><tr>';
+    let html = '<div class="overflow-x-auto"><table class="db-table text-xs"><thead><tr>';
     html +=
       '<th>' +
       i18next.t('web:table.column', { defaultValue: 'Column' }) +
@@ -276,8 +276,8 @@ Panel.tabs = Panel.tabs || {};
       i18next.t('web:table.nullable', { defaultValue: 'Nullable' }) +
       '</th>';
     html += '</tr></thead><tbody>';
-    for (var i = 0; i < cols.length; i++) {
-      var c = cols[i];
+    for (let i = 0; i < cols.length; i++) {
+      const c = cols[i];
       html += '<tr>';
       html += '<td class="font-mono text-accent">' + esc(c.name) + '</td>';
       html += '<td>' + esc(c.type || 'TEXT') + '</td>';
@@ -297,17 +297,17 @@ Panel.tabs = Panel.tabs || {};
   // ── Query Builder ───────────────────────────────────────────────
 
   function updateQbColumns() {
-    var table = $('#qb-table') ? $('#qb-table').value : '';
-    var cols = S.dbSchemaCache[table] || [];
-    var whereCol = $('#qb-where-col');
-    var orderCol = $('#qb-order-col');
-    var selects = [whereCol, orderCol];
-    for (var si = 0; si < selects.length; si++) {
-      var sel = selects[si];
+    const table = $('#qb-table') ? $('#qb-table').value : '';
+    const cols = S.dbSchemaCache[table] || [];
+    const whereCol = $('#qb-where-col');
+    const orderCol = $('#qb-order-col');
+    const selects = [whereCol, orderCol];
+    for (let si = 0; si < selects.length; si++) {
+      const sel = selects[si];
       if (!sel) continue;
       sel.innerHTML = '<option value="">--</option>';
-      for (var i = 0; i < cols.length; i++) {
-        var opt = document.createElement('option');
+      for (let i = 0; i < cols.length; i++) {
+        const opt = document.createElement('option');
         opt.value = cols[i].name;
         opt.textContent = cols[i].name;
         sel.appendChild(opt);
@@ -316,17 +316,17 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function buildQbSql() {
-    var table = $('#qb-table') ? $('#qb-table').value : '';
-    var columns = ($('#qb-columns') ? $('#qb-columns').value : '').trim() || '*';
-    var whereCol = $('#qb-where-col') ? $('#qb-where-col').value : '';
-    var whereOp = $('#qb-where-op') ? $('#qb-where-op').value : '=';
-    var whereVal = ($('#qb-where-val') ? $('#qb-where-val').value : '').trim();
-    var orderCol = $('#qb-order-col') ? $('#qb-order-col').value : '';
-    var orderDir = $('#qb-order-dir') ? $('#qb-order-dir').value : 'DESC';
-    var limit = ($('#qb-limit') ? $('#qb-limit').value : '100').trim() || '100';
+    const table = $('#qb-table') ? $('#qb-table').value : '';
+    const columns = ($('#qb-columns') ? $('#qb-columns').value : '').trim() || '*';
+    const whereCol = $('#qb-where-col') ? $('#qb-where-col').value : '';
+    const whereOp = $('#qb-where-op') ? $('#qb-where-op').value : '=';
+    const whereVal = ($('#qb-where-val') ? $('#qb-where-val').value : '').trim();
+    const orderCol = $('#qb-order-col') ? $('#qb-order-col').value : '';
+    const orderDir = $('#qb-order-dir') ? $('#qb-order-dir').value : 'DESC';
+    const limit = ($('#qb-limit') ? $('#qb-limit').value : '100').trim() || '100';
 
     if (!table) return '';
-    var sql = 'SELECT ' + columns + ' FROM ' + table;
+    let sql = 'SELECT ' + columns + ' FROM ' + table;
     if (whereCol && (whereVal || whereOp === 'IS NULL' || whereOp === 'IS NOT NULL')) {
       if (whereOp === 'IS NULL') sql += ' WHERE ' + whereCol + ' IS NULL';
       else if (whereOp === 'IS NOT NULL') sql += ' WHERE ' + whereCol + ' IS NOT NULL';
@@ -335,50 +335,50 @@ Panel.tabs = Panel.tabs || {};
       else sql += ' WHERE ' + whereCol + ' ' + whereOp + " '" + whereVal.replace(/'/g, "''") + "'";
     }
     if (orderCol) sql += ' ORDER BY ' + orderCol + ' ' + orderDir;
-    sql += ' LIMIT ' + parseInt(limit, 10);
+    sql += ' LIMIT ' + Math.max(1, Math.min(parseInt(limit, 10) || 100, 1000));
     return sql;
   }
 
   function updateQbPreview() {
-    var preview = $('#qb-preview');
+    const preview = $('#qb-preview');
     if (preview) preview.textContent = buildQbSql();
   }
 
   async function runQueryBuilder() {
-    var sql = buildQbSql();
+    const sql = buildQbSql();
     if (!sql) return showToast(i18next.t('web:toast.select_table_first'), 'error');
     await executeRawQuery(sql);
   }
 
   async function runRawSql() {
-    var input = $('#db-raw-sql');
-    var sql = (input ? input.value : '').trim();
+    const input = $('#db-raw-sql');
+    const sql = (input ? input.value : '').trim();
     if (!sql) return showToast(i18next.t('web:toast.enter_sql_query'), 'error');
     await executeRawQuery(sql);
   }
 
   async function executeRawQuery(sql) {
-    var container = $('#db-query-results');
-    var status = $('#db-query-status');
+    const container = $('#db-query-results');
+    const status = $('#db-query-status');
     if (!container) return;
     container.innerHTML =
       '<div class="feed-empty">' + i18next.t('web:database.running', { defaultValue: 'Running...' }) + '</div>';
     if (status) status.textContent = '';
 
     try {
-      var r = await apiFetch('/api/panel/db/query', {
+      const r = await apiFetch('/api/panel/db/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: sql, limit: 500 }),
       });
-      var d = await r.json();
+      const d = await r.json();
       if (d.error) {
         container.innerHTML = '<div class="feed-empty text-danger">' + esc(d.error) + '</div>';
         if (status) status.textContent = i18next.t('web:dashboard.error');
         return;
       }
-      var rows = d.rows || [];
-      var columns = d.columns || [];
+      const rows = d.rows || [];
+      const columns = d.columns || [];
       S.dbLastResult = { table: 'query', rows: rows, columns: columns };
       if (status)
         status.textContent = i18next.t('web:database.rows_returned', {

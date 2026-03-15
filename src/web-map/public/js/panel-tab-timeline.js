@@ -8,16 +8,16 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var _el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtDateTime = Panel.core.utils.fmtDateTime;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const _el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtDateTime = Panel.core.utils.fmtDateTime;
 
   // ── Timeline State (self-contained) ──
-  var TL = {
+  const TL = {
     map: null,
     ready: false,
     snapshots: [], // metadata list
@@ -43,7 +43,7 @@ Panel.tabs = Panel.tabs || {};
   };
 
   function tlIcon(color, size, shape, title) {
-    var css =
+    const css =
       shape === 'diamond'
         ? 'width:' + size + 'px;height:' + size + 'px;transform:rotate(45deg);border-radius:2px;'
         : shape === 'square'
@@ -69,7 +69,7 @@ Panel.tabs = Panel.tabs || {};
   async function initTimeline() {
     // Init map
     if (!TL.ready) {
-      var c = $('#tl-map');
+      const c = $('#tl-map');
       if (!c || !window.L) return;
       TL.map = L.map(c, { crs: L.CRS.Simple, minZoom: -2, maxZoom: 4, zoomControl: true, attributionControl: false });
       L.imageOverlay(
@@ -102,27 +102,27 @@ Panel.tabs = Panel.tabs || {};
       });
 
       // Wire controls
-      var playBtn = $('#tl-play');
+      const playBtn = $('#tl-play');
       if (playBtn) playBtn.addEventListener('click', tlTogglePlay);
-      var stepBack = $('#tl-step-back');
+      const stepBack = $('#tl-step-back');
       if (stepBack)
         stepBack.addEventListener('click', function () {
           tlStop();
           tlStep(-1);
         });
-      var stepFwd = $('#tl-step-fwd');
+      const stepFwd = $('#tl-step-fwd');
       if (stepFwd)
         stepFwd.addEventListener('click', function () {
           tlStop();
           tlStep(1);
         });
-      var latest = $('#tl-go-latest');
+      const latest = $('#tl-go-latest');
       if (latest)
         latest.addEventListener('click', function () {
           tlStop();
           tlGoTo(TL.snapshots.length - 1);
         });
-      var slider = $('#tl-slider');
+      const slider = $('#tl-slider');
       if (slider)
         slider.addEventListener('input', function () {
           tlStop();
@@ -155,7 +155,7 @@ Panel.tabs = Panel.tabs || {};
         'backpacks',
         'deaths',
       ].forEach(function (k) {
-        var cb = $('#tl-l-' + k);
+        const cb = $('#tl-l-' + k);
         if (cb)
           cb.addEventListener('change', function () {
             TL.visible[k] = this.checked;
@@ -200,7 +200,7 @@ Panel.tabs = Panel.tabs || {};
 
     // Load snapshot list
     try {
-      var bounds = await apiFetch('/api/timeline/bounds').then(function (r) {
+      const bounds = await apiFetch('/api/timeline/bounds').then(function (r) {
         return r.json();
       });
       if (!bounds || !bounds.count) {
@@ -214,7 +214,7 @@ Panel.tabs = Panel.tabs || {};
       );
       if (!TL.snapshots.length) return;
 
-      var slider = $('#tl-slider');
+      const slider = $('#tl-slider');
       if (slider) {
         slider.min = 0;
         slider.max = TL.snapshots.length - 1;
@@ -234,12 +234,12 @@ Panel.tabs = Panel.tabs || {};
   async function tlGoTo(idx) {
     if (idx < 0 || idx >= TL.snapshots.length) return;
     TL.idx = idx;
-    var slider = $('#tl-slider');
+    const slider = $('#tl-slider');
     if (slider) slider.value = idx;
     tlUpdateInfo();
 
     try {
-      var snap = TL.snapshots[idx];
+      const snap = TL.snapshots[idx];
       TL.data = await apiFetch('/api/timeline/snapshot/' + snap.id).then(function (r) {
         return r.json();
       });
@@ -251,19 +251,19 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function tlUpdateInfo() {
-    var info = $('#tl-info');
+    const info = $('#tl-info');
     if (!info) return;
-    var s = TL.snapshots[TL.idx];
+    const s = TL.snapshots[TL.idx];
     if (!s) {
       info.textContent = i18next.t('web:timeline.no_data');
       return;
     }
-    var d = new Date(s.created_at + (s.created_at.endsWith('Z') ? '' : 'Z'));
-    var time = window.fmtTime ? window.fmtTime(d) : d.toLocaleTimeString();
-    var date = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
-    var w = s.weather_type || '';
-    var sn = s.season || '';
-    var day = s.game_day ? i18next.t('web:dashboard.day') + ' ' + s.game_day : '';
+    const d = new Date(s.created_at + (s.created_at.endsWith('Z') ? '' : 'Z'));
+    const time = window.fmtTime ? window.fmtTime(d) : d.toLocaleTimeString();
+    const date = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
+    const w = s.weather_type || '';
+    const sn = s.season || '';
+    const day = s.game_day ? i18next.t('web:dashboard.day') + ' ' + s.game_day : '';
     info.innerHTML =
       '<b>' +
       date +
@@ -294,7 +294,7 @@ Panel.tabs = Panel.tabs || {};
 
   function tlRender() {
     if (!TL.data || !TL.map) return;
-    var d = TL.data;
+    const d = TL.data;
 
     // Clear entity layers (not deaths — those are loaded separately)
     ['players', 'zombies', 'animals', 'bandits', 'vehicles', 'structures', 'companions', 'backpacks'].forEach(
@@ -307,9 +307,9 @@ Panel.tabs = Panel.tabs || {};
     if (TL.visible.players && d.players) {
       d.players.forEach(function (p) {
         if (p.lat == null) return;
-        var online = !!p.online;
-        var icon = tlIcon(online ? '#6dba82' : '#7a746c', online ? 14 : 10, 'circle', p.name);
-        var m = L.marker([p.lat, p.lng], { icon: icon, zIndexOffset: online ? 1000 : 500 });
+        const online = !!p.online;
+        const icon = tlIcon(online ? '#6dba82' : '#7a746c', online ? 14 : 10, 'circle', p.name);
+        const m = L.marker([p.lat, p.lng], { icon: icon, zIndexOffset: online ? 1000 : 500 });
         m.bindTooltip((online ? '🟢 ' : '') + p.name, { direction: 'top', offset: [0, -8] });
         m.bindPopup(
           '<div class="tl-popup"><b>' +
@@ -343,18 +343,18 @@ Panel.tabs = Panel.tabs || {};
     if (d.ai) {
       d.ai.forEach(function (a) {
         if (a.lat == null) return;
-        var cat = a.category || 'zombie';
+        const cat = a.category || 'zombie';
         if (cat === 'zombie' && !TL.visible.zombies) return;
         if (cat === 'animal' && !TL.visible.animals) return;
         if (cat === 'bandit' && !TL.visible.bandits) return;
-        var icon =
+        const icon =
           cat === 'animal'
             ? tlIcon('#e67e22', 6, 'diamond')
             : cat === 'bandit'
               ? tlIcon('#e74c3c', 7, 'square')
               : tlIcon('#9b59b6', 5, 'circle');
-        var layerKey = cat === 'animal' ? 'animals' : cat === 'bandit' ? 'bandits' : 'zombies';
-        var m = L.marker([a.lat, a.lng], { icon: icon });
+        const layerKey = cat === 'animal' ? 'animals' : cat === 'bandit' ? 'bandits' : 'zombies';
+        const m = L.marker([a.lat, a.lng], { icon: icon });
         m.bindTooltip(a.display_name || a.ai_type, { direction: 'top', offset: [0, -5] });
         m.addTo(TL.layers[layerKey]);
       });
@@ -364,8 +364,8 @@ Panel.tabs = Panel.tabs || {};
     if (TL.visible.vehicles && d.vehicles) {
       d.vehicles.forEach(function (v) {
         if (v.lat == null) return;
-        var m = L.marker([v.lat, v.lng], { icon: tlIcon('#3498db', 9, 'square') });
-        var name = v.display_name || v.class || i18next.t('web:activity.vehicle');
+        const m = L.marker([v.lat, v.lng], { icon: tlIcon('#3498db', 9, 'square') });
+        const name = v.display_name || v.class || i18next.t('web:activity.vehicle');
         m.bindTooltip(name, { direction: 'top', offset: [0, -7] });
         m.bindPopup(
           '<div class="tl-popup"><b>' +
@@ -388,9 +388,9 @@ Panel.tabs = Panel.tabs || {};
     if (TL.visible.structures && d.structures) {
       d.structures.forEach(function (s) {
         if (s.lat == null) return;
-        var m = L.marker([s.lat, s.lng], { icon: tlIcon('#95a5a6', 4, 'square') });
-        var name = s.display_name || s.actor_class || i18next.t('web:activity.structure');
-        var owner = TL.nameMap[s.owner_steam_id] || s.owner_steam_id || '?';
+        const m = L.marker([s.lat, s.lng], { icon: tlIcon('#95a5a6', 4, 'square') });
+        const name = s.display_name || s.actor_class || i18next.t('web:activity.structure');
+        const owner = TL.nameMap[s.owner_steam_id] || s.owner_steam_id || '?';
         m.bindTooltip(name, { direction: 'top', offset: [0, -5] });
         m.bindPopup(
           '<div class="tl-popup"><b>' +
@@ -413,9 +413,9 @@ Panel.tabs = Panel.tabs || {};
     if (TL.visible.companions && d.companions) {
       d.companions.forEach(function (c) {
         if (c.lat == null) return;
-        var m = L.marker([c.lat, c.lng], { icon: tlIcon('#f1c40f', 7, 'diamond') });
-        var name = c.display_name || c.entity_type || 'Companion';
-        var owner = TL.nameMap[c.owner_steam_id] || '';
+        const m = L.marker([c.lat, c.lng], { icon: tlIcon('#f1c40f', 7, 'diamond') });
+        const name = c.display_name || c.entity_type || 'Companion';
+        const owner = TL.nameMap[c.owner_steam_id] || '';
         m.bindTooltip(name + (owner ? ' (' + owner + ')' : ''), { direction: 'top', offset: [0, -6] });
         m.addTo(TL.layers.companions);
       });
@@ -425,14 +425,14 @@ Panel.tabs = Panel.tabs || {};
     if (TL.visible.backpacks && d.backpacks) {
       d.backpacks.forEach(function (b) {
         if (b.lat == null) return;
-        var m = L.marker([b.lat, b.lng], { icon: tlIcon('#8e44ad', 6, 'square') });
+        const m = L.marker([b.lat, b.lng], { icon: tlIcon('#8e44ad', 6, 'square') });
         m.bindTooltip('Backpack (' + (b.item_count || 0) + ' items)', { direction: 'top', offset: [0, -5] });
         m.addTo(TL.layers.backpacks);
       });
     }
 
     // Update counts
-    var counts = {
+    const counts = {
       players: d.players ? d.players.length : 0,
       zombies: d.ai
         ? d.ai.filter(function (a) {
@@ -454,23 +454,23 @@ Panel.tabs = Panel.tabs || {};
       companions: d.companions ? d.companions.length : 0,
       backpacks: d.backpacks ? d.backpacks.length : 0,
     };
-    for (var k in counts) {
-      var countEl = $('#tl-c-' + k);
+    for (const k in counts) {
+      const countEl = $('#tl-c-' + k);
       if (countEl) countEl.textContent = counts[k];
     }
   }
 
   async function tlLoadDeaths() {
     try {
-      var deaths = await apiFetch('/api/timeline/deaths?limit=200').then(function (r) {
+      const deaths = await apiFetch('/api/timeline/deaths?limit=200').then(function (r) {
         return r.json();
       });
       TL.layers.deaths.clearLayers();
       deaths.forEach(function (d) {
         if (d.lat == null) return;
-        var m = L.marker([d.lat, d.lng], { icon: tlIcon('#ff0000', 8, 'circle', 'Death'), zIndexOffset: -100 });
-        var cause = d.cause_name || d.cause_type || 'Unknown';
-        var t = fmtDateTime(d.created_at);
+        const m = L.marker([d.lat, d.lng], { icon: tlIcon('#ff0000', 8, 'circle', 'Death'), zIndexOffset: -100 });
+        const cause = d.cause_name || d.cause_type || 'Unknown';
+        const t = fmtDateTime(d.created_at);
         m.bindPopup(
           '<div class="tl-popup"><b>💀 ' +
             esc(d.victim_name || '?') +
@@ -498,12 +498,12 @@ Panel.tabs = Panel.tabs || {};
   function tlPlay() {
     if (TL.playing || !TL.snapshots.length) return;
     TL.playing = true;
-    var btn = $('#tl-play');
+    const btn = $('#tl-play');
     if (btn) {
       btn.innerHTML = '<i data-lucide="pause" class="w-3.5 h-3.5"></i>';
       if (window.lucide) lucide.createIcons({ nodes: [btn] });
     }
-    var interval = Math.max(200, 2000 / TL.speed);
+    const interval = Math.max(200, 2000 / TL.speed);
     TL.timer = setInterval(function () {
       if (TL.idx >= TL.snapshots.length - 1) {
         tlStop();
@@ -519,7 +519,7 @@ Panel.tabs = Panel.tabs || {};
       clearInterval(TL.timer);
       TL.timer = null;
     }
-    var btn = $('#tl-play');
+    const btn = $('#tl-play');
     if (btn) {
       btn.innerHTML = '<i data-lucide="play" class="w-3.5 h-3.5"></i>';
       if (window.lucide) lucide.createIcons({ nodes: [btn] });
@@ -527,7 +527,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function tlStep(dir) {
-    var next = TL.idx + dir;
+    const next = TL.idx + dir;
     if (next >= 0 && next < TL.snapshots.length) tlGoTo(next);
   }
 

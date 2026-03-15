@@ -60,7 +60,7 @@ window.Panel = window.Panel || {};
     return Array.from((ctx || document).querySelectorAll(sel));
   };
   const el = function (tag, cls, html) {
-    var e = document.createElement(tag);
+    const e = document.createElement(tag);
     if (cls) e.className = cls;
     if (html != null) e.innerHTML = html;
     return e;
@@ -71,7 +71,7 @@ window.Panel = window.Panel || {};
   /** Build API URL with server query param appended */
   function apiUrl(path) {
     if (S.currentServer === 'primary') return path;
-    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+    const sep = path.indexOf('?') >= 0 ? '&' : '?';
     return path + sep + 'server=' + encodeURIComponent(S.currentServer);
   }
 
@@ -83,8 +83,8 @@ window.Panel = window.Panel || {};
   // ── HTML Escape ───────────────────────────────────
 
   function esc(str) {
-    if (!str) return '';
-    var div = document.createElement('div');
+    if (str == null || str === '') return '';
+    const div = document.createElement('div');
     div.textContent = String(str);
     return div.innerHTML;
   }
@@ -192,9 +192,9 @@ window.Panel = window.Panel || {};
       {
         get: function (_, prop) {
           if (typeof prop !== 'string') return undefined;
-          var i18nKey = SETTING_DESC_KEY_OVERRIDES[prop] || Panel.core.utils.toI18nSnakeCase(prop);
-          var fullKey = 'web:setting_descs.' + i18nKey;
-          var translated = i18next.t(fullKey);
+          const i18nKey = SETTING_DESC_KEY_OVERRIDES[prop] || Panel.core.utils.toI18nSnakeCase(prop);
+          const fullKey = 'web:setting_descs.' + i18nKey;
+          const translated = i18next.t(fullKey);
           return translated === fullKey ? '' : translated;
         },
       },
@@ -208,8 +208,8 @@ window.Panel = window.Panel || {};
       {
         get: function (_, prop) {
           if (typeof prop !== 'string') return undefined;
-          var fullKey = 'web:env_descs.' + String(prop).toLowerCase();
-          var translated = i18next.t(fullKey);
+          const fullKey = 'web:env_descs.' + String(prop).toLowerCase();
+          const translated = i18next.t(fullKey);
           return translated === fullKey ? '' : translated;
         },
       },

@@ -8,15 +8,15 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtNum = Panel.core.utils.fmtNum;
-  var renderActivityFeed = Panel.shared.activityFeed.render;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtNum = Panel.core.utils.fmtNum;
+  const renderActivityFeed = Panel.shared.activityFeed.render;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -27,20 +27,20 @@ Panel.tabs = Panel.tabs || {};
   // ── Activity Loading ────────────────────────────────────────────
 
   async function loadActivity(append) {
-    var container = $('#activity-feed');
+    const container = $('#activity-feed');
     if (!container) return;
-    var category = S.activityCategory || '';
-    var rawSearch = $('#activity-search') ? $('#activity-search').value : '';
-    var search = rawSearch.toLowerCase();
-    var date = $('#activity-date') ? $('#activity-date').value : '';
+    const category = S.activityCategory || '';
+    const rawSearch = $('#activity-search') ? $('#activity-search').value : '';
+    let search = rawSearch.toLowerCase();
+    const date = $('#activity-date') ? $('#activity-date').value : '';
 
-    var paging = Panel.shared.activityFeed;
+    const paging = Panel.shared.activityFeed;
 
     // Detect fingerprint search pattern: ItemName#abcdef123456
-    var fpMatch = rawSearch.match(/^(.+)#([a-f0-9]{6,})$/i);
+    const fpMatch = rawSearch.match(/^(.+)#([a-f0-9]{6,})$/i);
     if (fpMatch) {
-      var fpItem = fpMatch[1].trim();
-      var fpHash = fpMatch[2].trim();
+      const fpItem = fpMatch[1].trim();
+      const fpHash = fpMatch[2].trim();
       showFingerprintTracker(fpItem, fpHash);
       // Also load normal activity filtered by item name
       search = fpItem.toLowerCase();
@@ -51,14 +51,14 @@ Panel.tabs = Panel.tabs || {};
     if (!append) {
       paging.setOffset(0);
     }
-    var pageSize = paging.getPageSize();
-    var params = new URLSearchParams({ limit: String(pageSize), offset: String(paging.getOffset()) });
+    const pageSize = paging.getPageSize();
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(paging.getOffset()) });
     if (category) params.set('type', category);
     if (search) params.set('actor', search);
     try {
-      var r = await apiFetch('/api/panel/activity?' + params);
-      var d = await r.json();
-      var events = d.events || [];
+      const r = await apiFetch('/api/panel/activity?' + params);
+      const d = await r.json();
+      let events = d.events || [];
       if (date)
         events = events.filter(function (e) {
           return (e.created_at || '').startsWith(date);
@@ -66,7 +66,7 @@ Panel.tabs = Panel.tabs || {};
       paging.setHasMore(events.length >= pageSize);
       paging.setOffset(paging.getOffset() + events.length);
       renderActivityFeed(container, events, false, append);
-      var btn = $('#activity-load-more');
+      const btn = $('#activity-load-more');
       if (btn) btn.classList.toggle('hidden', !paging.getHasMore());
     } catch (_e) {
       if (!append)
@@ -83,25 +83,25 @@ Panel.tabs = Panel.tabs || {};
   // ── Fingerprint Tracker ─────────────────────────────────────────
 
   function hideFingerprintTracker() {
-    var panel = $('#fingerprint-tracker');
+    const panel = $('#fingerprint-tracker');
     if (panel) panel.classList.add('hidden');
   }
 
   async function showFingerprintTracker(itemName, fingerprint) {
-    var panel = $('#fingerprint-tracker');
+    const panel = $('#fingerprint-tracker');
     if (!panel) return;
 
     // Show panel + loading state
     panel.classList.remove('hidden');
     if (window.lucide) lucide.createIcons({ nodes: [panel] });
-    var nameEl = $('#fp-item-name');
-    var hashEl = $('#fp-hash');
-    var infoEl = $('#fp-instance-info');
-    var ownershipEl = $('#fp-ownership');
-    var chainEl = $('#fp-ownership-chain');
-    var movementsEl = $('#fp-movements');
-    var loadingEl = $('#fp-loading');
-    var emptyEl = $('#fp-empty');
+    const nameEl = $('#fp-item-name');
+    const hashEl = $('#fp-hash');
+    const infoEl = $('#fp-instance-info');
+    const ownershipEl = $('#fp-ownership');
+    const chainEl = $('#fp-ownership-chain');
+    const movementsEl = $('#fp-movements');
+    const loadingEl = $('#fp-loading');
+    const emptyEl = $('#fp-empty');
 
     if (nameEl) nameEl.textContent = itemName;
     if (hashEl) hashEl.textContent = '#' + fingerprint;
@@ -112,19 +112,19 @@ Panel.tabs = Panel.tabs || {};
     if (loadingEl) loadingEl.classList.remove('hidden');
     if (emptyEl) emptyEl.classList.add('hidden');
 
-    var limit = parseInt(($('#fp-limit') || {}).value || '50', 10);
+    const limit = parseInt(($('#fp-limit') || {}).value || '50', 10);
 
     try {
-      var params = new URLSearchParams({ fingerprint: fingerprint, item: itemName });
-      var r = await apiFetch('/api/panel/items/lookup?' + params);
+      const params = new URLSearchParams({ fingerprint: fingerprint, item: itemName });
+      const r = await apiFetch('/api/panel/items/lookup?' + params);
       if (!r.ok) throw new Error('API error');
-      var data = await r.json();
+      const data = await r.json();
 
       if (loadingEl) loadingEl.classList.add('hidden');
 
-      var match = data.match;
-      var movements = data.movements || [];
-      var ownership = data.ownershipChain || [];
+      const match = data.match;
+      const movements = data.movements || [];
+      const ownership = data.ownershipChain || [];
 
       if (!match && movements.length === 0) {
         if (emptyEl) emptyEl.classList.remove('hidden');
@@ -133,10 +133,10 @@ Panel.tabs = Panel.tabs || {};
 
       // Render instance info badges
       if (match && infoEl) {
-        var infoBadges = '';
+        let infoBadges = '';
 
         // Current location
-        var locLabel = _fpFormatLocation(match.location_type, match.location_id);
+        const locLabel = _fpFormatLocation(match.location_type, match.location_id);
         infoBadges +=
           '<div class="fp-info-badge"><div class="fp-info-label">Location</div><div class="fp-info-value">' +
           locLabel +
@@ -144,9 +144,9 @@ Panel.tabs = Panel.tabs || {};
 
         // Durability
         if (match.durability != null && match.durability > 0) {
-          var durPct =
+          const durPct =
             match.max_dur > 0 ? Math.round((match.durability / match.max_dur) * 100) : Math.round(match.durability);
-          var durCol = durPct > 60 ? 'text-emerald-400' : durPct > 25 ? 'text-amber-400' : 'text-red-400';
+          const durCol = durPct > 60 ? 'text-emerald-400' : durPct > 25 ? 'text-amber-400' : 'text-red-400';
           infoBadges +=
             '<div class="fp-info-badge"><div class="fp-info-label">Durability</div><div class="fp-info-value ' +
             durCol +
@@ -170,7 +170,7 @@ Panel.tabs = Panel.tabs || {};
           '</div></div>';
 
         // Status
-        var status = match.lost
+        const status = match.lost
           ? '<span class="text-red-400">Lost</span>'
           : '<span class="text-emerald-400">Active</span>';
         infoBadges +=
@@ -208,8 +208,8 @@ Panel.tabs = Panel.tabs || {};
       // Render ownership chain
       if (ownership.length > 0 && ownershipEl && chainEl) {
         ownershipEl.classList.remove('hidden');
-        var chainHtml = '';
-        for (var ci = 0; ci < ownership.length; ci++) {
+        let chainHtml = '';
+        for (let ci = 0; ci < ownership.length; ci++) {
           if (ci > 0) chainHtml += '<span class="fp-custody-arrow">\u2192</span>';
           chainHtml +=
             '<span class="fp-custody-player player-link" data-steam-id="' +
@@ -223,11 +223,11 @@ Panel.tabs = Panel.tabs || {};
       }
 
       // Render movement timeline (limited)
-      var limited = movements.slice(0, limit);
+      const limited = movements.slice(0, limit);
       if (limited.length > 0 && movementsEl) {
-        var movHtml = '';
-        for (var mi = 0; mi < limited.length; mi++) {
-          var m = limited[mi];
+        let movHtml = '';
+        for (let mi = 0; mi < limited.length; mi++) {
+          const m = limited[mi];
           movHtml += _fpRenderMovementRow(m);
         }
         if (movements.length > limit) {
@@ -254,10 +254,10 @@ Panel.tabs = Panel.tabs || {};
     if (!type) return '<span class="text-muted">Unknown</span>';
     if (type === 'player') {
       // Use resolved name from API, or try to look up from player list, or fallback to steam ID
-      var pName = resolvedName || id;
-      var steamId = id;
+      let pName = resolvedName || id;
+      const steamId = id;
       if (!resolvedName) {
-        for (var pi = 0; pi < S.players.length; pi++) {
+        for (let pi = 0; pi < S.players.length; pi++) {
           if (S.players[pi].steamId === id) {
             pName = S.players[pi].name;
             break;
@@ -273,7 +273,7 @@ Panel.tabs = Panel.tabs || {};
       );
     }
     if (type === 'container') {
-      var cleanId = id
+      const cleanId = id
         .replace(/ChildActor_GEN_VARIABLE_|_C_CAT_\d+|BP_/g, '')
         .replace(/_/g, ' ')
         .trim();
@@ -291,13 +291,13 @@ Panel.tabs = Panel.tabs || {};
   function _fpShortDate(dateStr) {
     if (!dateStr) return '';
     try {
-      var d = new Date(dateStr + 'Z');
-      var now = new Date();
-      var diff = now - d;
+      const d = new Date(dateStr + 'Z');
+      const now = new Date();
+      const diff = now - d;
       if (diff < 60000) return 'just now';
       if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
       if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-      var month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+      const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
       return (
         month +
         ' ' +
@@ -313,12 +313,12 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function _fpRenderMovementRow(m) {
-    var fromLoc = _fpFormatLocation(m.from_type, m.from_id, m.from_name);
-    var toLoc = _fpFormatLocation(m.to_type, m.to_id, m.to_name);
-    var time = _fpShortDate(m.created_at);
-    var attrName = m.attributed_name || '';
+    const fromLoc = _fpFormatLocation(m.from_type, m.from_id, m.from_name);
+    const toLoc = _fpFormatLocation(m.to_type, m.to_id, m.to_name);
+    const time = _fpShortDate(m.created_at);
+    const attrName = m.attributed_name || '';
 
-    var html = '<div class="fp-movement-row">';
+    let html = '<div class="fp-movement-row">';
     html += '<span class="fp-time">' + esc(time) + '</span>';
     html += '<span class="fp-loc">' + fromLoc + '</span>';
     html += '<span class="fp-arrow">\u2192</span>';
@@ -335,7 +335,7 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Activity Stats & Charts ─────────────────────────────────────
 
-  var CHART_COLORS = {
+  const CHART_COLORS = {
     container: '#60a5fa', // blue
     inventory: '#34d399', // green
     vehicle: '#fbbf24', // yellow
@@ -348,39 +348,39 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadActivityStats() {
     try {
-      var r = await apiFetch('/api/panel/activity-stats');
-      var d = await r.json();
+      const r = await apiFetch('/api/panel/activity-stats');
+      const d = await r.json();
       S.activityStats = d;
 
       // Populate stat cards
-      var totalEl = $('#act-total');
+      const totalEl = $('#act-total');
       if (totalEl) totalEl.textContent = (d.total || 0).toLocaleString();
-      var typesEl = $('#act-types-count');
+      const typesEl = $('#act-types-count');
       if (typesEl) typesEl.textContent = Object.keys(d.types || {}).length;
-      var rangeEl = $('#act-date-range');
+      const rangeEl = $('#act-date-range');
       if (rangeEl && d.dateRange) {
-        var e0 = d.dateRange.earliest ? d.dateRange.earliest.split('T')[0] : '?';
-        var e1 = d.dateRange.latest ? d.dateRange.latest.split('T')[0] : '?';
+        const e0 = d.dateRange.earliest ? d.dateRange.earliest.split('T')[0] : '?';
+        const e1 = d.dateRange.latest ? d.dateRange.latest.split('T')[0] : '?';
         rangeEl.textContent = e0 + ' \u2014 ' + e1;
       }
-      var topEl = $('#act-top-actor');
+      const topEl = $('#act-top-actor');
       if (topEl && d.topActors && d.topActors.length) {
         topEl.textContent = d.topActors[0].actor + ' (' + d.topActors[0].count.toLocaleString() + ')';
       }
 
       // Update pill counts
-      var pills = $$('.activity-pill');
-      for (var i = 0; i < pills.length; i++) {
-        var pill = pills[i];
-        var cat = pill.dataset.category || '';
-        var badge = pill.querySelector('.pill-count');
-        var count = 0;
+      const pills = $$('.activity-pill');
+      for (let i = 0; i < pills.length; i++) {
+        const pill = pills[i];
+        const cat = pill.dataset.category || '';
+        const badge = pill.querySelector('.pill-count');
+        let count = 0;
         if (cat === '') count = d.total || 0;
         else count = (d.categories || {})[cat] || 0;
         if (badge) {
           badge.textContent = formatCompact(count);
         } else if (count > 0) {
-          var span = document.createElement('span');
+          const span = document.createElement('span');
           span.className = 'pill-count';
           span.textContent = formatCompact(count);
           pill.appendChild(span);
@@ -438,13 +438,13 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function renderDailyChart(daily) {
-    var canvas = $('#chart-daily-activity');
+    const canvas = $('#chart-daily-activity');
     if (!canvas) return;
     destroyChart('daily');
-    var labels = daily.map(function (d) {
+    const labels = daily.map(function (d) {
       return d.day ? d.day.slice(5) : '';
     });
-    var data = daily.map(function (d) {
+    const data = daily.map(function (d) {
       return d.count;
     });
     S.activityCharts.daily = new Chart(canvas, {
@@ -470,14 +470,14 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function renderHourlyChart(hourly) {
-    var canvas = $('#chart-hourly-activity');
+    const canvas = $('#chart-hourly-activity');
     if (!canvas) return;
     destroyChart('hourly');
-    var labels = [];
-    var data = [];
-    var hourMap = {};
-    for (var i = 0; i < hourly.length; i++) hourMap[hourly[i].hour] = hourly[i].count;
-    for (var h = 0; h < 24; h++) {
+    const labels = [];
+    const data = [];
+    const hourMap = {};
+    for (let i = 0; i < hourly.length; i++) hourMap[hourly[i].hour] = hourly[i].count;
+    for (let h = 0; h < 24; h++) {
       labels.push(h.toString().padStart(2, '0') + ':00');
       data.push(hourMap[h] || 0);
     }
@@ -500,18 +500,18 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function renderCategoryChart(categories) {
-    var canvas = $('#chart-category-activity');
+    const canvas = $('#chart-category-activity');
     if (!canvas) return;
     destroyChart('category');
-    var cats = Object.keys(categories);
+    const cats = Object.keys(categories);
     if (!cats.length) return;
-    var labels = cats.map(function (c) {
+    const labels = cats.map(function (c) {
       return c.charAt(0).toUpperCase() + c.slice(1);
     });
-    var data = cats.map(function (c) {
+    const data = cats.map(function (c) {
       return categories[c];
     });
-    var colors = cats.map(function (c) {
+    const colors = cats.map(function (c) {
       return CHART_COLORS[c] || '#64748b';
     });
     S.activityCharts.category = new Chart(canvas, {
@@ -551,14 +551,14 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function renderTopActorsChart(topActors) {
-    var canvas = $('#chart-top-actors');
+    const canvas = $('#chart-top-actors');
     if (!canvas) return;
     destroyChart('topActors');
     if (!topActors.length) return;
-    var labels = topActors.map(function (a) {
+    const labels = topActors.map(function (a) {
       return a.actor || 'Unknown';
     });
-    var data = topActors.map(function (a) {
+    const data = topActors.map(function (a) {
       return a.count;
     });
     S.activityCharts.topActors = new Chart(canvas, {

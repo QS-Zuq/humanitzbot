@@ -8,14 +8,14 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
 
-  var _inited = false;
+  let _inited = false;
 
-  var RCON_COMMANDS = [
+  const RCON_COMMANDS = [
     'info',
     'players',
     'save',
@@ -50,8 +50,8 @@ Panel.tabs = Panel.tabs || {};
     'CancelRestart',
     'shutdown ',
   ];
-  var consoleHistory = [];
-  var consoleHistoryIdx = -1;
+  let consoleHistory = [];
+  let consoleHistoryIdx = -1;
   try {
     consoleHistory = JSON.parse(localStorage.getItem('hmz_console_history') || '[]');
   } catch (_e) {}
@@ -61,12 +61,12 @@ Panel.tabs = Panel.tabs || {};
     _inited = true;
 
     // Wire up console autocomplete clicks
-    var wrap = $('#console-autocomplete');
+    const wrap = $('#console-autocomplete');
     if (wrap) {
       wrap.addEventListener('click', function (e) {
-        var item = e.target.closest('.cmd-item');
+        const item = e.target.closest('.cmd-item');
         if (item) {
-          var input = $('#rcon-input');
+          const input = $('#rcon-input');
           if (input) input.value = item.dataset.cmd || '';
           hideConsoleAutocomplete();
         }
@@ -81,9 +81,9 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function sendRcon() {
-    var input = $('#rcon-input');
+    const input = $('#rcon-input');
     if (!input) return;
-    var cmd = input.value.trim();
+    const cmd = input.value.trim();
     if (!cmd) return;
 
     if (consoleHistory[consoleHistory.length - 1] !== cmd) consoleHistory.push(cmd);
@@ -94,12 +94,12 @@ Panel.tabs = Panel.tabs || {};
     appendConsole(cmd, 'cmd');
     input.value = '';
     try {
-      var r = await apiFetch('/api/panel/rcon', {
+      const r = await apiFetch('/api/panel/rcon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: cmd }),
       });
-      var d = await r.json();
+      const d = await r.json();
       if (d.ok) appendConsole(d.response || '(no response)', 'resp');
       else
         appendConsole(
@@ -112,7 +112,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function handleConsoleKeydown(e) {
-    var input = $('#rcon-input');
+    const input = $('#rcon-input');
     if (!input) return;
     if (e.key === 'Enter') {
       sendRcon();
@@ -136,9 +136,9 @@ Panel.tabs = Panel.tabs || {};
     }
     if (e.key === 'Tab') {
       e.preventDefault();
-      var val = input.value.toLowerCase();
+      const val = input.value.toLowerCase();
       if (!val) return;
-      var match = RCON_COMMANDS.find(function (c) {
+      const match = RCON_COMMANDS.find(function (c) {
         return c.startsWith(val);
       });
       if (match) input.value = match;
@@ -156,24 +156,24 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function showConsoleAutocomplete(val) {
-    var wrap = $('#console-autocomplete');
+    const wrap = $('#console-autocomplete');
     if (!wrap) return;
     val = (val || '').toLowerCase().trim();
     if (!val) {
       wrap.classList.add('hidden');
       return;
     }
-    var matches = RCON_COMMANDS.filter(function (c) {
+    const matches = RCON_COMMANDS.filter(function (c) {
       return c.startsWith(val) && c !== val;
     });
 
-    var histMatches = [];
-    for (var i = consoleHistory.length - 1; i >= 0 && histMatches.length < 3; i--) {
+    const histMatches = [];
+    for (let i = consoleHistory.length - 1; i >= 0 && histMatches.length < 3; i--) {
       if (consoleHistory[i].toLowerCase().startsWith(val) && matches.indexOf(consoleHistory[i]) === -1) {
         histMatches.push(consoleHistory[i]);
       }
     }
-    var all = matches.concat(histMatches);
+    const all = matches.concat(histMatches);
     if (all.length === 0) {
       wrap.classList.add('hidden');
       return;
@@ -187,14 +187,14 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function hideConsoleAutocomplete() {
-    var wrap = $('#console-autocomplete');
+    const wrap = $('#console-autocomplete');
     if (wrap) wrap.classList.add('hidden');
   }
 
   function appendConsole(text, cls) {
-    var out = $('#console-output');
+    const out = $('#console-output');
     if (!out) return;
-    var line = el('div', 'console-line ' + cls);
+    const line = el('div', 'console-line ' + cls);
     line.textContent = text;
     out.appendChild(line);
     out.scrollTop = out.scrollHeight;

@@ -20,13 +20,13 @@ Panel.core = Panel.core || {};
   function formatPlaytime(minutes) {
     if (!minutes) return '0m';
     if (minutes < 60) return minutes + 'm';
-    var h = Math.floor(minutes / 60);
-    var m = minutes % 60;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
     return m > 0 ? h + 'h ' + m + 'm' : h + 'h';
   }
 
   function fmtDateTime(value) {
-    var date = value instanceof Date ? value : new Date(value);
+    const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     if (window.fmtDate && window.fmtTime) return window.fmtDate(date) + ' ' + window.fmtTime(date);
     return date.toLocaleString();

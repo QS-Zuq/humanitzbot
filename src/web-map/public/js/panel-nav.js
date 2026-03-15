@@ -8,10 +8,10 @@ window.Panel = window.Panel || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var $$ = Panel.core.$$;
-  var esc = Panel.core.esc;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const $$ = Panel.core.$$;
+  const esc = Panel.core.esc;
 
   // ── Tab Labels ────────────────────────────────────
 
@@ -39,16 +39,16 @@ window.Panel = window.Panel || {};
 
   function setBreadcrumbs(crumbs) {
     S.breadcrumbs = crumbs;
-    var bars = $$('.breadcrumb-bar');
+    const bars = $$('.breadcrumb-bar');
     bars.forEach(function (bar) {
       if (!crumbs || crumbs.length <= 1) {
         bar.innerHTML = '';
         return;
       }
-      var html = '';
-      for (var i = 0; i < crumbs.length; i++) {
+      let html = '';
+      for (let i = 0; i < crumbs.length; i++) {
         if (i > 0) html += '<span class="breadcrumb-sep"></span>';
-        var isLast = i === crumbs.length - 1;
+        const isLast = i === crumbs.length - 1;
         if (isLast) {
           html += '<span class="breadcrumb-item current">' + esc(crumbs[i].label) + '</span>';
         } else {
@@ -67,15 +67,15 @@ window.Panel = window.Panel || {};
   // ── Breadcrumb Click Delegation ───────────────────
 
   document.addEventListener('click', function (e) {
-    var bc = e.target.closest('.breadcrumb-item:not(.current)');
+    const bc = e.target.closest('.breadcrumb-item:not(.current)');
     if (!bc) return;
-    var action = bc.dataset.action;
+    const action = bc.dataset.action;
     if (action === 'tab') {
       setBreadcrumbs([{ label: getTabLabels()[S.currentTab] || S.currentTab }]);
 
-      var pm = $('#player-modal');
+      const pm = $('#player-modal');
       if (pm) pm.classList.add('hidden');
-      var idm = $('#item-detail-modal');
+      const idm = $('#item-detail-modal');
       if (idm) idm.classList.add('hidden');
     } else if (action && action.startsWith('switchTab:')) {
       switchTab(action.split(':')[1]);
@@ -90,7 +90,7 @@ window.Panel = window.Panel || {};
     $$('.tab-content').forEach(function (s) {
       s.classList.add('hidden');
     });
-    var tabEl = $('#tab-' + tab);
+    const tabEl = $('#tab-' + tab);
     if (tabEl) {
       tabEl.classList.remove('hidden');
 
@@ -107,7 +107,7 @@ window.Panel = window.Panel || {};
     S.pollTimers = [];
 
     // Call tab handler via namespace contract
-    var handler = Panel.tabs && Panel.tabs[tab];
+    const handler = Panel.tabs && Panel.tabs[tab];
     if (handler) {
       try {
         if (handler.init) handler.init();
@@ -150,9 +150,9 @@ window.Panel = window.Panel || {};
   // ── data-nav click delegation (e.g. "view in Items tab") ──
 
   document.addEventListener('click', function (e) {
-    var navTarget = e.target.closest('[data-nav]');
+    const navTarget = e.target.closest('[data-nav]');
     if (!navTarget) return;
-    var requiredTier = parseInt(navTarget.dataset.requireTier, 10) || 0;
+    const requiredTier = parseInt(navTarget.dataset.requireTier, 10) || 0;
     if (S.tier >= requiredTier) {
       switchTab(navTarget.dataset.nav);
     }
@@ -160,12 +160,12 @@ window.Panel = window.Panel || {};
 
   document.addEventListener('click', function (e) {
     // Player link click → open player modal
-    var link = e.target.closest('.player-link');
+    const link = e.target.closest('.player-link');
     if (link) {
       e.preventDefault();
-      var steamId = link.dataset.steamId;
-      var name = link.textContent;
-      var player = S.players.find(function (p) {
+      const steamId = link.dataset.steamId;
+      const name = link.textContent;
+      const player = S.players.find(function (p) {
         return (
           (steamId && p.steamId === steamId) ||
           (name && p.name === name) ||
@@ -181,7 +181,7 @@ window.Panel = window.Panel || {};
     }
 
     // Inventory item click → show item popup
-    var slot = e.target.closest('.inv-clickable');
+    const slot = e.target.closest('.inv-clickable');
     if (slot) {
       e.preventDefault();
       if (Panel._internal.showItemPopup) Panel._internal.showItemPopup(slot);
@@ -189,19 +189,19 @@ window.Panel = window.Panel || {};
     }
 
     // Activity cross-reference click → navigate to activity tab with filter
-    var actLink = e.target.closest('.activity-link');
+    const actLink = e.target.closest('.activity-link');
     if (actLink) {
       e.preventDefault();
-      var actSearch = actLink.dataset.search || '';
-      var actType = actLink.dataset.type || '';
-      var as = $('#activity-search');
+      const actSearch = actLink.dataset.search || '';
+      const actType = actLink.dataset.type || '';
+      const as = $('#activity-search');
       if (as) as.value = actSearch;
-      var af = $('#activity-filter');
+      const af = $('#activity-filter');
       if (af && actType) af.value = actType;
       // Close any open popup/modal before navigating
-      var openPopup = document.querySelector('.item-popup');
+      const openPopup = document.querySelector('.item-popup');
       if (openPopup) openPopup.remove();
-      var openModal = $('#player-modal');
+      const openModal = $('#player-modal');
       if (openModal && !openModal.classList.contains('hidden')) openModal.classList.add('hidden');
       switchTab('activity');
       // Force reload with the pre-populated filters
@@ -213,32 +213,32 @@ window.Panel = window.Panel || {};
     }
 
     // Close item popup via close button
-    var popupClose = e.target.closest('.item-popup-close');
+    const popupClose = e.target.closest('.item-popup-close');
     if (popupClose) {
-      var popup = popupClose.closest('.item-popup');
+      const popup = popupClose.closest('.item-popup');
       if (popup) popup.remove();
       return;
     }
 
     // DB cross-reference click → navigate to related data
-    var dbLink = e.target.closest('.db-link');
+    const dbLink = e.target.closest('.db-link');
     if (dbLink) {
       e.preventDefault();
-      var table = dbLink.dataset.table;
-      var search = dbLink.dataset.search;
+      const table = dbLink.dataset.table;
+      const search = dbLink.dataset.search;
       if (table) {
-        var sel = $('#db-table');
+        const sel = $('#db-table');
         if (sel) {
           sel.value = table;
         }
-        var srch = $('#db-search');
+        const srch = $('#db-search');
         if (srch) {
           srch.value = search || '';
         }
         // Close any open popup/modal before navigating
-        var openPopup2 = document.querySelector('.item-popup');
+        const openPopup2 = document.querySelector('.item-popup');
         if (openPopup2) openPopup2.remove();
-        var openModal2 = $('#player-modal');
+        const openModal2 = $('#player-modal');
         if (openModal2 && !openModal2.classList.contains('hidden')) openModal2.classList.add('hidden');
         switchTab('database');
         setTimeout(function () {
@@ -249,20 +249,20 @@ window.Panel = window.Panel || {};
     }
 
     // Entity link click → show entity info popup (or navigate for clans)
-    var entLink = e.target.closest('.entity-link:not(.player-link)');
+    const entLink = e.target.closest('.entity-link:not(.player-link)');
     if (entLink) {
       e.preventDefault();
       e.stopPropagation();
-      var eTable = entLink.dataset.entityTable;
-      var eSearch = entLink.dataset.entitySearch;
+      const eTable = entLink.dataset.entityTable;
+      const eSearch = entLink.dataset.entitySearch;
       if (eTable === 'clans' && eSearch) {
-        var openPopup3 = document.querySelector('.item-popup');
+        const openPopup3 = document.querySelector('.item-popup');
         if (openPopup3) openPopup3.remove();
-        var openModal3 = $('#player-modal');
+        const openModal3 = $('#player-modal');
         if (openModal3 && !openModal3.classList.contains('hidden')) openModal3.classList.add('hidden');
         switchTab('clans');
         setTimeout(function () {
-          var cs = $('#clan-search');
+          const cs = $('#clan-search');
           if (cs) {
             cs.value = eSearch;
             cs.dispatchEvent(new Event('input'));
@@ -275,15 +275,15 @@ window.Panel = window.Panel || {};
     }
 
     // Item popup close button
-    var popupClose2 = e.target.closest('.item-popup-close');
+    const popupClose2 = e.target.closest('.item-popup-close');
     if (popupClose2) {
-      var parentPopup = popupClose2.closest('.item-popup');
+      const parentPopup = popupClose2.closest('.item-popup');
       if (parentPopup) parentPopup.remove();
       return;
     }
 
     // Close item popup on outside click
-    var existingPopup = document.querySelector('.item-popup');
+    const existingPopup = document.querySelector('.item-popup');
     if (existingPopup && !e.target.closest('.item-popup') && !e.target.closest('.inv-clickable')) {
       existingPopup.remove();
     }

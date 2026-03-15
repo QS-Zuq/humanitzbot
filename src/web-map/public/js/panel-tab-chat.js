@@ -8,13 +8,13 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -35,17 +35,17 @@ Panel.tabs = Panel.tabs || {};
   // ── Chat Functions ─────────────────────────────────────────
 
   async function loadChat() {
-    var container = $('#chat-feed');
+    const container = $('#chat-feed');
     if (!container) return;
-    var search = ($('#chat-search') ? $('#chat-search').value : '').trim();
+    const search = ($('#chat-search') ? $('#chat-search').value : '').trim();
     try {
-      var params = new URLSearchParams({ limit: '200' });
+      const params = new URLSearchParams({ limit: '200' });
       if (search) params.set('search', search);
-      var r = await apiFetch('/api/panel/chat?' + params);
-      var d = await r.json();
-      var messages = d.messages || [];
+      const r = await apiFetch('/api/panel/chat?' + params);
+      const d = await r.json();
+      const messages = d.messages || [];
       renderChatFeed(container, messages, false);
-      var countEl = $('#chat-count');
+      const countEl = $('#chat-count');
       if (countEl) countEl.textContent = messages.length + ' messages' + (search ? ' (filtered)' : '');
       container.scrollTop = container.scrollHeight;
     } catch (_e) {
@@ -60,21 +60,21 @@ Panel.tabs = Panel.tabs || {};
       return;
     }
     container.innerHTML = '';
-    var limit = compact ? 15 : messages.length;
-    var slice = messages.slice(0, limit);
+    const limit = compact ? 15 : messages.length;
+    const slice = messages.slice(0, limit);
 
-    var chrono = compact ? slice : slice.slice().reverse();
-    var lastDateKey = '';
-    for (var i = 0; i < chrono.length; i++) {
-      var m = chrono[i];
+    const chrono = compact ? slice : slice.slice().reverse();
+    let lastDateKey = '';
+    for (let i = 0; i < chrono.length; i++) {
+      const m = chrono[i];
 
       if (!compact && m.created_at) {
-        var d = new Date(m.created_at);
-        var dateKey = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
-        var timeKey = dateKey + '-' + Math.floor(d.getTime() / 1800000);
+        const d = new Date(m.created_at);
+        const dateKey = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
+        const timeKey = dateKey + '-' + Math.floor(d.getTime() / 1800000);
         if (timeKey !== lastDateKey) {
-          var sep = el('div', 'chat-time-sep');
-          var label = dateKey;
+          const sep = el('div', 'chat-time-sep');
+          let label = dateKey;
           if (i > 0) {
             label += ' \u00b7 ' + (window.fmtTime ? window.fmtTime(d) : d.toLocaleTimeString());
           }
@@ -83,19 +83,19 @@ Panel.tabs = Panel.tabs || {};
           lastDateKey = timeKey;
         }
       }
-      var msg = el('div', 'chat-msg');
-      var isSystem = m.type === 'join' || m.type === 'leave' || m.type === 'death';
-      var isOutbound = m.direction === 'outbound';
-      var timestamp =
+      const msg = el('div', 'chat-msg');
+      const isSystem = m.type === 'join' || m.type === 'leave' || m.type === 'death';
+      const isOutbound = m.direction === 'outbound';
+      const timestamp =
         !compact && m.created_at
           ? window.fmtTime
             ? window.fmtTime(new Date(m.created_at))
             : new Date(m.created_at).toLocaleTimeString()
           : '';
-      var timeHtml = timestamp ? '<span class="chat-time-inline">' + timestamp + '</span>' : '';
+      const timeHtml = timestamp ? '<span class="chat-time-inline">' + timestamp + '</span>' : '';
       if (isSystem) {
-        var action = m.type === 'join' ? 'joined' : m.type === 'leave' ? 'left' : 'died';
-        var pLink =
+        const action = m.type === 'join' ? 'joined' : m.type === 'leave' ? 'left' : 'died';
+        const pLink =
           '<span class="player-link" data-steam-id="' +
           esc(m.steam_id || '') +
           '">' +
@@ -109,11 +109,11 @@ Panel.tabs = Panel.tabs || {};
           action +
           '</span>';
       } else {
-        var authorCls = isOutbound ? 'outbound' : '';
-        var author = isOutbound ? m.discord_user || 'Discord' : m.player_name || 'Player';
-        var isAdmin = m.is_admin ? ' chat-admin' : '';
-        var cleanMsg = stripRconTags(m.message || '');
-        var cleanAuthor = stripRconTags(author);
+        const authorCls = isOutbound ? 'outbound' : '';
+        const author = isOutbound ? m.discord_user || 'Discord' : m.player_name || 'Player';
+        const isAdmin = m.is_admin ? ' chat-admin' : '';
+        const cleanMsg = stripRconTags(m.message || '');
+        const cleanAuthor = stripRconTags(author);
         msg.innerHTML =
           timeHtml +
           '<span class="chat-author player-link' +
@@ -136,9 +136,9 @@ Panel.tabs = Panel.tabs || {};
 
   async function sendChat() {
     if (S.tier < 2) return;
-    var input = $('#chat-msg-input');
+    const input = $('#chat-msg-input');
     if (!input) return;
-    var msg = input.value.trim();
+    const msg = input.value.trim();
     if (!msg) return;
     try {
       await apiFetch('/api/admin/message', {
@@ -147,9 +147,9 @@ Panel.tabs = Panel.tabs || {};
         body: JSON.stringify({ message: '[Panel] ' + (S.user ? S.user.displayName || 'Admin' : 'Admin') + ': ' + msg }),
       });
       input.value = '';
-      var feed = $('#chat-feed');
+      const feed = $('#chat-feed');
       if (feed) {
-        var div = el('div', 'chat-msg fade-in');
+        const div = el('div', 'chat-msg fade-in');
         div.innerHTML =
           '<span class="chat-author outbound">' +
           esc(S.user ? S.user.displayName || i18next.t('web:chat.you') : i18next.t('web:chat.you')) +

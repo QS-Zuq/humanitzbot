@@ -8,25 +8,25 @@ window.Panel = window.Panel || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
 
   // ── Landing carousel state ────────────────────────
 
-  var _landingSlideIdx = 0;
-  var _landingSlideCount = 0;
-  var _landingAutoTimer = null;
-  var _landingAutoDelay = 12000; // 12s per slide
+  let _landingSlideIdx = 0;
+  let _landingSlideCount = 0;
+  let _landingAutoTimer = null;
+  const _landingAutoDelay = 12000; // 12s per slide
 
   function _landingGoTo(idx) {
-    var slides = document.querySelectorAll('.landing-slide');
-    var tabs = document.querySelectorAll('.landing-tab');
+    const slides = document.querySelectorAll('.landing-slide');
+    const tabs = document.querySelectorAll('.landing-tab');
     if (!slides.length) return;
     idx = ((idx % slides.length) + slides.length) % slides.length;
     if (idx === _landingSlideIdx) return;
-    var prev = _landingSlideIdx;
+    const prev = _landingSlideIdx;
 
     // Old slide: add exit-left so it slides out to the left
     if (slides[prev]) {
@@ -36,7 +36,7 @@ window.Panel = window.Panel || {};
     if (tabs[prev]) tabs[prev].classList.remove('active');
 
     // Clear any other stale states
-    for (var i = 0; i < slides.length; i++) {
+    for (let i = 0; i < slides.length; i++) {
       if (i !== prev && i !== idx) {
         slides[i].classList.remove('active', 'exit-left');
       }
@@ -82,7 +82,7 @@ window.Panel = window.Panel || {};
   function showLanding() {
     $('#landing').classList.remove('hidden');
     $('#panel').classList.add('hidden');
-    var skyBg = $('#skyline-bg');
+    const skyBg = $('#skyline-bg');
     if (skyBg) skyBg.classList.remove('panel-active');
     loadLanding();
 
@@ -95,35 +95,35 @@ window.Panel = window.Panel || {};
 
   async function loadLanding() {
     // Get renderServerInfo from the dashboard module
-    var renderServerInfo = Panel.tabs.dashboard
+    const renderServerInfo = Panel.tabs.dashboard
       ? Panel.tabs.dashboard.renderServerInfo
       : function () {
           return '';
         };
 
     try {
-      var r = await fetch('/api/landing');
-      var d = await r.json();
-      var p = d.primary;
+      const r = await fetch('/api/landing');
+      const d = await r.json();
+      const p = d.primary;
 
       // Landing title — use primary server name from config
-      var titleEl = $('#landing-title');
+      const titleEl = $('#landing-title');
       if (titleEl && p.name) titleEl.textContent = p.name;
 
       // Hero header — combined status across all servers
-      var anyOnline = p.status === 'online';
+      let anyOnline = p.status === 'online';
       if (d.servers)
-        for (var ci = 0; ci < d.servers.length; ci++) {
+        for (let ci = 0; ci < d.servers.length; ci++) {
           if (d.servers[ci].status === 'online') anyOnline = true;
         }
-      var dot = $('#ls-status-dot');
-      var txt = $('#ls-status-text');
+      const dot = $('#ls-status-dot');
+      const txt = $('#ls-status-text');
       dot.className = 'landing-status-dot ' + (anyOnline ? 'online' : 'offline');
       txt.textContent = anyOnline ? i18next.t('web:dashboard.online') : i18next.t('web:map.offline');
       txt.className = 'text-xs ' + (anyOnline ? 'text-calm' : 'text-muted');
 
       // Build unified server list
-      var allServers = [];
+      let allServers = [];
       allServers.push({
         name: p.name || i18next.t('web:dashboard.primary_server'),
         status: p.status,
@@ -145,8 +145,8 @@ window.Panel = window.Panel || {};
       }
 
       // Build server tabs + carousel slides
-      var tabsContainer = $('#landing-server-tabs');
-      var slidesContainer = $('#landing-slides');
+      const tabsContainer = $('#landing-server-tabs');
+      const slidesContainer = $('#landing-slides');
       tabsContainer.innerHTML = '';
       slidesContainer.innerHTML = '';
       _landingSlideCount = allServers.length;
@@ -154,32 +154,32 @@ window.Panel = window.Panel || {};
       if (allServers.length <= 1) tabsContainer.classList.add('single');
       else tabsContainer.classList.remove('single');
 
-      for (var si = 0; si < allServers.length; si++) {
-        var s = allServers[si];
-        var sOn = s.status === 'online';
-        var stale = s.status === 'stale';
-        var statusColor = sOn ? 'online' : stale ? 'stale' : 'offline';
-        var statusBg = sOn ? 'bg-calm' : stale ? 'bg-yellow-500' : 'bg-muted';
-        var addr = s.host ? (s.gamePort ? s.host + ':' + s.gamePort : s.host) : '';
+      for (let si = 0; si < allServers.length; si++) {
+        const s = allServers[si];
+        const sOn = s.status === 'online';
+        const stale = s.status === 'stale';
+        const statusColor = sOn ? 'online' : stale ? 'stale' : 'offline';
+        const statusBg = sOn ? 'bg-calm' : stale ? 'bg-yellow-500' : 'bg-muted';
+        const addr = s.host ? (s.gamePort ? s.host + ':' + s.gamePort : s.host) : '';
 
         // ── Tab button ──
-        var tab = el('button', 'landing-tab' + (si === 0 ? ' active' : ''));
+        const tab = el('button', 'landing-tab' + (si === 0 ? ' active' : ''));
         tab.setAttribute('data-idx', '' + si);
         tab.innerHTML = '<span class="landing-tab-dot ' + statusColor + '"></span>' + esc(s.name);
         tab.addEventListener('click', function () {
-          var idx = parseInt(this.getAttribute('data-idx'), 10);
+          let idx = parseInt(this.getAttribute('data-idx'), 10);
           _landingGoTo(idx);
           _landingStartAuto(); // reset timer on manual click
         });
         tabsContainer.appendChild(tab);
 
         // ── Slide ──
-        var slide = el('div', 'landing-slide' + (si === 0 ? ' active' : ''));
-        var card = el('div', 'landing-server-slide');
+        const slide = el('div', 'landing-slide' + (si === 0 ? ' active' : ''));
+        const card = el('div', 'landing-server-slide');
         card.setAttribute('data-server-id', s.id || '');
 
         // Identity row: name + inline meta
-        var identity = '<div class="slide-identity">';
+        let identity = '<div class="slide-identity">';
         identity +=
           '<div class="slide-server-name"><span class="slide-status-dot ' +
           statusBg +
@@ -207,17 +207,17 @@ window.Panel = window.Panel || {};
 
         // World
         if (s.gameDay != null) {
-          var dps = s.daysPerSeason || 28,
+          const dps = s.daysPerSeason || 28,
             seasonNames = [
               i18next.t('web:dashboard.spring'),
               i18next.t('web:dashboard.summer'),
               i18next.t('web:dashboard.autumn'),
               i18next.t('web:dashboard.winter'),
             ];
-          var seasonNum = Math.floor((s.gameDay % (dps * 4)) / dps);
-          var dayInSeason = (s.gameDay % dps) + 1;
-          var year = Math.floor(s.gameDay / (dps * 4)) + 1;
-          var worldStr = '';
+          const seasonNum = Math.floor((s.gameDay % (dps * 4)) / dps);
+          const dayInSeason = (s.gameDay % dps) + 1;
+          const year = Math.floor(s.gameDay / (dps * 4)) + 1;
+          let worldStr = '';
           if (s.gameTime) worldStr += s.gameTime + ' · ';
           worldStr +=
             i18next.t('web:dashboard.day_of_season', { day: dayInSeason, season: s.season || seasonNames[seasonNum] }) +
@@ -237,11 +237,11 @@ window.Panel = window.Panel || {};
         identity += '</div>'; // /slide-identity
 
         // Divider
-        var divider = '<div class="slide-divider"></div>';
+        const divider = '<div class="slide-divider"></div>';
 
         // Schedule (if active)
-        var schedHtml = '';
-        var sched = s.schedule;
+        let schedHtml = '';
+        const sched = s.schedule;
         if (sched && sched.active) {
           schedHtml += '<div class="slide-schedule">';
           schedHtml += '<div class="slide-section-title">' + i18next.t('web:dashboard.schedule_title');
@@ -253,10 +253,10 @@ window.Panel = window.Panel || {};
           schedHtml += '</div>';
           schedHtml += '<div class="slide-schedule-list" data-server-idx="' + si + '"></div>';
           if (sched.nextRestart) {
-            var mins = sched.minutesUntilRestart;
-            var hrs = Math.floor(mins / 60);
-            var m = mins % 60;
-            var untilStr = hrs > 0 ? hrs + 'h ' + m + 'm' : m + 'm';
+            const mins = sched.minutesUntilRestart;
+            const hrs = Math.floor(mins / 60);
+            const m = mins % 60;
+            const untilStr = hrs > 0 ? hrs + 'h ' + m + 'm' : m + 'm';
             schedHtml +=
               '<div class="text-[10px] text-muted mt-1">' +
               i18next.t('web:dashboard.next_transition', { time: untilStr, at: sched.nextRestart }) +
@@ -271,7 +271,7 @@ window.Panel = window.Panel || {};
         }
 
         // Server info (rules, threats, loot, world stats)
-        var infoHtml = '';
+        let infoHtml = '';
         if (s.settings) {
           infoHtml += '<div class="slide-info"><div class="srv-info-panel">';
           infoHtml += renderServerInfo(s.settings, s);
@@ -279,10 +279,10 @@ window.Panel = window.Panel || {};
         }
 
         // Active modules (feature pills)
-        var modsHtml = '';
-        var mods = s.modules || [];
+        let modsHtml = '';
+        const mods = s.modules || [];
         if (mods.length) {
-          var modLabels = {
+          const modLabels = {
             rcon: { icon: 'terminal', label: 'RCON', tip: i18next.t('web:dashboard.mod_rcon_tip') },
             db: {
               icon: 'database',
@@ -317,8 +317,8 @@ window.Panel = window.Panel || {};
             },
           };
           modsHtml += '<div class="slide-modules">';
-          for (var mi = 0; mi < mods.length; mi++) {
-            var modItem = modLabels[mods[mi]] || { icon: 'circle', label: mods[mi], tip: '' };
+          for (let mi = 0; mi < mods.length; mi++) {
+            const modItem = modLabels[mods[mi]] || { icon: 'circle', label: mods[mi], tip: '' };
             modsHtml += '<span class="slide-mod-pill" data-tippy-content="' + esc(modItem.tip) + '">';
             modsHtml += '<i data-lucide="' + modItem.icon + '"></i>' + modItem.label + '</span>';
           }
@@ -326,7 +326,7 @@ window.Panel = window.Panel || {};
         }
 
         // Assemble card: identity → divider → modules → schedule → info
-        var cardContent = identity;
+        let cardContent = identity;
         if (modsHtml || schedHtml || infoHtml) cardContent += divider;
         if (modsHtml) cardContent += modsHtml;
         if (schedHtml) cardContent += schedHtml;
@@ -338,7 +338,7 @@ window.Panel = window.Panel || {};
 
         // Render schedule slots (needs DOM)
         if (sched && sched.active) {
-          var schedList = card.querySelector('.slide-schedule-list');
+          const schedList = card.querySelector('.slide-schedule-list');
           if (schedList && Panel.tabs.settings) {
             Panel.tabs.settings.renderSchedule(schedList, sched, 'landing');
             if (sched.rotateDaily && sched.tomorrowSchedule) {
@@ -349,9 +349,9 @@ window.Panel = window.Panel || {};
 
         // Plugin content (hzmod) embedded in matching slide
         if (s.id && window.__panelPlugins?.hzmod?.renderLandingCard && d.hzmod) {
-          var hzServerId = d.hzmodServerId || 'vps_dev';
+          const hzServerId = d.hzmodServerId || 'vps_dev';
           if (s.id === hzServerId) {
-            var pluginDiv = el('div', 'mt-2 pt-2 border-t border-border/50');
+            const pluginDiv = el('div', 'mt-2 pt-2 border-t border-border/50');
             pluginDiv.innerHTML = window.__panelPlugins.hzmod.renderLandingCard(d.hzmod);
             card.appendChild(pluginDiv);
           }
@@ -377,7 +377,7 @@ window.Panel = window.Panel || {};
       }
 
       // Pause auto-rotate on hover over the slide area
-      var carouselEl = $('#landing-carousel');
+      const carouselEl = $('#landing-carousel');
       if (carouselEl) {
         carouselEl.addEventListener('mouseenter', function () {
           _landingStopAuto();
@@ -404,19 +404,19 @@ window.Panel = window.Panel || {};
       // Start auto-rotation
       _landingStartAuto();
 
-      var discordLink = $('#link-discord');
+      const discordLink = $('#link-discord');
       if (discordLink) {
-        var inviteUrl = p.discordInvite || '';
+        const inviteUrl = p.discordInvite || '';
         if (inviteUrl) {
-          var fullUrl = inviteUrl.startsWith('http') ? inviteUrl : 'https://' + inviteUrl;
+          const fullUrl = inviteUrl.startsWith('http') ? inviteUrl : 'https://' + inviteUrl;
           discordLink.href = fullUrl;
           $('#landing-links').classList.remove('hidden');
-          var authBtn = $('#landing-auth-btn');
+          const authBtn = $('#landing-auth-btn');
           if (authBtn && S.user.authenticated && S.tier < 1) authBtn.href = fullUrl;
         } else {
           $('#landing-links').classList.remove('hidden');
           discordLink.style.display = 'none';
-          var sep = discordLink.parentElement.querySelector('.text-border');
+          const sep = discordLink.parentElement.querySelector('.text-border');
           if (sep) sep.remove();
         }
       }

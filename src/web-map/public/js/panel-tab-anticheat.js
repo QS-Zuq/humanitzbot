@@ -8,21 +8,21 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtDateTime = Panel.core.utils.fmtDateTime;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtDateTime = Panel.core.utils.fmtDateTime;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
     _inited = true;
     // Wire anticheat filter controls
-    var sf = $('#ac-status-filter');
-    var svf = $('#ac-severity-filter');
-    var rb = $('#ac-refresh');
+    const sf = $('#ac-status-filter');
+    const svf = $('#ac-severity-filter');
+    const rb = $('#ac-refresh');
     if (sf)
       sf.addEventListener('change', function () {
         if (S.currentTab === 'anticheat') loadAnticheat();
@@ -42,14 +42,14 @@ Panel.tabs = Panel.tabs || {};
   // ══════════════════════════════════════════════════
 
   async function loadAnticheat() {
-    var flagsContainer = $('#ac-flags-table');
-    var riskContainer = $('#ac-risk-table');
-    var cardsContainer = $('#ac-risk-cards');
-    var countEl = $('#ac-flag-count');
+    const flagsContainer = $('#ac-flags-table');
+    const riskContainer = $('#ac-risk-table');
+    const cardsContainer = $('#ac-risk-cards');
+    const countEl = $('#ac-flag-count');
     if (!flagsContainer) return;
 
-    var statusFilter = $('#ac-status-filter') ? $('#ac-status-filter').value : 'open';
-    var severityFilter = $('#ac-severity-filter') ? $('#ac-severity-filter').value : '';
+    const statusFilter = $('#ac-status-filter') ? $('#ac-status-filter').value : 'open';
+    const severityFilter = $('#ac-severity-filter') ? $('#ac-severity-filter').value : '';
 
     flagsContainer.innerHTML =
       '<div class="feed-empty">' +
@@ -62,18 +62,18 @@ Panel.tabs = Panel.tabs || {};
 
     // Load flags + risk scores in parallel
     try {
-      var params = new URLSearchParams();
+      const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
       if (severityFilter) params.set('severity', severityFilter);
       params.set('limit', '100');
 
-      var [flagsRes, riskRes] = await Promise.all([
+      const [flagsRes, riskRes] = await Promise.all([
         apiFetch('/api/panel/anticheat/flags?' + params),
         apiFetch('/api/panel/anticheat/risk-scores'),
       ]);
 
       if (!flagsRes.ok || !riskRes.ok) {
-        var errMsg = i18next.t('web:anticheat.failed_to_load_data', { defaultValue: 'Failed to load anticheat data' });
+        let errMsg = i18next.t('web:anticheat.failed_to_load_data', { defaultValue: 'Failed to load anticheat data' });
         if (flagsRes.status === 403 || riskRes.status === 403)
           errMsg += ' ' + i18next.t('web:anticheat.requires_admin', { defaultValue: '(requires admin)' });
         else errMsg += ' ' + i18next.t('web:anticheat.server_error', { defaultValue: '(server error)' });
@@ -83,8 +83,8 @@ Panel.tabs = Panel.tabs || {};
         return;
       }
 
-      var flags = await flagsRes.json();
-      var riskScores = await riskRes.json();
+      const flags = await flagsRes.json();
+      const riskScores = await riskRes.json();
 
       // Render overview cards
       renderAcCards(cardsContainer, flags, riskScores);
@@ -103,18 +103,18 @@ Panel.tabs = Panel.tabs || {};
 
   function renderAcCards(container, flags, riskScores) {
     if (!container) return;
-    var open = flags.filter(function (f) {
+    const open = flags.filter(function (f) {
       return f.status === 'open';
     }).length;
-    var critical = flags.filter(function (f) {
+    const critical = flags.filter(function (f) {
       return f.severity === 'critical' || f.severity === 'high';
     }).length;
-    var atRisk = riskScores.filter(function (r) {
+    const atRisk = riskScores.filter(function (r) {
       return r.risk_score > 0.5;
     }).length;
-    var total = flags.length;
+    const total = flags.length;
 
-    var cards = [
+    const cards = [
       {
         label: i18next.t('web:anticheat.open_flags', { defaultValue: 'Open Flags' }),
         value: open,
@@ -164,14 +164,14 @@ Panel.tabs = Panel.tabs || {};
     if (typeof lucide !== 'undefined') lucide.createIcons({ attrs: { class: '' } });
   }
 
-  var AC_SEVERITY_COLORS = {
+  const AC_SEVERITY_COLORS = {
     critical: 'bg-red-500/20 text-red-400',
     high: 'bg-orange-500/20 text-orange-400',
     medium: 'bg-amber-500/20 text-amber-400',
     low: 'bg-blue-500/20 text-blue-400',
     info: 'bg-gray-500/20 text-gray-400',
   };
-  var AC_STATUS_COLORS = {
+  const AC_STATUS_COLORS = {
     open: 'bg-amber-500/20 text-amber-400',
     confirmed: 'bg-red-500/20 text-red-400',
     dismissed: 'bg-gray-500/20 text-gray-400',
@@ -184,7 +184,7 @@ Panel.tabs = Panel.tabs || {};
       return;
     }
 
-    var html =
+    let html =
       '<table class="db-table"><thead><tr>' +
       '<th>' +
       i18next.t('web:table.severity', { defaultValue: 'Severity' }) +
@@ -203,17 +203,17 @@ Panel.tabs = Panel.tabs || {};
       '</th>' +
       '</tr></thead><tbody>';
 
-    for (var i = 0; i < flags.length; i++) {
-      var f = flags[i];
-      var sevClass = AC_SEVERITY_COLORS[f.severity] || '';
-      var statClass = AC_STATUS_COLORS[f.status] || '';
-      var details;
+    for (let i = 0; i < flags.length; i++) {
+      const f = flags[i];
+      const sevClass = AC_SEVERITY_COLORS[f.severity] || '';
+      const statClass = AC_STATUS_COLORS[f.status] || '';
+      let details;
       try {
         details = typeof f.details === 'string' ? f.details : JSON.stringify(f.details || {});
       } catch (_e) {
         details = '';
       }
-      var detailsTrunc = details.length > 80 ? details.slice(0, 80) + '...' : details;
+      const detailsTrunc = details.length > 80 ? details.slice(0, 80) + '...' : details;
 
       html +=
         '<tr>' +
@@ -276,9 +276,9 @@ Panel.tabs = Panel.tabs || {};
     // Wire review buttons
     container.querySelectorAll('.ac-review-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var flagId = btn.dataset.id;
-        var action = btn.dataset.action;
-        var notes = '';
+        const flagId = btn.dataset.id;
+        const action = btn.dataset.action;
+        let notes = '';
         if (action === 'dismissed') {
           notes = prompt(i18next.t('web:anticheat.dismissal_reason')) || '';
         }
@@ -293,7 +293,7 @@ Panel.tabs = Panel.tabs || {};
       return;
     }
 
-    var html =
+    let html =
       '<table class="db-table"><thead><tr>' +
       '<th>' +
       i18next.t('web:table.player', { defaultValue: 'Player' }) +
@@ -310,14 +310,14 @@ Panel.tabs = Panel.tabs || {};
       '</th>' +
       '</tr></thead><tbody>';
 
-    for (var i = 0; i < scores.length; i++) {
-      var s = scores[i];
-      var riskPct = Math.round((s.risk_score || 0) * 100);
-      var riskColor = riskPct >= 70 ? 'text-red-400' : riskPct >= 40 ? 'text-amber-400' : 'text-green-400';
-      var barColor = riskPct >= 70 ? 'bg-red-400' : riskPct >= 40 ? 'bg-amber-400' : 'bg-green-400';
-      var riskPlayerName = '';
+    for (let i = 0; i < scores.length; i++) {
+      const s = scores[i];
+      const riskPct = Math.round((s.risk_score || 0) * 100);
+      const riskColor = riskPct >= 70 ? 'text-red-400' : riskPct >= 40 ? 'text-amber-400' : 'text-green-400';
+      const barColor = riskPct >= 70 ? 'bg-red-400' : riskPct >= 40 ? 'bg-amber-400' : 'bg-green-400';
+      let riskPlayerName = '';
       if (s.steam_id) {
-        var rp = S.players.find(function (p) {
+        const rp = S.players.find(function (p) {
           return p.steamId === s.steam_id;
         });
         if (rp) riskPlayerName = rp.name;
@@ -359,13 +359,13 @@ Panel.tabs = Panel.tabs || {};
 
   async function reviewAcFlag(flagId, status, notes) {
     try {
-      var r = await apiFetch('/api/panel/anticheat/flags/' + flagId + '/review', {
+      const r = await apiFetch('/api/panel/anticheat/flags/' + flagId + '/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: status, notes: notes || '' }),
       });
       if (!r.ok) {
-        var err = {};
+        let err = {};
         try {
           err = await r.json();
         } catch (_e) {}

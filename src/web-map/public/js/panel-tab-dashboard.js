@@ -9,17 +9,17 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtNum = Panel.core.utils.fmtNum;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtNum = Panel.core.utils.fmtNum;
 
   // ── Sparkline Charts ──────────────────────────────
 
   function renderSparkline(canvasId, data, color) {
-    var canvas = $('#' + canvasId);
+    const canvas = $('#' + canvasId);
     if (!canvas || !window.Chart) return;
     if (S.sparkCharts[canvasId]) {
       S.sparkCharts[canvasId].data.labels = data.map(function (_, i) {
@@ -66,7 +66,7 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadDashboard() {
     // Always use full single-server dashboard — carousel handles server switching
-    var singleEl = $('#dash-single');
+    const singleEl = $('#dash-single');
     if (singleEl) singleEl.classList.remove('hidden');
     await loadSingleDashboard();
   }
@@ -74,17 +74,17 @@ Panel.tabs = Panel.tabs || {};
   /** Single-server dashboard — the original loadDashboard logic */
   async function loadSingleDashboard() {
     try {
-      var results = await Promise.all([
+      const results = await Promise.all([
         apiFetch('/api/panel/status'),
         apiFetch('/api/panel/stats'),
         apiFetch('/api/panel/capabilities'),
       ]);
-      var status = results[0].ok ? await results[0].json() : {};
-      var stats = results[1].ok ? await results[1].json() : {};
-      var caps = results[2].ok ? await results[2].json() : {};
+      const status = results[0].ok ? await results[0].json() : {};
+      const stats = results[1].ok ? await results[1].json() : {};
+      const caps = results[2].ok ? await results[2].json() : {};
 
-      var isOn = status.serverState === 'running';
-      var stEl = $('#d-status');
+      const isOn = status.serverState === 'running';
+      const stEl = $('#d-status');
       if (stEl) {
         if (status.serverState) {
           stEl.textContent = isOn ? i18next.t('web:dashboard.online') : i18next.t('web:map.offline');
@@ -95,35 +95,35 @@ Panel.tabs = Panel.tabs || {};
         }
       }
 
-      var onEl = $('#d-online');
+      const onEl = $('#d-online');
       if (onEl)
         onEl.textContent = stats.onlinePlayers != null ? stats.onlinePlayers + ' / ' + (status.maxPlayers || '?') : '-';
 
-      var totEl = $('#d-total');
+      const totEl = $('#d-total');
       if (totEl) {
         if (stats.totalPlayers != null) {
-          var offline = (stats.totalPlayers || 0) - (stats.onlinePlayers || 0);
+          const offline = (stats.totalPlayers || 0) - (stats.onlinePlayers || 0);
           totEl.textContent = stats.totalPlayers + ' (' + offline + ' ' + i18next.t('web:dashboard.offline') + ')';
         } else {
           totEl.textContent = '-';
         }
       }
 
-      var wEl = $('#d-world');
+      const wEl = $('#d-world');
       if (wEl) {
-        var parts = [];
+        const parts = [];
         if (status.gameTime) parts.push(status.gameTime);
         if (status.gameDay != null) {
-          var dps = status.daysPerSeason || 28;
-          var dayInSeason = (status.gameDay % dps) + 1;
-          var year = Math.floor(status.gameDay / (dps * 4)) + 1;
-          var seasonNames = [
+          const dps = status.daysPerSeason || 28;
+          const dayInSeason = (status.gameDay % dps) + 1;
+          const year = Math.floor(status.gameDay / (dps * 4)) + 1;
+          const seasonNames = [
             i18next.t('web:dashboard.spring'),
             i18next.t('web:dashboard.summer'),
             i18next.t('web:dashboard.autumn'),
             i18next.t('web:dashboard.winter'),
           ];
-          var seasonNum = Math.floor((status.gameDay % (dps * 4)) / dps);
+          const seasonNum = Math.floor((status.gameDay % (dps * 4)) / dps);
           parts.push(
             i18next.t('web:dashboard.day_of_season', {
               day: dayInSeason,
@@ -135,10 +135,10 @@ Panel.tabs = Panel.tabs || {};
         wEl.textContent = parts.length ? parts.join(' \u00b7 ') : '-';
       }
 
-      var evEl = $('#d-events');
+      const evEl = $('#d-events');
       if (evEl) evEl.textContent = fmtNum(stats.eventsToday || 0);
 
-      var maxPts = 20;
+      const maxPts = 20;
       S.dashHistory.online.push(stats.onlinePlayers || 0);
       S.dashHistory.events.push(stats.eventsToday || 0);
       if (S.dashHistory.online.length > maxPts) S.dashHistory.online.shift();
@@ -148,17 +148,17 @@ Panel.tabs = Panel.tabs || {};
         renderSparkline('spark-events', S.dashHistory.events, '#d4915c');
       }
 
-      var tzEl = $('#d-tz');
+      const tzEl = $('#d-tz');
       if (tzEl && status.timezone) tzEl.textContent = status.timezone;
 
       try {
-        var landing = await fetch('/api/landing');
-        var ld = await landing.json();
-        var srvData = null;
+        const landing = await fetch('/api/landing');
+        const ld = await landing.json();
+        let srvData = null;
         if (S.currentServer === 'primary') {
           srvData = ld.primary;
         } else if (ld.servers) {
-          for (var si = 0; si < ld.servers.length; si++) {
+          for (let si = 0; si < ld.servers.length; si++) {
             if (ld.servers[si].id === S.currentServer) {
               srvData = ld.servers[si];
               break;
@@ -167,18 +167,18 @@ Panel.tabs = Panel.tabs || {};
         }
         if (!srvData) srvData = ld.primary;
         if (srvData.host) {
-          var addr = srvData.gamePort ? srvData.host + ':' + srvData.gamePort : srvData.host;
-          var dAddr = $('#d-address');
+          const addr = srvData.gamePort ? srvData.host + ':' + srvData.gamePort : srvData.host;
+          const dAddr = $('#d-address');
           if (dAddr) dAddr.textContent = addr;
-          var dc = $('#dashboard-connect');
+          const dc = $('#dashboard-connect');
           if (dc) dc.classList.remove('hidden');
         }
 
         // Server Info card — reuse landing settings + status data
-        var infoCol = $('#dash-info-col');
-        var infoBox = $('#dash-server-info');
+        const infoCol = $('#dash-info-col');
+        const infoBox = $('#dash-server-info');
         if (infoCol && infoBox && srvData.settings) {
-          var infoHtml = renderServerInfo(srvData.settings, {
+          const infoHtml = renderServerInfo(srvData.settings, {
             gameDay: status.gameDay,
             season: status.season,
             gameTime: status.gameTime,
@@ -203,11 +203,11 @@ Panel.tabs = Panel.tabs || {};
       } catch (_e) {}
 
       // Schedule card — only if this server has a scheduler
-      var sc = $('#schedule-card');
+      const sc = $('#schedule-card');
       if (caps.scheduler) {
         try {
-          var schedRes = await apiFetch('/api/panel/scheduler');
-          var sched = await schedRes.json();
+          const schedRes = await apiFetch('/api/panel/scheduler');
+          const sched = await schedRes.json();
           if (sched.active) {
             S.scheduleData = sched;
             if (sc) sc.classList.remove('hidden');
@@ -235,7 +235,7 @@ Panel.tabs = Panel.tabs || {};
       }
 
       // Resources card — only if this server exposes resources
-      var rc = $('#resources-card');
+      const rc = $('#resources-card');
       if (caps.resources && status.resources && S.tier >= 3 && S.viewMode === 'admin') {
         if (rc) rc.classList.remove('hidden');
         renderResources(status.resources, status.uptime);
@@ -252,19 +252,19 @@ Panel.tabs = Panel.tabs || {};
   // ═══════════════════════════════════════════════════
 
   function _diffLabel(v) {
-    var k = { 1: 'low', 2: 'normal', 3: 'high', 4: 'very_high', 5: 'nightmare' };
+    const k = { 1: 'low', 2: 'normal', 3: 'high', 4: 'very_high', 5: 'nightmare' };
     return i18next.t('web:difficulty.' + (k[v] || 'normal'));
   }
   function _lootLabel(v) {
-    var k = { 1: 'scarce', 2: 'normal', 3: 'plenty', 4: 'abundant' };
+    const k = { 1: 'scarce', 2: 'normal', 3: 'plenty', 4: 'abundant' };
     return i18next.t('web:loot_level.' + (k[v] || 'normal'));
   }
   function _deathLabel(v) {
-    var k = { 0: 'keep_items', 1: 'drop_items', 2: 'destroy_items' };
+    const k = { 0: 'keep_items', 1: 'drop_items', 2: 'destroy_items' };
     return i18next.t('web:on_death.' + (k[v] || 'drop_items'));
   }
   function _ffLabel(v) {
-    var k = { 0: 'off', 1: 'individual', 2: 'all' };
+    const k = { 0: 'off', 1: 'individual', 2: 'all' };
     return i18next.t('web:friendly_fire.' + (k[v] || 'on'));
   }
 
@@ -277,23 +277,23 @@ Panel.tabs = Panel.tabs || {};
    */
   function renderServerInfo(st, srv) {
     if (!st) return '';
-    var h = '';
+    let h = '';
 
     // ── Day/Night Cycle ──
-    var dayLen = st.dayLength || 40,
-      nightLen = st.nightLength || 20;
-    var totalCycle = dayLen + nightLen;
-    var _dayPct = Math.round((dayLen / totalCycle) * 100);
-    var isNight = false;
+    const dayLen = st.dayLength || 40;
+    const nightLen = st.nightLength || 20;
+    const totalCycle = dayLen + nightLen;
+    const _dayPct = Math.round((dayLen / totalCycle) * 100);
+    let isNight = false;
     if (srv.gameTime) {
-      var tp = srv.gameTime.match(/(\d+):(\d+)/);
+      const tp = srv.gameTime.match(/(\d+):(\d+)/);
       if (tp) {
-        var hr = parseInt(tp[1], 10);
+        const hr = parseInt(tp[1], 10);
         isNight = hr >= 20 || hr < 6;
       }
     }
-    var cycleIcon = isNight ? 'moon' : 'sun';
-    var cycleLabel = isNight ? i18next.t('web:dashboard.night') : i18next.t('web:dashboard.day');
+    const cycleIcon = isNight ? 'moon' : 'sun';
+    const cycleLabel = isNight ? i18next.t('web:dashboard.night') : i18next.t('web:dashboard.day');
     h += '<div class="srv-info-section">';
     h += '<div class="srv-info-row">';
     h +=
@@ -325,7 +325,7 @@ Panel.tabs = Panel.tabs || {};
     h += '</div></div>';
 
     // ── Rules ──
-    var rules = [];
+    const rules = [];
     rules.push({
       icon: st.pvp ? 'swords' : 'shield',
       label: st.pvp ? i18next.t('web:dashboard.pvp_on') : i18next.t('web:dashboard.pve'),
@@ -376,8 +376,8 @@ Panel.tabs = Panel.tabs || {};
 
     h += '<div class="srv-info-section">';
     h += '<div class="srv-info-rules">';
-    for (var ri = 0; ri < rules.length; ri++) {
-      var r = rules[ri];
+    for (let ri = 0; ri < rules.length; ri++) {
+      const r = rules[ri];
       h += '<span class="srv-rule ' + r.cls + '" data-tippy-content="' + esc(r.tip) + '">';
       h += '<i data-lucide="' + r.icon + '" class="srv-rule-ico"></i>';
       h += r.label;
@@ -407,7 +407,7 @@ Panel.tabs = Panel.tabs || {};
     h += '</div></div>';
 
     // ── Loot Rarity ──
-    var lootItems = [
+    const lootItems = [
       { key: 'rarityFood', label: i18next.t('web:dashboard.food'), icon: 'apple' },
       { key: 'rarityDrink', label: i18next.t('web:dashboard.drinks'), icon: 'droplets' },
       { key: 'rarityMelee', label: i18next.t('web:dashboard.melee'), icon: 'axe' },
@@ -416,8 +416,8 @@ Panel.tabs = Panel.tabs || {};
       { key: 'rarityArmor', label: i18next.t('web:dashboard.armor'), icon: 'shield' },
       { key: 'rarityResources', label: i18next.t('web:dashboard.resources'), icon: 'hammer' },
     ];
-    var hasLoot = false;
-    for (var li = 0; li < lootItems.length; li++) {
+    let hasLoot = false;
+    for (let li = 0; li < lootItems.length; li++) {
       if (st[lootItems[li].key]) {
         hasLoot = true;
         break;
@@ -426,11 +426,12 @@ Panel.tabs = Panel.tabs || {};
     if (hasLoot) {
       h += '<div class="srv-info-section">';
       h += '<div class="srv-info-loot">';
-      for (var li2 = 0; li2 < lootItems.length; li2++) {
-        var lt = lootItems[li2],
-          val = st[lt.key] || 2;
-        var lootLabel = _lootLabel(val);
-        var lootCls = val <= 1 ? 'loot-scarce' : val >= 4 ? 'loot-abundant' : val >= 3 ? 'loot-plenty' : 'loot-normal';
+      for (let li2 = 0; li2 < lootItems.length; li2++) {
+        const lt = lootItems[li2];
+        const val = st[lt.key] || 2;
+        const lootLabel = _lootLabel(val);
+        const lootCls =
+          val <= 1 ? 'loot-scarce' : val >= 4 ? 'loot-abundant' : val >= 3 ? 'loot-plenty' : 'loot-normal';
         h += '<span class="srv-loot ' + lootCls + '" data-tippy-content="' + lt.label + ': ' + lootLabel + '">';
         h += '<i data-lucide="' + lt.icon + '" class="srv-loot-ico"></i>';
         h += '<span class="srv-loot-label">' + lt.label + '</span>';
@@ -440,7 +441,7 @@ Panel.tabs = Panel.tabs || {};
     }
 
     // ── World Stats (if available from save data) ──
-    var statsArr = [];
+    const statsArr = [];
     if (st.worldStructures)
       statsArr.push({
         icon: 'building',
@@ -472,8 +473,8 @@ Panel.tabs = Panel.tabs || {};
     if (statsArr.length) {
       h += '<div class="srv-info-section">';
       h += '<div class="srv-info-stats">';
-      for (var wi = 0; wi < statsArr.length; wi++) {
-        var ws = statsArr[wi];
+      for (let wi = 0; wi < statsArr.length; wi++) {
+        const ws = statsArr[wi];
         h += '<span class="srv-stat" data-tippy-content="' + esc(ws.tip) + '">';
         h += '<i data-lucide="' + ws.icon + '" class="srv-stat-ico"></i>';
         h += '<span class="srv-stat-val">' + ws.val + '</span>';
@@ -489,23 +490,23 @@ Panel.tabs = Panel.tabs || {};
   /** Render a compact threat bar for zombies/bandits */
   function _renderThreatBar(label, health, damage, speed, amount, icon) {
     // Average threat score: 1-4 scale (from the difficulty values)
-    var vals = [health || 2, damage || 2];
+    const vals = [health || 2, damage || 2];
     if (speed != null) vals.push(speed);
-    var avg = 0;
-    for (var i = 0; i < vals.length; i++) avg += vals[i];
+    let avg = 0;
+    for (let i = 0; i < vals.length; i++) avg += vals[i];
     avg = avg / vals.length;
-    var pct = Math.round(((avg - 1) / 3) * 100); // 1=0%, 4=100%
-    var amtStr = amount ? (amount === 1 ? '1x' : amount + 'x') : '';
-    var threatCls = avg <= 1.5 ? 'threat-low' : avg >= 3 ? 'threat-high' : 'threat-mid';
+    const pct = Math.round(((avg - 1) / 3) * 100); // 1=0%, 4=100%
+    const amtStr = amount ? (amount === 1 ? '1x' : amount + 'x') : '';
+    const threatCls = avg <= 1.5 ? 'threat-low' : avg >= 3 ? 'threat-high' : 'threat-mid';
 
-    var tipParts = [];
+    const tipParts = [];
     tipParts.push(i18next.t('web:dashboard.health') + ': ' + _diffLabel(health));
     tipParts.push(i18next.t('web:dashboard.damage') + ': ' + _diffLabel(damage));
     if (speed != null) tipParts.push(i18next.t('web:dashboard.speed') + ': ' + _diffLabel(speed));
     if (amtStr) tipParts.push(i18next.t('web:dashboard.amount') + ': ' + amtStr);
-    var tip = label + ' — ' + tipParts.join(', ');
+    const tip = label + ' — ' + tipParts.join(', ');
 
-    var h = '<div class="srv-threat ' + threatCls + '" data-tippy-content="' + esc(tip) + '">';
+    let h = '<div class="srv-threat ' + threatCls + '" data-tippy-content="' + esc(tip) + '">';
     h += '<div class="srv-threat-head">';
     h += '<i data-lucide="' + icon + '" class="srv-threat-ico"></i>';
     h += '<span class="srv-threat-label">' + label + '</span>';
@@ -525,10 +526,10 @@ Panel.tabs = Panel.tabs || {};
   // ── Resources ─────────────────────────────────────
 
   function renderResources(res, uptime) {
-    var container = $('#resources-info');
+    const container = $('#resources-info');
     if (!container) return;
     container.innerHTML = '';
-    var bars = [
+    const bars = [
       {
         label: i18next.t('web:resources.cpu'),
         val: res.cpu,
@@ -551,10 +552,10 @@ Panel.tabs = Panel.tabs || {};
         color: '#d4a843',
       },
     ];
-    for (var i = 0; i < bars.length; i++) {
-      var b = bars[i];
-      var pct = Math.min(b.val || 0, 100);
-      var row = el('div', 'space-y-1.5');
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      const pct = Math.min(b.val || 0, 100);
+      const row = el('div', 'space-y-1.5');
       row.innerHTML =
         '<div class="flex justify-between text-xs"><span class="text-muted">' +
         b.label +
@@ -566,15 +567,15 @@ Panel.tabs = Panel.tabs || {};
       container.appendChild(row);
 
       if (typeof gsap !== 'undefined') {
-        var fill = row.querySelector('.res-bar-fill');
+        const fill = row.querySelector('.res-bar-fill');
         if (fill) gsap.to(fill, { width: pct + '%', duration: 0.5, ease: 'power2.out' });
       } else {
-        var fill2 = row.querySelector('.res-bar-fill');
+        const fill2 = row.querySelector('.res-bar-fill');
         if (fill2) fill2.style.width = pct + '%';
       }
     }
     if (uptime) {
-      var up = el('div', 'flex justify-between text-xs mt-2');
+      const up = el('div', 'flex justify-between text-xs mt-2');
       up.innerHTML =
         '<span class="text-muted">' +
         i18next.t('web:resources.uptime') +
@@ -587,7 +588,7 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Init / Reset ──────────────────────────────────
 
-  var _inited = false;
+  let _inited = false;
   function init() {
     if (_inited) return;
     _inited = true;

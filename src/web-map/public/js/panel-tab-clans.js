@@ -8,13 +8,13 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -22,19 +22,25 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function loadClans() {
-    var container = $('#clan-list');
+    const container = $('#clan-list');
     if (!container) return;
 
-    var allClans = [];
+    let allClans = [];
     function _clanRankLabel(rank) {
-      var m = { Leader: 'leader', 'Co-Leader': 'co_leader', Officer: 'officer', Member: 'member', Recruit: 'recruit' };
+      const m = {
+        Leader: 'leader',
+        'Co-Leader': 'co_leader',
+        Officer: 'officer',
+        Member: 'member',
+        Recruit: 'recruit',
+      };
       return m[rank] ? i18next.t('web:clans.' + m[rank]) : rank;
     }
 
     try {
-      var r = await apiFetch('/api/panel/clans');
+      const r = await apiFetch('/api/panel/clans');
       if (r.ok) {
-        var d = await r.json();
+        const d = await r.json();
         allClans = d.clans || [];
       }
     } catch (_e) {}
@@ -42,18 +48,18 @@ Panel.tabs = Panel.tabs || {};
     if (allClans.length === 0) {
       if (!S.players.length) {
         try {
-          var r2 = await apiFetch('/api/players');
+          const r2 = await apiFetch('/api/players');
           if (r2.ok) {
-            var d2 = await r2.json();
+            const d2 = await r2.json();
             S.players = d2.players || [];
           }
         } catch (_e) {}
       }
 
-      var clanMap = {};
-      for (var i = 0; i < S.players.length; i++) {
-        var p = S.players[i];
-        var tag = p.clanName || null;
+      const clanMap = {};
+      for (let i = 0; i < S.players.length; i++) {
+        const p = S.players[i];
+        const tag = p.clanName || null;
         if (!tag) continue;
         if (!clanMap[tag]) clanMap[tag] = { name: tag, members: [] };
         clanMap[tag].members.push({
@@ -68,20 +74,20 @@ Panel.tabs = Panel.tabs || {};
           playtime: p.playtime || 0,
         });
       }
-      for (var key in clanMap) {
+      for (const key in clanMap) {
         if (clanMap.hasOwnProperty(key)) allClans.push(clanMap[key]);
       }
     }
 
-    for (var ci = 0; ci < allClans.length; ci++) {
-      var clan = allClans[ci];
+    for (let ci = 0; ci < allClans.length; ci++) {
+      const clan = allClans[ci];
       clan._onlineCount = 0;
       clan._totalKills = 0;
       clan._totalDeaths = 0;
       clan._totalPlaytime = 0;
-      for (var mi = 0; mi < (clan.members || []).length; mi++) {
-        var m = clan.members[mi];
-        var player = S.players.find(function (p) {
+      for (let mi = 0; mi < (clan.members || []).length; mi++) {
+        const m = clan.members[mi];
+        const player = S.players.find(function (p) {
           return p.steamId === m.steam_id;
         });
         if (player) {
@@ -99,19 +105,19 @@ Panel.tabs = Panel.tabs || {};
       }
     }
 
-    var searchVal = ($('#clan-search') ? $('#clan-search').value : '').toLowerCase();
-    var filtered = allClans;
+    const searchVal = ($('#clan-search') ? $('#clan-search').value : '').toLowerCase();
+    let filtered = allClans;
     if (searchVal) {
       filtered = allClans.filter(function (c) {
         if (c.name.toLowerCase().indexOf(searchVal) !== -1) return true;
-        for (var mi = 0; mi < (c.members || []).length; mi++) {
+        for (let mi = 0; mi < (c.members || []).length; mi++) {
           if ((c.members[mi].name || '').toLowerCase().indexOf(searchVal) !== -1) return true;
         }
         return false;
       });
     }
 
-    var sortVal = $('#clan-sort') ? $('#clan-sort').value : 'members';
+    const sortVal = $('#clan-sort') ? $('#clan-sort').value : 'members';
     filtered.sort(function (a, b) {
       if (sortVal === 'name') return (a.name || '').localeCompare(b.name || '');
       if (sortVal === 'online') return (b._onlineCount || 0) - (a._onlineCount || 0);
@@ -119,13 +125,13 @@ Panel.tabs = Panel.tabs || {};
       return (b.members || []).length - (a.members || []).length;
     });
 
-    var totalPlayers = 0;
-    var totalOnline = 0;
-    var largestName = '-';
-    var largestSize = 0;
-    for (var si = 0; si < allClans.length; si++) {
-      var sc = allClans[si];
-      var ml = (sc.members || []).length;
+    let totalPlayers = 0;
+    let totalOnline = 0;
+    let largestName = '-';
+    let largestSize = 0;
+    for (let si = 0; si < allClans.length; si++) {
+      const sc = allClans[si];
+      const ml = (sc.members || []).length;
       totalPlayers += ml;
       totalOnline += sc._onlineCount || 0;
       if (ml > largestSize) {
@@ -133,15 +139,15 @@ Panel.tabs = Panel.tabs || {};
         largestName = sc.name;
       }
     }
-    var clsTotalEl = $('#clans-total');
+    const clsTotalEl = $('#clans-total');
     if (clsTotalEl) clsTotalEl.textContent = allClans.length;
-    var clsPlayersEl = $('#clans-players');
+    const clsPlayersEl = $('#clans-players');
     if (clsPlayersEl) clsPlayersEl.textContent = totalPlayers;
-    var clsLargestEl = $('#clans-largest');
+    const clsLargestEl = $('#clans-largest');
     if (clsLargestEl) clsLargestEl.textContent = largestSize > 0 ? '[' + largestName + '] (' + largestSize + ')' : '-';
-    var clsOnlineEl = $('#clans-online');
+    const clsOnlineEl = $('#clans-online');
     if (clsOnlineEl) clsOnlineEl.textContent = totalOnline;
-    var clsCountEl = $('#clan-count');
+    const clsCountEl = $('#clan-count');
     if (clsCountEl) clsCountEl.textContent = i18next.t('web:clans.clan_count', { count: filtered.length });
 
     if (filtered.length === 0) {
@@ -151,13 +157,13 @@ Panel.tabs = Panel.tabs || {};
     }
 
     container.innerHTML = '';
-    for (var ci2 = 0; ci2 < filtered.length; ci2++) {
-      var clan2 = filtered[ci2];
-      var members2 = clan2.members || [];
-      var card = el('div', 'card clan-card');
-      var online2 = clan2._onlineCount || 0;
+    for (let ci2 = 0; ci2 < filtered.length; ci2++) {
+      const clan2 = filtered[ci2];
+      const members2 = clan2.members || [];
+      const card = el('div', 'card clan-card');
+      const online2 = clan2._onlineCount || 0;
 
-      var html = '';
+      let html = '';
 
       html += '<div class="flex items-center justify-between mb-3">';
       html += '<div>';
@@ -196,9 +202,9 @@ Panel.tabs = Panel.tabs || {};
         if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
         return (b.kills || 0) - (a.kills || 0);
       });
-      for (var mi2 = 0; mi2 < members2.length; mi2++) {
-        var m2 = members2[mi2];
-        var displayName = m2.name || m2.steam_id || 'Unknown';
+      for (let mi2 = 0; mi2 < members2.length; mi2++) {
+        const m2 = members2[mi2];
+        const displayName = m2.name || m2.steam_id || 'Unknown';
         html +=
           '<div class="flex items-center gap-2 py-1 px-2 rounded hover:bg-surface-300/50 transition-colors group">';
         html += '<span class="status-dot ' + (m2.is_online ? 'online' : 'offline') + ' shrink-0"></span>';
@@ -233,8 +239,8 @@ Panel.tabs = Panel.tabs || {};
 
   function formatPlaytimeShort(seconds) {
     if (!seconds || seconds <= 0) return '0h';
-    var h = Math.floor(seconds / 3600);
-    var m = Math.floor((seconds % 3600) / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     if (h > 0) return h + 'h ' + m + 'm';
     return m + 'm';
   }

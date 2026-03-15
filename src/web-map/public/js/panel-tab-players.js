@@ -8,18 +8,18 @@ Panel.tabs = Panel.tabs || {};
 (function () {
   'use strict';
 
-  var S = Panel.core.S;
-  var $ = Panel.core.$;
-  var el = Panel.core.el;
-  var esc = Panel.core.esc;
-  var apiFetch = Panel.core.apiFetch;
-  var fmtNum = Panel.core.utils.fmtNum;
-  var formatPlaytime = Panel.core.utils.formatPlaytime;
-  var entityLink = Panel.core.utils.entityLink;
-  var setBreadcrumbs = Panel.nav.setBreadcrumbs;
-  var getTabLabels = Panel.nav.getTabLabels;
+  const S = Panel.core.S;
+  const $ = Panel.core.$;
+  const el = Panel.core.el;
+  const esc = Panel.core.esc;
+  const apiFetch = Panel.core.apiFetch;
+  const fmtNum = Panel.core.utils.fmtNum;
+  const formatPlaytime = Panel.core.utils.formatPlaytime;
+  const entityLink = Panel.core.utils.entityLink;
+  const setBreadcrumbs = Panel.nav.setBreadcrumbs;
+  const getTabLabels = Panel.nav.getTabLabels;
 
-  var _inited = false;
+  let _inited = false;
 
   function init() {
     if (_inited) return;
@@ -30,9 +30,9 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadPlayers() {
     try {
-      var r = await apiFetch('/api/players');
+      const r = await apiFetch('/api/players');
       if (!r.ok) return;
-      var d = await r.json();
+      const d = await r.json();
       S.players = d.players || [];
       S.toggles = d.toggles || {};
       renderPlayers();
@@ -49,13 +49,13 @@ Panel.tabs = Panel.tabs || {};
   // ── Table View ──────────────────────────────────────────────────
 
   function renderPlayerTable() {
-    var container = $('#player-list');
+    const container = $('#player-list');
     if (!container) return;
 
-    var query = ($('#player-search') ? $('#player-search').value : '').toLowerCase();
-    var sort = $('#player-sort') ? $('#player-sort').value : 'online';
+    const query = ($('#player-search') ? $('#player-search').value : '').toLowerCase();
+    const sort = $('#player-sort') ? $('#player-sort').value : 'online';
 
-    var list = S.players.slice();
+    let list = S.players.slice();
 
     if (query) {
       list = list.filter(function (p) {
@@ -87,11 +87,11 @@ Panel.tabs = Panel.tabs || {};
       }
     });
 
-    var sortCol = S.playerSort.col;
-    var sortDir = S.playerSort.dir;
+    const sortCol = S.playerSort.col;
+    const sortDir = S.playerSort.dir;
     if (sortCol !== 'online') {
       list.sort(function (a, b) {
-        var va, vb;
+        let va, vb;
         switch (sortCol) {
           case 'name':
             va = a.name || '';
@@ -113,10 +113,11 @@ Panel.tabs = Panel.tabs || {};
             return sortDir === 'asc'
               ? (a.daysSurvived || 0) - (b.daysSurvived || 0)
               : (b.daysSurvived || 0) - (a.daysSurvived || 0);
-          case 'health':
-            var ha = a.maxHealth > 0 ? a.health / a.maxHealth : 0;
-            var hb = b.maxHealth > 0 ? b.health / b.maxHealth : 0;
+          case 'health': {
+            const ha = a.maxHealth > 0 ? a.health / a.maxHealth : 0;
+            const hb = b.maxHealth > 0 ? b.health / b.maxHealth : 0;
             return sortDir === 'asc' ? ha - hb : hb - ha;
+          }
           case 'playtime':
             return sortDir === 'asc'
               ? (a.totalPlaytime || 0) - (b.totalPlaytime || 0)
@@ -127,8 +128,8 @@ Panel.tabs = Panel.tabs || {};
       });
     }
 
-    var table = el('table', 'player-table');
-    var headers = [
+    let table = el('table', 'player-table');
+    const headers = [
       { key: '', label: '' },
       { key: 'name', label: i18next.t('web:players.name') },
       { key: 'profession', label: i18next.t('web:table.profession', { defaultValue: 'Profession' }) },
@@ -140,12 +141,12 @@ Panel.tabs = Panel.tabs || {};
       { key: '', label: i18next.t('web:table.steam_id', { defaultValue: 'Steam ID' }) },
     ];
 
-    var thead = el('thead');
-    var headRow = el('tr');
-    for (var hi = 0; hi < headers.length; hi++) {
-      var h = headers[hi];
-      var th = el('th');
-      var arrow = sortCol === h.key ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+    const thead = el('thead');
+    const headRow = el('tr');
+    for (let hi = 0; hi < headers.length; hi++) {
+      const h = headers[hi];
+      const th = el('th');
+      const arrow = sortCol === h.key ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
       th.textContent = h.label + arrow;
       if (h.key) {
         th.style.cursor = 'pointer';
@@ -165,12 +166,12 @@ Panel.tabs = Panel.tabs || {};
     thead.appendChild(headRow);
     table.appendChild(thead);
 
-    var tbody = el('tbody');
-    for (var pi = 0; pi < list.length; pi++) {
-      var p = list[pi];
-      var tr = el('tr', 'clickable');
-      var healthPct = p.maxHealth > 0 ? Math.round((p.health / p.maxHealth) * 100) : p.health || 0;
-      var healthColor = healthPct > 60 ? '#6dba82' : healthPct > 30 ? '#d4a843' : '#c45a4a';
+    const tbody = el('tbody');
+    for (let pi = 0; pi < list.length; pi++) {
+      const p = list[pi];
+      const tr = el('tr', 'clickable');
+      const healthPct = p.maxHealth > 0 ? Math.round((p.health / p.maxHealth) * 100) : p.health || 0;
+      const healthColor = healthPct > 60 ? '#6dba82' : healthPct > 30 ? '#d4a843' : '#c45a4a';
 
       tr.innerHTML =
         '<td><span class="status-dot ' +
@@ -231,13 +232,13 @@ Panel.tabs = Panel.tabs || {};
   // ── Card View ───────────────────────────────────────────────────
 
   function renderPlayerCards() {
-    var container = $('#player-list');
+    const container = $('#player-list');
     if (!container) return;
 
-    var query = ($('#player-search') ? $('#player-search').value : '').toLowerCase();
-    var sort = $('#player-sort') ? $('#player-sort').value : 'online';
+    const query = ($('#player-search') ? $('#player-search').value : '').toLowerCase();
+    const sort = $('#player-sort') ? $('#player-sort').value : 'online';
 
-    var list = S.players.slice();
+    let list = S.players.slice();
 
     if (query) {
       list = list.filter(function (p) {
@@ -269,19 +270,19 @@ Panel.tabs = Panel.tabs || {};
       }
     });
 
-    var grid = el('div', 'player-cards-grid');
+    const grid = el('div', 'player-cards-grid');
 
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      var healthPct = p.maxHealth > 0 ? Math.round((p.health / p.maxHealth) * 100) : p.health || 0;
-      var healthColor = healthPct > 60 ? '#6dba82' : healthPct > 30 ? '#d4a843' : '#c45a4a';
-      var barWidth = Math.max(0, Math.min(100, healthPct));
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      const healthPct = p.maxHealth > 0 ? Math.round((p.health / p.maxHealth) * 100) : p.health || 0;
+      const healthColor = healthPct > 60 ? '#6dba82' : healthPct > 30 ? '#d4a843' : '#c45a4a';
+      const barWidth = Math.max(0, Math.min(100, healthPct));
 
-      var card = el('div', 'player-card');
+      const card = el('div', 'player-card');
       if (p.isOnline) card.classList.add('is-online');
 
-      var profLabel = p.profession || i18next.t('web:player_detail.default_survivor', { defaultValue: 'Survivor' });
-      var clanTag = p.clanName
+      const profLabel = p.profession || i18next.t('web:player_detail.default_survivor', { defaultValue: 'Survivor' });
+      const clanTag = p.clanName
         ? ' <span class="pc-clan entity-link" data-entity-table="clans" data-entity-search="' +
           esc(p.clanName) +
           '">[' +
@@ -351,8 +352,8 @@ Panel.tabs = Panel.tabs || {};
   // ── Player Modal ────────────────────────────────────────────────
 
   function showPlayerModal(p) {
-    var modal = $('#player-modal');
-    var content = $('#player-modal-content');
+    const modal = $('#player-modal');
+    const content = $('#player-modal-content');
     if (!modal || !content) return;
     content.innerHTML = buildPlayerDetail(p);
     content.dataset.steamId = p.steamId || '';
@@ -364,7 +365,7 @@ Panel.tabs = Panel.tabs || {};
     ]);
 
     if (typeof gsap !== 'undefined') {
-      var inner = modal.querySelector('.bg-surface-100');
+      const inner = modal.querySelector('.bg-surface-100');
       if (inner) gsap.fromTo(inner, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out' });
     }
   }
@@ -372,7 +373,7 @@ Panel.tabs = Panel.tabs || {};
   // ── Player Detail Builder ───────────────────────────────────────
 
   function buildPlayerDetail(p) {
-    var html = '';
+    let html = '';
 
     html += '<div class="flex items-center gap-3 mb-4">';
     html +=
@@ -408,7 +409,7 @@ Panel.tabs = Panel.tabs || {};
     html += '</div></div>';
 
     if (p.level || p.expCurrent) {
-      var expPct = p.expRequired > 0 ? Math.round((p.expCurrent / p.expRequired) * 100) : 0;
+      const expPct = p.expRequired > 0 ? Math.round((p.expCurrent / p.expRequired) * 100) : 0;
       html +=
         '<div class="mb-4"><div class="flex items-center justify-between mb-1"><span class="text-xs font-medium text-muted">' +
         i18next.t('web:player_detail.level', { defaultValue: 'Level' }) +
@@ -444,7 +445,7 @@ Panel.tabs = Panel.tabs || {};
       i18next.t('web:player_detail.sections.kill_stats_current_life', { defaultValue: 'Kill Stats (Current Life)' }) +
       '</h3>';
     html += '<div class="grid grid-cols-4 gap-2">';
-    var killStats = [
+    const killStats = [
       [i18next.t('web:player_detail.stats.zombies', { defaultValue: 'Zombies' }), p.zeeksKilled],
       [i18next.t('web:player_detail.stats.headshots', { defaultValue: 'Headshots' }), p.headshots],
       [i18next.t('web:player_detail.stats.melee', { defaultValue: 'Melee' }), p.meleeKills],
@@ -454,7 +455,7 @@ Panel.tabs = Panel.tabs || {};
       [i18next.t('web:player_detail.stats.takedown', { defaultValue: 'Takedown' }), p.takedownKills],
       [i18next.t('web:player_detail.stats.vehicle', { defaultValue: 'Vehicle' }), p.vehicleKills],
     ];
-    for (var ki = 0; ki < killStats.length; ki++) {
+    for (let ki = 0; ki < killStats.length; ki++) {
       html +=
         '<div class="text-center"><div class="text-sm font-semibold text-white">' +
         fmtNum(killStats[ki][1] || 0) +
@@ -470,7 +471,7 @@ Panel.tabs = Panel.tabs || {};
         i18next.t('web:player_detail.sections.lifetime_kills', { defaultValue: 'Lifetime Kills' }) +
         '</h3>';
       html += '<div class="grid grid-cols-4 gap-2">';
-      var ltStats = [
+      const ltStats = [
         [i18next.t('web:player_detail.stats.total', { defaultValue: 'Total' }), p.lifetimeKills],
         [i18next.t('web:player_detail.stats.headshots', { defaultValue: 'Headshots' }), p.lifetimeHeadshots],
         [i18next.t('web:player_detail.stats.melee', { defaultValue: 'Melee' }), p.lifetimeMeleeKills],
@@ -480,7 +481,7 @@ Panel.tabs = Panel.tabs || {};
         [i18next.t('web:player_detail.stats.takedown', { defaultValue: 'Takedown' }), p.lifetimeTakedownKills],
         [i18next.t('web:player_detail.stats.vehicle', { defaultValue: 'Vehicle' }), p.lifetimeVehicleKills],
       ];
-      for (var li = 0; li < ltStats.length; li++) {
+      for (let li = 0; li < ltStats.length; li++) {
         html +=
           '<div class="text-center"><div class="text-sm font-semibold text-white">' +
           fmtNum(ltStats[li][1] || 0) +
@@ -496,7 +497,7 @@ Panel.tabs = Panel.tabs || {};
       i18next.t('web:player_detail.sections.survival', { defaultValue: 'Survival' }) +
       '</h3>';
     html += '<div class="grid grid-cols-4 gap-2">';
-    var survStats = [
+    const survStats = [
       [i18next.t('web:player_detail.stats.days_survived', { defaultValue: 'Days Survived' }), p.daysSurvived],
       [i18next.t('web:player_detail.stats.lifetime_days', { defaultValue: 'Lifetime Days' }), p.lifetimeDaysSurvived],
       [i18next.t('web:player_detail.stats.times_bitten', { defaultValue: 'Times Bitten' }), p.timesBitten],
@@ -510,7 +511,7 @@ Panel.tabs = Panel.tabs || {};
       [i18next.t('web:player_detail.stats.raids_in', { defaultValue: 'Raids In' }), p.raidsIn],
       [i18next.t('web:player_detail.stats.connects', { defaultValue: 'Connects' }), p.connects],
     ];
-    for (var si = 0; si < survStats.length; si++) {
+    for (let si = 0; si < survStats.length; si++) {
       html +=
         '<div class="text-center"><div class="text-sm font-semibold text-white">' +
         fmtNum(survStats[si][1] || 0) +
@@ -540,7 +541,7 @@ Panel.tabs = Panel.tabs || {};
         i18next.t('web:player_detail.sections.vitals', { defaultValue: 'Vitals' }) +
         '</h3>';
       html += '<div class="space-y-1.5">';
-      var vitals = [
+      const vitals = [
         {
           label: i18next.t('web:player_detail.vitals.health', { defaultValue: 'Health' }),
           cur: p.health,
@@ -586,10 +587,10 @@ Panel.tabs = Panel.tabs || {};
           max: 100,
           color: '#818cf8',
         });
-      for (var vi = 0; vi < vitals.length; vi++) {
-        var v = vitals[vi];
-        var max = v.max || 100;
-        var pct = max > 0 ? Math.round((v.cur / max) * 100) : 0;
+      for (let vi = 0; vi < vitals.length; vi++) {
+        const v = vitals[vi];
+        const max = v.max || 100;
+        const pct = max > 0 ? Math.round((v.cur / max) * 100) : 0;
         html +=
           '<div class="vital-row"><span class="vital-label">' +
           v.label +
@@ -612,16 +613,16 @@ Panel.tabs = Panel.tabs || {};
         i18next.t('web:player_detail.sections.status_effects', { defaultValue: 'Status Effects' }) +
         '</h3>';
       html += '<div class="flex flex-wrap gap-1">';
-      var ps2 = p.playerStates || [];
-      for (var psi = 0; psi < ps2.length; psi++)
+      const ps2 = p.playerStates || [];
+      for (let psi = 0; psi < ps2.length; psi++)
         html +=
           '<span class="text-[11px] bg-amber-400/10 text-amber-400 px-1.5 py-0.5 rounded entity-link" data-entity-table="game_afflictions" data-entity-search="' +
           esc(ps2[psi]) +
           '">' +
           esc(ps2[psi]) +
           '</span>';
-      var bc = p.bodyConditions || [];
-      for (var bci = 0; bci < bc.length; bci++)
+      const bc = p.bodyConditions || [];
+      for (let bci = 0; bci < bc.length; bci++)
         html +=
           '<span class="text-[11px] bg-red-400/10 text-red-400 px-1.5 py-0.5 rounded entity-link" data-entity-table="game_afflictions" data-entity-search="' +
           esc(bc[bci]) +
@@ -663,8 +664,8 @@ Panel.tabs = Panel.tabs || {};
         }) +
         '</h3>';
       html += '<div class="flex flex-wrap gap-1">';
-      for (var ri = 0; ri < p.craftingRecipes.length; ri++) {
-        var recipeName = p.craftingRecipes[ri];
+      for (let ri = 0; ri < p.craftingRecipes.length; ri++) {
+        const recipeName = p.craftingRecipes[ri];
         html +=
           '<span class="text-[10px] bg-surface-50 border border-border px-1.5 py-0.5 rounded text-muted cursor-pointer hover:text-accent hover:border-accent/40 transition-colors inv-clickable" data-item-name="' +
           esc(recipeName) +
@@ -684,7 +685,7 @@ Panel.tabs = Panel.tabs || {};
         }) +
         '</h3>';
       html += '<div class="flex flex-wrap gap-1">';
-      for (var ski = 0; ski < p.unlockedSkills.length; ski++)
+      for (let ski = 0; ski < p.unlockedSkills.length; ski++)
         html +=
           '<span class="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded entity-link" data-entity-table="game_skills" data-entity-search="' +
           esc(p.unlockedSkills[ski]) +
@@ -714,19 +715,19 @@ Panel.tabs = Panel.tabs || {};
 
   function buildInventorySection(title, items, gridType) {
     if (!items || !items.length) return '';
-    var filled = items.filter(function (i) {
+    const filled = items.filter(function (i) {
       if (!i) return false;
       if (typeof i === 'string') return i !== 'Empty' && i !== 'None' && i !== '';
       return i.item || i.name;
     });
     if (!filled.length) return '';
 
-    var html =
+    let html =
       '<div class="mb-3"><h3 class="text-xs font-medium text-muted uppercase tracking-wider mb-1.5">' + title + '</h3>';
     html += '<div class="inv-grid ' + gridType + '">';
 
-    for (var ii = 0; ii < items.length; ii++) {
-      var item = items[ii];
+    for (let ii = 0; ii < items.length; ii++) {
+      const item = items[ii];
       if (!item) {
         html +=
           '<div class="inv-slot empty"><span class="inv-name">' +
@@ -749,17 +750,17 @@ Panel.tabs = Panel.tabs || {};
             '</span></div>';
         continue;
       }
-      var name = item.item || item.name || '';
-      var qty = item.amount || item.quantity || 1;
+      let name = item.item || item.name || '';
+      let qty = item.amount || item.quantity || 1;
       if (!name || name === 'Empty' || name === 'None') {
         html +=
           '<div class="inv-slot empty"><span class="inv-name">' +
           i18next.t('web:player_detail.inventory.empty_slot', { defaultValue: 'Empty' }) +
           '</span></div>';
       } else {
-        var durPct = item.durability != null ? Math.round(item.durability) : null;
-        var durColor = durPct != null ? (durPct > 60 ? '#6dba82' : durPct > 25 ? '#d4a843' : '#c45a4a') : '';
-        var durBar =
+        const durPct = item.durability != null ? Math.round(item.durability) : null;
+        const durColor = durPct != null ? (durPct > 60 ? '#6dba82' : durPct > 25 ? '#d4a843' : '#c45a4a') : '';
+        const durBar =
           durPct != null
             ? '<div class="inv-dur-track"><div class="inv-dur-fill" style="width:' +
               durPct +
@@ -767,13 +768,13 @@ Panel.tabs = Panel.tabs || {};
               durColor +
               '"></div></div>'
             : '';
-        var fpAttr = item.fingerprint ? ' data-item-fp="' + esc(item.fingerprint) + '"' : '';
-        var ammoAttr = item.ammo ? ' data-item-ammo="' + item.ammo + '"' : '';
-        var attachAttr =
+        const fpAttr = item.fingerprint ? ' data-item-fp="' + esc(item.fingerprint) + '"' : '';
+        const ammoAttr = item.ammo ? ' data-item-ammo="' + item.ammo + '"' : '';
+        const attachAttr =
           item.attachments && item.attachments.length
             ? ' data-item-attach="' + esc(JSON.stringify(item.attachments)) + '"'
             : '';
-        var maxDurAttr = item.maxDur ? ' data-item-maxdur="' + item.maxDur + '"' : '';
+        const maxDurAttr = item.maxDur ? ' data-item-maxdur="' + item.maxDur + '"' : '';
         html +=
           '<div class="inv-slot inv-clickable" data-item-name="' +
           esc(name) +
@@ -802,9 +803,9 @@ Panel.tabs = Panel.tabs || {};
 
   async function fetchAndShowPlayer(steamId) {
     try {
-      var r = await apiFetch('/api/players/' + steamId);
+      const r = await apiFetch('/api/players/' + steamId);
       if (r.ok) {
-        var p = await r.json();
+        const p = await r.json();
         showPlayerModal(p);
       }
     } catch (_e) {
