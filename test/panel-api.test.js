@@ -14,6 +14,7 @@ process.env.PANEL_API_KEY = 'test-api-key';
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { createPanelApi } = require('../src/server/panel-api');
+const panelApi = require('../src/server/panel-api');
 
 const SERVER_URL = 'https://panel.test.com/server/abc123';
 const API_KEY = 'test-api-key';
@@ -38,8 +39,6 @@ function mockResponse(body, { status = 200, statusText = 'OK', headers = {} } = 
     arrayBuffer: async () => new Uint8Array(Buffer.from(bodyStr)).buffer,
   };
 }
-
-let originalFetch;
 
 // ══════════════════════════════════════════════════════════════
 // createPanelApi factory
@@ -71,6 +70,7 @@ describe('createPanelApi', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('getResources', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -164,6 +164,7 @@ describe('getResources', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('sendPowerAction', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -208,6 +209,7 @@ describe('sendPowerAction', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('sendCommand', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -235,6 +237,7 @@ describe('sendCommand', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('readFile', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -293,6 +296,7 @@ describe('readFile', () => {
 });
 
 describe('writeFile', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -329,6 +333,7 @@ describe('writeFile', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('getWebsocketAuth', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -357,6 +362,7 @@ describe('getWebsocketAuth', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('error handling', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -449,6 +455,7 @@ describe('error handling', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('request headers', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -488,6 +495,7 @@ describe('request headers', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('backup methods', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -568,6 +576,7 @@ describe('backup methods', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('other API methods', () => {
+  let originalFetch;
   beforeEach(() => {
     originalFetch = global.fetch;
   });
@@ -655,5 +664,454 @@ describe('other API methods', () => {
     assert.equal(capturedMethod, 'PUT');
     assert.deepEqual(capturedBody, { key: 'MAX_PLAYERS', value: '20' });
     assert.equal(result.env_variable, 'MAX_PLAYERS');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Singleton export
+// ══════════════════════════════════════════════════════════════
+
+describe('singleton export', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('has available=true when panel env vars are set', () => {
+    assert.equal(panelApi.available, true);
+  });
+
+  it('has backend=pterodactyl when configured', () => {
+    assert.equal(panelApi.backend, 'pterodactyl');
+  });
+
+  it('can call getResources on singleton', async () => {
+    global.fetch = async () =>
+      mockResponse({
+        attributes: {
+          current_state: 'running',
+          resources: {
+            cpu_absolute: 10.5,
+            memory_bytes: 1024,
+            memory_limit_bytes: 2048,
+            disk_bytes: 512,
+            disk_limit_bytes: 1024,
+            uptime: 60000,
+          },
+        },
+      });
+    const res = await panelApi.getResources();
+    assert.equal(res.cpu, 10.5);
+    assert.equal(res.state, 'running');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Module export shape
+// ══════════════════════════════════════════════════════════════
+
+describe('module export shape', () => {
+  it('exports all 21 methods + PanelApi + createPanelApi as own properties', () => {
+    const expectedFunctions = [
+      'getResources',
+      'sendPowerAction',
+      'sendCommand',
+      'getServerDetails',
+      'listBackups',
+      'createBackup',
+      'deleteBackup',
+      'getBackupDownloadUrl',
+      'getFileDownloadUrl',
+      'downloadFile',
+      'listFiles',
+      'readFile',
+      'writeFile',
+      'getWebsocketAuth',
+      'listSchedules',
+      'createSchedule',
+      'deleteSchedule',
+      'getStartupVariables',
+      'updateStartupVariable',
+      'listAllocations',
+      'listServers',
+      'PanelApi',
+      'createPanelApi',
+    ];
+    for (const name of expectedFunctions) {
+      assert.ok(Object.prototype.hasOwnProperty.call(panelApi, name), `missing own property: ${name}`);
+      assert.equal(typeof panelApi[name], 'function', `${name} should be a function`);
+    }
+  });
+
+  it('exposes available and backend as prototype getters', () => {
+    assert.ok('available' in panelApi, 'available not accessible');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panelApi, 'available'),
+      false,
+      'available should NOT be own property',
+    );
+    assert.equal(typeof panelApi.available, 'boolean');
+    assert.ok('backend' in panelApi, 'backend not accessible');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(panelApi, 'backend'),
+      false,
+      'backend should NOT be own property',
+    );
+    assert.equal(typeof panelApi.backend, 'string');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Individual function exports
+// ══════════════════════════════════════════════════════════════
+
+describe('individual function exports', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('getResources works when destructured (no this context)', async () => {
+    const { getResources } = require('../src/server/panel-api');
+    global.fetch = async () =>
+      mockResponse({
+        attributes: {
+          current_state: 'running',
+          resources: {
+            cpu_absolute: 22.3,
+            memory_bytes: 1024,
+            memory_limit_bytes: 2048,
+            disk_bytes: 0,
+            disk_limit_bytes: 0,
+            uptime: 1000,
+          },
+        },
+      });
+    const res = await getResources();
+    assert.equal(res.cpu, 22.3);
+    assert.equal(res.state, 'running');
+  });
+
+  it('sendPowerAction works when destructured', async () => {
+    const { sendPowerAction } = require('../src/server/panel-api');
+    let capturedUrl, capturedBody;
+    global.fetch = async (url, opts) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(opts.body);
+      return mockResponse(null, { status: 204 });
+    };
+    await sendPowerAction('restart');
+    assert.ok(capturedUrl.endsWith('/power'));
+    assert.deepEqual(capturedBody, { signal: 'restart' });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// listServers
+// ══════════════════════════════════════════════════════════════
+
+describe('listServers', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('uses /api/client URL (not server-scoped)', async () => {
+    let capturedUrl;
+    global.fetch = async (url) => {
+      capturedUrl = url;
+      return mockResponse({ data: [], meta: { pagination: { total_pages: 1 } } });
+    };
+    const api = makeApi();
+    await api.listServers();
+    assert.ok(capturedUrl.includes('/api/client?page=1'));
+    assert.ok(!capturedUrl.includes('/servers/abc123/'));
+  });
+
+  it('paginates when total_pages > 1', async () => {
+    let callCount = 0;
+    global.fetch = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return mockResponse({
+          data: [
+            {
+              attributes: {
+                identifier: 's1',
+                uuid: 'u1',
+                name: 'Server 1',
+                description: '',
+                node: '',
+                sftp_details: {},
+                egg: 0,
+                docker_image: '',
+                limits: {},
+              },
+            },
+          ],
+          meta: { pagination: { total_pages: 2 } },
+        });
+      }
+      return mockResponse({
+        data: [
+          {
+            attributes: {
+              identifier: 's2',
+              uuid: 'u2',
+              name: 'Server 2',
+              description: '',
+              node: '',
+              sftp_details: {},
+              egg: 0,
+              docker_image: '',
+              limits: {},
+            },
+          },
+        ],
+        meta: { pagination: { total_pages: 2 } },
+      });
+    };
+    const api = makeApi();
+    const servers = await api.listServers();
+    assert.equal(servers.length, 2);
+    assert.equal(callCount, 2);
+    assert.equal(servers[0].identifier, 's1');
+    assert.equal(servers[1].identifier, 's2');
+  });
+
+  it('maps server attributes correctly', async () => {
+    global.fetch = async () =>
+      mockResponse({
+        data: [
+          {
+            attributes: {
+              identifier: 'abc',
+              uuid: 'uuid-123',
+              name: 'Test Server',
+              description: 'desc',
+              node: 'node1',
+              sftp_details: { ip: '10.0.0.1', port: 2022 },
+              relationships: {
+                allocations: {
+                  data: [{ attributes: { id: 1, ip: '10.0.0.1', ip_alias: null, port: 25565, is_default: true } }],
+                },
+              },
+              egg: 5,
+              docker_image: 'img',
+              limits: { memory: 4096 },
+            },
+          },
+        ],
+        meta: { pagination: { total_pages: 1 } },
+      });
+    const api = makeApi();
+    const servers = await api.listServers();
+    assert.equal(servers[0].identifier, 'abc');
+    assert.equal(servers[0].uuid, 'uuid-123');
+    assert.equal(servers[0].allocations.length, 1);
+    assert.equal(servers[0].allocations[0].port, 25565);
+    assert.equal(servers[0].allocations[0].is_default, true);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// readFile 403 fallback
+// ══════════════════════════════════════════════════════════════
+
+describe('readFile 403 fallback', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('falls back to downloadFile on 403 response', async () => {
+    let callCount = 0;
+    global.fetch = async () => {
+      callCount++;
+      if (callCount === 1) return mockResponse('', { status: 403, statusText: 'Forbidden' });
+      if (callCount === 2) return mockResponse({ attributes: { url: 'https://cdn.test.com/download/abc' } });
+      return mockResponse('fallback content', { status: 200 });
+    };
+    const api = makeApi();
+    const content = await api.readFile('/test.txt');
+    assert.equal(content, 'fallback content');
+    assert.equal(callCount, 3);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// listAllocations
+// ══════════════════════════════════════════════════════════════
+
+describe('listAllocations', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('maps allocation attributes correctly', async () => {
+    global.fetch = async () =>
+      mockResponse({
+        data: [{ attributes: { id: 1, ip: '10.0.0.1', ip_alias: null, port: 25565, is_default: true } }],
+      });
+    const api = makeApi();
+    const allocs = await api.listAllocations();
+    assert.equal(allocs.length, 1);
+    assert.equal(allocs[0].id, 1);
+    assert.equal(allocs[0].ip, '10.0.0.1');
+    assert.equal(allocs[0].ip_alias, null);
+    assert.equal(allocs[0].port, 25565);
+    assert.equal(allocs[0].is_default, true);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// getStartupVariables
+// ══════════════════════════════════════════════════════════════
+
+describe('getStartupVariables', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('maps startup variable attributes correctly', async () => {
+    global.fetch = async () =>
+      mockResponse({
+        data: [
+          {
+            attributes: {
+              env_variable: 'MAX_PLAYERS',
+              server_value: '20',
+              default_value: '10',
+              name: 'Max Players',
+              description: 'Max number of players',
+            },
+          },
+        ],
+      });
+    const api = makeApi();
+    const vars = await api.getStartupVariables();
+    assert.equal(vars.length, 1);
+    assert.equal(vars[0].env_variable, 'MAX_PLAYERS');
+    assert.equal(vars[0].server_value, '20');
+    assert.equal(vars[0].default_value, '10');
+    assert.equal(vars[0].name, 'Max Players');
+    assert.equal(vars[0].description, 'Max number of players');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// createSchedule
+// ══════════════════════════════════════════════════════════════
+
+describe('createSchedule', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('sends POST with schedule params', async () => {
+    let capturedMethod, capturedBody;
+    global.fetch = async (url, opts) => {
+      capturedMethod = opts.method;
+      capturedBody = JSON.parse(opts.body);
+      return mockResponse({ attributes: { id: 1, name: 'Daily Restart', is_active: true } });
+    };
+    const api = makeApi();
+    const result = await api.createSchedule({
+      name: 'Daily Restart',
+      minute: '0',
+      hour: '6',
+      day_of_week: '*',
+      day_of_month: '*',
+      month: '*',
+      is_active: true,
+    });
+    assert.equal(capturedMethod, 'POST');
+    assert.equal(capturedBody.name, 'Daily Restart');
+    assert.equal(capturedBody.is_active, true);
+    assert.equal(result.name, 'Daily Restart');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// deleteSchedule
+// ══════════════════════════════════════════════════════════════
+
+describe('deleteSchedule', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('sends DELETE to correct schedule ID endpoint', async () => {
+    let capturedUrl, capturedMethod;
+    global.fetch = async (url, opts) => {
+      capturedUrl = url;
+      capturedMethod = opts.method;
+      return mockResponse(null, { status: 204 });
+    };
+    const api = makeApi();
+    await api.deleteSchedule(42);
+    assert.ok(capturedUrl.includes('schedules/42'));
+    assert.equal(capturedMethod, 'DELETE');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// getFileDownloadUrl
+// ══════════════════════════════════════════════════════════════
+
+describe('getFileDownloadUrl', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('URL-encodes the file path and returns signed URL', async () => {
+    let capturedUrl;
+    global.fetch = async (url) => {
+      capturedUrl = url;
+      return mockResponse({ attributes: { url: 'https://cdn.test.com/download/signed' } });
+    };
+    const api = makeApi();
+    const url = await api.getFileDownloadUrl('/path/to save.sav');
+    assert.ok(capturedUrl.includes(encodeURIComponent('/path/to save.sav')));
+    assert.equal(url, 'https://cdn.test.com/download/signed');
+  });
+
+  it('returns null when no url in response attributes', async () => {
+    global.fetch = async () => mockResponse({ attributes: {} });
+    const api = makeApi();
+    const url = await api.getFileDownloadUrl('/test.sav');
+    assert.equal(url, null);
   });
 });
