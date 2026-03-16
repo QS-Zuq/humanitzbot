@@ -549,11 +549,13 @@ Object.assign(PanelApi.prototype, {
  * @param {string} options.apiKey    - Panel API key
  * @returns {PanelApi|null} Standalone instance, or null if inputs are missing/invalid
  */
-function createPanelApi({ serverUrl, apiKey }) {
+function createPanelApi({ serverUrl, apiKey } = {}) {
   if (!serverUrl || !apiKey) return null;
-  const parsed = _parseUrl(serverUrl);
-  if (!parsed) return null;
-  return new PanelApi({ serverUrl, apiKey });
+  try {
+    return new PanelApi({ serverUrl, apiKey });
+  } catch {
+    return null;
+  }
 }
 
 // ── Exports ─────────────────────────────────────────────────
@@ -588,5 +590,8 @@ const _BOUND_METHODS = [
   'listServers',
 ];
 for (const method of _BOUND_METHODS) {
+  if (typeof instance[method] !== 'function') {
+    throw new Error(`PanelApi: _BOUND_METHODS contains unknown method '${method}'`);
+  }
   module.exports[method] = instance[method].bind(instance);
 }
