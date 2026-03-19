@@ -41,31 +41,33 @@ function _modalTitle(prefix, name, suffix) {
 // ═════════════════════════════════════════════════════════════
 
 async function _handleAddServerButton(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
-  const modal = new ModalBuilder().setCustomId('panel_add_modal_step1').setTitle('Add Server — Step 1: Connection');
+  const modal = new ModalBuilder()
+    .setCustomId('panel_add_modal_step1')
+    .setTitle(this._ti(interaction, 'ms_add_step1_title'));
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('name')
-        .setLabel('Server Name')
+        .setLabel(this._ti(interaction, 'ms_label_server_name'))
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
-        .setPlaceholder('e.g. PvP Server'),
+        .setPlaceholder(this._ti(interaction, 'ms_placeholder_server_name')),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('rcon_host')
-        .setLabel('RCON Host')
+        .setLabel(this._ti(interaction, 'ms_label_rcon_host'))
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
-        .setPlaceholder('e.g. 192.168.1.100'),
+        .setPlaceholder(this._ti(interaction, 'ms_placeholder_rcon_host')),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('rcon_port')
-        .setLabel('RCON Port')
+        .setLabel(this._ti(interaction, 'ms_label_rcon_port'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
         .setValue('14541'),
@@ -73,14 +75,14 @@ async function _handleAddServerButton(interaction) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('rcon_password')
-        .setLabel('RCON Password')
+        .setLabel(this._ti(interaction, 'ms_label_rcon_password'))
         .setStyle(TextInputStyle.Short)
         .setRequired(true),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('game_port')
-        .setLabel('Game Port')
+        .setLabel(this._ti(interaction, 'ms_label_game_port'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
         .setValue('14242'),
@@ -92,7 +94,7 @@ async function _handleAddServerButton(interaction) {
 }
 
 async function _handleAddServerStep1Modal(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const name = interaction.fields.getTextInputValue('name').trim();
   const rconHost = interaction.fields.getTextInputValue('rcon_host').trim();
@@ -102,7 +104,7 @@ async function _handleAddServerStep1Modal(interaction) {
 
   if (!name || !rconHost || !rconPassword) {
     await interaction.reply({
-      content: '❌ Name, RCON Host, and RCON Password are required.',
+      content: this._ti(interaction, 'ms_err_required_fields'),
       flags: MessageFlags.Ephemeral,
     });
     return true;
@@ -119,25 +121,21 @@ async function _handleAddServerStep1Modal(interaction) {
   // Show step 2 button
   const sftpBtn = new ButtonBuilder()
     .setCustomId(`panel_add_sftp:${interaction.user.id}`)
-    .setLabel('Configure SFTP')
+    .setLabel(this._ti(interaction, 'ms_btn_configure_sftp'))
     .setStyle(ButtonStyle.Primary);
 
   const continueBtn = new ButtonBuilder()
     .setCustomId(`panel_add_step2:${interaction.user.id}`)
-    .setLabel('Configure Channels')
+    .setLabel(this._ti(interaction, 'ms_btn_configure_channels'))
     .setStyle(ButtonStyle.Primary);
 
   const skipBtn = new ButtonBuilder()
     .setCustomId(`panel_srv_skip_channels:${interaction.user.id}`)
-    .setLabel('Skip — Save Now')
+    .setLabel(this._ti(interaction, 'ms_btn_skip_save'))
     .setStyle(ButtonStyle.Secondary);
 
   await interaction.reply({
-    content:
-      `✅ **Step 1 complete!** Server "${name}" connection configured.\n\n` +
-      `**Next:** Configure SFTP for log watching, player stats, and save reading (file paths auto-discover).\n` +
-      `Or skip SFTP to inherit the primary server's connection.\n` +
-      `You can also configure channels or save now.`,
+    content: this._ti(interaction, 'ms_ok_step1_complete', { name }),
     components: [new ActionRowBuilder().addComponents(sftpBtn, continueBtn, skipBtn)],
     flags: MessageFlags.Ephemeral,
   });
@@ -145,13 +143,13 @@ async function _handleAddServerStep1Modal(interaction) {
 }
 
 async function _handleAddSftpButton(interaction, customId) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const userId = customId.replace('panel_add_sftp:', '');
   const pending = this._pendingServers.get(userId);
   if (!pending) {
     await interaction.reply({
-      content: '❌ Session expired. Please start over with "Add Server".',
+      content: this._ti(interaction, 'ms_err_session_expired'),
       flags: MessageFlags.Ephemeral,
     });
     return true;
@@ -159,7 +157,7 @@ async function _handleAddSftpButton(interaction, customId) {
 
   const modal = new ModalBuilder()
     .setCustomId(`panel_add_sftp_modal:${userId}`)
-    .setTitle('Add Server — SFTP Connection');
+    .setTitle(this._ti(interaction, 'ms_add_sftp_title'));
 
   // Auto-detect SSH keys on the bot host
   const detectedKey = _detectSshKey();
@@ -168,15 +166,15 @@ async function _handleAddSftpButton(interaction, customId) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('sftp_host')
-        .setLabel('SFTP Host')
+        .setLabel(this._ti(interaction, 'ms_label_sftp_host'))
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
-        .setPlaceholder('e.g. atlas.realm.se'),
+        .setPlaceholder(this._ti(interaction, 'ms_placeholder_sftp_host')),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('sftp_port')
-        .setLabel('SFTP Port')
+        .setLabel(this._ti(interaction, 'ms_label_sftp_port'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
         .setValue('22'),
@@ -184,26 +182,30 @@ async function _handleAddSftpButton(interaction, customId) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('sftp_user')
-        .setLabel('SFTP Username')
+        .setLabel(this._ti(interaction, 'ms_label_sftp_username'))
         .setStyle(TextInputStyle.Short)
         .setRequired(true),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('sftp_password')
-        .setLabel('SFTP Password (blank if using SSH key)')
+        .setLabel(this._ti(interaction, 'ms_label_sftp_password_key'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
-        .setPlaceholder('Leave blank if using key auth'),
+        .setPlaceholder(this._ti(interaction, 'ms_placeholder_key_auth')),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('sftp_key_path')
-        .setLabel('SSH Key Path on bot host (optional)')
+        .setLabel(this._ti(interaction, 'ms_label_ssh_key_path'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
         .setValue(detectedKey)
-        .setPlaceholder(detectedKey ? `Detected: ${detectedKey}` : 'No keys found — use password instead'),
+        .setPlaceholder(
+          detectedKey
+            ? this._ti(interaction, 'ms_placeholder_detected_key', { key: detectedKey })
+            : this._ti(interaction, 'ms_placeholder_no_keys'),
+        ),
     ),
   );
 
@@ -212,13 +214,13 @@ async function _handleAddSftpButton(interaction, customId) {
 }
 
 async function _handleAddSftpModal(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const userId = interaction.customId.replace('panel_add_sftp_modal:', '');
   const pending = this._pendingServers.get(userId);
   if (!pending) {
     await interaction.reply({
-      content: '❌ Session expired. Please start over with "Add Server".',
+      content: this._ti(interaction, 'ms_err_session_expired'),
       flags: MessageFlags.Ephemeral,
     });
     return true;
@@ -232,7 +234,7 @@ async function _handleAddSftpModal(interaction) {
 
   if (!host || !user || (!password && !privateKeyPath)) {
     await interaction.reply({
-      content: '❌ SFTP host, username, and either a password or SSH key path are required.',
+      content: this._ti(interaction, 'ms_err_sftp_required'),
       flags: MessageFlags.Ephemeral,
     });
     return true;
@@ -247,19 +249,16 @@ async function _handleAddSftpModal(interaction) {
   // Show continue/skip buttons
   const continueBtn = new ButtonBuilder()
     .setCustomId(`panel_add_step2:${userId}`)
-    .setLabel('Configure Channels')
+    .setLabel(this._ti(interaction, 'ms_btn_configure_channels'))
     .setStyle(ButtonStyle.Primary);
 
   const skipBtn = new ButtonBuilder()
     .setCustomId(`panel_srv_skip_channels:${userId}`)
-    .setLabel('Skip — Save Now')
+    .setLabel(this._ti(interaction, 'ms_btn_skip_save'))
     .setStyle(ButtonStyle.Secondary);
 
   await interaction.reply({
-    content:
-      `✅ **SFTP configured!** \`${host}:${port}\`\n` +
-      `File paths will auto-discover when the server starts.\n\n` +
-      `**Next:** Configure channels or save now.`,
+    content: this._ti(interaction, 'ms_ok_sftp_configured', { host, port }),
     components: [new ActionRowBuilder().addComponents(continueBtn, skipBtn)],
     flags: MessageFlags.Ephemeral,
   });
@@ -267,13 +266,13 @@ async function _handleAddSftpModal(interaction) {
 }
 
 async function _handleAddServerStep2Button(interaction, customId) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const userId = customId.replace('panel_add_step2:', '');
   const pending = this._pendingServers.get(userId);
   if (!pending) {
     await interaction.reply({
-      content: '❌ Session expired. Please start over with "Add Server".',
+      content: this._ti(interaction, 'ms_err_session_expired'),
       flags: MessageFlags.Ephemeral,
     });
     return true;
@@ -281,42 +280,42 @@ async function _handleAddServerStep2Button(interaction, customId) {
 
   const modal = new ModalBuilder()
     .setCustomId(`panel_add_modal_step2:${userId}`)
-    .setTitle('Add Server — Step 2: Channels');
+    .setTitle(this._ti(interaction, 'ms_add_step2_title'));
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('ch_status')
-        .setLabel('Server Status Channel ID')
+        .setLabel(this._ti(interaction, 'ms_label_status_channel'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
-        .setPlaceholder('Right-click channel → Copy Channel ID'),
+        .setPlaceholder(this._ti(interaction, 'ms_placeholder_copy_channel')),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('ch_stats')
-        .setLabel('Player Stats Channel ID')
+        .setLabel(this._ti(interaction, 'ms_label_stats_channel'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('ch_log')
-        .setLabel('Log Channel ID')
+        .setLabel(this._ti(interaction, 'ms_label_log_channel'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('ch_chat')
-        .setLabel('Chat Relay Channel ID')
+        .setLabel(this._ti(interaction, 'ms_label_chat_channel'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false),
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('ch_admin')
-        .setLabel('Admin Channel ID')
+        .setLabel(this._ti(interaction, 'ms_label_admin_channel'))
         .setStyle(TextInputStyle.Short)
         .setRequired(false),
     ),
@@ -330,14 +329,14 @@ async function _handleAddServerStep2Modal(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!this._isAdmin(interaction)) {
-    await interaction.editReply('❌ Only administrators can manage servers.');
+    await interaction.editReply(this._ti(interaction, 'ms_err_admin_only'));
     return true;
   }
 
   const userId = interaction.customId.replace('panel_add_modal_step2:', '');
   const pending = this._pendingServers.get(userId);
   if (!pending) {
-    await interaction.editReply('❌ Session expired. Please start over with "Add Server".');
+    await interaction.editReply(this._ti(interaction, 'ms_err_session_expired'));
     return true;
   }
 
@@ -358,14 +357,14 @@ async function _handleAddServerStep2Modal(interaction) {
   this._pendingServers.delete(userId);
 
   if (!this.multiServerManager) {
-    await interaction.editReply('❌ Multi-server manager not available.');
+    await interaction.editReply(this._ti(interaction, 'ms_err_manager_unavailable'));
     return true;
   }
 
   const channelCount = Object.keys(channels).length;
 
   // Reply immediately — addServer triggers SFTP auto-discovery which can take 60s+
-  await interaction.editReply(`⏳ **${serverDef.name}** saved — starting up (SFTP discovery may take a moment)...`);
+  await interaction.editReply(this._ti(interaction, 'ms_saving_server', { name: serverDef.name }));
 
   // Run the long operation in the background so the user isn't staring at "thinking..."
   this.multiServerManager
@@ -385,11 +384,15 @@ async function _handleAddServerStep2Modal(interaction) {
 
       try {
         await interaction.editReply(
-          `✅ **${saved.name}** added and started!\n` +
-            `• RCON: \`${saved.rcon.host}:${saved.rcon.port}\`\n` +
-            `• Game Port: \`${saved.gamePort}\`\n` +
-            `• Channels: ${channelCount} configured\n` +
-            `• SFTP: ${serverDef.sftp ? 'Configured' : 'Inherited from primary server'}`,
+          this._ti(interaction, 'ms_ok_server_added', {
+            name: saved.name,
+            rcon: `${saved.rcon.host}:${saved.rcon.port}`,
+            gamePort: saved.gamePort,
+            channels: channelCount,
+            sftp: serverDef.sftp
+              ? this._ti(interaction, 'ms_sftp_configured_label')
+              : this._ti(interaction, 'ms_sftp_inherited'),
+          }),
         );
       } catch {
         /* interaction may have expired after 15 min */
@@ -400,7 +403,7 @@ async function _handleAddServerStep2Modal(interaction) {
     })
     .catch(async (err) => {
       try {
-        await interaction.editReply(`❌ Failed to add server: ${err.message}`);
+        await interaction.editReply(this._ti(interaction, 'ms_err_add_failed', { message: err.message }));
       } catch {
         /* interaction may have expired */
       }
@@ -414,13 +417,16 @@ async function _handleAddServerStep2Modal(interaction) {
 // ═════════════════════════════════════════════════════════════
 
 async function _handleServerSelect(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const serverId = interaction.values[0];
   const servers = this.multiServerManager?.getAllServers() || [];
   const server = servers.find((s) => s.id === serverId);
   if (!server) {
-    await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_server_not_found'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
@@ -431,49 +437,68 @@ async function _handleServerSelect(interaction) {
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`panel_srv_start:${serverId}`)
-      .setLabel('Start')
+      .setLabel(this._ti(interaction, 'ms_btn_start'))
       .setStyle(ButtonStyle.Success)
       .setDisabled(running),
     new ButtonBuilder()
       .setCustomId(`panel_srv_stop:${serverId}`)
-      .setLabel('Stop')
+      .setLabel(this._ti(interaction, 'ms_btn_stop'))
       .setStyle(ButtonStyle.Danger)
       .setDisabled(!running),
     new ButtonBuilder()
       .setCustomId(`panel_srv_edit:${serverId}`)
-      .setLabel('Edit Connection')
+      .setLabel(this._ti(interaction, 'ms_btn_edit_connection'))
       .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`panel_srv_remove:${serverId}`).setLabel('Remove').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`panel_srv_remove:${serverId}`)
+      .setLabel(this._ti(interaction, 'ms_btn_remove'))
+      .setStyle(ButtonStyle.Danger),
   );
 
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`panel_srv_channels:${serverId}`)
-      .setLabel('Edit Channels')
+      .setLabel(this._ti(interaction, 'ms_btn_edit_channels'))
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`panel_srv_sftp:${serverId}`).setLabel('Edit SFTP').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`panel_srv_sftp:${serverId}`)
+      .setLabel(this._ti(interaction, 'ms_btn_edit_sftp'))
+      .setStyle(ButtonStyle.Secondary),
   );
 
   // Build info text
   const ch = server.channels || {};
   const channelLines = [];
-  if (ch.serverStatus) channelLines.push(`Status: <#${ch.serverStatus}>`);
-  if (ch.playerStats) channelLines.push(`Stats: <#${ch.playerStats}>`);
-  if (ch.log) channelLines.push(`Log: <#${ch.log}>`);
-  if (ch.chat) channelLines.push(`Chat: <#${ch.chat}>`);
-  if (ch.admin) channelLines.push(`Admin: <#${ch.admin}>`);
+  if (ch.serverStatus) channelLines.push(this._ti(interaction, 'ms_channel_status', { channelId: ch.serverStatus }));
+  if (ch.playerStats) channelLines.push(this._ti(interaction, 'ms_channel_stats', { channelId: ch.playerStats }));
+  if (ch.log) channelLines.push(this._ti(interaction, 'ms_channel_log', { channelId: ch.log }));
+  if (ch.chat) channelLines.push(this._ti(interaction, 'ms_channel_chat', { channelId: ch.chat }));
+  if (ch.admin) channelLines.push(this._ti(interaction, 'ms_channel_admin', { channelId: ch.admin }));
 
-  const sftpInfo = server.sftp?.host ? `${server.sftp.host}:${server.sftp.port || 22}` : 'Inherited from primary';
-  const moduleList = instance ? instance.getStatus().modules.join(', ') || 'None' : 'Not running';
+  const sftpInfo = server.sftp?.host
+    ? `${server.sftp.host}:${server.sftp.port || 22}`
+    : this._ti(interaction, 'ms_sftp_inherited_short');
+  const moduleList = instance
+    ? instance.getStatus().modules.join(', ') || this._ti(interaction, 'ms_none')
+    : this._ti(interaction, 'ms_not_running');
+
+  const statusLabel = running ? this._ti(interaction, 'ms_server_running') : this._ti(interaction, 'ms_server_stopped');
+  const channelsInfo =
+    channelLines.length > 0
+      ? '\n' + channelLines.map((l) => `  ${l}`).join('\n')
+      : this._ti(interaction, 'ms_none_configured');
 
   await interaction.reply({
     content: [
-      `**${server.name}** ${running ? '🟢 Running' : '🔴 Stopped'}`,
-      `• RCON: \`${server.rcon?.host || '?'}:${server.rcon?.port || 14541}\``,
-      `• Game Port: \`${server.gamePort || 14242}\``,
-      `• SFTP: ${sftpInfo}`,
-      `• Channels: ${channelLines.length > 0 ? '\n' + channelLines.map((l) => `  ${l}`).join('\n') : 'None configured'}`,
-      `• Modules: ${moduleList}`,
+      this._ti(interaction, 'ms_info_header', { name: server.name, status: statusLabel }),
+      this._ti(interaction, 'ms_info_rcon', {
+        host: server.rcon?.host || '?',
+        port: server.rcon?.port || 14541,
+      }),
+      this._ti(interaction, 'ms_info_game_port', { port: server.gamePort || 14242 }),
+      this._ti(interaction, 'ms_info_sftp', { info: sftpInfo }),
+      this._ti(interaction, 'ms_info_channels', { info: channelsInfo }),
+      this._ti(interaction, 'ms_info_modules', { list: moduleList }),
     ].join('\n'),
     components: [row1, row2],
     flags: MessageFlags.Ephemeral,
@@ -482,14 +507,17 @@ async function _handleServerSelect(interaction) {
 }
 
 async function _handleServerAction(interaction, customId) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   // Handle skip channels button from add wizard
   if (customId.startsWith('panel_srv_skip_channels:')) {
     const userId = customId.replace('panel_srv_skip_channels:', '');
     const pending = this._pendingServers.get(userId);
     if (!pending) {
-      await interaction.reply({ content: '❌ Session expired. Please start over.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        content: this._ti(interaction, 'ms_err_session_expired_short'),
+        flags: MessageFlags.Ephemeral,
+      });
       return true;
     }
 
@@ -510,12 +538,10 @@ async function _handleServerAction(interaction, customId) {
       } catch (embedErr) {
         console.error(`[PANEL CH] Failed to post embed for new server ${saved.name}:`, embedErr.message);
       }
-      await interaction.editReply(
-        `✅ **${saved.name}** added (no channels configured).\n` + `Use the server actions menu to configure channels.`,
-      );
+      await interaction.editReply(this._ti(interaction, 'ms_ok_server_added_no_channels', { name: saved.name }));
       setTimeout(() => this._update(true), 1000);
     } catch (err) {
-      await interaction.editReply(`❌ Failed to add server: ${err.message}`);
+      await interaction.editReply(this._ti(interaction, 'ms_err_add_failed', { message: err.message }));
     }
     return true;
   }
@@ -531,10 +557,10 @@ async function _handleServerAction(interaction, customId) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         await this.multiServerManager.startServer(serverId);
-        await interaction.editReply('✅ Server started.');
+        await interaction.editReply(this._ti(interaction, 'ms_ok_server_started'));
         setTimeout(() => this._update(true), 2000);
       } catch (err) {
-        await interaction.editReply(`❌ Failed to start: ${err.message}`);
+        await interaction.editReply(this._ti(interaction, 'ms_err_start_failed', { message: err.message }));
       }
       return true;
     }
@@ -543,10 +569,10 @@ async function _handleServerAction(interaction, customId) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         await this.multiServerManager.stopServer(serverId);
-        await interaction.editReply('✅ Server stopped.');
+        await interaction.editReply(this._ti(interaction, 'ms_ok_server_stopped'));
         setTimeout(() => this._update(true), 1000);
       } catch (err) {
-        await interaction.editReply(`❌ Failed to stop: ${err.message}`);
+        await interaction.editReply(this._ti(interaction, 'ms_err_stop_failed', { message: err.message }));
       }
       return true;
     }
@@ -556,10 +582,10 @@ async function _handleServerAction(interaction, customId) {
       try {
         await this.multiServerManager.stopServer(serverId);
         await this.multiServerManager.startServer(serverId);
-        await interaction.editReply('✅ Server restarted (modules stopped + started).');
+        await interaction.editReply(this._ti(interaction, 'ms_ok_server_restarted'));
         setTimeout(() => this._update(true), 2000);
       } catch (err) {
-        await interaction.editReply(`❌ Failed to restart: ${err.message}`);
+        await interaction.editReply(this._ti(interaction, 'ms_err_restart_failed', { message: err.message }));
       }
       return true;
     }
@@ -581,10 +607,10 @@ async function _handleServerAction(interaction, customId) {
           this._lastServerKeys.delete(serverId);
           this._saveMessageIds();
         }
-        await interaction.editReply(`✅ **${name}** removed.`);
+        await interaction.editReply(this._ti(interaction, 'ms_ok_server_removed', { name }));
         setTimeout(() => this._update(true), 1000);
       } catch (err) {
-        await interaction.editReply(`❌ Failed to remove: ${err.message}`);
+        await interaction.editReply(this._ti(interaction, 'ms_err_remove_failed', { message: err.message }));
       }
       return true;
     }
@@ -594,48 +620,61 @@ async function _handleServerAction(interaction, customId) {
       const servers = this.multiServerManager.getAllServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) {
-        await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'ms_err_server_not_found'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
       }
 
       const modal = new ModalBuilder()
         .setCustomId(`panel_srv_edit_modal:${serverId}`)
-        .setTitle(_modalTitle('Edit: ', server.name, ' (🔄 Server Restart)'));
+        .setTitle(
+          _modalTitle(
+            this._ti(interaction, 'ms_modal_prefix_edit'),
+            server.name,
+            this._ti(interaction, 'ms_modal_suffix_server_restart'),
+          ),
+        );
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('name')
-            .setLabel('Server Name')
+            .setLabel(this._ti(interaction, 'ms_label_server_name'))
             .setStyle(TextInputStyle.Short)
             .setValue(server.name || ''),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('rcon_host')
-            .setLabel('RCON Host')
+            .setLabel(this._ti(interaction, 'ms_label_rcon_host'))
             .setStyle(TextInputStyle.Short)
             .setValue(server.rcon?.host || ''),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('rcon_port')
-            .setLabel('RCON Port')
+            .setLabel(this._ti(interaction, 'ms_label_rcon_port'))
             .setStyle(TextInputStyle.Short)
             .setValue(String(server.rcon?.port || 14541)),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('rcon_password')
-            .setLabel('RCON Password (blank = keep current)')
+            .setLabel(this._ti(interaction, 'ms_label_rcon_password_keep'))
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
-            .setPlaceholder(server.rcon?.password ? '(unchanged)' : 'Enter password'),
+            .setPlaceholder(
+              server.rcon?.password
+                ? this._ti(interaction, 'ms_placeholder_unchanged')
+                : this._ti(interaction, 'ms_placeholder_enter_password'),
+            ),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('game_port')
-            .setLabel('Game Port')
+            .setLabel(this._ti(interaction, 'ms_label_game_port'))
             .setStyle(TextInputStyle.Short)
             .setValue(String(server.gamePort || 14242)),
         ),
@@ -649,20 +688,29 @@ async function _handleServerAction(interaction, customId) {
       const servers = this.multiServerManager.getAllServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) {
-        await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'ms_err_server_not_found'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
       }
 
       const ch = server.channels || {};
       const modal = new ModalBuilder()
         .setCustomId(`panel_srv_channels_modal:${serverId}`)
-        .setTitle(_modalTitle('Channels: ', server.name, ' (🔄 Server Restart)'));
+        .setTitle(
+          _modalTitle(
+            this._ti(interaction, 'ms_modal_prefix_channels'),
+            server.name,
+            this._ti(interaction, 'ms_modal_suffix_server_restart'),
+          ),
+        );
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('ch_status')
-            .setLabel('Server Status Channel ID')
+            .setLabel(this._ti(interaction, 'ms_label_status_channel'))
             .setStyle(TextInputStyle.Short)
             .setValue(ch.serverStatus || '')
             .setRequired(false),
@@ -670,7 +718,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('ch_stats')
-            .setLabel('Player Stats Channel ID')
+            .setLabel(this._ti(interaction, 'ms_label_stats_channel'))
             .setStyle(TextInputStyle.Short)
             .setValue(ch.playerStats || '')
             .setRequired(false),
@@ -678,7 +726,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('ch_log')
-            .setLabel('Log Channel ID')
+            .setLabel(this._ti(interaction, 'ms_label_log_channel'))
             .setStyle(TextInputStyle.Short)
             .setValue(ch.log || '')
             .setRequired(false),
@@ -686,7 +734,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('ch_chat')
-            .setLabel('Chat Relay Channel ID')
+            .setLabel(this._ti(interaction, 'ms_label_chat_channel'))
             .setStyle(TextInputStyle.Short)
             .setValue(ch.chat || '')
             .setRequired(false),
@@ -694,7 +742,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('ch_admin')
-            .setLabel('Admin Channel ID')
+            .setLabel(this._ti(interaction, 'ms_label_admin_channel'))
             .setStyle(TextInputStyle.Short)
             .setValue(ch.admin || '')
             .setRequired(false),
@@ -709,7 +757,10 @@ async function _handleServerAction(interaction, customId) {
       const servers = this.multiServerManager.getAllServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) {
-        await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'ms_err_server_not_found'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
       }
 
@@ -717,13 +768,19 @@ async function _handleServerAction(interaction, customId) {
       const detectedKey = sftp.privateKeyPath || _detectSshKey();
       const modal = new ModalBuilder()
         .setCustomId(`panel_srv_sftp_modal:${serverId}`)
-        .setTitle(_modalTitle('SFTP: ', server.name, ' (🔄 Server Restart)'));
+        .setTitle(
+          _modalTitle(
+            this._ti(interaction, 'ms_modal_prefix_sftp'),
+            server.name,
+            this._ti(interaction, 'ms_modal_suffix_server_restart'),
+          ),
+        );
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('sftp_host')
-            .setLabel('SFTP Host (blank = inherit primary)')
+            .setLabel(this._ti(interaction, 'ms_label_sftp_host_inherit'))
             .setStyle(TextInputStyle.Short)
             .setValue(sftp.host || '')
             .setRequired(false),
@@ -731,7 +788,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('sftp_port')
-            .setLabel('SFTP Port')
+            .setLabel(this._ti(interaction, 'ms_label_sftp_port'))
             .setStyle(TextInputStyle.Short)
             .setValue(String(sftp.port || 22))
             .setRequired(false),
@@ -739,7 +796,7 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('sftp_user')
-            .setLabel('SFTP Username (blank = inherit)')
+            .setLabel(this._ti(interaction, 'ms_label_sftp_user_inherit'))
             .setStyle(TextInputStyle.Short)
             .setValue(sftp.user || '')
             .setRequired(false),
@@ -747,19 +804,27 @@ async function _handleServerAction(interaction, customId) {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('sftp_password')
-            .setLabel('SFTP Password (blank = inherit primary)')
+            .setLabel(this._ti(interaction, 'ms_label_sftp_password_inherit'))
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
-            .setPlaceholder(sftp.password ? '(unchanged)' : 'blank = inherit'),
+            .setPlaceholder(
+              sftp.password
+                ? this._ti(interaction, 'ms_placeholder_unchanged')
+                : this._ti(interaction, 'ms_placeholder_blank_inherit'),
+            ),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('sftp_key_path')
-            .setLabel('SSH Key Path on bot host (optional)')
+            .setLabel(this._ti(interaction, 'ms_label_ssh_key_path'))
             .setStyle(TextInputStyle.Short)
             .setRequired(false)
             .setValue(detectedKey)
-            .setPlaceholder(detectedKey ? `Detected: ${detectedKey}` : 'No keys found — use password'),
+            .setPlaceholder(
+              detectedKey
+                ? this._ti(interaction, 'ms_placeholder_detected_key', { key: detectedKey })
+                : this._ti(interaction, 'ms_placeholder_no_keys_password'),
+            ),
         ),
       );
 
@@ -772,14 +837,17 @@ async function _handleServerAction(interaction, customId) {
       const servers = this.multiServerManager.getAllServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) {
-        await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'ms_err_server_not_found'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
       }
 
       const sftpCfg = _getSrvSftpConfig(server);
       if (!sftpCfg) {
         await interaction.reply({
-          content: '❌ No SFTP credentials configured for this server.',
+          content: this._ti(interaction, 'ms_err_no_sftp'),
           flags: MessageFlags.Ephemeral,
         });
         return true;
@@ -808,13 +876,13 @@ async function _handleServerAction(interaction, customId) {
 
       const modal = new ModalBuilder()
         .setCustomId(`panel_srv_welcome_modal:${serverId}`)
-        .setTitle(_modalTitle('Welcome: ', server.name, ''));
+        .setTitle(_modalTitle(this._ti(interaction, 'ms_modal_prefix_welcome'), server.name, ''));
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('welcome_content')
-            .setLabel('Welcome Message')
+            .setLabel(this._ti(interaction, 'ms_label_welcome_message'))
             .setStyle(TextInputStyle.Paragraph)
             .setValue(currentContent)
             .setRequired(false)
@@ -831,7 +899,10 @@ async function _handleServerAction(interaction, customId) {
       const servers = this.multiServerManager.getAllServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) {
-        await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({
+          content: this._ti(interaction, 'ms_err_server_not_found'),
+          flags: MessageFlags.Ephemeral,
+        });
         return true;
       }
 
@@ -841,13 +912,13 @@ async function _handleServerAction(interaction, customId) {
 
       const modal = new ModalBuilder()
         .setCustomId(`panel_srv_automsg_modal:${serverId}`)
-        .setTitle(_modalTitle('Auto Msgs: ', server.name, ''));
+        .setTitle(_modalTitle(this._ti(interaction, 'ms_modal_prefix_automsg'), server.name, ''));
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('toggles')
-            .setLabel('Toggles (welcome_msg,welcome_file,link,promo)')
+            .setLabel(this._ti(interaction, 'ms_label_toggles'))
             .setStyle(TextInputStyle.Short)
             .setValue(
               [
@@ -857,37 +928,37 @@ async function _handleServerAction(interaction, customId) {
                 (am.enableAutoMsgPromo ?? srvConfig.enableAutoMsgPromo ?? true) ? '1' : '0',
               ].join(','),
             )
-            .setPlaceholder('1,1,1,1 (1=on, 0=off)')
+            .setPlaceholder(this._ti(interaction, 'ms_placeholder_toggles'))
             .setRequired(true),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('link_text')
-            .setLabel('Discord Link Broadcast (blank = default)')
+            .setLabel(this._ti(interaction, 'ms_label_link_broadcast'))
             .setStyle(TextInputStyle.Paragraph)
             .setValue(am.linkText || '')
             .setRequired(false)
             .setMaxLength(4000)
-            .setPlaceholder('Join our Discord! {discord_link}'),
+            .setPlaceholder(this._ti(interaction, 'ms_placeholder_link_broadcast')),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('promo_text')
-            .setLabel('Promo Broadcast (blank = default)')
+            .setLabel(this._ti(interaction, 'ms_label_promo_broadcast'))
             .setStyle(TextInputStyle.Paragraph)
             .setValue(am.promoText || '')
             .setRequired(false)
             .setMaxLength(4000)
-            .setPlaceholder('Have any issues? Join our Discord: {discord_link}'),
+            .setPlaceholder(this._ti(interaction, 'ms_placeholder_promo_broadcast')),
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('discord_link')
-            .setLabel('Discord Invite Link (blank = inherit)')
+            .setLabel(this._ti(interaction, 'ms_label_discord_link'))
             .setStyle(TextInputStyle.Short)
             .setValue(am.discordLink || '')
             .setRequired(false)
-            .setPlaceholder('https://discord.gg/...'),
+            .setPlaceholder(this._ti(interaction, 'ms_placeholder_discord_link')),
         ),
       );
 
@@ -908,7 +979,7 @@ async function _handleEditServerModal(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!this._isAdmin(interaction)) {
-    await interaction.editReply('❌ Only administrators can manage servers.');
+    await interaction.editReply(this._ti(interaction, 'ms_err_admin_only'));
     return true;
   }
 
@@ -928,10 +999,10 @@ async function _handleEditServerModal(interaction) {
     if (rconPw) updates.rcon.password = rconPw;
 
     const saved = await this.multiServerManager.updateServer(serverId, updates);
-    await interaction.editReply(`✅ **${saved.name}** connection updated. Server restarted with new settings.`);
+    await interaction.editReply(this._ti(interaction, 'ms_ok_connection_updated', { name: saved.name }));
     setTimeout(() => this._update(true), 2000);
   } catch (err) {
-    await interaction.editReply(`❌ Failed to update: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_update_failed', { message: err.message }));
   }
   return true;
 }
@@ -940,7 +1011,7 @@ async function _handleEditChannelsModal(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!this._isAdmin(interaction)) {
-    await interaction.editReply('❌ Only administrators can manage servers.');
+    await interaction.editReply(this._ti(interaction, 'ms_err_admin_only'));
     return true;
   }
 
@@ -961,10 +1032,10 @@ async function _handleEditChannelsModal(interaction) {
     if (admin) channels.admin = admin;
 
     const saved = await this.multiServerManager.updateServer(serverId, { channels });
-    await interaction.editReply(`✅ **${saved.name}** channels updated. Server restarted with new settings.`);
+    await interaction.editReply(this._ti(interaction, 'ms_ok_channels_updated', { name: saved.name }));
     setTimeout(() => this._update(true), 2000);
   } catch (err) {
-    await interaction.editReply(`❌ Failed to update: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_update_failed', { message: err.message }));
   }
   return true;
 }
@@ -973,7 +1044,7 @@ async function _handleEditSftpModal(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!this._isAdmin(interaction)) {
-    await interaction.editReply('❌ Only administrators can manage servers.');
+    await interaction.editReply(this._ti(interaction, 'ms_err_admin_only'));
     return true;
   }
 
@@ -1001,14 +1072,14 @@ async function _handleEditSftpModal(interaction) {
     if (hostChanged) updates.paths = {};
 
     const saved = await this.multiServerManager.updateServer(serverId, updates);
-    const sftpStatus = sftp.host ? `${sftp.host}:${sftp.port || 22}` : 'Inherited from primary';
-    const extra = hostChanged ? ' Paths will auto-discover on startup.' : '';
+    const sftpStatus = sftp.host ? `${sftp.host}:${sftp.port || 22}` : this._ti(interaction, 'ms_sftp_inherited_short');
+    const extra = hostChanged ? this._ti(interaction, 'ms_paths_auto_discover') : '';
     await interaction.editReply(
-      `✅ **${saved.name}** SFTP updated to: ${sftpStatus}${extra}\nServer restarted with new settings.`,
+      this._ti(interaction, 'ms_ok_sftp_updated', { name: saved.name, status: sftpStatus, extra }),
     );
     setTimeout(() => this._update(true), 2000);
   } catch (err) {
-    await interaction.editReply(`❌ Failed to update: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_update_failed', { message: err.message }));
   }
   return true;
 }
@@ -1043,27 +1114,36 @@ function _getSrvSftpConfig(serverDef) {
 }
 
 async function _handleSrvGameSettingsSelect(interaction) {
-  if (!(await this._requireAdmin(interaction, 'edit server settings'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_edit_settings')))) return true;
 
   // customId = panel_srv_settings:<serverId>, value = categoryId
   const serverId = interaction.customId.replace('panel_srv_settings:', '');
   const categoryId = interaction.values[0];
   const category = GAME_SETTINGS_CATEGORIES.find((c) => c.id === categoryId);
   if (!category) {
-    await interaction.reply({ content: '❌ Unknown category.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_unknown_category'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
   const servers = this.multiServerManager?.getAllServers() || [];
   const serverDef = servers.find((s) => s.id === serverId);
   if (!serverDef) {
-    await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_server_not_found'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
   const sftpCfg = this._getSrvSftpConfig(serverDef);
   if (!sftpCfg) {
-    await interaction.reply({ content: '❌ No SFTP credentials for this server.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_no_sftp_short'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
@@ -1076,13 +1156,19 @@ async function _handleSrvGameSettingsSelect(interaction) {
 
   const modal = new ModalBuilder()
     .setCustomId(`panel_srv_game_modal:${serverId}:${categoryId}`)
-    .setTitle(_modalTitle(`${serverDef.name}: `, category.label, ' (🔄 Restart)'));
+    .setTitle(
+      _modalTitle(
+        `${serverDef.name}: `,
+        this._ti(interaction, `game_cat_${category.id}`),
+        this._ti(interaction, 'ms_modal_suffix_restart'),
+      ),
+    );
 
   for (const setting of category.settings) {
     const currentValue = cached[setting.ini] != null ? String(cached[setting.ini]) : '';
     const input = new TextInputBuilder()
       .setCustomId(setting.ini)
-      .setLabel(setting.label)
+      .setLabel(this._ti(interaction, `field_${setting.ini.toLowerCase()}`))
       .setStyle(TextInputStyle.Short)
       .setValue(currentValue)
       .setRequired(false);
@@ -1094,7 +1180,7 @@ async function _handleSrvGameSettingsSelect(interaction) {
 }
 
 async function _handleSrvGameSettingsModal(interaction) {
-  if (!(await this._requireAdmin(interaction, 'edit server settings'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_edit_settings')))) return true;
 
   // customId = panel_srv_game_modal:<serverId>:<categoryId>
   const parts = interaction.customId.replace('panel_srv_game_modal:', '').split(':');
@@ -1102,20 +1188,29 @@ async function _handleSrvGameSettingsModal(interaction) {
   const categoryId = parts[1];
   const category = GAME_SETTINGS_CATEGORIES.find((c) => c.id === categoryId);
   if (!category) {
-    await interaction.reply({ content: '❌ Unknown category.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_unknown_category'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
   const servers = this.multiServerManager?.getAllServers() || [];
   const serverDef = servers.find((s) => s.id === serverId);
   if (!serverDef) {
-    await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_server_not_found'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
   const sftpCfg = this._getSrvSftpConfig(serverDef);
   if (!sftpCfg) {
-    await interaction.reply({ content: '❌ No SFTP credentials for this server.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_no_sftp_short'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
@@ -1131,7 +1226,9 @@ async function _handleSrvGameSettingsModal(interaction) {
       content = (await sftp.get(settingsPath)).toString('utf8');
     } catch (readErr) {
       await sftp.end().catch(() => {});
-      throw new Error(`Could not read settings file: ${readErr.message}`, { cause: readErr });
+      throw new Error(this._ti(interaction, 'ms_err_read_settings', { message: readErr.message }), {
+        cause: readErr,
+      });
     }
 
     // Read/update cache
@@ -1151,14 +1248,20 @@ async function _handleSrvGameSettingsModal(interaction) {
         if (regex.test(content)) {
           content = content.replace(regex, `$1${newValue}`);
         }
-        changes.push(`**${setting.label}:** \`${oldValue || '?'}\` → \`${newValue}\``);
+        changes.push(
+          this._ti(interaction, 'ms_setting_change', {
+            label: this._ti(interaction, `field_${setting.ini.toLowerCase()}`),
+            old: oldValue || '?',
+            new: newValue,
+          }),
+        );
         cached[setting.ini] = newValue;
       }
     }
 
     if (changes.length === 0) {
       await sftp.end().catch(() => {});
-      await interaction.editReply('No changes detected.');
+      await interaction.editReply(this._ti(interaction, 'ms_no_changes'));
       return true;
     }
 
@@ -1170,12 +1273,16 @@ async function _handleSrvGameSettingsModal(interaction) {
         this._db.setStateJSON(`server_settings_${serverId}`, cached);
       } catch (_) {}
 
-    let msg = `✅ **${serverDef.name} — ${category.label}** updated:\n${changes.join('\n')}`;
-    msg += '\n\n⚠️ **Restart the game server** for these changes to take effect.';
+    let msg = this._ti(interaction, 'ms_ok_game_settings_updated', {
+      name: serverDef.name,
+      category: this._ti(interaction, `game_cat_${category.id}`),
+      changes: changes.join('\n'),
+    });
+    msg += this._ti(interaction, 'ms_warn_restart_game_server');
 
     await interaction.editReply(msg);
   } catch (err) {
-    await interaction.editReply(`❌ Failed to save: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_save_failed', { message: err.message }));
   }
   return true;
 }
@@ -1185,20 +1292,26 @@ async function _handleSrvGameSettingsModal(interaction) {
 // ═════════════════════════════════════════════════════════════
 
 async function _handleSrvWelcomeModal(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const serverId = interaction.customId.replace('panel_srv_welcome_modal:', '');
 
   const servers = this.multiServerManager?.getAllServers() || [];
   const serverDef = servers.find((s) => s.id === serverId);
   if (!serverDef) {
-    await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_server_not_found'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
   const sftpCfg = this._getSrvSftpConfig(serverDef);
   if (!sftpCfg) {
-    await interaction.reply({ content: '❌ No SFTP credentials for this server.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_no_sftp_short'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
@@ -1212,22 +1325,27 @@ async function _handleSrvWelcomeModal(interaction) {
     await sftp.put(Buffer.from(newContent, 'utf8'), welcomePath);
     await sftp.end().catch(() => {});
 
-    await interaction.editReply(`✅ **${serverDef.name}** welcome message updated (${newContent.length} chars).`);
+    await interaction.editReply(
+      this._ti(interaction, 'ms_ok_welcome_updated', { name: serverDef.name, length: newContent.length }),
+    );
   } catch (err) {
-    await interaction.editReply(`❌ Failed to save welcome message: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_save_welcome_failed', { message: err.message }));
   }
   return true;
 }
 
 async function _handleSrvAutoMsgModal(interaction) {
-  if (!(await this._requireAdmin(interaction, 'manage servers'))) return true;
+  if (!(await this._requireAdmin(interaction, this._ti(interaction, 'ms_action_manage_servers')))) return true;
 
   const serverId = interaction.customId.replace('panel_srv_automsg_modal:', '');
 
   const servers = this.multiServerManager?.getAllServers() || [];
   const idx = servers.findIndex((s) => s.id === serverId);
   if (idx === -1) {
-    await interaction.reply({ content: '❌ Server not found.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: this._ti(interaction, 'ms_err_server_not_found'),
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
@@ -1251,13 +1369,18 @@ async function _handleSrvAutoMsgModal(interaction) {
     if (promoText) am.promoText = promoText;
     if (discordLink) am.discordLink = discordLink;
 
-    // Persist to servers.json
-    const { loadServers, saveServers } = require('../server/multi-server');
-    const allServers = loadServers();
-    const srvIdx = allServers.findIndex((s) => s.id === serverId);
-    if (srvIdx !== -1) {
-      allServers[srvIdx].autoMessages = am;
-      saveServers(allServers);
+    // Persist to DB via configRepo
+    if (this._configRepo) {
+      this._configRepo.update('server:' + serverId, { autoMessages: am });
+    } else {
+      // Legacy fallback: write to servers.json
+      const { loadServers, saveServers } = require('../server/multi-server');
+      const allServers = loadServers();
+      const srvIdx = allServers.findIndex((s) => s.id === serverId);
+      if (srvIdx !== -1) {
+        allServers[srvIdx].autoMessages = am;
+        saveServers(allServers);
+      }
     }
 
     // Hot-update the running instance's config
@@ -1273,20 +1396,35 @@ async function _handleSrvAutoMsgModal(interaction) {
     }
 
     // Build summary
-    const labels = ['RCON Welcome', 'Welcome File', 'Link Broadcast', 'Promo Broadcast'];
+    const labels = [
+      this._ti(interaction, 'ms_automsg_rcon_welcome'),
+      this._ti(interaction, 'ms_automsg_welcome_file'),
+      this._ti(interaction, 'ms_automsg_link_broadcast'),
+      this._ti(interaction, 'ms_automsg_promo_broadcast'),
+    ];
     const summary = labels.map((l, i) => `${bits[i] ? '✅' : '❌'} ${l}`).join('\n');
     const extras = [];
-    if (linkText) extras.push(`Link text: \`${linkText.slice(0, 60)}${linkText.length > 60 ? '...' : ''}\``);
-    if (promoText) extras.push(`Promo text: \`${promoText.slice(0, 60)}${promoText.length > 60 ? '...' : ''}\``);
-    if (discordLink) extras.push(`Discord: \`${discordLink}\``);
+    if (linkText)
+      extras.push(
+        this._ti(interaction, 'ms_automsg_link_text', {
+          value: linkText.slice(0, 60) + (linkText.length > 60 ? '...' : ''),
+        }),
+      );
+    if (promoText)
+      extras.push(
+        this._ti(interaction, 'ms_automsg_promo_text', {
+          value: promoText.slice(0, 60) + (promoText.length > 60 ? '...' : ''),
+        }),
+      );
+    if (discordLink) extras.push(this._ti(interaction, 'ms_automsg_discord', { value: discordLink }));
 
     await interaction.editReply(
-      `✅ **Auto Messages updated for ${servers[idx].name}**\n${summary}` +
+      this._ti(interaction, 'ms_ok_automsg_updated', { name: servers[idx].name, summary }) +
         (extras.length > 0 ? `\n${extras.join('\n')}` : '') +
-        `\n\n⚠️ Restart the server to apply toggle changes.`,
+        this._ti(interaction, 'ms_warn_restart_toggle'),
     );
   } catch (err) {
-    await interaction.editReply(`❌ Failed to save: ${err.message}`);
+    await interaction.editReply(this._ti(interaction, 'ms_err_save_failed', { message: err.message }));
   }
   return true;
 }

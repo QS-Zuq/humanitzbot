@@ -137,13 +137,13 @@ async function _startSetupWizard() {
     .setColor(0x5865f2)
     .setDescription(
       [
-        'Welcome! This wizard will help you configure your bot.',
+        t('discord:panel_setup_wizard.sw_welcome', locale),
         '',
-        '**How is your game server hosted?**',
+        t('discord:panel_setup_wizard.sw_hosting_question', locale),
         '',
-        '🖥️ **VPS / Self-hosted** — Bot and game server on the same machine (localhost RCON + SFTP)',
-        '🌐 **Bisect / Remote host** — Game server on a remote host (Pterodactyl panel auto-detection)',
-        '📡 **RCON only** — No file access, basic features only (chat relay, status, commands)',
+        t('discord:panel_setup_wizard.sw_profile_vps_desc', locale),
+        t('discord:panel_setup_wizard.sw_profile_bisect_desc', locale),
+        t('discord:panel_setup_wizard.sw_profile_rcon_desc', locale),
       ].join('\n'),
     )
     .setFooter({ text: t('discord:panel_setup_wizard.step_1_footer', locale) });
@@ -151,17 +151,17 @@ async function _startSetupWizard() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(SETUP.PROFILE_VPS)
-      .setLabel('VPS / Self-hosted')
+      .setLabel(t('discord:panel_setup_wizard.btn_vps', locale))
       .setStyle(ButtonStyle.Primary)
       .setEmoji('🖥️'),
     new ButtonBuilder()
       .setCustomId(SETUP.PROFILE_BISECT)
-      .setLabel('Bisect / Remote')
+      .setLabel(t('discord:panel_setup_wizard.btn_bisect', locale))
       .setStyle(ButtonStyle.Primary)
       .setEmoji('🌐'),
     new ButtonBuilder()
       .setCustomId(SETUP.PROFILE_RCON)
-      .setLabel('RCON Only')
+      .setLabel(t('discord:panel_setup_wizard.btn_rcon_only', locale))
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('📡'),
   );
@@ -265,7 +265,7 @@ async function _handleSetupPanelButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('panel_url')
-          .setLabel('Panel Server URL')
+          .setLabel(t('discord:panel_setup_wizard.label_panel_url', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_panel_url', locale))
           .setValue(this._setupWizard.panel?.url || '')
           .setStyle(TextInputStyle.Short)
@@ -274,7 +274,7 @@ async function _handleSetupPanelButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('api_key')
-          .setLabel('Panel API Key')
+          .setLabel(t('discord:panel_setup_wizard.label_panel_api_key', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_panel_api_key', locale))
           .setStyle(TextInputStyle.Short)
           .setRequired(true),
@@ -298,6 +298,7 @@ async function _handleSetupPanelButton(interaction) {
  */
 async function _handleSetupPanelModal(interaction) {
   await interaction.deferUpdate();
+  const locale = getLocale({ serverConfig: this._config });
 
   const panelUrl = interaction.fields.getTextInputValue('panel_url').trim().replace(/\/+$/, '');
   const apiKey = interaction.fields.getTextInputValue('api_key').trim();
@@ -310,7 +311,7 @@ async function _handleSetupPanelModal(interaction) {
 
   if (!api) {
     this._setupWizard.panel.status = 'error';
-    this._setupWizard.panel.error = 'Invalid Panel URL format. Expected: https://panel.host.com/server/SERVERID';
+    this._setupWizard.panel.error = t('discord:panel_setup_wizard.err_invalid_panel_url', locale);
     await this._updateSetupEmbed(interaction);
     return true;
   }
@@ -344,7 +345,7 @@ async function _handleSetupPanelModal(interaction) {
 
     detected.serverName = details.name || '';
   } catch (err) {
-    errors.push(`Server details: ${err.message}`);
+    errors.push(t('discord:panel_setup_wizard.err_server_details', locale, { message: err.message }));
   }
 
   // ── Step 2: Get startup variables (→ RCON password) ───────
@@ -367,7 +368,7 @@ async function _handleSetupPanelModal(interaction) {
       }
     }
   } catch (err) {
-    errors.push(`Startup variables: ${err.message}`);
+    errors.push(t('discord:panel_setup_wizard.err_startup_variables', locale, { message: err.message }));
   }
 
   // ── Step 3: Verify WebSocket access ───────────────────────
@@ -514,7 +515,7 @@ async function _handleSetupPanelModal(interaction) {
     detected.paths = Object.fromEntries(found);
     detected.foundCount = found.size;
   } catch (err) {
-    errors.push(`File discovery: ${err.message}`);
+    errors.push(t('discord:panel_setup_wizard.err_file_discovery', locale, { message: err.message }));
     detected.paths = {};
     detected.foundCount = 0;
   }
@@ -574,8 +575,7 @@ async function _handleSetupPanelModal(interaction) {
       autoDetected: true,
     };
     if (!detected.rconPassword) {
-      this._setupWizard.rcon.error =
-        'RCON password not found in startup variables — you may need to set it manually in Startup tab';
+      this._setupWizard.rcon.error = t('discord:panel_setup_wizard.err_rcon_password_not_found', locale);
     }
   }
 
@@ -636,7 +636,7 @@ async function _handleSetupRconButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('host')
-          .setLabel('RCON Host')
+          .setLabel(t('discord:panel_setup_wizard.label_rcon_host', locale))
           .setPlaceholder(d.rconHost || t('discord:panel_setup_wizard.placeholder_rcon_host', locale))
           .setValue(this._setupWizard.rcon?.host || d.rconHost || '')
           .setStyle(TextInputStyle.Short)
@@ -645,7 +645,7 @@ async function _handleSetupRconButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('port')
-          .setLabel('RCON Port')
+          .setLabel(t('discord:panel_setup_wizard.label_rcon_port', locale))
           .setPlaceholder(d.rconPort || t('discord:panel_setup_wizard.placeholder_rcon_port', locale))
           .setValue(this._setupWizard.rcon?.port || d.rconPort || '')
           .setStyle(TextInputStyle.Short)
@@ -654,10 +654,10 @@ async function _handleSetupRconButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('password')
-          .setLabel('RCON Password')
+          .setLabel(t('discord:panel_setup_wizard.label_rcon_password', locale))
           .setPlaceholder(
             d.rconPassword
-              ? '(auto-detected from settings)'
+              ? t('discord:panel_setup_wizard.placeholder_auto_detected', locale)
               : t('discord:panel_setup_wizard.placeholder_rcon_password', locale),
           )
           .setValue(this._setupWizard.rcon?.password || d.rconPassword || '')
@@ -693,14 +693,16 @@ async function _handleSetupRconModal(interaction) {
       socket.on('error', reject);
       socket.on('timeout', () => {
         socket.destroy();
-        reject(new Error('Connection timed out'));
+        reject(new Error('RCON_TIMEOUT'));
       });
     });
     this._setupWizard.rcon.status = 'ok';
     this._setupWizard.step = this._setupWizard.profile === 'rcon-only' ? 'channels' : 'sftp';
   } catch (err) {
     this._setupWizard.rcon.status = 'error';
-    this._setupWizard.rcon.error = err.message;
+    const locale = getLocale({ serverConfig: this._config });
+    this._setupWizard.rcon.error =
+      err.message === 'RCON_TIMEOUT' ? t('discord:panel_setup_wizard.err_rcon_timeout', locale) : err.message;
   }
 
   await this._updateSetupEmbed(interaction);
@@ -724,7 +726,9 @@ async function _handleSetupSftpButton(interaction) {
   }
   // Auto-detect SSH keys on the bot host
   const detectedKey = this._setupWizard.sftp?.privateKeyPath || _detectSshKey();
-  const keyPlaceholder = detectedKey ? `Detected: ${detectedKey}` : 'No keys found — enter path or use password';
+  const keyPlaceholder = detectedKey
+    ? t('discord:panel_setup_wizard.placeholder_detected_key', locale, { key: detectedKey })
+    : t('discord:panel_setup_wizard.placeholder_no_keys', locale);
   const modal = new ModalBuilder()
     .setCustomId(SETUP.SFTP_MODAL)
     .setTitle(t('discord:panel_setup_wizard.sftp_connection_title', locale))
@@ -732,7 +736,7 @@ async function _handleSetupSftpButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('host')
-          .setLabel('SFTP Host')
+          .setLabel(t('discord:panel_setup_wizard.label_sftp_host', locale))
           .setPlaceholder(d.ftpHost || t('discord:panel_setup_wizard.placeholder_sftp_host', locale))
           .setValue(this._setupWizard.sftp?.host || d.ftpHost || this._setupWizard.rcon?.host || '')
           .setStyle(TextInputStyle.Short)
@@ -741,7 +745,7 @@ async function _handleSetupSftpButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('port')
-          .setLabel('SFTP Port')
+          .setLabel(t('discord:panel_setup_wizard.label_sftp_port', locale))
           .setPlaceholder(d.ftpPort || t('discord:panel_setup_wizard.placeholder_sftp_port', locale))
           .setValue(this._setupWizard.sftp?.port || d.ftpPort || '')
           .setStyle(TextInputStyle.Short)
@@ -750,8 +754,8 @@ async function _handleSetupSftpButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('user')
-          .setLabel('SFTP Username')
-          .setPlaceholder(defaultUser || 'root / steam / your username')
+          .setLabel(t('discord:panel_setup_wizard.label_sftp_username', locale))
+          .setPlaceholder(defaultUser || t('discord:panel_setup_wizard.placeholder_sftp_user_default', locale))
           .setValue(this._setupWizard.sftp?.user || defaultUser || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true),
@@ -759,7 +763,7 @@ async function _handleSetupSftpButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('password')
-          .setLabel('SFTP Password (blank if using SSH key)')
+          .setLabel(t('discord:panel_setup_wizard.label_sftp_password_key', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_sftp_passphrase', locale))
           .setStyle(TextInputStyle.Short)
           .setRequired(false),
@@ -767,7 +771,7 @@ async function _handleSetupSftpButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('private_key_path')
-          .setLabel('SSH Key Path on bot host (optional)')
+          .setLabel(t('discord:panel_setup_wizard.label_ssh_key_path', locale))
           .setPlaceholder(keyPlaceholder)
           .setValue(detectedKey)
           .setStyle(TextInputStyle.Short)
@@ -783,6 +787,7 @@ async function _handleSetupSftpButton(interaction) {
  */
 async function _handleSetupSftpModal(interaction) {
   await interaction.deferUpdate();
+  const locale = getLocale({ serverConfig: this._config });
 
   const host = interaction.fields.getTextInputValue('host').trim();
   const port = interaction.fields.getTextInputValue('port').trim();
@@ -798,7 +803,7 @@ async function _handleSetupSftpModal(interaction) {
       password,
       privateKeyPath,
       status: 'error',
-      error: 'Either a password or SSH private key path is required.',
+      error: t('discord:panel_setup_wizard.err_sftp_auth_required', locale),
       paths: null,
     };
     await this._updateSetupEmbed(interaction);
@@ -825,7 +830,10 @@ async function _handleSetupSftpModal(interaction) {
         if (password) connectOpts.passphrase = password;
       } catch (keyErr) {
         this._setupWizard.sftp.status = 'error';
-        this._setupWizard.sftp.error = `Could not read SSH key at ${privateKeyPath}: ${keyErr.message}`;
+        this._setupWizard.sftp.error = t('discord:panel_setup_wizard.err_ssh_key_read', locale, {
+          path: privateKeyPath,
+          message: keyErr.message,
+        });
         await this._updateSetupEmbed(interaction);
         return true;
       }
@@ -957,7 +965,7 @@ async function _handleSetupChannelsButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('status')
-          .setLabel('Server Status Channel ID')
+          .setLabel(t('discord:panel_setup_wizard.label_status_channel', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.serverStatus || '')
           .setStyle(TextInputStyle.Short)
@@ -966,7 +974,7 @@ async function _handleSetupChannelsButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('stats')
-          .setLabel('Player Stats Channel ID')
+          .setLabel(t('discord:panel_setup_wizard.label_stats_channel', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.playerStats || '')
           .setStyle(TextInputStyle.Short)
@@ -975,7 +983,7 @@ async function _handleSetupChannelsButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('log')
-          .setLabel('Activity Log Channel ID')
+          .setLabel(t('discord:panel_setup_wizard.label_log_channel', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.log || '')
           .setStyle(TextInputStyle.Short)
@@ -984,7 +992,7 @@ async function _handleSetupChannelsButton(interaction) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('chat')
-          .setLabel('Chat Relay Channel ID (also admin channel)')
+          .setLabel(t('discord:panel_setup_wizard.label_chat_channel', locale))
           .setPlaceholder(t('discord:panel_setup_wizard.placeholder_copy_channel_id', locale))
           .setValue(ch.chat || '')
           .setStyle(TextInputStyle.Short)
@@ -1119,57 +1127,130 @@ async function _handleSetupApply(interaction) {
     envUpdates.ADMIN_CHANNEL_ID = ch.chat; // same channel by default
   }
 
-  // Trigger initial import on restart
-  envUpdates.FIRST_RUN = 'true';
+  // Trigger initial import on restart (bootstrap — must stay in .env)
+  writeEnvValues({ FIRST_RUN: 'true' });
 
-  // Write all at once
-  writeEnvValues(envUpdates);
+  // ── Persist to DB via configRepo ──
+  const config = this._config;
+  if (this._configRepo) {
+    try {
+      // Server-scoped settings (RCON, SFTP, paths, panel, channels)
+      const serverPatch = {};
+      if (envUpdates.RCON_HOST) serverPatch.rconHost = envUpdates.RCON_HOST;
+      if (envUpdates.RCON_PORT) serverPatch.rconPort = parseInt(envUpdates.RCON_PORT, 10) || envUpdates.RCON_PORT;
+      if (envUpdates.RCON_PASSWORD) serverPatch.rconPassword = envUpdates.RCON_PASSWORD;
+      if (envUpdates.GAME_PORT) serverPatch.gamePort = envUpdates.GAME_PORT;
+      if (envUpdates.FTP_HOST) serverPatch.ftpHost = envUpdates.FTP_HOST;
+      if (envUpdates.FTP_PORT) serverPatch.ftpPort = parseInt(envUpdates.FTP_PORT, 10) || envUpdates.FTP_PORT;
+      if (envUpdates.FTP_USER) serverPatch.ftpUser = envUpdates.FTP_USER;
+      if (envUpdates.FTP_PASSWORD) serverPatch.ftpPassword = envUpdates.FTP_PASSWORD;
+      if (envUpdates.FTP_PRIVATE_KEY_PATH) serverPatch.ftpPrivateKeyPath = envUpdates.FTP_PRIVATE_KEY_PATH;
+      if (envUpdates.FTP_BASE_PATH) serverPatch.ftpBasePath = envUpdates.FTP_BASE_PATH;
+      if (envUpdates.FTP_LOG_PATH) serverPatch.ftpLogPath = envUpdates.FTP_LOG_PATH;
+      if (envUpdates.FTP_CONNECT_LOG_PATH) serverPatch.ftpConnectLogPath = envUpdates.FTP_CONNECT_LOG_PATH;
+      if (envUpdates.FTP_ID_MAP_PATH) serverPatch.ftpIdMapPath = envUpdates.FTP_ID_MAP_PATH;
+      if (envUpdates.FTP_SAVE_PATH) serverPatch.ftpSavePath = envUpdates.FTP_SAVE_PATH;
+      if (envUpdates.FTP_SETTINGS_PATH) serverPatch.ftpSettingsPath = envUpdates.FTP_SETTINGS_PATH;
+      if (envUpdates.FTP_WELCOME_PATH) serverPatch.ftpWelcomePath = envUpdates.FTP_WELCOME_PATH;
+      if (envUpdates.PANEL_SERVER_URL) serverPatch.panelServerUrl = envUpdates.PANEL_SERVER_URL;
+      if (envUpdates.PANEL_API_KEY) serverPatch.panelApiKey = envUpdates.PANEL_API_KEY;
+      // Channel IDs are server-scoped (per _SERVER_CHANNEL_SUFFIXES)
+      if (envUpdates.SERVER_STATUS_CHANNEL_ID) serverPatch.serverStatusChannelId = envUpdates.SERVER_STATUS_CHANNEL_ID;
+      if (envUpdates.PLAYER_STATS_CHANNEL_ID) serverPatch.playerStatsChannelId = envUpdates.PLAYER_STATS_CHANNEL_ID;
+      if (envUpdates.LOG_CHANNEL_ID) serverPatch.logChannelId = envUpdates.LOG_CHANNEL_ID;
+      if (envUpdates.CHAT_CHANNEL_ID) serverPatch.chatChannelId = envUpdates.CHAT_CHANNEL_ID;
+      if (envUpdates.ADMIN_CHANNEL_ID) serverPatch.adminChannelId = envUpdates.ADMIN_CHANNEL_ID;
+      if (Object.keys(serverPatch).length > 0) {
+        this._configRepo.update('server:primary', serverPatch);
+      }
+
+      // App-scoped settings (poll interval, web panel)
+      const appPatch = {};
+      if (envUpdates.SAVE_POLL_INTERVAL) appPatch.savePollInterval = parseInt(envUpdates.SAVE_POLL_INTERVAL, 10);
+      if (envUpdates.WEB_MAP_TRUST_PROXY) appPatch.webMapTrustProxy = envUpdates.WEB_MAP_TRUST_PROXY;
+      if (Object.keys(appPatch).length > 0) {
+        this._configRepo.update('app', appPatch);
+      }
+
+      // Apply to in-memory config
+      Object.assign(config, serverPatch, appPatch);
+    } catch (err) {
+      console.error('[SETUP-WIZARD] Failed to persist config to DB:', err.message);
+      // Non-fatal — .env was already written, bot will pick up values on restart
+    }
+  }
+
+  // Legacy .env fallback for env-only keys not in config singleton
+  const envOnlyKeys = {};
+  if (envUpdates.WEB_MAP_PORT) envOnlyKeys.WEB_MAP_PORT = envUpdates.WEB_MAP_PORT;
+  if (envUpdates.WEB_MAP_CALLBACK_URL) envOnlyKeys.WEB_MAP_CALLBACK_URL = envUpdates.WEB_MAP_CALLBACK_URL;
+  if (Object.keys(envOnlyKeys).length > 0) {
+    writeEnvValues(envOnlyKeys);
+  }
 
   // Build success message based on what was detected
   const isBisect = wiz.profile === 'bisect' && wiz.panel?.status === 'ok';
   const successLines = [
-    'Configuration has been saved. The bot will restart now to apply settings and run the initial data import.',
+    t('discord:panel_setup_wizard.apply_saved', locale),
     '',
-    '**What was configured:**',
+    t('discord:panel_setup_wizard.apply_configured_title', locale),
   ];
 
   if (isBisect) {
-    successLines.push('✅ Panel API — auto-detected server configuration');
-    if (wiz.panel.detected.hasWebSocket)
-      successLines.push('✅ WebSocket RCON — using panel console (no direct TCP needed)');
-    if (wiz.rcon) successLines.push(`✅ RCON — \`${wiz.rcon.host}:${wiz.rcon.port}\``);
+    successLines.push(t('discord:panel_setup_wizard.apply_panel_api', locale));
+    if (wiz.panel.detected.hasWebSocket) successLines.push(t('discord:panel_setup_wizard.apply_ws_rcon', locale));
+    if (wiz.rcon)
+      successLines.push(
+        t('discord:panel_setup_wizard.apply_rcon', locale, { host: wiz.rcon.host, port: wiz.rcon.port }),
+      );
     if (wiz.panel.detected.foundCount > 0)
-      successLines.push(`✅ Game files — found ${wiz.panel.detected.foundCount}/6 via Panel API`);
+      successLines.push(
+        t('discord:panel_setup_wizard.apply_game_files', locale, { count: wiz.panel.detected.foundCount }),
+      );
     if (wiz.panel.detected.webPanelPort) {
       successLines.push(
-        `✅ Web panel — port ${wiz.panel.detected.webPanelPort} on bot server \`${wiz.panel.detected.botServer?.name || 'auto-detected'}\``,
+        t('discord:panel_setup_wizard.apply_web_panel', locale, {
+          port: wiz.panel.detected.webPanelPort,
+          name: wiz.panel.detected.botServer?.name || t('discord:panel_setup_wizard.label_auto_detected', locale),
+        }),
       );
     } else if (wiz.panel.detected.webPanelNeedsAllocation) {
-      successLines.push(
-        '⚠️ Web panel — bot server has only one port allocation. Request an extra port from Bisect to enable the web panel.',
-      );
+      successLines.push(t('discord:panel_setup_wizard.apply_web_panel_needs_port', locale));
     }
   } else {
-    if (wiz.localDetected) successLines.push(`✅ Local server — detected at \`${wiz.localDetected.serverRoot}\``);
-    if (wiz.rcon?.status === 'ok') successLines.push(`✅ RCON — \`${wiz.rcon.host}:${wiz.rcon.port}\``);
+    if (wiz.localDetected)
+      successLines.push(
+        t('discord:panel_setup_wizard.apply_local_server', locale, { root: wiz.localDetected.serverRoot }),
+      );
+    if (wiz.rcon?.status === 'ok')
+      successLines.push(
+        t('discord:panel_setup_wizard.apply_rcon', locale, { host: wiz.rcon.host, port: wiz.rcon.port }),
+      );
     if (wiz.sftp?.status === 'ok')
-      successLines.push(`✅ SFTP — \`${wiz.sftp.host}:${wiz.sftp.port}\` (${wiz.sftp.foundCount}/6 files)`);
-    else if (wiz.localDetected) successLines.push('✅ File paths — set from detected server root');
+      successLines.push(
+        t('discord:panel_setup_wizard.apply_sftp', locale, {
+          host: wiz.sftp.host,
+          port: wiz.sftp.port,
+          count: wiz.sftp.foundCount,
+        }),
+      );
+    else if (wiz.localDetected) successLines.push(t('discord:panel_setup_wizard.apply_file_paths', locale));
   }
 
   const channelCount = [ch.serverStatus, ch.playerStats, ch.log, ch.chat].filter(Boolean).length;
-  if (channelCount > 0) successLines.push(`✅ Channels — ${channelCount} configured`);
+  if (channelCount > 0)
+    successLines.push(t('discord:panel_setup_wizard.apply_channels', locale, { count: channelCount }));
 
-  successLines.push('', '**What happens next:**');
-  successLines.push('1. Bot restarts with new configuration');
+  successLines.push('', t('discord:panel_setup_wizard.apply_next_title', locale));
+  successLines.push(t('discord:panel_setup_wizard.apply_step_restart', locale));
   if (wiz.sftp?.foundCount > 0 || isBisect) {
-    successLines.push('2. Downloads server logs and parses player data');
-    successLines.push('3. Builds statistics and posts embeds');
+    successLines.push(t('discord:panel_setup_wizard.apply_step_download', locale));
+    successLines.push(t('discord:panel_setup_wizard.apply_step_build', locale));
   } else {
-    successLines.push('2. Connects to game server via RCON');
-    successLines.push('3. Starts monitoring chat and server status');
+    successLines.push(t('discord:panel_setup_wizard.apply_step_rcon_connect', locale));
+    successLines.push(t('discord:panel_setup_wizard.apply_step_monitor', locale));
   }
-  successLines.push('4. This channel becomes your admin dashboard.');
+  successLines.push(t('discord:panel_setup_wizard.apply_step_dashboard', locale));
 
   const successEmbed = new EmbedBuilder()
     .setTitle(t('discord:panel_setup_wizard.setup_complete_title', locale))
@@ -1197,52 +1278,73 @@ async function _updateSetupEmbed(_interaction) {
   const embed = new EmbedBuilder().setTitle(t('discord:panel_setup_wizard.wizard_title', locale)).setColor(0x5865f2);
 
   const lines = [];
-  const profileLabels = { vps: '🖥️ VPS / Self-hosted', bisect: '🌐 Bisect / Remote', 'rcon-only': '📡 RCON Only' };
+  const profileLabels = {
+    vps: t('discord:panel_setup_wizard.embed_profile_vps', locale),
+    bisect: t('discord:panel_setup_wizard.embed_profile_bisect', locale),
+    'rcon-only': t('discord:panel_setup_wizard.embed_profile_rcon', locale),
+  };
 
   // Profile
-  lines.push(`**Hosting:** ${profileLabels[wiz.profile] || 'Not selected'}`);
+  lines.push(
+    t('discord:panel_setup_wizard.embed_hosting', locale, {
+      profile: profileLabels[wiz.profile] || t('discord:panel_setup_wizard.embed_profile_not_selected', locale),
+    }),
+  );
   lines.push('');
 
   // Panel API status (Bisect flow)
   if (wiz.profile === 'bisect') {
     if (wiz.panel) {
       if (wiz.panel.status === 'detecting') {
-        lines.push('⏳ **Panel API:** Detecting server configuration...');
+        lines.push(t('discord:panel_setup_wizard.embed_panel_detecting', locale));
       } else if (wiz.panel.status === 'ok') {
-        lines.push('✅ **Panel API:** Connected — auto-detected configuration');
+        lines.push(t('discord:panel_setup_wizard.embed_panel_ok', locale));
         const d = wiz.panel.detected;
-        if (d.serverName) lines.push(`  └ Server: ${d.serverName}`);
-        if (d.rconHost) lines.push(`  └ Host: \`${d.rconHost}\``);
-        if (d.gamePort) lines.push(`  └ Game port: \`${d.gamePort}\` → RCON port: \`${d.rconPort || '?'}\``);
-        if (d.rconPassword) lines.push('  └ RCON password: detected ✓');
-        else lines.push('  └ ⚠️ RCON password: not found in startup vars');
-        if (d.hasWebSocket) lines.push('  └ WebSocket RCON: available ✓');
-        if (d.foundCount > 0) lines.push(`  └ Game files: ${d.foundCount}/6 found via Panel API`);
+        if (d.serverName)
+          lines.push(t('discord:panel_setup_wizard.embed_panel_server', locale, { name: d.serverName }));
+        if (d.rconHost) lines.push(t('discord:panel_setup_wizard.embed_panel_host', locale, { host: d.rconHost }));
+        if (d.gamePort)
+          lines.push(
+            t('discord:panel_setup_wizard.embed_panel_ports', locale, {
+              gamePort: d.gamePort,
+              rconPort: d.rconPort || '?',
+            }),
+          );
+        if (d.rconPassword) lines.push(t('discord:panel_setup_wizard.embed_panel_rcon_found', locale));
+        else lines.push(t('discord:panel_setup_wizard.embed_panel_rcon_missing', locale));
+        if (d.hasWebSocket) lines.push(t('discord:panel_setup_wizard.embed_panel_ws', locale));
+        if (d.foundCount > 0)
+          lines.push(t('discord:panel_setup_wizard.embed_panel_files', locale, { count: d.foundCount }));
         // Bot server + web panel auto-detection
         if (d.botServer) {
-          lines.push(`  └ Bot server: \`${d.botServer.name}\` (${d.botServer.allocations.length} port(s))`);
+          lines.push(
+            t('discord:panel_setup_wizard.embed_panel_bot_server', locale, {
+              name: d.botServer.name,
+              ports: d.botServer.allocations.length,
+            }),
+          );
           if (d.webPanelPort) {
-            lines.push(`  └ Web panel: port \`${d.webPanelPort}\` auto-configured ✓`);
+            lines.push(t('discord:panel_setup_wizard.embed_panel_web_ok', locale, { port: d.webPanelPort }));
           } else if (d.webPanelNeedsAllocation) {
-            lines.push('  └ ⚠️ Web panel: needs an extra port allocation from Bisect');
+            lines.push(t('discord:panel_setup_wizard.embed_panel_web_needs_port', locale));
           }
         }
       } else if (wiz.panel.status === 'partial') {
-        lines.push('⚠️ **Panel API:** Partially detected — some values may need manual entry');
+        lines.push(t('discord:panel_setup_wizard.embed_panel_partial', locale));
         if (wiz.panel.errors?.length) lines.push(`  └ ${wiz.panel.errors[0]}`);
       } else if (wiz.panel.status === 'error') {
-        lines.push('❌ **Panel API:** Connection failed');
+        lines.push(t('discord:panel_setup_wizard.embed_panel_error', locale));
         lines.push(`  └ ${wiz.panel.error}`);
       }
     } else if (wiz.step === 'panel') {
-      lines.push('⬜ **Panel API:** Not configured — tap the button below');
+      lines.push(t('discord:panel_setup_wizard.embed_panel_not_configured', locale));
       lines.push('');
-      lines.push('**Where to find your Panel URL:**');
-      lines.push('Log in to your panel → click your server → copy the URL from your browser');
-      lines.push('Example: `https://games.bisecthosting.com/server/a1b2c3d4`');
+      lines.push(t('discord:panel_setup_wizard.embed_panel_url_help_title', locale));
+      lines.push(t('discord:panel_setup_wizard.embed_panel_url_help', locale));
+      lines.push(t('discord:panel_setup_wizard.embed_panel_url_example', locale));
       lines.push('');
-      lines.push('**Where to find your API Key:**');
-      lines.push('Panel → Account (top right) → API Credentials → Create new key');
+      lines.push(t('discord:panel_setup_wizard.embed_panel_key_help_title', locale));
+      lines.push(t('discord:panel_setup_wizard.embed_panel_key_help', locale));
     }
   }
 
@@ -1250,18 +1352,20 @@ async function _updateSetupEmbed(_interaction) {
   if (wiz.profile !== 'bisect' || wiz.step === 'rcon') {
     // Show VPS auto-detection hint
     if (wiz.profile === 'vps' && wiz.localDetected && wiz.step === 'rcon') {
-      lines.push('💡 **Local server detected** — RCON settings pre-filled from `GameServerSettings.ini`');
-      lines.push(`  └ Server root: \`${wiz.localDetected.serverRoot}\``);
+      lines.push(t('discord:panel_setup_wizard.embed_local_detected', locale));
+      lines.push(t('discord:panel_setup_wizard.embed_local_root', locale, { root: wiz.localDetected.serverRoot }));
       lines.push('');
     }
     if (wiz.rcon && !wiz.rcon.autoDetected) {
       const icon = wiz.rcon.status === 'ok' ? '✅' : wiz.rcon.status === 'error' ? '❌' : '⏳';
-      lines.push(`${icon} **RCON:** \`${wiz.rcon.host}:${wiz.rcon.port}\``);
+      lines.push(
+        t('discord:panel_setup_wizard.embed_rcon_status', locale, { icon, host: wiz.rcon.host, port: wiz.rcon.port }),
+      );
       if (wiz.rcon.status === 'error') {
         lines.push(`  └ ${wiz.rcon.error}`);
       }
     } else if (wiz.step === 'rcon') {
-      lines.push('⬜ **RCON:** Not configured — tap the button below');
+      lines.push(t('discord:panel_setup_wizard.embed_rcon_not_configured', locale));
     }
   }
 
@@ -1269,18 +1373,20 @@ async function _updateSetupEmbed(_interaction) {
   if (wiz.profile !== 'rcon-only' && wiz.profile !== 'bisect') {
     if (wiz.sftp) {
       const icon = wiz.sftp.status === 'ok' ? '✅' : wiz.sftp.status === 'error' ? '❌' : '⏳';
-      lines.push(`${icon} **SFTP:** \`${wiz.sftp.host}:${wiz.sftp.port}\``);
+      lines.push(
+        t('discord:panel_setup_wizard.embed_sftp_status', locale, { icon, host: wiz.sftp.host, port: wiz.sftp.port }),
+      );
       if (wiz.sftp.status === 'ok' && wiz.sftp.foundCount !== undefined) {
-        lines.push(`  └ Found ${wiz.sftp.foundCount}/6 game files`);
+        lines.push(t('discord:panel_setup_wizard.embed_sftp_found', locale, { count: wiz.sftp.foundCount }));
       }
       if (wiz.sftp.status === 'error') {
         lines.push(`  └ ${wiz.sftp.error}`);
       }
     } else if (wiz.step === 'sftp' || wiz.step === 'channels' || wiz.step === 'apply') {
       if (wiz.sftp === null && wiz.step !== 'sftp') {
-        lines.push('⏭️ **SFTP:** Skipped');
+        lines.push(t('discord:panel_setup_wizard.embed_sftp_skipped', locale));
       } else {
-        lines.push('⬜ **SFTP:** Not configured');
+        lines.push(t('discord:panel_setup_wizard.embed_sftp_not_configured', locale));
       }
     }
   }
@@ -1289,27 +1395,30 @@ async function _updateSetupEmbed(_interaction) {
   const ch = wiz.channels || {};
   const channelCount = [ch.serverStatus, ch.playerStats, ch.log, ch.chat].filter(Boolean).length;
   if (channelCount > 0) {
-    lines.push(`✅ **Channels:** ${channelCount} configured`);
-    if (ch.serverStatus) lines.push(`  └ Status: <#${ch.serverStatus}>`);
-    if (ch.playerStats) lines.push(`  └ Stats: <#${ch.playerStats}>`);
-    if (ch.log) lines.push(`  └ Log: <#${ch.log}>`);
-    if (ch.chat) lines.push(`  └ Chat: <#${ch.chat}>`);
+    lines.push(t('discord:panel_setup_wizard.embed_channels_configured', locale, { count: channelCount }));
+    if (ch.serverStatus)
+      lines.push(t('discord:panel_setup_wizard.embed_channel_status', locale, { id: ch.serverStatus }));
+    if (ch.playerStats) lines.push(t('discord:panel_setup_wizard.embed_channel_stats', locale, { id: ch.playerStats }));
+    if (ch.log) lines.push(t('discord:panel_setup_wizard.embed_channel_log', locale, { id: ch.log }));
+    if (ch.chat) lines.push(t('discord:panel_setup_wizard.embed_channel_chat', locale, { id: ch.chat }));
   } else if (wiz.step === 'channels' || wiz.step === 'apply') {
-    lines.push('⬜ **Channels:** None configured (optional)');
+    lines.push(t('discord:panel_setup_wizard.embed_channels_none', locale));
   }
 
   embed.setDescription(lines.join('\n'));
 
   // Step indicator
   const stepLabels = {
-    profile: '1/4 — Profile',
-    panel: '2/4 — Panel API',
-    rcon: '2/4 — RCON',
-    sftp: '3/4 — SFTP',
-    channels: '3/4 — Channels',
-    apply: '4/4 — Ready',
+    profile: t('discord:panel_setup_wizard.step_profile', locale),
+    panel: t('discord:panel_setup_wizard.step_panel', locale),
+    rcon: t('discord:panel_setup_wizard.step_rcon', locale),
+    sftp: t('discord:panel_setup_wizard.step_sftp', locale),
+    channels: t('discord:panel_setup_wizard.step_channels', locale),
+    apply: t('discord:panel_setup_wizard.step_apply', locale),
   };
-  embed.setFooter({ text: `Step ${stepLabels[wiz.step] || wiz.step}` });
+  embed.setFooter({
+    text: t('discord:panel_setup_wizard.step_label', locale, { step: stepLabels[wiz.step] || wiz.step }),
+  });
 
   // Build action rows based on current step
   const components = [];
@@ -1319,12 +1428,12 @@ async function _updateSetupEmbed(_interaction) {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(SETUP.PANEL_BTN)
-        .setLabel('Enter Panel Credentials')
+        .setLabel(t('discord:panel_setup_wizard.btn_enter_panel_creds', locale))
         .setStyle(ButtonStyle.Primary)
         .setEmoji('🔑'),
       new ButtonBuilder()
         .setCustomId(SETUP.PANEL_MANUAL_BTN)
-        .setLabel('Manual Setup')
+        .setLabel(t('discord:panel_setup_wizard.btn_manual_setup', locale))
         .setStyle(ButtonStyle.Secondary)
         .setEmoji('⚙️'),
     );
@@ -1334,7 +1443,7 @@ async function _updateSetupEmbed(_interaction) {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(SETUP.RCON_BTN)
-          .setLabel('Configure RCON')
+          .setLabel(t('discord:panel_setup_wizard.btn_configure_rcon', locale))
           .setStyle(ButtonStyle.Primary)
           .setEmoji('🔌'),
       ),
@@ -1343,15 +1452,21 @@ async function _updateSetupEmbed(_interaction) {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(SETUP.SFTP_BTN)
-        .setLabel('Configure SFTP')
+        .setLabel(t('discord:panel_setup_wizard.btn_configure_sftp', locale))
         .setStyle(ButtonStyle.Primary)
         .setEmoji('📂'),
-      new ButtonBuilder().setCustomId(SETUP.SKIP_SFTP_BTN).setLabel('Skip SFTP').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(SETUP.SKIP_SFTP_BTN)
+        .setLabel(t('discord:panel_setup_wizard.btn_skip_sftp', locale))
+        .setStyle(ButtonStyle.Secondary),
     );
     // Allow re-testing RCON if it failed
     if (wiz.rcon?.status === 'error') {
       row.addComponents(
-        new ButtonBuilder().setCustomId(SETUP.RCON_BTN).setLabel('Retry RCON').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(SETUP.RCON_BTN)
+          .setLabel(t('discord:panel_setup_wizard.btn_retry_rcon', locale))
+          .setStyle(ButtonStyle.Secondary),
       );
     }
     components.push(row);
@@ -1359,12 +1474,12 @@ async function _updateSetupEmbed(_interaction) {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(SETUP.CHANNELS_BTN)
-        .setLabel('Set Channels')
+        .setLabel(t('discord:panel_setup_wizard.btn_set_channels', locale))
         .setStyle(ButtonStyle.Primary)
         .setEmoji('📺'),
       new ButtonBuilder()
         .setCustomId(SETUP.APPLY_BTN)
-        .setLabel('Apply & Restart')
+        .setLabel(t('discord:panel_setup_wizard.btn_apply_restart', locale))
         .setStyle(ButtonStyle.Success)
         .setEmoji('🚀'),
     );
@@ -1373,7 +1488,7 @@ async function _updateSetupEmbed(_interaction) {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(SETUP.PANEL_BTN)
-          .setLabel('Retry Detection')
+          .setLabel(t('discord:panel_setup_wizard.btn_retry_detection', locale))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji('🔄'),
       );
@@ -1384,12 +1499,12 @@ async function _updateSetupEmbed(_interaction) {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(SETUP.CHANNELS_BTN)
-          .setLabel('Edit Channels')
+          .setLabel(t('discord:panel_setup_wizard.btn_edit_channels', locale))
           .setStyle(ButtonStyle.Secondary)
           .setEmoji('📺'),
         new ButtonBuilder()
           .setCustomId(SETUP.APPLY_BTN)
-          .setLabel('Apply & Restart')
+          .setLabel(t('discord:panel_setup_wizard.btn_apply_restart', locale))
           .setStyle(ButtonStyle.Success)
           .setEmoji('🚀'),
       ),

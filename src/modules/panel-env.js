@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('../config');
 
+const { BOOTSTRAP_KEYS } = require('../db/config-migration');
 const ENV_PATH = path.join(__dirname, '..', '..', '.env');
 
 /** Read current value for an env field — process.env first, then config. */
@@ -23,6 +24,13 @@ function getEnvValue(field) {
 /** Write key=value pairs to .env, preserving comments and formatting. */
 let _envWriteLock = false;
 function writeEnvValues(updates) {
+  // Filter out DB-managed keys — only bootstrap keys should be written to .env
+  const dbKeys = Object.keys(updates).filter((k) => !BOOTSTRAP_KEYS.has(k));
+  if (dbKeys.length > 0) {
+    console.warn('[PANEL-ENV] Skipping .env write for DB-managed keys:', dbKeys.join(', '));
+    updates = Object.fromEntries(Object.entries(updates).filter(([k]) => BOOTSTRAP_KEYS.has(k)));
+    if (Object.keys(updates).length === 0) return;
+  }
   if (_envWriteLock) throw new Error('.env write already in progress');
   _envWriteLock = true;
   try {

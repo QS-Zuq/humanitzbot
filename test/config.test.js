@@ -466,3 +466,279 @@ describe('addAdminMembers', () => {
     assert.deepEqual(added, ['explicit1', 'roleUser1']);
   });
 });
+
+// ══════════════════════════════════════════════════════════
+// config.hydrate() — DB-backed config hydration
+// ══════════════════════════════════════════════════════════
+
+describe('config.hydrate', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = {
+      rconHost: config.rconHost,
+      rconPort: config.rconPort,
+      rconPassword: config.rconPassword,
+      showVitals: config.showVitals,
+      _configRepo: config._configRepo,
+    };
+    delete config._configRepo;
+  });
+
+  afterEach(() => {
+    config.rconHost = saved.rconHost;
+    config.rconPort = saved.rconPort;
+    config.rconPassword = saved.rconPassword;
+    config.showVitals = saved.showVitals;
+    config._configRepo = saved._configRepo;
+  });
+
+  /** Minimal stub matching ConfigRepository.get() contract */
+  function mockRepo(docs = {}) {
+    return {
+      get(scope) {
+        return docs[scope] || null;
+      },
+      update(scope, patch) {
+        const existing = docs[scope] || {};
+        docs[scope] = { ...existing, ...patch };
+        return docs[scope];
+      },
+    };
+  }
+
+  it('sets values from app document', () => {
+    const repo = mockRepo({ app: { showVitals: false } });
+    config.showVitals = true;
+    config.hydrate(repo);
+    assert.equal(config.showVitals, false);
+  });
+
+  it('sets values from server:primary document', () => {
+    const repo = mockRepo({ 'server:primary': { rconHost: '10.0.0.1' } });
+    config.rconHost = '';
+    config.hydrate(repo);
+    assert.equal(config.rconHost, '10.0.0.1');
+  });
+
+  it('server:primary values override app values for same key', () => {
+    const repo = mockRepo({
+      app: { rconHost: 'from-app' },
+      'server:primary': { rconHost: 'from-server' },
+    });
+    config.hydrate(repo);
+    assert.equal(config.rconHost, 'from-server');
+  });
+
+  it('ignores unknown DB keys not present in config', () => {
+    const repo = mockRepo({ app: { _totallyFakeKey_xyz: 42 } });
+    config.hydrate(repo);
+    assert.equal(config._totallyFakeKey_xyz, undefined);
+  });
+
+  it('preserves config reference identity', () => {
+    const ref = config;
+    const repo = mockRepo({ app: { showVitals: true } });
+    config.hydrate(repo);
+    assert.equal(config, ref);
+  });
+
+  it('handles null/empty documents gracefully (no-op)', () => {
+    const repo = mockRepo({});
+    config.rconHost = 'original';
+    config.hydrate(repo);
+    assert.equal(config.rconHost, 'original');
+  });
+
+  it('stores _configRepo reference after hydrate', () => {
+    const repo = mockRepo({});
+    config.hydrate(repo);
+    assert.equal(config._configRepo, repo);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// config.needsSetup — lazy getter
+// ══════════════════════════════════════════════════════════
+
+describe('config.needsSetup (getter)', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = {
+      rconHost: config.rconHost,
+      rconPassword: config.rconPassword,
+    };
+  });
+
+  afterEach(() => {
+    // Restore: delete any direct assignment, then re-define getter if needed
+    delete config.needsSetup;
+    // If it was a plain value before, restore the getter
+    if (!Object.getOwnPropertyDescriptor(config, 'needsSetup')?.get) {
+      Object.defineProperty(config, 'needsSetup', {
+        get() {
+          return (
+            !config.rconHost ||
+            !config.rconPassword ||
+            config.rconHost.startsWith('your_') ||
+            config.rconPassword.startsWith('your_')
+          );
+        },
+        set(val) {
+          Object.defineProperty(config, 'needsSetup', {
+            value: val,
+            writable: true,
+            configurable: true,
+            enumerable: true,
+          });
+        },
+        configurable: true,
+        enumerable: true,
+      });
+    }
+    config.rconHost = saved.rconHost;
+    config.rconPassword = saved.rconPassword;
+  });
+
+  it('returns true when rconHost is empty', () => {
+    config.rconHost = '';
+    config.rconPassword = 'secret';
+    assert.equal(config.needsSetup, true);
+  });
+
+  it('returns true when rconPassword is empty', () => {
+    config.rconHost = '10.0.0.1';
+    config.rconPassword = '';
+    assert.equal(config.needsSetup, true);
+  });
+
+  it('returns true when rconHost starts with your_', () => {
+    config.rconHost = 'your_server_ip';
+    config.rconPassword = 'secret';
+    assert.equal(config.needsSetup, true);
+  });
+
+  it('returns false when RCON is properly configured', () => {
+    config.rconHost = '10.0.0.1';
+    config.rconPassword = 'secret';
+    assert.equal(config.needsSetup, false);
+  });
+
+  it('evaluates lazily — reflects hydrate changes', () => {
+    config.rconHost = '';
+    config.rconPassword = '';
+    assert.equal(config.needsSetup, true);
+
+    // Simulate hydrate setting values
+    config.rconHost = '10.0.0.1';
+    config.rconPassword = 'secret';
+    assert.equal(config.needsSetup, false);
+  });
+
+  it('can be overridden by direct assignment (configurable)', () => {
+    config.rconHost = '';
+    assert.equal(config.needsSetup, true);
+
+    // panel-setup-wizard.js does: config.needsSetup = false
+    config.needsSetup = false;
+    assert.equal(config.needsSetup, false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// saveDisplaySetting / saveDisplaySettings — dual-path writes
+// ══════════════════════════════════════════════════════════
+
+describe('saveDisplaySetting / saveDisplaySettings', () => {
+  let saved;
+
+  beforeEach(() => {
+    saved = {
+      showVitals: config.showVitals,
+      showInventory: config.showInventory,
+      _configRepo: config._configRepo,
+    };
+    delete config._configRepo;
+  });
+
+  afterEach(() => {
+    config.showVitals = saved.showVitals;
+    config.showInventory = saved.showInventory;
+    config._configRepo = saved._configRepo;
+  });
+
+  /** Minimal ConfigRepository stub that records update() calls */
+  function mockRepo() {
+    const calls = [];
+    return {
+      calls,
+      get() {
+        return null;
+      },
+      update(scope, patch) {
+        calls.push({ scope, patch });
+        return patch;
+      },
+    };
+  }
+
+  /** Minimal DB stub for legacy bot_state fallback */
+  function mockDb() {
+    const state = {};
+    return {
+      state,
+      getStateJSON(key, def) {
+        return state[key] !== undefined ? state[key] : def;
+      },
+      setStateJSON(key, value) {
+        state[key] = value;
+      },
+    };
+  }
+
+  it('saveDisplaySetting with configRepo: writes to config_documents', () => {
+    const repo = mockRepo();
+    config._configRepo = repo;
+    config.saveDisplaySetting(null, 'showVitals', false);
+    assert.equal(config.showVitals, false);
+    assert.equal(repo.calls.length, 1);
+    assert.deepEqual(repo.calls[0], { scope: 'app', patch: { showVitals: false } });
+  });
+
+  it('saveDisplaySetting without configRepo: falls back to bot_state', () => {
+    delete config._configRepo;
+    const db = mockDb();
+    config.saveDisplaySetting(db, 'showVitals', true);
+    assert.equal(config.showVitals, true);
+    assert.deepEqual(db.state.display_settings, { showVitals: true });
+  });
+
+  it('saveDisplaySettings batch: writes multiple keys via configRepo', () => {
+    const repo = mockRepo();
+    config._configRepo = repo;
+    config.saveDisplaySettings(null, { showVitals: false, showInventory: true });
+    assert.equal(config.showVitals, false);
+    assert.equal(config.showInventory, true);
+    assert.equal(repo.calls.length, 1);
+    assert.deepEqual(repo.calls[0], {
+      scope: 'app',
+      patch: { showVitals: false, showInventory: true },
+    });
+  });
+
+  it('saveDisplaySettings without configRepo: falls back to bot_state', () => {
+    delete config._configRepo;
+    const db = mockDb();
+    config.saveDisplaySettings(db, { showVitals: false, showInventory: true });
+    assert.equal(config.showVitals, false);
+    assert.equal(config.showInventory, true);
+    assert.deepEqual(db.state.display_settings, { showVitals: false, showInventory: true });
+  });
+
+  it('loadDisplayOverrides is a no-op', () => {
+    config.showVitals = true;
+    config.loadDisplayOverrides({ getStateJSON: () => ({ showVitals: false }) });
+    assert.equal(config.showVitals, true); // Unchanged — no-op
+  });
+});

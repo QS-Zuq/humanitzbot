@@ -51,6 +51,7 @@ const {
   applyLiveConfig: _applyLiveConfig,
   getCachedSettings: _getCachedSettings,
 } = require('./panel-env');
+const { updateConfig } = require('./panel-config-writer');
 
 /** Format milliseconds as "2d 5h 12m" */
 function _formatBotUptime(ms) {
@@ -191,6 +192,7 @@ class PanelChannel {
       db = null,
       saveService = null,
       logWatcher = null,
+      configRepo = null,
     } = {},
   ) {
     this.client = client;
@@ -212,6 +214,7 @@ class PanelChannel {
     this._db = db;
     this._saveService = saveService;
     this._logWatcher = logWatcher;
+    this._configRepo = configRepo || config._configRepo || null;
     this._pendingServers = new Map(); // userId  { ...partial server config, _createdAt }
     // Setup wizard state (when config.needsSetup is true)
     this._setupWizard = null; // { profile, rcon: {host,port,password}, sftp: {host,port,user,password}, channels: {...}, step }
@@ -770,14 +773,19 @@ class PanelChannel {
     const modal = new ModalBuilder()
       .setCustomId(`panel_env_modal:${categoryId}`)
       .setTitle(
-        _modalTitle(this._ti(interaction, 'modal_edit_category_title', { category: category.label, mode: restartTag })),
+        _modalTitle(
+          this._ti(interaction, 'modal_edit_category_title', {
+            category: this._ti(interaction, `env_cat_${category.id}`),
+            mode: restartTag,
+          }),
+        ),
       );
 
     for (const field of category.fields) {
       const style = field.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short;
       const input = new TextInputBuilder()
         .setCustomId(field.env)
-        .setLabel(field.label)
+        .setLabel(this._ti(interaction, `field_${field.env.toLowerCase()}`))
         .setStyle(style)
         .setRequired(false);
 
@@ -826,7 +834,7 @@ class PanelChannel {
     const modal = new ModalBuilder().setCustomId(`panel_game_modal:${categoryId}`).setTitle(
       _modalTitle(
         this._ti(interaction, 'modal_server_settings_title', {
-          category: category.label,
+          category: this._ti(interaction, `game_cat_${category.id}`),
           mode: this._ti(interaction, 'modal_restart_tag_server'),
         }),
       ),
@@ -836,7 +844,7 @@ class PanelChannel {
       const currentValue = cached[setting.ini] != null ? String(cached[setting.ini]) : '';
       const input = new TextInputBuilder()
         .setCustomId(setting.ini)
-        .setLabel(setting.label)
+        .setLabel(this._ti(interaction, `field_${setting.ini.toLowerCase()}`))
         .setStyle(TextInputStyle.Short)
         .setValue(currentValue)
         .setRequired(false);
@@ -867,14 +875,18 @@ class PanelChannel {
     }
 
     try {
-      const updates = {};
-      const dbUpdates = {};
+      // Determine DB scope based on category
+      const serverScopedCategories = new Set(['channels', 'credentials', 'sftp', 'sftp_paths', 'agent']);
+      const scope = serverScopedCategories.has(categoryId) ? 'server:primary' : 'app';
+
+      const configChanges = []; // For updateConfig (fields with cfg)
+      const envKeyPatch = {}; // For fields without cfg (stored by env key)
       const changes = [];
 
       for (const field of category.fields) {
         const newValue = interaction.fields.getTextInputValue(field.env);
 
-        // Skip empty sensitive fields  keep current value unchanged
+        // Skip empty sensitive fields — keep current value unchanged
         if (field.sensitive && newValue === '') continue;
 
         const oldValue = _getEnvValue(field);
@@ -883,15 +895,14 @@ class PanelChannel {
           const emptyMarker = this._ti(interaction, 'value_empty_marker');
           const displayOld = field.sensitive ? '' : oldValue || emptyMarker;
           const displayNew = field.sensitive ? '' : newValue || emptyMarker;
-          changes.push(`**${field.label}:** \`${displayOld}\`  \`${displayNew}\``);
+          changes.push(
+            `**${this._ti(interaction, `field_${field.env.toLowerCase()}`)}:** \`${displayOld}\` → \`${displayNew}\``,
+          );
 
-          if (!category.restart) {
-            // Live-apply display settings  save to DB, not .env
-            _applyLiveConfig(field, newValue);
-            if (field.cfg) dbUpdates[field.cfg] = config[field.cfg];
+          if (field.cfg) {
+            configChanges.push({ field, value: newValue });
           } else {
-            // Restart-required settings  write to .env
-            updates[field.env] = newValue;
+            envKeyPatch[field.env] = newValue;
           }
         }
       }
@@ -901,17 +912,30 @@ class PanelChannel {
         return true;
       }
 
-      // Persist restart-required changes to .env
-      if (Object.keys(updates).length > 0) {
-        _writeEnvValues(updates);
+      // Persist cfg-keyed fields via updateConfig (handles live-apply + DB)
+      if (configChanges.length > 0) {
+        if (this._configRepo) {
+          updateConfig({
+            scope,
+            changes: configChanges,
+            categoryRestart: category.restart,
+            configRepo: this._configRepo,
+          });
+        } else {
+          console.error('[PANEL] configRepo unavailable \u2014 config changes NOT persisted to DB');
+        }
       }
-      // Persist display settings to DB
-      if (Object.keys(dbUpdates).length > 0) {
-        config.saveDisplaySettings(this._db, dbUpdates);
+      // Persist env-key fields directly to DB
+      if (Object.keys(envKeyPatch).length > 0) {
+        if (this._configRepo) {
+          this._configRepo.update(scope, envKeyPatch);
+        } else {
+          console.error('[PANEL] configRepo unavailable \u2014 envKey changes NOT persisted to DB');
+        }
       }
 
       let msg = this._ti(interaction, 'ok_category_updated', {
-        category: category.label,
+        category: this._ti(interaction, `env_cat_${category.id}`),
         changes: changes.join('\n'),
       });
       if (category.restart) {
@@ -991,7 +1015,7 @@ class PanelChannel {
             content = content.replace(regex, `$1${newValue}`);
           }
           changes.push(
-            `**${setting.label}:** \`${oldValue || this._ti(interaction, 'value_unknown_marker')}\`  \`${newValue}\``,
+            `**${this._ti(interaction, `field_${setting.ini.toLowerCase()}`)}:** \`${oldValue || this._ti(interaction, 'value_unknown_marker')}\`  \`${newValue}\``,
           );
           cached[setting.ini] = newValue;
         }
@@ -1014,7 +1038,7 @@ class PanelChannel {
         } catch (_) {}
 
       let msg = this._ti(interaction, 'ok_category_updated', {
-        category: category.label,
+        category: this._ti(interaction, `game_cat_${category.id}`),
         changes: changes.join('\n'),
       });
       msg += `\n\n${this._ti(interaction, 'warn_restart_server_required')}`;
@@ -1202,8 +1226,17 @@ class PanelChannel {
         await sftp.put(Buffer.from(newContent, 'utf8'), config.ftpWelcomePath);
         await sftp.end().catch(() => {});
 
-        // Also save as WELCOME_FILE_LINES in .env so it persists across restarts
-        _writeEnvValues({ WELCOME_FILE_LINES: newContent.split('\n').join('|') });
+        // Persist welcome lines to DB so it survives restarts
+        const welcomeLines = newContent
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        config.welcomeFileLines = welcomeLines;
+        if (this._configRepo) {
+          this._configRepo.update('app', { welcomeFileLines: welcomeLines });
+        } else {
+          console.warn('[PANEL] configRepo unavailable — welcome lines NOT persisted to DB');
+        }
 
         await interaction.editReply(
           this._ti(interaction, 'ok_welcome_updated', {
@@ -1213,9 +1246,13 @@ class PanelChannel {
           }),
         );
       } else {
-        // Clear custom  revert to auto-generated
-        _writeEnvValues({ WELCOME_FILE_LINES: '' });
+        // Clear custom — revert to auto-generated
         config.welcomeFileLines = [];
+        if (this._configRepo) {
+          this._configRepo.update('app', { welcomeFileLines: [] });
+        } else {
+          console.warn('[PANEL] configRepo unavailable — welcome clear NOT persisted to DB');
+        }
 
         // Regenerate and write default content
         const { buildWelcomeContent } = require('./auto-messages');
@@ -1346,27 +1383,31 @@ class PanelChannel {
     const promoText = interaction.fields.getTextInputValue('promo_text').trim();
 
     try {
-      const updates = {};
+      const dbPatch = {};
       if (linkText !== (config.autoMsgLinkText || '')) {
-        updates.AUTO_MSG_LINK_TEXT = linkText;
+        dbPatch.autoMsgLinkText = linkText;
         config.autoMsgLinkText = linkText;
       }
       if (promoText !== (config.autoMsgPromoText || '')) {
-        updates.AUTO_MSG_PROMO_TEXT = promoText;
+        dbPatch.autoMsgPromoText = promoText;
         config.autoMsgPromoText = promoText;
       }
 
-      if (Object.keys(updates).length > 0) {
-        _writeEnvValues(updates);
+      if (Object.keys(dbPatch).length > 0) {
+        if (this._configRepo) {
+          this._configRepo.update('app', dbPatch);
+        } else {
+          console.warn('[PANEL] configRepo unavailable — broadcast settings NOT persisted to DB');
+        }
         const parts = [];
-        if ('AUTO_MSG_LINK_TEXT' in updates) {
+        if ('autoMsgLinkText' in dbPatch) {
           parts.push(
             this._ti(interaction, 'broadcast_value_link', {
               value: linkText || this._ti(interaction, 'broadcast_default_marker'),
             }),
           );
         }
-        if ('AUTO_MSG_PROMO_TEXT' in updates) {
+        if ('autoMsgPromoText' in dbPatch) {
           parts.push(
             this._ti(interaction, 'broadcast_value_promo', {
               value: promoText || this._ti(interaction, 'broadcast_default_marker'),
@@ -1694,7 +1735,7 @@ class PanelChannel {
         .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map((c) => ({
-            label: c.label,
+            label: this._tp(`game_cat_${c.id}`, {}, locale),
             value: c.id,
           })),
         );
@@ -1919,7 +1960,7 @@ class PanelChannel {
         .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map((c) => ({
-            label: c.label,
+            label: this._tp(`game_cat_${c.id}`, {}, locale),
             value: c.id,
           })),
         );
@@ -1968,7 +2009,11 @@ class PanelChannel {
         text.includes('stopped') ||
         text.includes('offline');
       const icon = ok ? '🟢' : off ? '⚫' : '🟡';
-      statusLines.push(`${icon} ${name}`);
+      const moduleKey = `module_${name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')}`;
+      statusLines.push(`${icon} ${this._tp(moduleKey, {}, locale)}`);
       if (icon === '🟡') skippedCount++;
     }
     if (statusLines.length > 0) {
@@ -2010,8 +2055,8 @@ class PanelChannel {
       .setPlaceholder(this._tp('placeholder_core_module_settings', {}, locale))
       .addOptions(
         coreCategories.map((c) => ({
-          label: c.label,
-          description: c.description,
+          label: this._tp(`env_cat_${c.id}`, {}, locale),
+          description: this._tp(`env_cat_${c.id}_desc`, {}, locale),
           value: c.id,
         })),
       );
@@ -2023,8 +2068,8 @@ class PanelChannel {
       .setPlaceholder(this._tp('placeholder_display_schedule_settings', {}, locale))
       .addOptions(
         displayCategories.map((c) => ({
-          label: c.label,
-          description: c.description,
+          label: this._tp(`env_cat_${c.id}`, {}, locale),
+          description: this._tp(`env_cat_${c.id}_desc`, {}, locale),
           value: c.id,
         })),
       );
@@ -2156,7 +2201,7 @@ class PanelChannel {
         .setPlaceholder(this._tp('placeholder_edit_game_settings', {}, locale))
         .addOptions(
           GAME_SETTINGS_CATEGORIES.map((c) => ({
-            label: c.label,
+            label: this._tp(`game_cat_${c.id}`, {}, locale),
             value: c.id,
           })),
         );

@@ -25,6 +25,8 @@ const { setupAuth, requireTier } = require('./auth');
 const { API_ERRORS, sendError, sendOk } = require('./api-errors');
 const serverResources = require('../server/server-resources');
 const { formatBytes, formatUptime } = require('../server/server-resources');
+const { ENV_CATEGORIES } = require('../modules/panel-constants');
+const { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } = require('../db/config-migration');
 
 // ── Rate limiter (simple in-memory, per-IP) ──
 const _rateBuckets = new Map();
@@ -163,6 +165,7 @@ class WebMapServer {
     this._saveService = opts.saveService || null;
     this._multiServerManager = opts.multiServerManager || null;
     this._plugins = []; // Registered plugins (private modules)
+    this._configRepo = opts.configRepo || config._configRepo || null;
 
     // World coordinate bounds — loaded from calibration file or defaults
     this._worldBounds = this._loadCalibration();
@@ -310,8 +313,23 @@ class WebMapServer {
 
   // ── Multi-server helpers ──────────────────────────────────
 
-  /** Load the list of additional servers from servers.json. */
+  /** Load the list of additional (managed) servers. DB-first, fallback to servers.json. */
   _loadServerList() {
+    // DB-backed: read from config_documents
+    if (this._configRepo) {
+      try {
+        const all = this._configRepo.loadAll();
+        const servers = [];
+        for (const [scope, { data }] of all) {
+          if (!scope.startsWith('server:') || scope === 'server:primary') continue;
+          if (data && data.id) servers.push(data);
+        }
+        return servers;
+      } catch (err) {
+        console.error('[WEB MAP] Failed to load servers from DB:', err.message);
+      }
+    }
+    // Legacy fallback: read from servers.json
     try {
       if (fs.existsSync(SERVERS_FILE)) {
         return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
@@ -601,6 +619,7 @@ class WebMapServer {
   /** Set up Express routes. */
   _setupRoutes() {
     const app = this._app;
+    const configRepo = this._configRepo;
 
     // Discord OAuth2 authentication (must be registered before static/API routes)
     // Returns no-op middleware if DISCORD_OAUTH_SECRET / WEB_MAP_CALLBACK_URL are not set
@@ -2514,7 +2533,7 @@ class WebMapServer {
           if (!ok) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
           return sendOk(res, {
             restartRequired: true,
-            message: 'Schedule saved to servers.json. Restart the bot for changes to take effect.',
+            message: 'Schedule saved. Restart the bot for changes to take effect.',
           });
         } catch (err) {
           return sendError(res, API_ERRORS.FAILED_TO_SAVE, 500, safeError(err));
@@ -2791,8 +2810,18 @@ class WebMapServer {
       return sections;
     }
 
-    /** Find a server entry in servers.json by id (loads fresh from disk). */
+    /** Find a server definition by id. DB-first, fallback to servers.json. */
     function _getServerDef(serverId) {
+      // DB-backed: read from config_documents
+      if (configRepo) {
+        try {
+          const data = configRepo.get(`server:${serverId}`);
+          if (data) return data;
+        } catch (err) {
+          console.warn(`[WEB MAP] DB read failed for server:${serverId}, falling back to servers.json:`, err.message);
+        }
+      }
+      // Legacy fallback: read from servers.json
       try {
         if (!fs.existsSync(SERVERS_FILE)) return null;
         const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
@@ -2802,8 +2831,23 @@ class WebMapServer {
       }
     }
 
-    /** Write an updated server entry back to servers.json. */
+    /** Write an updated server definition. DB-first, fallback to servers.json. */
     function _saveServerDef(serverId, updater) {
+      // DB-backed: read-update-write via configRepo
+      if (configRepo) {
+        try {
+          const scope = `server:${serverId}`;
+          const data = configRepo.get(scope);
+          if (!data) return false;
+          updater(data);
+          configRepo.set(scope, data);
+          return true;
+        } catch (err) {
+          console.error(`[WEB MAP] Failed to save server def to DB for "${serverId}":`, err.message);
+          return false;
+        }
+      }
+      // Legacy fallback: read/write servers.json
       if (!fs.existsSync(SERVERS_FILE)) return false;
       const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
       const idx = servers.findIndex((s) => s.id === serverId);
@@ -2867,18 +2911,56 @@ class WebMapServer {
       return entries;
     }
 
-    /** GET /api/panel/bot-config — read .env (primary) or servers.json entry (non-primary) */
+    /** GET /api/panel/bot-config — read from DB (primary uses ENV_CATEGORIES, non-primary uses serverDef) */
     app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       try {
-        // ── Non-primary: read from servers.json ──
+        // ── Non-primary: read from config_documents / servers.json ──
         if (!req.srv.isPrimary) {
           const serverDef = _getServerDef(req.srv.serverId);
           if (!serverDef) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
           const sections = _buildServerDefSections(serverDef);
-          return res.json({ sections, source: 'servers.json' });
+          return res.json({ sections, source: 'database' });
         }
 
-        // ── Primary: read from .env ──
+        // ── Primary: read from config singleton + DB documents ──
+        if (configRepo) {
+          const appData = configRepo.get('app') || {};
+          const serverData = configRepo.get('server:primary') || {};
+
+          const sections = [];
+          for (const cat of ENV_CATEGORIES) {
+            const keys = [];
+            for (const field of cat.fields) {
+              const isSensitive = !!(field.sensitive || ENV_SENSITIVE_KEYS.has(field.env));
+              const isReadOnly = ENV_READONLY_KEYS.has(field.env);
+
+              // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
+              let rawValue;
+              if (field.cfg) {
+                rawValue = config[field.cfg];
+              } else {
+                // Fields without cfg are stored under their env key in DB
+                const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
+                rawValue = doc[field.env];
+              }
+              const value = rawValue != null ? String(rawValue) : '';
+
+              keys.push({
+                key: field.env,
+                value: isSensitive ? '' : value,
+                sensitive: isSensitive,
+                readOnly: isReadOnly,
+                hasValue: isSensitive ? value.length > 0 && !value.startsWith('your_') : undefined,
+                commented: !value && !isSensitive,
+              });
+            }
+            if (keys.length) sections.push({ label: cat.label, keys });
+          }
+
+          return res.json({ sections, source: 'database' });
+        }
+
+        // ── Legacy fallback: read from .env ──
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
           return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
@@ -2929,7 +3011,7 @@ class WebMapServer {
       }
     });
 
-    /** POST /api/panel/bot-config — update .env (primary) or servers.json entry (non-primary) */
+    /** POST /api/panel/bot-config — update config in DB (primary) or serverDef (non-primary) */
     app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
       const { changes } = req.body;
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
@@ -2953,7 +3035,7 @@ class WebMapServer {
         }
       }
 
-      // ── Non-primary: write to servers.json ──
+      // ── Non-primary: write to serverDef via DB / servers.json ──
       if (!req.srv.isPrimary) {
         try {
           const serverId = req.srv.serverId;
@@ -3009,14 +3091,65 @@ class WebMapServer {
           return sendOk(res, {
             updated: [...updated],
             restartRequired: true,
-            message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''} in servers.json. Restart the bot for changes to take effect.`,
+            message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
           });
         } catch (err) {
           return sendError(res, API_ERRORS.FAILED_TO_SAVE_SERVER_CONFIG, 500, safeError(err));
         }
       }
 
-      // ── Primary: write to .env ──
+      // ── Primary: write to DB via configRepo ──
+      if (configRepo) {
+        try {
+          const migrationMap = buildMigrationMap();
+          // Build envKey → restart lookup from ENV_CATEGORIES
+          const restartByEnvKey = new Map();
+          for (const cat of ENV_CATEGORIES) {
+            for (const f of cat.fields) restartByEnvKey.set(f.env, !!cat.restart);
+          }
+          const appPatch = {};
+          const serverPatch = {};
+          const updated = new Set();
+
+          for (const [envKey, rawValue] of Object.entries(changes)) {
+            // Skip bootstrap keys — they live in .env and can't be changed via web panel
+            if (BOOTSTRAP_KEYS.has(envKey)) continue;
+
+            const mapping = migrationMap[envKey];
+            const val = String(rawValue);
+            const targetKey = mapping?.cfgKey || envKey;
+            const type = mapping?.type || 'string';
+            const coerced = _coerce(val, type);
+            const scope = mapping?.scope || (SERVER_SCOPED_KEYS.has(envKey) ? 'server:primary' : 'app');
+
+            if (scope === 'server:primary') {
+              serverPatch[targetKey] = coerced;
+            } else {
+              appPatch[targetKey] = coerced;
+            }
+
+            // Only live-apply to config singleton if the field's category does NOT require restart
+            if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
+              config[mapping.cfgKey] = coerced;
+            }
+
+            updated.add(envKey);
+          }
+
+          if (Object.keys(appPatch).length > 0) configRepo.update('app', appPatch);
+          if (Object.keys(serverPatch).length > 0) configRepo.update('server:primary', serverPatch);
+
+          return sendOk(res, {
+            updated: [...updated],
+            restartRequired: true,
+            message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
+          });
+        } catch (err) {
+          return sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
+        }
+      }
+
+      // ── Legacy fallback: write to .env ──
       try {
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
