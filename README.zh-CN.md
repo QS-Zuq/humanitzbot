@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-920_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1426_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@
 | **聊天历史**         | 完整可搜索的聊天日志，带有 Discord ↔ 游戏内来源指示                                 |
 | **数据库浏览器**     | 直接对 60 多个游戏数据表执行 SQL 查询                                               |
 | **公会查看器**       | 查看公会成员、领地及成员详情                                                        |
-| **机器人配置编辑器** | 直接从浏览器验证并编辑 `.env` 设置                                                  |
+| **机器人配置编辑器** | 直接在浏览器中编辑机器人设置，支持即时应用与重启检测                                |
 | **服务器调度器**     | 可视化的重启时间表及配置文件轮换功能                                                |
 | **Discord OAuth2**   | 基于角色的访问层级：公开页面、幸存者、模组管理 (Mod)、管理员                        |
 | **多语言支持**       | 完整的 i18n 支持 — 英文、繁體中文、简体中文，具备浏览器语言检测与即时切换功能       |
@@ -92,7 +92,7 @@
 | **服务器调度器**  | 带有配置文件轮换的定时重启功能、单配置的设置覆盖以及每日/每周计划                             |
 | **SFTP 自动发现** | 自动查找服务器上的游戏文件 — 无需手动配置路径                                                 |
 | **面板 API**      | 集成 Pterodactyl 面板（如 Bisect 等托管服务） — 提供电源控制、文件 API 及 WebSocket RCON 功能 |
-| **环境同步**      | 自动管理 `.env` 文件 — 更新时自动添加新设置，且绝不覆盖现有值                                 |
+| **环境同步**      | 自动配置迁移 — 首次启动时将 `.env` 的值自动迁移至 SQLite 数据库，并创建备份                   |
 | **设置向导**      | Discord 上的交互式首次设置向导 — 包含 RCON/SFTP 测试、路径发现及频道分配功能                  |
 | **存档解析器**    | 完整的二进制 `.sav` 文件解析器 — 提取玩家、建筑、载具、容器、同伴及世界状态                   |
 | **快照服务**      | 定期保存世界状态快照，用于时间轴回放与历史分析                                                |
@@ -125,24 +125,20 @@ cp .env.example .env
 
 填写必需的值：
 
-| 键                                          | 描述                                  |
-| ------------------------------------------- | ------------------------------------- |
-| `DISCORD_TOKEN`                             | 你的 Discord Bot Token                |
-| `DISCORD_CLIENT_ID`                         | Discord 应用程序 ID                   |
-| `DISCORD_GUILD_ID`                          | 你的 Discord 服务器 ID                |
-| `RCON_HOST` / `RCON_PORT` / `RCON_PASSWORD` | 游戏服务器 RCON 连接信息              |
-| `FTP_HOST` / `FTP_USER` / `FTP_PASSWORD`    | 游戏服务器的 SFTP 访问信息            |
-| `PANEL_CHANNEL_ID`                          | 用于放置机器人控制面板的 Discord 频道 |
+| 键                  | 描述                                  |
+| ------------------- | ------------------------------------- |
+| `DISCORD_TOKEN`     | 你的 Discord Bot Token                |
+| `DISCORD_CLIENT_ID` | Discord 应用程序 ID                   |
+| `DISCORD_GUILD_ID`  | 你的 Discord 服务器 ID                |
+| `PANEL_CHANNEL_ID`  | 用于放置机器人控制面板的 Discord 频道 |
 
-其余所有设置项都有合理的默认值，或在首次运行时自动发现。查看 `.env.example` 获取包含 80 多个可配置选项的完整列表。
+其余所有设置（RCON、SFTP、频道、开关等）均可通过首次运行时的 Discord Panel 向导，或通过 Web 仪表盘进行配置。设置存储在 SQLite 数据库中。
+
+> **注意：** 首次启动时，控制台频道中的设置向导将引导你交互式地完成 RCON、SFTP 与频道的配置。除上述 4 个必要键外，无需手动编辑 `.env`。
 
 #### 语言 / 区域设置
 
-| 键           | 默认值 | 描述                                               |
-| ------------ | ------ | -------------------------------------------------- |
-| `BOT_LOCALE` | `en`   | Discord 机器人的显示语言（`en`, `zh-TW`, `zh-CN`） |
-
-Web 仪表盘会自动检测你的浏览器语言。你也可以通过左下角的语言选择器手动切换。在多服务器配置下，支持通过 `servers.json` 为每个服务器单独覆盖区域设置。
+机器人语言可通过 Discord Panel 或 Web 仪表盘进行配置。Web 仪表盘会自动检测你的浏览器语言，也可通过左下角的语言选择器手动切换。
 
 ### 首次运行
 
@@ -229,7 +225,7 @@ your-domain.com {
 
 ## 多服务器支持
 
-通过 Web 面板或修改 `data/servers.json` 来管理额外的服务器。每个服务器都是完全隔离的，拥有独立的：
+通过 Discord Panel 或 Web 仪表盘管理额外的服务器。每个服务器的配置存储在 SQLite 数据库中。每个服务器都是完全隔离的，拥有独立的：
 
 - 📊 SQLite 数据库
 - 🔌 RCON 连接（TCP 协议，或通过 Pterodactyl 的 WebSocket）
@@ -247,7 +243,7 @@ your-domain.com {
 ```
 src/
 ├── index.js                # 机器人入口点与模块编排
-├── config.js               # 包含 80+ 选项的环境配置
+├── config.js               # 配置单例（从 SQLite 数据库加载）
 ├── deploy-commands.js      # 斜杠指令注册
 ├── env-sync.js             # 自动 .env 架构迁移
 ├── commands/               # Discord 斜杠指令（7 个指令）
@@ -311,7 +307,7 @@ src/
 ### 测试
 
 ```bash
-npm test                 # 在 24 个测试文件中执行 767 个测试
+npm test                 # 在 40 个测试文件中执行 1426 个测试
 ```
 
 ### 构建 CSS

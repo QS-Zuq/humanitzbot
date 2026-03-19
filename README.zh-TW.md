@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-920_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1426_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@
 | **聊天紀錄**         | 完整且可搜尋的聊天紀錄，標示 Discord ↔ 遊戲內雙向來源                                        |
 | **資料庫瀏覽器**     | 可直接對 60 多個遊戲資料表執行 SQL 查詢                                                      |
 | **公會檢視器**       | 顯示公會成員、領地與成員詳細資訊                                                             |
-| **機器人設定編輯器** | 從瀏覽器直接編輯 `.env` 設定，內建驗證功能                                                   |
+| **機器人設定編輯器** | 從瀏覽器直接編輯機器人設定，支援即時套用與重啟偵測                                           |
 | **伺服器排程器**     | 具備設定檔輪替功能的視覺化重啟排程                                                           |
 | **Discord OAuth2**   | 基於身分組的存取層級：public（公開）、survivor（生存者）、mod（管理員）、admin（最高管理員） |
 | **多國語言**         | 完整的 i18n 支援 — 英文、繁體中文、簡體中文，具備瀏覽器語言偵測與即時切換功能                |
@@ -92,7 +92,7 @@
 | **伺服器排程器**  | 帶有設定檔輪替、各設定檔覆蓋及每日/每週排程的定時重啟功能                                      |
 | **SFTP 自動探索** | 自動尋找伺服器上的遊戲檔案 — 無需手動設定路徑                                                  |
 | **面板 API**      | 整合 Pterodactyl 面板（適用於 Bisect 等託管伺服器） — 支援電源控制、檔案 API 與 WebSocket RCON |
-| **環境變數同步**  | 自動管理 `.env` — 更新時會自動加入新設定，且絕不覆寫現有數值                                   |
+| **環境變數同步**  | 自動設定遷移 — 首次啟動時將 `.env` 數值自動遷移至 SQLite 資料庫，並建立備份                    |
 | **設定精靈**      | 首次設定專用的互動式 Discord 精靈 — 包含 RCON/SFTP 測試、路徑探索與頻道指派                    |
 | **存檔解析器**    | 完整的二進位 `.sav` 檔案解析器 — 可提取玩家、建築、載具、容器、同伴與世界狀態                  |
 | **快照服務**      | 定期建立世界狀態快照，支援時間軸回放與歷史分析                                                 |
@@ -125,24 +125,20 @@ cp .env.example .env
 
 填寫以下必要數值：
 
-| 鍵值 (Key)                                  | 說明                               |
-| ------------------------------------------- | ---------------------------------- |
-| `DISCORD_TOKEN`                             | 你的機器人 Token                   |
-| `DISCORD_CLIENT_ID`                         | Discord 應用程式 ID                |
-| `DISCORD_GUILD_ID`                          | 你的 Discord 伺服器 ID             |
-| `RCON_HOST` / `RCON_PORT` / `RCON_PASSWORD` | 遊戲伺服器的 RCON 連線資訊         |
-| `FTP_HOST` / `FTP_USER` / `FTP_PASSWORD`    | 遊戲伺服器的 SFTP 存取資訊         |
-| `PANEL_CHANNEL_ID`                          | 用作機器人控制台的 Discord 頻道 ID |
+| 鍵值 (Key)          | 說明                               |
+| ------------------- | ---------------------------------- |
+| `DISCORD_TOKEN`     | 你的機器人 Token                   |
+| `DISCORD_CLIENT_ID` | Discord 應用程式 ID                |
+| `DISCORD_GUILD_ID`  | 你的 Discord 伺服器 ID             |
+| `PANEL_CHANNEL_ID`  | 用作機器人控制台的 Discord 頻道 ID |
 
-其餘設定皆有合理的預設值，或會在首次啟動時自動探索。完整 80 多個可設定選項請參閱 `.env.example`。
+所有其他設定（RCON、SFTP、頻道、開關等）均可透過首次執行時的 Discord Panel 精靈，或透過網頁儀表板進行設定。設定值儲存於 SQLite 資料庫中。
+
+> **提示：** 首次啟動時，控制台頻道中的設定精靈將引導你完成 RCON、SFTP 與頻道的互動式設定。除上述 4 個必要鍵值外，無需手動編輯 `.env`。
 
 #### 語言 / 區域設定
 
-| 鍵值 (Key)   | 預設值 | 說明                                            |
-| ------------ | ------ | ----------------------------------------------- |
-| `BOT_LOCALE` | `en`   | Discord 機器人顯示語言 (`en`, `zh-TW`, `zh-CN`) |
-
-網頁儀表板會自動偵測你的瀏覽器語言。你也可以透過左下角的語言選擇器手動切換。多伺服器環境中，支援在 `servers.json` 中為個別伺服器覆寫語言設定。
+機器人語言可透過 Discord Panel 或網頁儀表板進行設定。網頁儀表板會自動偵測你的瀏覽器語言，也可透過左下角的語言選擇器手動切換。
 
 ### 首次執行
 
@@ -229,7 +225,7 @@ your-domain.com {
 
 ## 多伺服器支援
 
-從網頁儀表板或 `data/servers.json` 管理額外的伺服器。每個伺服器皆完全獨立運作，並擁有專屬的：
+從 Discord Panel 或網頁儀表板管理額外的伺服器。每個伺服器的設定儲存於 SQLite 資料庫中。每個伺服器皆完全獨立運作，並擁有專屬的：
 
 - 📊 SQLite 資料庫
 - 🔌 RCON 連線 (TCP 或透過 Pterodactyl 的 WebSocket)
@@ -247,7 +243,7 @@ your-domain.com {
 ```
 src/
 ├── index.js                # 機器人入口點與模組協調器
-├── config.js               # 包含 80 多項選項的環境變數設定
+├── config.js               # 設定 Singleton（從 SQLite 資料庫載入）
 ├── deploy-commands.js      # 斜線指令註冊
 ├── env-sync.js             # 自動 .env 結構遷移
 ├── commands/               # Discord 斜線指令 (共 7 個)
@@ -311,7 +307,7 @@ src/
 ### 測試
 
 ```bash
-npm test                 # 於 24 個測試檔案中執行 767 項測試
+npm test                 # 於 40 個測試檔案中執行 1426 項測試
 ```
 
 ### 建置 CSS

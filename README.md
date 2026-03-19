@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-920_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1426_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@
 | **Chat History**      | Full searchable chat log with Discord ↔ in-game indicators                                                                 |
 | **Database Browser**  | Direct SQL queries against 60+ game data tables                                                                            |
 | **Clan Viewer**       | Clan membership, territories, and member details                                                                           |
-| **Bot Config Editor** | Edit `.env` settings from the browser with validation                                                                      |
+| **Bot Config Editor** | Edit bot settings from the browser with live-apply and restart detection                                                   |
 | **Server Scheduler**  | Visual restart schedule with profile rotation                                                                              |
 | **Discord OAuth2**    | Role-based access tiers: public landing, survivor, mod, admin                                                              |
 | **Multi-Language**    | Full i18n support — English, 繁體中文, 简体中文 with browser language detection and instant switching                      |
@@ -92,7 +92,7 @@
 | **Server Scheduler**    | Timed restarts with profile rotation, per-profile setting overrides, and daily/weekly schedules              |
 | **SFTP Auto-Discovery** | Automatically finds game files on your server — no manual path config needed                                 |
 | **Panel API**           | Pterodactyl panel integration for hosted servers (Bisect, etc.) — power controls, file API, WebSocket RCON   |
-| **Env Sync**            | Automatic `.env` management — new settings are added on updates, existing values are never overwritten       |
+| **Env Sync**            | Automatic config migration — `.env` values auto-migrate to SQLite DB on first boot, with backup              |
 | **Setup Wizard**        | Interactive Discord wizard for first-time setup — RCON/SFTP testing, path discovery, channel assignment      |
 | **Save Parser**         | Full binary `.sav` file parser — extracts players, structures, vehicles, containers, companions, world state |
 | **Snapshot Service**    | Periodic world state snapshots for timeline playback and historical analysis                                 |
@@ -125,24 +125,20 @@ cp .env.example .env
 
 Fill in the required values:
 
-| Key                                         | Description                               |
-| ------------------------------------------- | ----------------------------------------- |
-| `DISCORD_TOKEN`                             | Your bot token                            |
-| `DISCORD_CLIENT_ID`                         | Discord application ID                    |
-| `DISCORD_GUILD_ID`                          | Your Discord server ID                    |
-| `RCON_HOST` / `RCON_PORT` / `RCON_PASSWORD` | Game server RCON connection               |
-| `FTP_HOST` / `FTP_USER` / `FTP_PASSWORD`    | SFTP access to the game server            |
-| `PANEL_CHANNEL_ID`                          | Discord channel for the bot control panel |
+| Key                 | Description                               |
+| ------------------- | ----------------------------------------- |
+| `DISCORD_TOKEN`     | Your bot token                            |
+| `DISCORD_CLIENT_ID` | Discord application ID                    |
+| `DISCORD_GUILD_ID`  | Your Discord server ID                    |
+| `PANEL_CHANNEL_ID`  | Discord channel for the bot control panel |
 
-Everything else has sensible defaults or is auto-discovered on first run. See `.env.example` for the full list of 80+ configurable options.
+All other settings (RCON, SFTP, channels, toggles, etc.) are configured through the Discord Panel wizard on first run, or via the Web Dashboard. Settings are stored in the SQLite database.
+
+> **Note:** On first boot, the setup wizard in your Panel channel will guide you through RCON, SFTP, and channel configuration interactively. No manual `.env` editing needed beyond the 4 required keys above.
 
 #### Language / Locale
 
-| Key          | Default | Description                                           |
-| ------------ | ------- | ----------------------------------------------------- |
-| `BOT_LOCALE` | `en`    | Discord bot display language (`en`, `zh-TW`, `zh-CN`) |
-
-The web dashboard detects your browser language automatically. You can also switch manually via the language selector in the bottom-left corner. Per-server locale overrides are supported in `servers.json` for multi-server setups.
+The bot language is configured via the Discord Panel or Web Dashboard. The web dashboard detects your browser language automatically and can also be switched manually via the language selector in the bottom-left corner.
 
 ### First Run
 
@@ -229,7 +225,7 @@ your-domain.com {
 
 ## Multi-Server
 
-Manage additional servers from the web panel or `data/servers.json`. Each server is fully isolated with its own:
+Manage additional servers from the Discord Panel or Web Dashboard. Each server's config is stored in the SQLite database. Each server is fully isolated with its own:
 
 - 📊 SQLite database
 - 🔌 RCON connection (TCP or WebSocket via Pterodactyl)
@@ -247,7 +243,7 @@ Supports self-hosted (Docker/VPS with SFTP) and managed hosting (Pterodactyl pan
 ```
 src/
 ├── index.js                # Bot entry point & module orchestration
-├── config.js               # Environment config with 80+ options
+├── config.js               # Config singleton (hydrated from SQLite DB)
 ├── deploy-commands.js      # Slash command registration
 ├── env-sync.js             # Automatic .env schema migration
 ├── commands/               # Discord slash commands (7 commands)
@@ -311,7 +307,7 @@ SQLite with **60+ tables** covering:
 ### Tests
 
 ```bash
-npm test                 # 767 tests across 24 test files
+npm test                 # 1426 tests across 40 test files
 ```
 
 ### Build CSS

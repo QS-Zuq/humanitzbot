@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-1058_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1426_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -66,7 +66,7 @@ cd humanitzbot
 npm install
 ```
 
-Edit `.env` with your Discord token, server IP, and RCON password (the file is created from the template on first run). Then:
+Edit `.env` with your Discord token and bot IDs. RCON, SFTP, and other settings are configured via the Discord setup wizard on first boot. Then:
 
 ```bash
 npm start
@@ -78,16 +78,16 @@ For full setup instructions, see the **[Wiki](https://github.com/QS-Zuq/humanitz
 
 ## Configuration
 
-All settings live in `.env`. The bot creates this file from `.env.example` on first run. Key sections:
+Core credentials live in `.env`. All other settings are stored in the SQLite database and managed through the Discord Panel or Web Dashboard. The bot creates `.env` from `.env.example` on first run. Key sections:
 
-| Section            | What                                                 |
-| ------------------ | ---------------------------------------------------- |
-| **Discord**        | Bot token, client ID, guild ID                       |
-| **RCON**           | Server host, port, password                          |
-| **SFTP**           | Host, port, user, password or SSH key                |
-| **Channels**       | Channel IDs for panel, chat, activity, status, stats |
-| **Module Toggles** | Enable/disable any feature independently             |
-| **Web Panel**      | Port, Discord OAuth credentials, role-based access   |
+| Section            | What                                      |
+| ------------------ | ----------------------------------------- |
+| **Discord**        | Bot token, client ID, guild ID (`.env`)   |
+| **Web Panel**      | Port, Discord OAuth credentials (`.env`)  |
+| **RCON**           | Configured via setup wizard, stored in DB |
+| **SFTP**           | Configured via setup wizard, stored in DB |
+| **Channels**       | Assigned via setup wizard, stored in DB   |
+| **Module Toggles** | Managed via Panel/Dashboard, stored in DB |
 
 Display settings (what shows on embeds) are configurable at runtime through the panel channel in Discord — no restart needed.
 
@@ -142,7 +142,7 @@ Requires `DISCORD_OAUTH_SECRET` and `WEB_MAP_PORT` in `.env`.
 
 ```bash
 npm run dev         # Start with --watch (auto-restart on changes)
-npm test            # Run all 1058 tests
+npm test            # Run all 1426 tests
 npm run setup       # First-run import (SFTP auto-discovery + data import)
 npm run build:css   # Build Tailwind CSS for web panel
 ```
