@@ -382,12 +382,13 @@ function createServerConfig(serverDef) {
 // ═════════════════════════════════════════════════════════════
 
 class ServerInstance {
-  constructor(client, serverDef) {
+  constructor(client, serverDef, deps = {}) {
     this.client = client;
     this.id = serverDef.id;
     this.name = serverDef.name;
     this.def = serverDef;
     this.running = false;
+    this._configRepo = deps.configRepo || null;
 
     // Per-server data directory
     this.dataDir = path.join(SERVERS_DIR, this.id);
@@ -411,7 +412,7 @@ class ServerInstance {
       console.warn(`[MULTI:${label}] Game reference seed failed:`, err.message);
     }
 
-    // Per-server Panel API (if configured in servers.json)
+    // Per-server Panel API (if configured in server definition)
     this.panelApi = null;
     if (serverDef.panel && serverDef.panel.serverUrl && serverDef.panel.apiKey) {
       this.panelApi = createPanelApi({
@@ -515,14 +516,20 @@ class ServerInstance {
         if (discovered.settingsPath) this.config.ftpSettingsPath = discovered.settingsPath;
         if (discovered.welcomePath) this.config.ftpWelcomePath = discovered.welcomePath;
 
-        // Persist to servers.json so discovery only runs once
+        // Persist discovered paths so discovery only runs once
         try {
-          const servers = loadServers();
-          const idx = servers.findIndex((s) => s.id === this.id);
-          if (idx !== -1) {
-            servers[idx].paths = discovered;
-            saveServers(servers);
-            console.log(`[MULTI:${label}] Paths saved to servers.json`);
+          if (this._configRepo) {
+            this._configRepo.update('server:' + this.id, { paths: discovered });
+            console.log(`[MULTI:${label}] Paths saved to DB`);
+          } else {
+            // Legacy fallback: write to servers.json
+            const servers = loadServers();
+            const idx = servers.findIndex((s) => s.id === this.id);
+            if (idx !== -1) {
+              servers[idx].paths = discovered;
+              saveServers(servers);
+              console.log(`[MULTI:${label}] Paths saved to servers.json`);
+            }
           }
         } catch (err) {
           console.log(`[MULTI:${label}] Could not persist paths: ${err.message}`);
@@ -793,14 +800,76 @@ class ServerInstance {
 // ═════════════════════════════════════════════════════════════
 
 class MultiServerManager {
-  constructor(client) {
+  constructor(client, deps = {}) {
     this.client = client;
     this._instances = new Map(); // id → ServerInstance
+    this._configRepo = deps.configRepo || null;
+  }
+
+  /**
+   * Load server definitions: DB first, then legacy JSON fallback.
+   * @returns {Array<object>} array of serverDef objects
+   */
+  _loadServerDefs() {
+    if (this._configRepo) {
+      try {
+        const all = this._configRepo.loadAll();
+        const defs = [];
+        for (const [scope, { data }] of all) {
+          if (scope.startsWith('server:') && scope !== 'server:primary' && data) {
+            // Ensure id is present (scope is 'server:srv_xxx')
+            if (!data.id) data.id = scope.slice(7);
+            defs.push(data);
+          }
+        }
+        if (defs.length > 0) return defs;
+      } catch (err) {
+        console.error('[MULTI] Failed to load servers from DB:', err.message);
+      }
+    }
+    // Legacy fallback
+    return loadServers();
+  }
+
+  /**
+   * Persist a server definition: DB first, then legacy JSON fallback.
+   * @param {string} id - server ID
+   * @param {object} serverDef - full server definition
+   */
+  _persistServer(id, serverDef) {
+    if (this._configRepo) {
+      this._configRepo.set('server:' + id, serverDef);
+      return;
+    }
+    // Legacy fallback: read-modify-write servers.json
+    const servers = loadServers();
+    const idx = servers.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      servers[idx] = serverDef;
+    } else {
+      servers.push(serverDef);
+    }
+    saveServers(servers);
+  }
+
+  /**
+   * Remove a server definition: DB first, then legacy JSON fallback.
+   * @param {string} id - server ID to remove
+   */
+  _removeServerDef(id) {
+    if (this._configRepo) {
+      this._configRepo.delete('server:' + id);
+      return;
+    }
+    // Legacy fallback
+    const servers = loadServers();
+    const filtered = servers.filter((s) => s.id !== id);
+    saveServers(filtered);
   }
 
   /** Load configs and start all enabled servers. */
   async startAll() {
-    const servers = loadServers();
+    const servers = this._loadServerDefs();
     const enabled = servers.filter((s) => s.enabled !== false);
 
     if (enabled.length === 0) {
@@ -812,7 +881,7 @@ class MultiServerManager {
 
     for (const serverDef of enabled) {
       try {
-        const instance = new ServerInstance(this.client, serverDef);
+        const instance = new ServerInstance(this.client, serverDef, { configRepo: this._configRepo });
         this._instances.set(serverDef.id, instance);
         await instance.start();
       } catch (err) {
@@ -835,17 +904,14 @@ class MultiServerManager {
 
   /** Add a new server definition, save it, and optionally start it. */
   async addServer(serverDef, autoStart = true) {
-    const servers = loadServers();
-
     // Assign ID if not present
     if (!serverDef.id) serverDef.id = generateId();
     serverDef.enabled = serverDef.enabled !== false;
 
-    servers.push(serverDef);
-    saveServers(servers);
+    this._persistServer(serverDef.id, serverDef);
 
     if (autoStart && serverDef.enabled) {
-      const instance = new ServerInstance(this.client, serverDef);
+      const instance = new ServerInstance(this.client, serverDef, { configRepo: this._configRepo });
       this._instances.set(serverDef.id, instance);
       await instance.start();
     }
@@ -855,12 +921,11 @@ class MultiServerManager {
 
   /** Update an existing server definition. Restarts if running. */
   async updateServer(id, updates) {
-    const servers = loadServers();
-    const idx = servers.findIndex((s) => s.id === id);
-    if (idx === -1) throw new Error(`Server "${id}" not found`);
+    const servers = this._loadServerDefs();
+    const existing = servers.find((s) => s.id === id);
+    if (!existing) throw new Error(`Server "${id}" not found`);
 
     // Deep merge updates
-    const existing = servers[idx];
     if (updates.name !== undefined) existing.name = updates.name;
     if (updates.enabled !== undefined) existing.enabled = updates.enabled;
     if (updates.gamePort !== undefined) existing.gamePort = updates.gamePort;
@@ -874,13 +939,13 @@ class MultiServerManager {
     if (updates.botTimezone !== undefined) existing.botTimezone = updates.botTimezone || undefined;
     if (updates.logTimezone !== undefined) existing.logTimezone = updates.logTimezone || undefined;
 
-    saveServers(servers);
+    this._persistServer(id, existing);
 
     // Restart if running
     const instance = this._instances.get(id);
     if (instance?.running) {
       await instance.stop();
-      const newInstance = new ServerInstance(this.client, existing);
+      const newInstance = new ServerInstance(this.client, existing, { configRepo: this._configRepo });
       this._instances.set(id, newInstance);
       await newInstance.start();
     }
@@ -898,9 +963,7 @@ class MultiServerManager {
     }
 
     // Remove from config
-    const servers = loadServers();
-    const filtered = servers.filter((s) => s.id !== id);
-    saveServers(filtered);
+    this._removeServerDef(id);
 
     // Delete server data directory
     const dataDir = path.join(SERVERS_DIR, id);
@@ -918,7 +981,7 @@ class MultiServerManager {
 
   /** Start a specific server by ID. */
   async startServer(id) {
-    const servers = loadServers();
+    const servers = this._loadServerDefs();
     const serverDef = servers.find((s) => s.id === id);
     if (!serverDef) throw new Error(`Server "${id}" not found`);
 
@@ -926,7 +989,7 @@ class MultiServerManager {
     const existing = this._instances.get(id);
     if (existing?.running) await existing.stop();
 
-    const instance = new ServerInstance(this.client, serverDef);
+    const instance = new ServerInstance(this.client, serverDef, { configRepo: this._configRepo });
     this._instances.set(id, instance);
     await instance.start();
   }

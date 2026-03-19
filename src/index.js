@@ -211,6 +211,7 @@ let multiServerManager;
 let webMapServer; // Web map server instance
 let hzmodPlugin; // Howyagarn web plugin result (for cleanup)
 let db; // HumanitZDB instance
+let configRepo; // ConfigRepository instance (DB-backed config)
 let saveService; // SaveService instance
 let playtimeFlushTimer; // periodic playtime → DB flush
 let snapshotService; // SnapshotService — timeline recording
@@ -302,6 +303,80 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   console.log('[BOT] Ready!');
 
+  // ── Early DB init + config hydration (BEFORE any needsSetup check) ──
+  // Initialize SQLite database + seed game reference data
+  db = new HumanitZDB();
+  db.init();
+  gameReference.seed(db);
+
+  // ── One-time config migration (.env + servers.json → config_documents) ──
+  const ConfigRepository = require('./db/config-repository');
+  configRepo = new ConfigRepository(db);
+
+  if (!db.getState('config_migration_done')) {
+    try {
+      const { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } = require('./db/config-migration');
+
+      // 1. Migrate .env values → DB (read from process.env, NOT the file —
+      //    env-sync may have already commented out non-bootstrap keys)
+      const envResult = migrateEnvToDb(process.env, configRepo);
+
+      // 2. Migrate servers.json → DB (if exists)
+      let serverCount = 0;
+      const serversPath = path.join(__dirname, '..', 'data', 'servers.json');
+      if (fs.existsSync(serversPath)) {
+        try {
+          const serverDefs = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
+          if (Array.isArray(serverDefs)) {
+            serverCount = migrateServersJsonToDb(serverDefs, configRepo);
+          }
+        } catch (parseErr) {
+          console.error('[BOT] CRITICAL: servers.json migration failed:', parseErr.message);
+          throw parseErr; // Prevent marking migration as done
+        }
+      }
+
+      // 3. Migrate display_settings → DB
+      const displayCount = migrateDisplaySettings(db, configRepo);
+
+      // Mark migration as done
+      db.setState('config_migration_done', 'true');
+      console.log(
+        `[BOT] Config migrated to DB: ${envResult.appKeys} app, ${envResult.serverKeys} server, ${serverCount} managed servers, ${displayCount} display settings`,
+      );
+    } catch (err) {
+      console.error('[BOT] Config migration failed:', err.message);
+      // Non-fatal — continue with .env
+    }
+  }
+
+  // Hydrate config with DB-backed values (before any needsSetup check)
+  config.hydrate(configRepo);
+  config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
+
+  console.log('[BOT] SQLite database initialised');
+
+  // Initialize playtime tracker (must be before AutoMessages)
+  if (config.enablePlaytime) {
+    playtime.init();
+  }
+
+  // Initialize player stats tracker (must be before LogWatcher)
+  playerStats.init();
+
+  // Wire DB into singletons for unified identity + stats syncing
+  playerStats.setDb(db);
+  playtime.setDb(db);
+
+  // Periodic flush of active playtime sessions to DB (crash protection)
+  playtimeFlushTimer = setInterval(() => {
+    try {
+      playtime.flushActiveSessions();
+    } catch (_) {}
+  }, 60000);
+
+  // ── config is now fully hydrated — safe to check needsSetup ──
+
   // Connect to RCON (non-fatal — auto-reconnect handles recovery)
   if (!config.needsSetup) {
     try {
@@ -349,32 +424,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   });
   botStatusManager.start();
 
-  // Initialize playtime tracker (must be before AutoMessages)
-  if (config.enablePlaytime) {
-    playtime.init();
-  }
-
-  // Initialize player stats tracker (must be before LogWatcher)
-  playerStats.init();
-
-  // Initialize SQLite database + seed game reference data
-  db = new HumanitZDB();
-  db.init();
-  gameReference.seed(db);
-  config.loadDisplayOverrides(db);
-  console.log('[BOT] SQLite database initialised');
-
-  // Wire DB into singletons for unified identity + stats syncing
-  playerStats.setDb(db);
-  playtime.setDb(db);
-
-  // Periodic flush of active playtime sessions to DB (crash protection)
-  playtimeFlushTimer = setInterval(() => {
-    try {
-      playtime.flushActiveSessions();
-    } catch (_) {}
-  }, 60000);
-
   // Generate/update the standalone agent script so it's always fresh
   try {
     writeAgent();
@@ -396,7 +445,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         if (!config.discordClientSecret) {
           console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
         }
-        webMapServer = new WebMapServer(readyClient, { db });
+        webMapServer = new WebMapServer(readyClient, { db, configRepo });
         await webMapServer.start();
         setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
         console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
@@ -538,6 +587,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         db,
         saveService: null,
         logWatcher: null,
+        configRepo,
       });
       await panelChannel.start();
     } else {
@@ -989,7 +1039,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     // Panel — admin dashboard channel + /qspanel command
     if (config.enablePanel) {
       // Multi-server manager (before panel, so panel can reference it)
-      multiServerManager = new MultiServerManager(readyClient);
+      multiServerManager = new MultiServerManager(readyClient, { configRepo });
       await multiServerManager.startAll();
       if (webMapServer) {
         webMapServer.setMultiServerManager(multiServerManager);
@@ -1013,6 +1063,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           db,
           saveService,
           logWatcher,
+          configRepo,
         });
         await panelChannel.start();
       }

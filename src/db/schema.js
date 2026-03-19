@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 
@@ -1162,6 +1162,17 @@ CREATE TABLE IF NOT EXISTS bot_state (
 );
 `;
 
+// ─── Config Documents (DB-backed configuration storage) ──────────────────────
+
+const CONFIG_DOCUMENTS = `
+CREATE TABLE IF NOT EXISTS config_documents (
+  scope      TEXT PRIMARY KEY,
+  data       TEXT NOT NULL DEFAULT '{}',
+  version    INTEGER DEFAULT 1,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+`;
+
 // ─── Anticheat — flag tracking, risk scores, universal fingerprints ─────────
 
 const ANTICHEAT_FLAGS = `
@@ -1551,6 +1562,7 @@ const ALL_TABLES = [
   HMZ_EVENT_SCORES,
   HMZ_WIPES,
   INDEXES,
+  CONFIG_DOCUMENTS,
 ];
 
-module.exports = { SCHEMA_VERSION, ALL_TABLES };
+module.exports = { SCHEMA_VERSION, ALL_TABLES, CONFIG_DOCUMENTS };

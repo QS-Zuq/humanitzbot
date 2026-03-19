@@ -974,6 +974,19 @@ class HumanitZDB {
         console.log(`[${this._label}] Migration v12→v13: anticheat flags, risk scores, entity fingerprints`);
       }
 
+      // v14 → v15: config_documents table (DB-backed configuration storage)
+      if (fromVersion < 15) {
+        this._db.exec(`
+          CREATE TABLE IF NOT EXISTS config_documents (
+            scope      TEXT PRIMARY KEY,
+            data       TEXT NOT NULL DEFAULT '{}',
+            version    INTEGER DEFAULT 1,
+            updated_at TEXT DEFAULT (datetime('now'))
+          );
+        `);
+        console.log(`[${this._label}] Migration v14→v15: config_documents table`);
+      }
+
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._db.exec('COMMIT');
       console.log(`[${this._label}] Schema migrated to v${SCHEMA_VERSION}`);

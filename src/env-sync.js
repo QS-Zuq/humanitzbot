@@ -19,9 +19,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const ENV_PATH = path.join(__dirname, '..', '.env');
-const EXAMPLE_PATH = path.join(__dirname, '..', '.env.example');
-const BACKUP_DIR = path.join(__dirname, '..', 'data', 'backups');
+let _envPath = path.join(__dirname, '..', '.env');
+let _examplePath = path.join(__dirname, '..', '.env.example');
+let _backupDir = path.join(__dirname, '..', 'data', 'backups');
 const ENV_VERSION_KEY = 'ENV_SCHEMA_VERSION';
 
 /**
@@ -147,11 +147,11 @@ function extractSections(examplePath) {
  * @returns {boolean}
  */
 function needsSync() {
-  if (!fs.existsSync(ENV_PATH)) return true;
-  if (!fs.existsSync(EXAMPLE_PATH)) return false;
+  if (!fs.existsSync(_envPath)) return true;
+  if (!fs.existsSync(_examplePath)) return false;
 
-  const env = parseEnv(ENV_PATH);
-  const example = parseEnv(EXAMPLE_PATH, { includeCommented: true });
+  const env = parseEnv(_envPath);
+  const example = parseEnv(_examplePath, { includeCommented: true });
 
   // Check version mismatch
   if (env.version !== example.version) return true;
@@ -169,13 +169,13 @@ function needsSync() {
  * @returns {{ added: number, deprecated: number, updated: number }}
  */
 function syncEnv() {
-  if (!fs.existsSync(EXAMPLE_PATH)) {
+  if (!fs.existsSync(_examplePath)) {
     throw new Error('.env.example not found');
   }
 
-  const env = parseEnv(ENV_PATH);
-  const example = parseEnv(EXAMPLE_PATH, { includeCommented: true });
-  const sections = extractSections(EXAMPLE_PATH);
+  const env = parseEnv(_envPath);
+  const example = parseEnv(_examplePath, { includeCommented: true });
+  const sections = extractSections(_examplePath);
 
   const result = { added: 0, deprecated: 0, updated: 0 };
   const output = [];
@@ -254,13 +254,22 @@ function syncEnv() {
   }
 
   if (deprecatedKeys.length > 0) {
-    output.push('# ── Deprecated Keys (no longer used) ──────────────────────────');
-    output.push('# These keys are from an older version and can be safely removed.');
+    // When upgrading to v5+, non-bootstrap keys were migrated to DB
+    const isMigratingToDb = parseInt(example.version, 10) >= 5;
+    if (isMigratingToDb) {
+      output.push('# ── Migrated to Database ─────────────────────────────────────');
+      output.push('# These settings are now managed via the Panel Channel or Web Dashboard.');
+      output.push('# You can safely remove these lines.');
+    } else {
+      output.push('# ── Deprecated Keys (no longer used) ──────────────────────────');
+      output.push('# These keys are from an older version and can be safely removed.');
+    }
     output.push('');
 
     for (const key of deprecatedKeys) {
       const entry = env.entries.get(key);
-      output.push(`# ${key}=${entry.value}`);
+      const prefix = isMigratingToDb ? '[Migrated to DB] ' : '';
+      output.push(`# ${prefix}${key}=${entry.value}`);
       result.deprecated++;
     }
     output.push('');
@@ -270,18 +279,18 @@ function syncEnv() {
   const newContent = output.join('\n');
 
   // Backup old .env to data/backups/, keep last 2
-  if (fs.existsSync(ENV_PATH)) {
-    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    const backup = path.join(BACKUP_DIR, `.env.backup.${Date.now()}`);
-    fs.copyFileSync(ENV_PATH, backup);
+  if (fs.existsSync(_envPath)) {
+    if (!fs.existsSync(_backupDir)) fs.mkdirSync(_backupDir, { recursive: true });
+    const backup = path.join(_backupDir, `.env.backup.${Date.now()}`);
+    fs.copyFileSync(_envPath, backup);
     console.log(`[ENV-SYNC] Backed up old .env to: ${path.relative(path.join(__dirname, '..'), backup)}`);
     // Prune old backups — keep only the 2 most recent
     try {
       const backups = fs
-        .readdirSync(BACKUP_DIR)
+        .readdirSync(_backupDir)
         .filter((f) => f.startsWith('.env.backup.'))
         .sort()
-        .map((f) => path.join(BACKUP_DIR, f));
+        .map((f) => path.join(_backupDir, f));
       while (backups.length > 2) {
         fs.unlinkSync(backups.shift());
       }
@@ -290,7 +299,7 @@ function syncEnv() {
     }
   }
 
-  fs.writeFileSync(ENV_PATH, newContent, 'utf8');
+  fs.writeFileSync(_envPath, newContent, 'utf8');
 
   return result;
 }
@@ -299,7 +308,7 @@ function syncEnv() {
  * Get current .env schema version
  */
 function getVersion() {
-  const env = parseEnv(ENV_PATH);
+  const env = parseEnv(_envPath);
   return env.version || '0';
 }
 
@@ -307,7 +316,7 @@ function getVersion() {
  * Get .env.example schema version
  */
 function getExampleVersion() {
-  const example = parseEnv(EXAMPLE_PATH);
+  const example = parseEnv(_examplePath);
   return example.version || '0';
 }
 
@@ -317,4 +326,21 @@ module.exports = {
   getVersion,
   getExampleVersion,
   parseEnv,
+};
+
+// ── Test escape hatch ─────────────────────────────────────
+const _defaultEnvPath = _envPath;
+const _defaultExamplePath = _examplePath;
+const _defaultBackupDir = _backupDir;
+module.exports._test = {
+  setPaths({ envPath, examplePath, backupDir } = {}) {
+    if (envPath !== undefined) _envPath = envPath;
+    if (examplePath !== undefined) _examplePath = examplePath;
+    if (backupDir !== undefined) _backupDir = backupDir;
+  },
+  resetPaths() {
+    _envPath = _defaultEnvPath;
+    _examplePath = _defaultExamplePath;
+    _backupDir = _defaultBackupDir;
+  },
 };

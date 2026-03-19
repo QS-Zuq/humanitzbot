@@ -547,12 +547,28 @@ for (const key of required) {
   }
 }
 
-// Flag so modules know whether RCON/SFTP are ready
-config.needsSetup =
-  !config.rconHost ||
-  !config.rconPassword ||
-  config.rconHost.startsWith('your_') ||
-  config.rconPassword.startsWith('your_');
+// Flag so modules know whether RCON/SFTP are ready (lazy getter — re-evaluates after hydrate)
+Object.defineProperty(config, 'needsSetup', {
+  get() {
+    return (
+      !config.rconHost ||
+      !config.rconPassword ||
+      config.rconHost.startsWith('your_') ||
+      config.rconPassword.startsWith('your_')
+    );
+  },
+  set(val) {
+    // Allow panel-setup-wizard.js to override with: config.needsSetup = false
+    Object.defineProperty(config, 'needsSetup', {
+      value: val,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+  },
+  configurable: true,
+  enumerable: true,
+});
 
 if (!config.panelChannelId) {
   console.warn('[CONFIG] PANEL_CHANNEL_ID not set — panel channel will be disabled.');
@@ -709,72 +725,99 @@ config.getEffectiveSavePollInterval = function () {
   return config.savePollInterval;
 };
 
-// ── Display settings overlay (DB-backed) ────────────────────
-// Display toggles and feed toggles are stored in bot_state so they're
-// runtime-configurable via the panel channel without editing .env.
-// On startup, loadDisplayOverrides() reads saved values from the DB
-// and overlays them onto the config object. The .env values serve as
-// initial defaults for first-run only.
+// ── DB hydration ─────────────────────────────────────────
+// After DB init, config.hydrate(configRepo) overlays values from
+// config_documents onto the live config singleton. loadDisplayOverrides
+// is kept as a legacy no-op for callers that still invoke it.
 
 /**
- * Load display setting overrides from the DB's bot_state table.
- * Called once after DB init in index.js.
- * @param {object} db - HumanitZDB instance
+ * Hydrate the config singleton from DB-backed config documents.
+ * Called once from index.js after DB init + migration.
+ * @param {import('./db/config-repository')} configRepo
  */
-config.loadDisplayOverrides = function (db) {
-  if (!db) return;
+config.hydrate = function (configRepo) {
   try {
-    const overrides = db.getStateJSON('display_settings', null);
-    if (!overrides || typeof overrides !== 'object') return;
-    let count = 0;
-    for (const [key, value] of Object.entries(overrides)) {
-      if (key in config) {
-        config[key] = value;
-        count++;
+    const appConfig = configRepo.get('app');
+    if (appConfig) {
+      for (const [key, value] of Object.entries(appConfig)) {
+        if (Object.prototype.hasOwnProperty.call(config, key)) config[key] = value;
       }
     }
-    if (count > 0) {
-      console.log(`[CONFIG] Loaded ${count} display setting override(s) from DB`);
+    const serverConfig = configRepo.get('server:primary');
+    if (serverConfig) {
+      for (const [key, value] of Object.entries(serverConfig)) {
+        if (Object.prototype.hasOwnProperty.call(config, key)) config[key] = value;
+      }
     }
   } catch (err) {
-    console.warn('[CONFIG] Could not load display overrides:', err.message);
+    console.error('[CONFIG] Failed to hydrate from DB \u2014 using .env values:', err.message);
   }
+  config._configRepo = configRepo; // Always set repo for writes
+};
+
+/**
+ * Legacy no-op — display overrides are now loaded via hydrate().
+ * Kept for backward compatibility with callers.
+ * @param {object} _db - HumanitZDB instance (unused)
+ */
+config.loadDisplayOverrides = function (_db) {
+  // No-op — display overrides now loaded via config.hydrate()
 };
 
 /**
  * Save a single display setting to the DB and update config in memory.
+ * Writes to config_documents via ConfigRepository when available,
+ * falls back to legacy bot_state for safety during transition/tests.
  * @param {object} db - HumanitZDB instance
  * @param {string} cfgKey - Config key (e.g. 'showVitals')
  * @param {*} value - New value
  */
 config.saveDisplaySetting = function (db, cfgKey, value) {
   config[cfgKey] = value;
-  if (!db) return;
-  try {
-    const overrides = db.getStateJSON('display_settings', {});
-    overrides[cfgKey] = value;
-    db.setStateJSON('display_settings', overrides);
-  } catch (err) {
-    console.warn('[CONFIG] Could not save display override:', err.message);
+  if (config._configRepo) {
+    try {
+      config._configRepo.update('app', { [cfgKey]: value });
+    } catch (err) {
+      console.error('[CONFIG] Could not save display setting to DB:', err.message);
+    }
+  } else {
+    // Fallback to legacy bot_state (safety during transition/tests)
+    if (!db) return;
+    try {
+      const overrides = db.getStateJSON('display_settings', {});
+      overrides[cfgKey] = value;
+      db.setStateJSON('display_settings', overrides);
+    } catch (err) {
+      console.warn('[CONFIG] Could not save display override:', err.message);
+    }
   }
 };
 
 /**
  * Save multiple display settings to the DB and update config in memory.
+ * Writes to config_documents via ConfigRepository when available,
+ * falls back to legacy bot_state for safety during transition/tests.
  * @param {object} db - HumanitZDB instance
  * @param {Object<string,*>} settings - Map of cfgKey → value
  */
 config.saveDisplaySettings = function (db, settings) {
-  for (const [key, value] of Object.entries(settings)) {
-    config[key] = value;
-  }
-  if (!db) return;
-  try {
-    const overrides = db.getStateJSON('display_settings', {});
-    Object.assign(overrides, settings);
-    db.setStateJSON('display_settings', overrides);
-  } catch (err) {
-    console.warn('[CONFIG] Could not save display overrides:', err.message);
+  for (const [key, value] of Object.entries(settings)) config[key] = value;
+  if (config._configRepo) {
+    try {
+      config._configRepo.update('app', settings);
+    } catch (err) {
+      console.error('[CONFIG] Could not save display settings to DB:', err.message);
+    }
+  } else {
+    // Fallback to legacy bot_state (safety during transition/tests)
+    if (!db) return;
+    try {
+      const overrides = db.getStateJSON('display_settings', {});
+      Object.assign(overrides, settings);
+      db.setStateJSON('display_settings', overrides);
+    } catch (err) {
+      console.warn('[CONFIG] Could not save display overrides:', err.message);
+    }
   }
 };
 
