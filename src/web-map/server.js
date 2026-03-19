@@ -2816,7 +2816,7 @@ class WebMapServer {
       if (configRepo) {
         try {
           const data = configRepo.get(`server:${serverId}`);
-          if (data) return data;
+          if (data) return { data, source: 'database' };
         } catch (err) {
           console.warn('[WEB MAP] DB read failed for server, falling back to servers.json:', serverId, err.message);
         }
@@ -2825,7 +2825,8 @@ class WebMapServer {
       try {
         if (!fs.existsSync(SERVERS_FILE)) return null;
         const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
-        return servers.find((s) => s.id === serverId) || null;
+        const found = servers.find((s) => s.id === serverId) || null;
+        return found ? { data: found, source: 'servers.json' } : null;
       } catch {
         return null;
       }
@@ -2916,10 +2917,10 @@ class WebMapServer {
       try {
         // ── Non-primary: read from config_documents / servers.json ──
         if (!req.srv.isPrimary) {
-          const serverDef = _getServerDef(req.srv.serverId);
-          if (!serverDef) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
-          const sections = _buildServerDefSections(serverDef);
-          return res.json({ sections, source: 'database' });
+          const result = _getServerDef(req.srv.serverId);
+          if (!result) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
+          const sections = _buildServerDefSections(result.data);
+          return res.json({ sections, source: result.source });
         }
 
         // ── Primary: read from config singleton + DB documents ──
