@@ -2818,10 +2818,7 @@ class WebMapServer {
           const data = configRepo.get(`server:${serverId}`);
           if (data) return data;
         } catch (err) {
-          console.warn(
-            '[WEB MAP] DB read failed for server:' + serverId + ', falling back to servers.json:',
-            err.message,
-          );
+          console.warn('[WEB MAP] DB read failed for server, falling back to servers.json:', serverId, err.message);
         }
       }
       // Legacy fallback: read from servers.json
@@ -2846,7 +2843,7 @@ class WebMapServer {
           configRepo.set(scope, data);
           return true;
         } catch (err) {
-          console.error('[WEB MAP] Failed to save server def to DB for "' + serverId + '":', err.message);
+          console.error('[WEB MAP] Failed to save server def to DB:', serverId, err.message);
           return false;
         }
       }

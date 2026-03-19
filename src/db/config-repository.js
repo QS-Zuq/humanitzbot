@@ -60,7 +60,7 @@ class ConfigRepository {
     try {
       return JSON.parse(row.data);
     } catch (err) {
-      console.error('[CONFIG-REPO] Corrupt JSON in scope="' + scope + '":', err.message);
+      console.error('[CONFIG-REPO] Corrupt JSON in scope:', scope, err.message);
       return null;
     }
   }
