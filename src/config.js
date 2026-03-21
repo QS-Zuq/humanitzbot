@@ -212,6 +212,11 @@ const config = {
   // See: https://expressjs.com/en/guide/behind-proxies.html
   webMapTrustProxy: process.env.WEB_MAP_TRUST_PROXY || 'loopback',
 
+  // Session store for the web panel (memory | sqlite | redis)
+  sessionStore: (process.env.SESSION_STORE || 'sqlite').toLowerCase(),
+  sessionTtl: parseInt(process.env.SESSION_TTL, 10) || 604800, // seconds, default 7 days
+  sessionRedisUrl: process.env.SESSION_REDIS_URL || 'redis://localhost:6379',
+
   // Interactive stdin console for headless hosts (Bisect, etc.)
   enableStdinConsole: envBool('ENABLE_STDIN_CONSOLE', false),
   stdinConsoleWritable: envBool('STDIN_CONSOLE_WRITABLE', false),

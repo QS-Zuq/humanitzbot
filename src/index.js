@@ -648,9 +648,9 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     // Chat Relay — bidirectional chat bridge
     if (config.enableChatRelay) {
-      if (!config.adminChannelId) {
-        setStatus('Chat Relay', '🟡 Skipped (ADMIN_CHANNEL_ID not set)');
-        console.log('[BOT] Chat relay skipped — ADMIN_CHANNEL_ID not configured');
+      if (!config.adminChannelId && !config.chatChannelId) {
+        setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
+        console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
       } else {
         chatRelay = new ChatRelay(readyClient, { db });
         if (config.nukeBot) chatRelay._nukeActive = true;

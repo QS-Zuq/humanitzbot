@@ -6,8 +6,8 @@ process.env.DISCORD_TOKEN = 'test';
 process.env.DISCORD_CLIENT_ID = '123456789';
 process.env.DISCORD_GUILD_ID = '987654321';
 
-const { isAuthorised, isEnabled, _test } = require('../src/web-map/auth');
-const { signSession, verifySession, parseCookies } = _test;
+const { isAuthorised, isEnabled, resolveTier, requireTier, TIER, _test } = require('../src/web-map/auth');
+const { _parseCookies, getSessionSecret } = _test;
 
 describe('Web Map Auth', () => {
   // ── isEnabled ──────────────────────────────────────────────
@@ -42,78 +42,32 @@ describe('Web Map Auth', () => {
     });
   });
 
-  // ── Session signing / verification ─────────────────────────
-
-  describe('signSession / verifySession', () => {
-    const secret = 'my-test-secret-key';
-    const sessionId = 'abc123def456';
-
-    it('produces a signed string with a dot separator', () => {
-      const signed = signSession(sessionId, secret);
-      assert.ok(signed.includes('.'));
-      assert.ok(signed.startsWith(sessionId + '.'));
-    });
-
-    it('verifies a valid signed session', () => {
-      const signed = signSession(sessionId, secret);
-      const result = verifySession(signed, secret);
-      assert.equal(result, sessionId);
-    });
-
-    it('rejects a tampered session ID', () => {
-      const signed = signSession(sessionId, secret);
-      const tampered = 'tampered' + signed.slice(8);
-      assert.equal(verifySession(tampered, secret), null);
-    });
-
-    it('rejects a tampered signature', () => {
-      const signed = signSession(sessionId, secret);
-      const tampered = signed.slice(0, -4) + 'xxxx';
-      assert.equal(verifySession(tampered, secret), null);
-    });
-
-    it('rejects with wrong secret', () => {
-      const signed = signSession(sessionId, secret);
-      assert.equal(verifySession(signed, 'wrong-secret'), null);
-    });
-
-    it('rejects string without dot', () => {
-      assert.equal(verifySession('noseparator', secret), null);
-    });
-
-    it('different session IDs produce different signatures', () => {
-      const s1 = signSession('session-a', secret);
-      const s2 = signSession('session-b', secret);
-      assert.notEqual(s1, s2);
-    });
-  });
-
   // ── Cookie parsing ─────────────────────────────────────────
 
-  describe('parseCookies', () => {
+  describe('_parseCookies', () => {
     it('parses a single cookie', () => {
-      const result = parseCookies('hmz_session=abc123.sig');
+      const result = _parseCookies('hmz_session=abc123.sig');
       assert.deepEqual(result, { hmz_session: 'abc123.sig' });
     });
 
     it('parses multiple cookies', () => {
-      const result = parseCookies('a=1; b=2; c=3');
+      const result = _parseCookies('a=1; b=2; c=3');
       assert.deepEqual(result, { a: '1', b: '2', c: '3' });
     });
 
     it('handles cookies with = in value', () => {
-      const result = parseCookies('token=abc=def=ghi');
+      const result = _parseCookies('token=abc=def=ghi');
       assert.deepEqual(result, { token: 'abc=def=ghi' });
     });
 
     it('returns empty object for null/undefined', () => {
-      assert.deepEqual(parseCookies(null), {});
-      assert.deepEqual(parseCookies(undefined), {});
-      assert.deepEqual(parseCookies(''), {});
+      assert.deepEqual(_parseCookies(null), {});
+      assert.deepEqual(_parseCookies(undefined), {});
+      assert.deepEqual(_parseCookies(''), {});
     });
 
     it('trims whitespace', () => {
-      const result = parseCookies('  a = 1 ;  b = 2  ');
+      const result = _parseCookies('  a = 1 ;  b = 2  ');
       assert.deepEqual(result, { a: '1', b: '2' });
     });
   });
@@ -181,6 +135,62 @@ describe('Web Map Auth', () => {
     });
   });
 
+  // ── resolveTier ────────────────────────────────────────────
+
+  describe('resolveTier', () => {
+    const authCfg = {
+      adminRoles: ['admin-role'],
+      modRoles: ['mod-role'],
+      survivorRoles: ['survivor-role'],
+    };
+
+    it('returns public for null member', () => {
+      assert.equal(resolveTier(null, authCfg), 'public');
+    });
+
+    it('returns admin for Discord Administrator permission', () => {
+      const member = { roles: [], permissions: '8' };
+      assert.equal(resolveTier(member, authCfg), 'admin');
+    });
+
+    it('returns admin for admin role', () => {
+      const member = { roles: ['admin-role'], permissions: '0' };
+      assert.equal(resolveTier(member, authCfg), 'admin');
+    });
+
+    it('returns mod for mod role', () => {
+      const member = { roles: ['mod-role'], permissions: '0' };
+      assert.equal(resolveTier(member, authCfg), 'mod');
+    });
+
+    it('returns survivor for survivor role', () => {
+      const member = { roles: ['survivor-role'], permissions: '0' };
+      assert.equal(resolveTier(member, authCfg), 'survivor');
+    });
+
+    it('returns public for member without qualifying roles', () => {
+      const member = { roles: ['random-role'], permissions: '0' };
+      assert.equal(resolveTier(member, authCfg), 'public');
+    });
+
+    it('returns survivor for any guild member when no survivorRoles configured', () => {
+      const noSurvivorCfg = { adminRoles: [], modRoles: [], survivorRoles: [] };
+      const member = { roles: ['random-role'], permissions: '0' };
+      assert.equal(resolveTier(member, noSurvivorCfg), 'survivor');
+    });
+  });
+
+  // ── TIER ───────────────────────────────────────────────────
+
+  describe('TIER', () => {
+    it('has correct tier levels', () => {
+      assert.equal(TIER.public, 0);
+      assert.equal(TIER.survivor, 1);
+      assert.equal(TIER.mod, 2);
+      assert.equal(TIER.admin, 3);
+    });
+  });
+
   // ── setupAuth ──────────────────────────────────────────────
 
   describe('setupAuth', () => {
@@ -225,6 +235,7 @@ describe('Web Map Auth', () => {
       const { setupAuth: setup } = require('../src/web-map/auth');
 
       const routes = {};
+      const middlewares = [];
       const app = {
         get: (path, handler) => {
           routes[`GET ${path}`] = handler;
@@ -232,7 +243,9 @@ describe('Web Map Auth', () => {
         post: (path, handler) => {
           routes[`POST ${path}`] = handler;
         },
-        use: () => {},
+        use: (mw) => {
+          middlewares.push(mw);
+        },
       };
 
       const middleware = setup(app);
@@ -243,6 +256,9 @@ describe('Web Map Auth', () => {
       assert.ok(routes['GET /auth/callback']);
       assert.ok(routes['GET /auth/logout']);
       assert.ok(routes['GET /auth/me']);
+
+      // express-session middleware should be registered via app.use
+      assert.ok(middlewares.length > 0, 'express-session middleware should be registered');
 
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
@@ -285,7 +301,8 @@ describe('Web Map Auth', () => {
       const middleware = setup(app);
 
       let nextCalled = false;
-      const req = { path: '/api/players', headers: {} };
+      // req.session is set by express-session middleware (not present here → public tier)
+      const req = { path: '/api/players', headers: {}, session: {} };
       const res = {
         status: () => res,
         json: () => {},
@@ -298,6 +315,46 @@ describe('Web Map Auth', () => {
       assert.equal(nextCalled, true);
       assert.equal(req.tier, 'public');
       assert.equal(req.tierLevel, 0);
+
+      delete process.env.DISCORD_OAUTH_SECRET;
+      delete process.env.WEB_MAP_CALLBACK_URL;
+    });
+
+    it('auth middleware reads tier from req.session.user', () => {
+      process.env.DISCORD_OAUTH_SECRET = 'test-secret';
+      process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
+
+      const { setupAuth: setup } = require('../src/web-map/auth');
+      const app = {
+        get: () => {},
+        post: () => {},
+        use: () => {},
+      };
+
+      const middleware = setup(app);
+
+      let nextCalled = false;
+      const req = {
+        path: '/api/players',
+        headers: {},
+        session: {
+          user: {
+            userId: 'user123',
+            username: 'TestUser',
+            tier: 'survivor',
+            tierLevel: TIER.survivor,
+            lastRoleCheck: Date.now(),
+          },
+          save: () => {},
+        },
+      };
+
+      middleware(req, {}, () => {
+        nextCalled = true;
+      });
+      assert.equal(nextCalled, true);
+      assert.equal(req.tier, 'survivor');
+      assert.equal(req.tierLevel, TIER.survivor);
 
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
@@ -330,15 +387,13 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup, _test: t } = require('../src/web-map/auth');
+      const { setupAuth: setup, TIER: T } = require('../src/web-map/auth');
 
       // Build a mock bot client with a guild member cache
       const mockMember = {
-        roles: { cache: { map: (fn) => (fn({ id: '111' }) ? ['111'] : []) } },
+        roles: { cache: { map: () => ['111'] } },
         permissions: { bitfield: 0n },
       };
-      // Fix: map returns an array with correct role IDs
-      mockMember.roles.cache.map = () => ['111'];
 
       const mockGuild = {
         members: { cache: { get: () => mockMember } },
@@ -347,43 +402,38 @@ describe('Web Map Auth', () => {
         guilds: { cache: { get: (id) => (id === '987654321' ? mockGuild : null) } },
       };
 
-      const routes = {};
       const app = {
-        get: (path, ...handlers) => {
-          routes[`GET ${path}`] = handlers[handlers.length - 1];
-        },
-        post: (path, ...handlers) => {
-          routes[`POST ${path}`] = handlers[handlers.length - 1];
-        },
+        get: () => {},
+        post: () => {},
         use: () => {},
       };
 
       const middleware = setup(app, mockClient);
 
-      // Inject a session with stale lastRoleCheck (admin tier, but mock member has no admin role/permission)
-      const secret = t.getSessionSecret();
-      const sessionId = 'test-role-refresh-' + Date.now();
-      const signed = t.signSession(sessionId, secret);
-
-      // Access the sessions map via _test
-      const { sessions } = t;
-      sessions.set(sessionId, {
-        userId: 'user123',
-        username: 'TestUser',
-        displayName: 'Test',
-        avatar: null,
-        roles: ['999'], // old admin role
-        tier: 'admin',
-        tierLevel: 3,
-        inGuild: true,
-        expiresAt: Date.now() + 86400000,
-        lastRoleCheck: 0, // way in the past → triggers refresh
-      });
-
+      // Mock session with stale lastRoleCheck (admin tier, but mock member has no admin role/permission)
+      let saveCalled = false;
       const req = {
         path: '/api/players',
-        headers: { cookie: `hmz_session=${signed}` },
+        headers: {},
+        session: {
+          user: {
+            userId: 'user123',
+            username: 'TestUser',
+            displayName: 'Test',
+            avatar: null,
+            roles: ['999'], // old admin role
+            tier: 'admin',
+            tierLevel: T.admin,
+            inGuild: true,
+            lastRoleCheck: 0, // way in the past → triggers refresh
+          },
+          save: (cb) => {
+            saveCalled = true;
+            if (cb) cb(null);
+          },
+        },
       };
+
       let nextCalled = false;
       middleware(req, {}, () => {
         nextCalled = true;
@@ -391,14 +441,80 @@ describe('Web Map Auth', () => {
       assert.equal(nextCalled, true);
 
       // The mock member has no admin role/permission → tier should downgrade
-      const sess = sessions.get(sessionId);
-      assert.notEqual(sess.tier, 'admin', 'Tier should have been downgraded from admin');
-      assert.ok(sess.lastRoleCheck > 0, 'lastRoleCheck should be updated');
+      const user = req.session.user;
+      assert.notEqual(user.tier, 'admin', 'Tier should have been downgraded from admin');
+      assert.ok(user.lastRoleCheck > 0, 'lastRoleCheck should be updated');
+      assert.ok(saveCalled, 'session.save() should be called after role mutation');
 
-      // Clean up
-      sessions.delete(sessionId);
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
+    });
+  });
+
+  // ── getSessionSecret ───────────────────────────────────────
+
+  describe('getSessionSecret', () => {
+    it('returns a string', () => {
+      const secret = getSessionSecret();
+      assert.equal(typeof secret, 'string');
+      assert.ok(secret.length > 0);
+    });
+
+    it('returns the same value on subsequent calls', () => {
+      const s1 = getSessionSecret();
+      const s2 = getSessionSecret();
+      assert.equal(s1, s2);
+    });
+  });
+
+  // ── requireTier ────────────────────────────────────────────
+
+  describe('requireTier', () => {
+    it('allows requests that meet the tier requirement', () => {
+      const guard = requireTier('survivor');
+      let nextCalled = false;
+      const req = { path: '/api/players', tier: 'admin', tierLevel: TIER.admin };
+      guard(req, {}, () => {
+        nextCalled = true;
+      });
+      assert.equal(nextCalled, true);
+    });
+
+    it('returns 403 for logged-in users with insufficient tier', () => {
+      const guard = requireTier('admin');
+      let statusCode = null;
+      let jsonBody = null;
+      const req = { path: '/api/admin/settings', tier: 'survivor', tierLevel: TIER.survivor };
+      const res = {
+        status: (code) => {
+          statusCode = code;
+          return res;
+        },
+        json: (body) => {
+          jsonBody = body;
+        },
+        send: () => {},
+        redirect: () => {},
+      };
+      guard(req, res, () => {});
+      assert.equal(statusCode, 403);
+      assert.ok(jsonBody.error.includes('admin'));
+    });
+
+    it('redirects non-API public requests to login', () => {
+      const guard = requireTier('survivor');
+      let redirectTarget = null;
+      const req = { path: '/dashboard', tier: 'public', tierLevel: 0 };
+      const res = {
+        status: () => res,
+        json: () => {},
+        redirect: (target) => {
+          redirectTarget = target;
+        },
+        send: () => {},
+      };
+      guard(req, res, () => {});
+      assert.equal(redirectTarget, '/auth/login');
     });
   });
 });

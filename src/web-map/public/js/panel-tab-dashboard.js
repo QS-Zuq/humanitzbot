@@ -64,9 +64,42 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Dashboard Load ────────────────────────────────
 
+  var _overviewTimer = null;
+
   async function loadDashboard() {
-    // Always use full single-server dashboard — carousel handles server switching
-    const singleEl = $('#dash-single');
+    var singleEl = $('#dash-single');
+    var overviewEl = $('#dash-overview');
+
+    if (S.currentServer === 'all') {
+      // ── Overview Cards mode ──
+      if (singleEl) singleEl.classList.add('hidden');
+      if (!overviewEl) {
+        overviewEl = el('div', 'flex flex-col flex-1 min-h-0 space-y-4');
+        overviewEl.id = 'dash-overview';
+        var tabEl = $('#tab-dashboard');
+        if (tabEl) tabEl.appendChild(overviewEl);
+      }
+      overviewEl.classList.remove('hidden');
+      await loadOverviewCards(overviewEl);
+      // Auto-refresh every 30s
+      if (_overviewTimer) clearInterval(_overviewTimer);
+      _overviewTimer = setInterval(function () {
+        if (S.currentServer === 'all' && S.currentTab === 'dashboard') {
+          loadOverviewCards($('#dash-overview'));
+        } else {
+          clearInterval(_overviewTimer);
+          _overviewTimer = null;
+        }
+      }, 30000);
+      return;
+    }
+
+    // ── Single-server dashboard ──
+    if (_overviewTimer) {
+      clearInterval(_overviewTimer);
+      _overviewTimer = null;
+    }
+    if (overviewEl) overviewEl.classList.add('hidden');
     if (singleEl) singleEl.classList.remove('hidden');
     await loadSingleDashboard();
   }
@@ -596,6 +629,135 @@ Panel.tabs = Panel.tabs || {};
 
   function reset() {
     _inited = false;
+  }
+
+  /** Fetch fleet status and render overview server cards */
+  async function loadOverviewCards(container) {
+    if (!container) return;
+    try {
+      var results = await Promise.all([fetch('/api/servers'), fetch('/api/landing')]);
+      var _serversData = results[0].ok ? await results[0].json() : {};
+      var landingData = results[1].ok ? await results[1].json() : {};
+
+      // Merge server list + status from landing
+      var allServers = [];
+      if (landingData.primary) allServers.push(landingData.primary);
+      if (landingData.servers) {
+        for (var i = 0; i < landingData.servers.length; i++) allServers.push(landingData.servers[i]);
+      }
+
+      // Update shared statuses (so switcher stays in sync)
+      for (var j = 0; j < allServers.length; j++) {
+        S.serverStatuses[allServers[j].id || 'primary'] = allServers[j];
+      }
+      if (Panel.switcher) Panel.switcher.refresh();
+
+      if (!allServers.length) {
+        container.innerHTML =
+          '<div class="flex flex-col items-center justify-center py-16 text-muted">' +
+          '<i data-lucide="server-off" class="w-10 h-10 mb-3 opacity-40"></i>' +
+          '<p class="text-sm">' +
+          esc(i18next.t('web:dashboard.no_servers')) +
+          '</p>' +
+          '</div>';
+        if (window.lucide) lucide.createIcons({ nodes: [container] });
+        return;
+      }
+
+      // Build HTML
+      var html =
+        '<div class="flex items-center justify-between mb-2">' +
+        '<h1 class="page-title">' +
+        esc(i18next.t('web:dashboard.overview_title')) +
+        '</h1>' +
+        '<span class="text-[11px] text-muted/40 flex items-center gap-1">' +
+        '<i data-lucide="refresh-cw" class="w-3 h-3 animate-spin" style="animation-duration:30s"></i> 30s</span>' +
+        '</div>';
+      html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">';
+
+      for (var si = 0; si < allServers.length; si++) {
+        var srv = allServers[si];
+        var srvId = srv.id || 'primary';
+        var isOnline = srv.status === 'online';
+        var isStarting = srv.status === 'starting' || srv.status === 'stale';
+        var dotCls = isOnline ? 'bg-calm' : isStarting ? 'bg-yellow-500' : 'bg-red-500/60';
+        var statusLabel = isOnline
+          ? i18next.t('web:dashboard.online')
+          : isStarting
+            ? i18next.t('web:dashboard.server_card_starting')
+            : i18next.t('web:dashboard.server_card_offline');
+        var playerText =
+          srv.online != null && srv.maxPlayers
+            ? i18next.t('web:dashboard.players_count', { online: srv.online, max: srv.maxPlayers })
+            : '-';
+        var syncText = '';
+        if (srv.lastSync) {
+          var ago = _relativeTime(srv.lastSync);
+          syncText = i18next.t('web:dashboard.last_sync', { time: ago });
+        }
+
+        html +=
+          '<div class="card cursor-pointer hover:border-accent/30 transition-all group" data-server-card="' +
+          esc(srvId) +
+          '">';
+        html += '<div class="flex items-center gap-2 mb-2">';
+        html += '<span class="w-2 h-2 rounded-full shrink-0 ' + dotCls + '"></span>';
+        html += '<span class="text-sm font-medium text-text truncate">' + esc(srv.name || srvId) + '</span>';
+        html += '<span class="ml-auto text-[10px] text-muted">' + esc(statusLabel) + '</span>';
+        html += '</div>';
+        html += '<div class="flex items-center justify-between text-xs">';
+        html += '<span class="text-muted">' + i18next.t('web:dashboard.online') + '</span>';
+        html += '<span class="text-text font-mono">' + esc(playerText) + '</span>';
+        html += '</div>';
+        if (syncText) {
+          html += '<div class="text-[10px] text-muted mt-1">' + esc(syncText) + '</div>';
+        }
+        html +=
+          '<div class="mt-2 text-[10px] text-accent opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">';
+        html += esc(i18next.t('web:dashboard.view_dashboard')) + ' <i data-lucide="arrow-right" class="w-3 h-3"></i>';
+        html += '</div>';
+        html += '</div>';
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+      if (window.lucide) lucide.createIcons({ nodes: [container] });
+
+      // Wire click handlers for cards
+      var cards = container.querySelectorAll('[data-server-card]');
+      for (var ci = 0; ci < cards.length; ci++) {
+        cards[ci].addEventListener('click', function () {
+          var id = this.dataset.serverCard;
+          if (id && Panel._internal && Panel._internal.switchServer) {
+            // Update URL param
+            var url = new URL(window.location);
+            url.searchParams.set('server', id);
+            window.history.replaceState(null, '', url);
+            Panel._internal.switchServer(id);
+          }
+        });
+      }
+    } catch (e) {
+      console.error('Overview cards error:', e);
+      container.innerHTML =
+        '<div class="feed-empty">' +
+        esc(i18next.t('web:dashboard.error', { defaultValue: 'Failed to load server overview' })) +
+        '</div>';
+    }
+  }
+
+  /** Format relative time from ISO string */
+  function _relativeTime(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) {
+      d = new Date(isoStr + 'Z');
+    }
+    var diff = Math.max(0, Date.now() - d.getTime());
+    if (diff < 60000) return i18next.t('web:common.just_now', { defaultValue: 'just now' });
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
+    return Math.floor(diff / 86400000) + 'd';
   }
 
   Panel.tabs.dashboard = {

@@ -30,6 +30,7 @@ window.Panel = window.Panel || {};
       controls: i18next.t('web:tabs.controls'),
       database: i18next.t('web:tabs.database'),
       anticheat: i18next.t('web:tabs.anticheat'),
+      servers: i18next.t('web:servers.tab'),
     };
   }
 

@@ -290,6 +290,7 @@
           <li><a href="#" class="nav-link" data-tab="items" data-min-tier="3"><i data-lucide="package" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.items">Items</span></a></li>
           <li class="nav-sep" data-min-tier="3"></li>
           <li><a href="#" class="nav-link" data-tab="console" data-min-tier="3"><i data-lucide="terminal" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.console">Console</span></a></li>
+          <li><a href="#" class="nav-link" data-tab="servers" data-min-tier="3"><i data-lucide="server" class="nav-ico"></i><span class="nav-txt" data-i18n="web:servers.tab">Servers</span></a></li>
           <li><a href="#" class="nav-link" data-tab="settings" data-min-tier="3"><i data-lucide="settings" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.settings">Settings</span></a></li>
           <li><a href="#" class="nav-link" data-tab="controls" data-min-tier="3"><i data-lucide="power" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.controls">Controls</span></a></li>
           <li><a href="#" class="nav-link" data-tab="database" data-min-tier="3"><i data-lucide="database" class="nav-ico"></i><span class="nav-txt" data-i18n="web:tabs.database">Database</span></a></li>
@@ -318,15 +319,18 @@
       <!-- Main Content -->
       <main class="flex-1 overflow-y-auto bg-surface-300 flex flex-col">
 
-        <!-- Multi-server carousel — shown above all tabs when multi-server active -->
-        <div id="server-bar" class="server-carousel hidden">
-          <button id="srv-prev" class="srv-carousel-btn" aria-label="Previous server" data-i18n-attr='{"aria-label":"web:server_bar.previous_server"}'><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
-          <div class="srv-carousel-info">
-            <span id="srv-carousel-dot" class="srv-carousel-dot"></span>
-            <span id="srv-carousel-name" class="srv-carousel-name">-</span>
-            <span id="srv-carousel-count" class="srv-carousel-count">1/1</span>
+        <!-- Multi-server switcher — dropdown shown above all tabs when multi-server active -->
+        <div id="server-bar" class="server-carousel hidden sticky top-0 z-30 bg-surface-300">
+          <div id="switcher-wrap" class="switcher-wrap">
+            <button id="switcher-btn" class="switcher-btn" type="button">
+              <span id="switcher-btn-dot" class="switcher-dot" style="display:none"></span>
+              <span id="switcher-label" class="switcher-label" data-i18n="web:switcher.select_server">Select Server</span>
+              <i id="switcher-chevron" data-lucide="chevron-down" class="w-3.5 h-3.5 text-muted shrink-0 transition-transform duration-150"></i>
+            </button>
+            <div id="switcher-menu" class="switcher-menu hidden">
+              <!-- JS populates items -->
+            </div>
           </div>
-          <button id="srv-next" class="srv-carousel-btn" aria-label="Next server" data-i18n-attr='{"aria-label":"web:server_bar.next_server"}'><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
         </div>
 
         <!-- DASHBOARD -->
@@ -998,6 +1002,16 @@
           </div>
         </section>
 
+
+        <!-- ═══ Servers (fleet management) ═══ -->
+        <section id="tab-servers" class="tab-content hidden p-6 space-y-4">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <h1 class="page-title" data-i18n="web:servers.page_title">Server Management</h1>
+            <button id="srv-add-btn" class="btn-primary flex items-center gap-1.5 text-sm"><i data-lucide="plus" class="w-4 h-4"></i> <span data-i18n="web:servers.add_server">Add Server</span></button>
+          </div>
+          <div id="srv-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </section>
+
         <footer class="px-6 py-3 text-center text-[11px] text-muted/20 border-t border-border/20 mt-auto shrink-0">
           <span data-i18n="web:footer.community_panel">HumanitZ by Yodubzz Studios · Community panel</span>
         </footer>
@@ -1031,6 +1045,8 @@
   <script defer src="/js/panel-tab-console.js"></script>
   <script defer src="/js/panel-tab-dashboard.js"></script>
   <script defer src="/js/panel-landing.js"></script>
+  <script defer src="/js/panel-switcher.js"></script>
+  <script defer src="/js/panel-tab-servers.js"></script>
   <script defer src="/js/panel-main.js"></script>
 </body>
 </html>

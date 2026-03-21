@@ -29,6 +29,12 @@ Panel.tabs = Panel.tabs || {};
   // ── Data Loading ────────────────────────────────────────────────
 
   async function loadPlayers() {
+    if (S.currentServer === 'all') {
+      var tabEl = document.getElementById('tab-players');
+      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('players');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     try {
       const r = await apiFetch('/api/players');
       if (!r.ok) return;

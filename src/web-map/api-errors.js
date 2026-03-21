@@ -56,6 +56,19 @@ const API_ERRORS = {
   SNAPSHOT_NOT_FOUND: 'SNAPSHOT_NOT_FOUND',
   FROM_AND_TO_REQUIRED: 'FROM_AND_TO_REQUIRED',
   INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
+  MISSING_SERVER_NAME: 'MISSING_SERVER_NAME',
+  MISSING_RCON_CONFIG: 'MISSING_RCON_CONFIG',
+  SERVER_NAME_EXISTS: 'SERVER_NAME_EXISTS',
+  CANNOT_DELETE_PRIMARY: 'CANNOT_DELETE_PRIMARY',
+  CONFIRM_REQUIRED: 'CONFIRM_REQUIRED',
+  INVALID_LIFECYCLE_ACTION: 'INVALID_LIFECYCLE_ACTION',
+  CANNOT_CONTROL_PRIMARY: 'CANNOT_CONTROL_PRIMARY',
+  SERVER_ALREADY_IN_STATE: 'SERVER_ALREADY_IN_STATE',
+  MULTI_SERVER_NOT_AVAILABLE: 'MULTI_SERVER_NOT_AVAILABLE',
+  MISSING_SFTP_CONFIG: 'MISSING_SFTP_CONFIG',
+  MISSING_CONNECTION_CONFIG: 'MISSING_CONNECTION_CONFIG',
+  MAX_CONCURRENT_DISCOVERIES: 'MAX_CONCURRENT_DISCOVERIES',
+  DISCOVERY_JOB_NOT_FOUND: 'DISCOVERY_JOB_NOT_FOUND',
 };
 
 const EN_MESSAGES = {
@@ -116,6 +129,19 @@ const EN_MESSAGES = {
   [API_ERRORS.SNAPSHOT_NOT_FOUND]: 'Snapshot not found',
   [API_ERRORS.FROM_AND_TO_REQUIRED]: 'from and to are required',
   [API_ERRORS.INTERNAL_SERVER_ERROR]: 'Internal server error',
+  [API_ERRORS.MISSING_SERVER_NAME]: 'Server name is required',
+  [API_ERRORS.MISSING_RCON_CONFIG]: 'RCON configuration is required (host, port, password)',
+  [API_ERRORS.SERVER_NAME_EXISTS]: 'A server with this name already exists',
+  [API_ERRORS.CANNOT_DELETE_PRIMARY]: 'Cannot delete the primary server',
+  [API_ERRORS.CONFIRM_REQUIRED]: 'Confirmation required — pass ?confirm=true',
+  [API_ERRORS.INVALID_LIFECYCLE_ACTION]: 'Invalid action. Must be start, stop, or restart',
+  [API_ERRORS.CANNOT_CONTROL_PRIMARY]: 'Cannot control primary server lifecycle from this endpoint',
+  [API_ERRORS.SERVER_ALREADY_IN_STATE]: 'Server is already in the requested state',
+  [API_ERRORS.MULTI_SERVER_NOT_AVAILABLE]: 'Multi-server manager is not available',
+  [API_ERRORS.MISSING_SFTP_CONFIG]: 'SFTP configuration is required (host, user, and password or key)',
+  [API_ERRORS.MISSING_CONNECTION_CONFIG]: 'At least one of rcon or sftp configuration is required',
+  [API_ERRORS.MAX_CONCURRENT_DISCOVERIES]: 'Too many concurrent discovery jobs (max 3)',
+  [API_ERRORS.DISCOVERY_JOB_NOT_FOUND]: 'Discovery job not found or expired',
 };
 
 function sendError(res, code, status = 400, details) {

@@ -25,7 +25,7 @@ const { setupAuth, requireTier } = require('./auth');
 const { API_ERRORS, sendError, sendOk } = require('./api-errors');
 const serverResources = require('../server/server-resources');
 const { formatBytes, formatUptime } = require('../server/server-resources');
-const { ENV_CATEGORIES } = require('../modules/panel-constants');
+const { ENV_CATEGORIES, ENV_CATEGORY_GROUPS } = require('../modules/panel-constants');
 const { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } = require('../db/config-migration');
 
 // ── Rate limiter (simple in-memory, per-IP) ──
@@ -51,6 +51,15 @@ setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of _rateBuckets) {
     if (now - bucket.start > 300000) _rateBuckets.delete(key);
+  }
+}, 300000).unref();
+
+// ── Discovery job tracking (multi-server SFTP auto-discovery) ──
+const _discoveryJobs = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [jid, job] of _discoveryJobs) {
+    if (now - job.startTime > 300000) _discoveryJobs.delete(jid);
   }
 }, 300000).unref();
 
@@ -623,7 +632,7 @@ class WebMapServer {
 
     // Discord OAuth2 authentication (must be registered before static/API routes)
     // Returns no-op middleware if DISCORD_OAUTH_SECRET / WEB_MAP_CALLBACK_URL are not set
-    const authMiddleware = setupAuth(app, this._client);
+    const authMiddleware = setupAuth(app, this._client, { db: this._db?.db });
     app.use(authMiddleware);
 
     // ── Root page → panel.html (must come before static middleware) ──
@@ -2920,7 +2929,7 @@ class WebMapServer {
           const result = _getServerDef(req.srv.serverId);
           if (!result) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
           const sections = _buildServerDefSections(result.data);
-          return res.json({ sections, source: result.source });
+          return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: result.source });
         }
 
         // ── Primary: read from config singleton + DB documents ──
@@ -2955,10 +2964,10 @@ class WebMapServer {
                 commented: !value && !isSensitive,
               });
             }
-            if (keys.length) sections.push({ label: cat.label, keys });
+            if (keys.length) sections.push({ id: cat.id, label: cat.label, keys });
           }
 
-          return res.json({ sections, source: 'database' });
+          return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: 'database' });
         }
 
         // ── Legacy fallback: read from .env ──
@@ -3006,7 +3015,7 @@ class WebMapServer {
         }
         if (currentSection.keys.length > 0) sections.push(currentSection);
 
-        res.json({ sections });
+        res.json({ sections, groups: ENV_CATEGORY_GROUPS });
       } catch (err) {
         sendError(res, API_ERRORS.FAILED_TO_READ_BOT_CONFIG, 500, safeError(err));
       }
@@ -3313,6 +3322,582 @@ class WebMapServer {
         const dismissed = countByStatus('dismissed');
         const total = countByStatus(null);
         res.json({ open, confirmed, dismissed, total });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════
+    //  Multi-Server Management API — fleet-wide CRUD, lifecycle, discovery
+    // ══════════════════════════════════════════════════════════════════
+
+    /** Mask sensitive fields in a server definition for API responses. */
+    function _maskServerDef(def) {
+      if (!def) return def;
+      const masked = JSON.parse(JSON.stringify(def));
+      if (masked.rcon?.password != null) masked.rcon.password = { hasValue: !!masked.rcon.password };
+      if (masked.sftp?.password != null) masked.sftp.password = { hasValue: !!masked.sftp.password };
+      if (masked.sftp?.privateKeyPath != null) masked.sftp.privateKeyPath = { hasValue: !!masked.sftp.privateKeyPath };
+      if (masked.panel?.apiKey != null) masked.panel.apiKey = { hasValue: !!masked.panel.apiKey };
+      return masked;
+    }
+
+    /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
+    function _testRconAuth(host, port, password, timeout = 10000) {
+      const net = require('net');
+      return new Promise((resolve) => {
+        const socket = new net.Socket();
+        let resolved = false;
+        let buf = Buffer.alloc(0);
+        const done = (result) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          try {
+            socket.destroy();
+          } catch (cleanupErr) {
+            console.warn('[WebMap] RCON test socket cleanup error:', cleanupErr.message);
+          }
+          resolve(result);
+        };
+        const timer = setTimeout(() => done({ ok: false, error: 'Connection timed out' }), timeout);
+        socket.connect(port, host, () => {
+          const passLen = Buffer.byteLength(password, 'utf8');
+          const bodyLen = 4 + 4 + passLen + 1 + 1;
+          const pkt = Buffer.alloc(4 + bodyLen);
+          pkt.writeInt32LE(bodyLen, 0);
+          pkt.writeInt32LE(1, 4);
+          pkt.writeInt32LE(3, 8); // SERVERDATA_AUTH
+          pkt.write(password, 12, 'utf8');
+          socket.write(pkt);
+        });
+        socket.on('data', (chunk) => {
+          buf = Buffer.concat([buf, chunk]);
+          while (buf.length >= 12) {
+            const pktSize = buf.readInt32LE(0);
+            if (pktSize < 10 || pktSize > 4096) {
+              done({ ok: false, error: 'Invalid RCON response' });
+              return;
+            }
+            if (buf.length < 4 + pktSize) break;
+            const id = buf.readInt32LE(4);
+            const type = buf.readInt32LE(8);
+            buf = buf.subarray(4 + pktSize);
+            if (type === 2) {
+              done(id === -1 ? { ok: false, error: 'Authentication failed' } : { ok: true });
+              return;
+            }
+          }
+        });
+        socket.on('error', (err) => done({ ok: false, error: err.message }));
+        socket.setTimeout(timeout);
+        socket.on('timeout', () => done({ ok: false, error: 'Connection timed out' }));
+      });
+    }
+
+    /** Test SFTP auth + directory listing. Resolves { ok, error? }. */
+    async function _testSftpAuth(sftpCfg, timeout = 10000) {
+      const SftpClient = require('ssh2-sftp-client');
+      const client = new SftpClient();
+      try {
+        const opts = { host: sftpCfg.host, port: sftpCfg.port || 22, username: sftpCfg.user, readyTimeout: timeout };
+        if (sftpCfg.password) opts.password = sftpCfg.password;
+        if (sftpCfg.privateKeyPath) {
+          try {
+            opts.privateKey = fs.readFileSync(sftpCfg.privateKeyPath);
+          } catch (keyErr) {
+            return { ok: false, error: `Cannot read private key at ${sftpCfg.privateKeyPath}: ${keyErr.message}` };
+          }
+        }
+        await client.connect(opts);
+        await client.list('/');
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err.message || 'Connection failed').substring(0, 200) };
+      } finally {
+        try {
+          await client.end();
+        } catch (endErr) {
+          console.warn('[WebMap] SFTP test client cleanup error:', endErr.message);
+        }
+      }
+    }
+
+    /** GET /api/panel/servers — List all servers with status */
+    app.get('/api/panel/servers', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      try {
+        const servers = [];
+
+        // ── Primary server ──
+        const primaryInfo = {
+          id: 'primary',
+          name: config.serverName || 'Primary Server',
+          isPrimary: true,
+          enabled: true,
+          status: rcon.connected ? 'running' : 'offline',
+          players: { current: 0, max: null },
+          rcon: { host: config.rconHost || null, port: config.rconPort || null, connected: !!rcon.connected },
+          sftp: { host: config.ftpHost || null, configured: !!(config.ftpHost && config.ftpUser) },
+          lastSync: (() => {
+            const ss = this._saveService;
+            if (!ss) return null;
+            const t = ss._lastMtime || ss._lastCacheMtime;
+            return t ? new Date(t).toISOString() : ss._syncCount > 0 ? new Date().toISOString() : null;
+          })(),
+          modules: [],
+        };
+        const primaryStatusCache = this._getCached('status', 'primary', 30000);
+        if (primaryStatusCache) {
+          primaryInfo.status = primaryStatusCache.serverState || 'unknown';
+          primaryInfo.players.current = primaryStatusCache.onlineCount || 0;
+          primaryInfo.players.max = primaryStatusCache.maxPlayers || null;
+        }
+        const primaryMods = [];
+        if (rcon.connected) primaryMods.push('rcon');
+        if (this._db) primaryMods.push('db');
+        if (this._saveService) primaryMods.push('sftp');
+        if (this._scheduler?.isActive?.()) primaryMods.push('schedule');
+        primaryInfo.modules = primaryMods;
+        servers.push(primaryInfo);
+
+        // ── Managed servers ──
+        const managed = this._loadServerList();
+        const statuses = this._multiServerManager?.getStatuses?.() || [];
+        const statusMap = new Map(statuses.map((s) => [s.id, s]));
+
+        for (const def of managed) {
+          const st = statusMap.get(def.id);
+          const inst = this._multiServerManager?.getInstance?.(def.id);
+          const info = {
+            id: def.id,
+            name: def.name || def.id,
+            isPrimary: false,
+            enabled: def.enabled !== false,
+            status: st?.running ? 'running' : 'stopped',
+            players: { current: 0, max: null },
+            rcon: {
+              host: def.rcon?.host || null,
+              port: def.rcon?.port || null,
+              connected: !!inst?.rcon?.connected,
+            },
+            sftp: {
+              host: def.sftp?.host || null,
+              configured: !!(def.sftp?.host && def.sftp?.user),
+            },
+            lastSync: null,
+            modules: [],
+          };
+          const srvCache = this._getCached('status', def.id, 30000);
+          if (srvCache) {
+            if (srvCache.serverState === 'running') info.status = 'running';
+            info.players.current = srvCache.onlineCount || 0;
+            info.players.max = srvCache.maxPlayers || null;
+          }
+          const mods = [];
+          if (inst?.rcon?.connected) mods.push('rcon');
+          if (inst?.db) mods.push('db');
+          if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
+          if (inst?._modules?.serverScheduler?.isActive?.()) mods.push('schedule');
+          if (inst?._modules?.logWatcher) mods.push('logs');
+          if (inst?._modules?.chatRelay) mods.push('chat');
+          info.modules = mods;
+          servers.push(info);
+        }
+
+        sendOk(res, { servers });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** POST /api/panel/servers — Create a new managed server */
+    app.post('/api/panel/servers', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const { name, rcon: rconCfg, sftp, channels, enabled, startImmediately } = req.body || {};
+        if (!name || typeof name !== 'string' || !name.trim()) {
+          return sendError(res, API_ERRORS.MISSING_SERVER_NAME, 400);
+        }
+        if (!rconCfg || !rconCfg.host || !rconCfg.port || !rconCfg.password) {
+          return sendError(res, API_ERRORS.MISSING_RCON_CONFIG, 400);
+        }
+
+        // Check name uniqueness
+        const existing = this._loadServerList();
+        if (existing.some((s) => s.name === name.trim())) {
+          return sendError(res, API_ERRORS.SERVER_NAME_EXISTS, 409);
+        }
+
+        const id = 'srv_' + Date.now().toString(36);
+        const serverDef = {
+          id,
+          name: name.trim(),
+          enabled: enabled !== false,
+          rcon: {
+            host: String(rconCfg.host),
+            port: parseInt(rconCfg.port, 10) || 27015,
+            password: String(rconCfg.password),
+          },
+        };
+        if (sftp) {
+          serverDef.sftp = {
+            host: sftp.host || '',
+            port: parseInt(sftp.port, 10) || 22,
+            user: sftp.user || '',
+            ...(sftp.password ? { password: sftp.password } : {}),
+            ...(sftp.privateKeyPath ? { privateKeyPath: sftp.privateKeyPath } : {}),
+          };
+        }
+        if (channels && typeof channels === 'object') serverDef.channels = channels;
+
+        if (startImmediately && this._multiServerManager) {
+          await this._multiServerManager.addServer(serverDef);
+        } else if (configRepo) {
+          configRepo.set(`server:${id}`, serverDef);
+        }
+
+        res.status(201).json({ ok: true, server: { id, name: serverDef.name, status: 'stopped' } });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** POST /api/panel/servers/discover — Start SFTP path discovery (202 + polling) */
+    app.post('/api/panel/servers/discover', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+      let sftpCfg = (req.body || {}).sftp;
+
+      // Allow using the server's existing SFTP config (for settings page discover button)
+      if (req.body?.useCurrentConfig) {
+        sftpCfg = {
+          host: config.ftpHost,
+          port: config.ftpPort || 22,
+          user: config.ftpUser,
+          password: config.ftpPassword,
+          privateKeyPath: config.ftpPrivateKeyPath,
+        };
+      }
+
+      if (!sftpCfg || !sftpCfg.host || !sftpCfg.user) {
+        return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+      }
+      if (!sftpCfg.password && !sftpCfg.privateKeyPath) {
+        return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+      }
+
+      // Max 3 concurrent jobs
+      let activeCount = 0;
+      for (const [, job] of _discoveryJobs) {
+        if (job.state === 'pending' || job.state === 'running') activeCount++;
+      }
+      if (activeCount >= 3) {
+        return sendError(res, API_ERRORS.MAX_CONCURRENT_DISCOVERIES, 429);
+      }
+
+      // Cleanup stale jobs (> 5 min)
+      const now = Date.now();
+      for (const [jid] of _discoveryJobs) {
+        const j = _discoveryJobs.get(jid);
+        if (j && now - j.startTime > 300000) _discoveryJobs.delete(jid);
+      }
+
+      const jobId = 'disc_' + Date.now().toString(36);
+      const job = { state: 'running', startTime: now, result: null, error: null, currentStep: 'connecting' };
+      _discoveryJobs.set(jobId, job);
+
+      // Run discovery in background
+      const { discoverPaths } = require('../server/multi-server');
+      const timeoutHandle = setTimeout(() => {
+        if (job.state === 'running') {
+          job.state = 'failed';
+          job.error = 'Discovery timed out after 120 seconds';
+          job.currentStep = null;
+        }
+      }, 120000);
+
+      discoverPaths(
+        {
+          host: sftpCfg.host,
+          port: sftpCfg.port || 22,
+          user: sftpCfg.user,
+          password: sftpCfg.password,
+          privateKeyPath: sftpCfg.privateKeyPath,
+        },
+        'WEB_DISCOVER',
+      )
+        .then((result) => {
+          clearTimeout(timeoutHandle);
+          if (job.state !== 'running') return;
+          job.state = result ? 'completed' : 'failed';
+          job.result = result;
+          if (!result) job.error = 'No game files found';
+          job.currentStep = null;
+        })
+        .catch((err) => {
+          clearTimeout(timeoutHandle);
+          if (job.state !== 'running') return;
+          job.state = 'failed';
+          job.error = (err.message || 'Discovery failed').substring(0, 200);
+          job.currentStep = null;
+        });
+
+      res.status(202).json({ ok: true, jobId });
+    });
+
+    /** GET /api/panel/servers/discover/:jobId — Poll discovery job status */
+    app.get('/api/panel/servers/discover/:jobId', requireTier('admin'), rateLimit(5000, 20), (req, res) => {
+      const job = _discoveryJobs.get(req.params.jobId);
+      if (!job) return sendError(res, API_ERRORS.DISCOVERY_JOB_NOT_FOUND, 404);
+      sendOk(res, {
+        state: job.state,
+        elapsed: Date.now() - job.startTime,
+        ...(job.currentStep ? { currentStep: job.currentStep } : {}),
+        ...(job.result ? { result: job.result } : {}),
+        ...(job.error ? { error: job.error } : {}),
+      });
+    });
+
+    /** POST /api/panel/servers/test-connection — Stateless connection validation */
+    app.post('/api/panel/servers/test-connection', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const { rcon: rconCfg, sftp: sftpCfg } = req.body || {};
+        if (!rconCfg && !sftpCfg) {
+          return sendError(res, API_ERRORS.MISSING_CONNECTION_CONFIG, 400);
+        }
+
+        const result = {};
+        const promises = [];
+
+        if (rconCfg) {
+          promises.push(
+            _testRconAuth(rconCfg.host, parseInt(rconCfg.port, 10) || 27015, rconCfg.password || '', 10000).then(
+              (r) => {
+                result.rcon = r;
+              },
+            ),
+          );
+        }
+        if (sftpCfg) {
+          promises.push(
+            _testSftpAuth(sftpCfg, 10000).then((r) => {
+              result.sftp = r;
+            }),
+          );
+        }
+
+        await Promise.all(promises);
+        sendOk(res, result);
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** GET /api/panel/servers/:id — Get server detail (passwords masked) */
+    app.get('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      try {
+        const { id } = req.params;
+
+        if (id === 'primary') {
+          const def = {
+            id: 'primary',
+            name: config.serverName || 'Primary Server',
+            isPrimary: true,
+            enabled: true,
+            rcon: {
+              host: config.rconHost || '',
+              port: config.rconPort || 27015,
+              password: { hasValue: !!config.rconPassword },
+            },
+            sftp: {
+              host: config.ftpHost || '',
+              port: config.ftpPort || 22,
+              user: config.ftpUser || '',
+              password: { hasValue: !!config.ftpPassword },
+              privateKeyPath: { hasValue: !!config.ftpPrivateKeyPath },
+            },
+            paths: {
+              logPath: config.ftpLogPath || '',
+              connectLogPath: config.ftpConnectLogPath || '',
+              idMapPath: config.ftpIdMapPath || '',
+              savePath: config.ftpSavePath || '',
+              settingsPath: config.ftpSettingsPath || '',
+              welcomePath: config.ftpWelcomePath || '',
+            },
+            botTimezone: config.botTimezone || 'UTC',
+            logTimezone: config.logTimezone || 'UTC',
+          };
+          const statusCache = this._getCached('status', 'primary', 30000);
+          if (statusCache) {
+            def.status = statusCache.serverState || 'unknown';
+            def.players = { current: statusCache.onlineCount || 0, max: statusCache.maxPlayers || null };
+          } else {
+            def.status = rcon.connected ? 'running' : 'offline';
+            def.players = { current: 0, max: null };
+          }
+          return sendOk(res, { server: def });
+        }
+
+        // Managed server
+        const raw = configRepo?.get(`server:${id}`);
+        if (!raw) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+
+        const masked = _maskServerDef(raw);
+        const inst = this._multiServerManager?.getInstance?.(id);
+        masked.status = inst?.running ? 'running' : 'stopped';
+        const srvCache = this._getCached('status', id, 30000);
+        if (srvCache) {
+          masked.players = { current: srvCache.onlineCount || 0, max: srvCache.maxPlayers || null };
+        } else {
+          masked.players = { current: 0, max: null };
+        }
+
+        sendOk(res, { server: masked });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** PATCH /api/panel/servers/:id — Update server settings (partial) */
+    app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updates = req.body;
+        if (!updates || typeof updates !== 'object') {
+          return sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
+        }
+
+        if (id === 'primary') {
+          if (configRepo) {
+            const patch = { ...updates };
+            // Empty-string sensitive fields = "keep existing"
+            if (patch.rcon) {
+              patch.rcon = { ...patch.rcon };
+              if (patch.rcon.password === '') delete patch.rcon.password;
+            }
+            if (patch.sftp) {
+              patch.sftp = { ...patch.sftp };
+              if (patch.sftp.password === '') delete patch.sftp.password;
+              if (patch.sftp.privateKeyPath === '') delete patch.sftp.privateKeyPath;
+            }
+            configRepo.update('server:primary', patch);
+          }
+          const restartRequired = !!(updates.rcon || updates.sftp || updates.paths);
+          return sendOk(res, { restartRequired });
+        }
+
+        // Managed server
+        if (!configRepo) return sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
+        const existing = configRepo.get(`server:${id}`);
+        if (!existing) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+
+        // Deep-merge sub-objects; empty-string sensitive fields = keep existing
+        const patch = { ...updates };
+        if (patch.rcon) {
+          patch.rcon = { ...(existing.rcon || {}), ...patch.rcon };
+          if (patch.rcon.password === '') patch.rcon.password = existing.rcon?.password || '';
+        }
+        if (patch.sftp) {
+          patch.sftp = { ...(existing.sftp || {}), ...patch.sftp };
+          if (patch.sftp.password === '') patch.sftp.password = existing.sftp?.password || '';
+          if (patch.sftp.privateKeyPath === '') patch.sftp.privateKeyPath = existing.sftp?.privateKeyPath || '';
+        }
+        if (patch.panel) {
+          patch.panel = { ...(existing.panel || {}), ...patch.panel };
+          if (patch.panel.apiKey === '') patch.panel.apiKey = existing.panel?.apiKey || '';
+        }
+        if (patch.channels) {
+          patch.channels = { ...(existing.channels || {}), ...patch.channels };
+        }
+        if (patch.paths) {
+          patch.paths = { ...(existing.paths || {}), ...patch.paths };
+        }
+
+        configRepo.update(`server:${id}`, patch);
+
+        // Hot-reload running instance if applicable
+        if (this._multiServerManager?.getInstance?.(id)?.running) {
+          try {
+            await this._multiServerManager.updateServer(id, patch);
+          } catch (hotReloadErr) {
+            console.warn(
+              `[WebMap] Hot-reload for server ${id} failed, will apply on next start:`,
+              hotReloadErr.message,
+            );
+          }
+        }
+
+        const restartRequired = !!(updates.rcon || updates.sftp || updates.paths);
+        sendOk(res, { restartRequired });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** DELETE /api/panel/servers/:id — Remove a managed server */
+    app.delete('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 3), async (req, res) => {
+      try {
+        const { id } = req.params;
+        if (id === 'primary') return sendError(res, API_ERRORS.CANNOT_DELETE_PRIMARY, 403);
+        if (req.query.confirm !== 'true') return sendError(res, API_ERRORS.CONFIRM_REQUIRED, 400);
+
+        if (configRepo) {
+          const existing = configRepo.get(`server:${id}`);
+          if (!existing) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+        }
+
+        if (this._multiServerManager) {
+          try {
+            await this._multiServerManager.removeServer(id);
+          } catch (removeErr) {
+            console.warn(`[WebMap] removeServer(${id}) cleanup warning:`, removeErr.message);
+          }
+        }
+        if (configRepo) {
+          configRepo.delete(`server:${id}`);
+        }
+
+        sendOk(res);
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** POST /api/panel/servers/:id/actions/:action — Lifecycle control (start/stop/restart) */
+    app.post('/api/panel/servers/:id/actions/:action', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const { id, action } = req.params;
+        if (id === 'primary') {
+          return sendError(res, API_ERRORS.CANNOT_CONTROL_PRIMARY, 400);
+        }
+        if (!['start', 'stop', 'restart'].includes(action)) {
+          return sendError(res, API_ERRORS.INVALID_LIFECYCLE_ACTION, 400);
+        }
+        if (!this._multiServerManager) {
+          return sendError(res, API_ERRORS.MULTI_SERVER_NOT_AVAILABLE, 500);
+        }
+
+        // Verify server definition exists
+        const def = configRepo?.get(`server:${id}`);
+        if (!def) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+
+        const inst = this._multiServerManager.getInstance(id);
+
+        if (action === 'start') {
+          if (inst?.running) return sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+          await this._multiServerManager.startServer(id);
+          return sendOk(res, { status: 'running' });
+        }
+
+        if (action === 'stop') {
+          if (!inst?.running) return sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+          await this._multiServerManager.stopServer(id);
+          return sendOk(res, { status: 'stopped' });
+        }
+
+        // restart
+        if (inst?.running) {
+          await this._multiServerManager.stopServer(id);
+        }
+        await this._multiServerManager.startServer(id);
+        sendOk(res, { status: 'running' });
       } catch (err) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }

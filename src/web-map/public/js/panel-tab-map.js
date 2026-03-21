@@ -60,6 +60,12 @@ Panel.tabs = Panel.tabs || {};
   // ── Map Data Loading ────────────────────────────────────────────
 
   async function loadMapData() {
+    if (S.currentServer === 'all') {
+      var tabEl = document.getElementById('tab-map');
+      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('map');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     try {
       const r = await apiFetch('/api/players');
       if (!r.ok) return;

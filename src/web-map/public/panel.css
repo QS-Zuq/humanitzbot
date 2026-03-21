@@ -913,6 +913,37 @@ body { background: #12100e; color: #c8c2b8; }
 .srv-carousel-name { font-size: 0.8125rem; font-weight: 600; color: #e8e3db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; transition: opacity 0.15s; }
 .srv-carousel-count { font-size: 0.625rem; color: #5c574f; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
 
+/* ── Server Scope Switcher Dropdown ── */
+.switcher-wrap { position: relative; display: flex; align-items: center; }
+.switcher-btn {
+  display: flex; align-items: center; gap: 0.375rem; padding: 0.25rem 0.625rem;
+  border-radius: 0.375rem; background: rgba(255,255,255,0.04); border: 1px solid #302a25;
+  color: #e8e3db; cursor: pointer; transition: all 0.15s; font-size: 0.8125rem;
+  font-weight: 500; white-space: nowrap; max-width: 280px;
+}
+.switcher-btn:hover { background: rgba(255,255,255,0.08); border-color: #3d3630; }
+.switcher-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switcher-menu {
+  position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+  min-width: 200px; max-width: 320px; max-height: 320px; overflow-y: auto;
+  background: #191614; border: 1px solid #302a25; border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; padding: 0.25rem;
+}
+.switcher-item {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.375rem 0.625rem; border-radius: 0.375rem; border: none;
+  background: transparent; color: #c8c2b8; cursor: pointer;
+  font-size: 0.75rem; text-align: left; transition: background 0.1s;
+}
+.switcher-item:hover { background: rgba(255,255,255,0.06); color: #e8e3db; }
+.switcher-item-active { background: rgba(212,145,92,0.1); color: #d4915c; }
+.switcher-item-active:hover { background: rgba(212,145,92,0.15); }
+.switcher-sep { height: 1px; background: #302a25; margin: 0.25rem 0.375rem; }
+.switcher-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #5c574f; transition: background 0.2s; }
+.switcher-dot-online { background: #6dba82; }
+.switcher-dot-offline { background: #c45a4a; }
+.switcher-dot-starting { background: #d4a843; }
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .stat-card { padding: 0.625rem; }
@@ -921,3 +952,104 @@ body { background: #12100e; color: #c8c2b8; }
   .server-carousel { padding: 0.35rem 0.5rem; }
 }
 
+/* ── Servers Tab — Fleet management ── */
+
+/* Server cards */
+.srv-card {
+  background: #191614;
+  border: 1px solid #302a25;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s;
+}
+.srv-card:hover { border-color: #4a433c; }
+
+/* Status dots */
+.srv-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.srv-dot-online { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.4); }
+.srv-dot-offline { background: #6b7280; }
+.srv-dot-starting { background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.3); animation: srv-pulse 1.5s ease-in-out infinite; }
+
+@keyframes srv-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Action buttons */
+.srv-action-btn {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-size: 0.6875rem; font-weight: 500;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.375rem;
+  transition: background 0.15s, color 0.15s;
+  cursor: pointer;
+  border: none; background: none;
+}
+
+/* Modal overlay */
+.srv-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  animation: srv-fade-in 0.15s ease;
+}
+.srv-modal {
+  background: #191614;
+  border: 1px solid #302a25;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%; max-width: 480px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+}
+.srv-wizard { max-width: 640px; }
+
+@keyframes srv-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Wizard steps */
+.srv-step {
+  display: flex; align-items: center; gap: 0.375rem;
+  flex-shrink: 0;
+}
+.srv-step-num {
+  width: 1.375rem; height: 1.375rem;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.625rem; font-weight: 600;
+  border: 1px solid #302a25;
+  color: #5c574f; background: transparent;
+  transition: all 0.2s;
+}
+.srv-step-label {
+  font-size: 0.6875rem; color: #5c574f;
+  transition: color 0.2s;
+}
+.srv-step-active .srv-step-num {
+  background: rgba(212,145,92,0.15);
+  border-color: #d4915c; color: #d4915c;
+}
+.srv-step-active .srv-step-label { color: #e8e3db; }
+.srv-step-done .srv-step-num {
+  background: rgba(52,211,153,0.15);
+  border-color: #34d399; color: #34d399;
+}
+.srv-step-done .srv-step-label { color: #7a746c; }
+.srv-step-connector {
+  flex: 1; height: 1px; min-width: 1rem;
+  background: #302a25;
+}
+.srv-step-connector-done { background: #34d399; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .srv-step-label { display: none; }
+  .srv-wizard { max-width: 100%; }
+}

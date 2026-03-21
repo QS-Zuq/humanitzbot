@@ -35,6 +35,27 @@ Panel.core = Panel.core || {};
       });
   }
 
+  /**
+   * Build 'Select a Server' empty state HTML for tabs when scope is 'all'.
+   * @param {string} tabType - Tab name (map, players, chat, activity, timeline)
+   * @returns {string} HTML string
+   */
+  function scopeEmptyState(tabType) {
+    var hintKey = 'web:empty_states.' + tabType + '_hint';
+    var fallback = i18next.t('web:empty_states.select_hint');
+    return (
+      '<div class="flex flex-col items-center justify-center py-16 text-center">' +
+      '<i data-lucide="server" class="w-10 h-10 text-muted/30 mb-4"></i>' +
+      '<p class="text-sm text-muted font-medium">' +
+      Panel.core.esc(i18next.t('web:empty_states.select_server')) +
+      '</p>' +
+      '<p class="text-xs text-muted/50 mt-1">' +
+      Panel.core.esc(i18next.t(hintKey, { defaultValue: fallback })) +
+      '</p>' +
+      '</div>'
+    );
+  }
+
   // ── Expose API ────────────────────────────────────
 
   Panel.core.utils = {
@@ -42,5 +63,6 @@ Panel.core = Panel.core || {};
     fmtDateTime: fmtDateTime,
     formatPlaytime: formatPlaytime,
     humanizeSettingKey: humanizeSettingKey,
+    scopeEmptyState: scopeEmptyState,
   };
 })();

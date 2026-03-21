@@ -67,6 +67,12 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function initTimeline() {
+    if (S.currentServer === 'all') {
+      var tabEl = document.getElementById('tab-timeline');
+      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('timeline');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     // Init map
     if (!TL.ready) {
       const c = $('#tl-map');

@@ -35,6 +35,12 @@ Panel.tabs = Panel.tabs || {};
   // ── Chat Functions ─────────────────────────────────────────
 
   async function loadChat() {
+    if (S.currentServer === 'all') {
+      var tabEl = document.getElementById('tab-chat');
+      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('chat');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     const container = $('#chat-feed');
     if (!container) return;
     const search = ($('#chat-search') ? $('#chat-search').value : '').trim();

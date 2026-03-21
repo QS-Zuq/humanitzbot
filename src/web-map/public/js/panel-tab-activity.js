@@ -27,6 +27,12 @@ Panel.tabs = Panel.tabs || {};
   // ── Activity Loading ────────────────────────────────────────────
 
   async function loadActivity(append) {
+    if (S.currentServer === 'all') {
+      var tabEl = document.getElementById('tab-activity');
+      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('activity');
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     const container = $('#activity-feed');
     if (!container) return;
     const category = S.activityCategory || '';

@@ -1008,12 +1008,12 @@ class MultiServerManager {
 
   /** Get all server definitions (both running and not). */
   getAllServers() {
-    return loadServers();
+    return this._loadServerDefs();
   }
 
   /** Get status of all instances. */
   getStatuses() {
-    const servers = loadServers();
+    const servers = this._loadServerDefs();
     return servers.map((s) => {
       const instance = this._instances.get(s.id);
       return {
