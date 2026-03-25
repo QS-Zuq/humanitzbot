@@ -15,6 +15,7 @@ Panel.tabs = Panel.tabs || {};
   const esc = Panel.core.esc;
   const apiFetch = Panel.core.apiFetch;
   const fmtNum = Panel.core.utils.fmtNum;
+  var getCssColor = Panel.core.getCssColor;
 
   // ── Sparkline Charts ──────────────────────────────
 
@@ -121,7 +122,7 @@ Panel.tabs = Panel.tabs || {};
       if (stEl) {
         if (status.serverState) {
           stEl.textContent = isOn ? i18next.t('web:dashboard.online') : i18next.t('web:map.offline');
-          stEl.style.color = isOn ? '#6dba82' : '#c45a4a';
+          stEl.style.color = isOn ? getCssColor('calm', '#6dba82') : getCssColor('horde', '#c45a4a');
         } else {
           stEl.textContent = '-';
           stEl.style.color = '';
@@ -177,8 +178,8 @@ Panel.tabs = Panel.tabs || {};
       if (S.dashHistory.online.length > maxPts) S.dashHistory.online.shift();
       if (S.dashHistory.events.length > maxPts) S.dashHistory.events.shift();
       if (window.Chart && S.dashHistory.online.length > 1) {
-        renderSparkline('spark-online', S.dashHistory.online, '#6dba82');
-        renderSparkline('spark-events', S.dashHistory.events, '#d4915c');
+        renderSparkline('spark-online', S.dashHistory.online, getCssColor('calm', '#6dba82'));
+        renderSparkline('spark-events', S.dashHistory.events, getCssColor('accent', '#d4915c'));
       }
 
       const tzEl = $('#d-tz');
@@ -568,21 +569,21 @@ Panel.tabs = Panel.tabs || {};
         val: res.cpu,
         cls: 'cpu',
         fmt: (res.cpu || 0).toFixed(1) + '%',
-        color: '#5b8fd4',
+        color: getCssColor('cpu', '#5b8fd4'),
       },
       {
         label: i18next.t('web:resources.memory'),
         val: res.memPercent,
         cls: 'mem',
         fmt: res.memFormatted || (res.memPercent || 0).toFixed(1) + '%',
-        color: '#9b72cf',
+        color: getCssColor('mem', '#9b72cf'),
       },
       {
         label: i18next.t('web:resources.disk'),
         val: res.diskPercent,
         cls: 'disk',
         fmt: res.diskFormatted || (res.diskPercent || 0).toFixed(1) + '%',
-        color: '#d4a843',
+        color: getCssColor('surge', '#d4a843'),
       },
     ];
     for (let i = 0; i < bars.length; i++) {

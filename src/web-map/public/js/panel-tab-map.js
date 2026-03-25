@@ -15,6 +15,7 @@ Panel.tabs = Panel.tabs || {};
   const esc = Panel.core.esc;
   const apiFetch = Panel.core.apiFetch;
   const entityLink = Panel.core.utils.entityLink;
+  var getCssColor = Panel.core.getCssColor;
 
   let _inited = false;
   let mapWorldLayers = {};
@@ -116,7 +117,10 @@ Panel.tabs = Panel.tabs || {};
         if (s.lat == null) return;
         const icon = L.divIcon({
           className: '',
-          html: '<div style="width:5px;height:5px;background:#3b82f6;border-radius:1px;border:1px solid #12100e"></div>',
+          html:
+            '<div style="width:5px;height:5px;background:#3b82f6;border-radius:1px;border:1px solid ' +
+            getCssColor('surface-300', '#12100e') +
+            '"></div>',
           iconSize: [5, 5],
           iconAnchor: [2.5, 2.5],
         });
@@ -131,7 +135,9 @@ Panel.tabs = Panel.tabs || {};
           '<div class="tl-popup" style="min-width:160px"><b>' +
           entityLink(s.name || i18next.t('web:activity.structure'), 'structure') +
           '</b>' +
-          (s.upgrade ? '<br><span style="color:#7a746c">Level ' + s.upgrade + '</span>' : '') +
+          (s.upgrade
+            ? '<br><span style="color:' + getCssColor('muted', '#7a746c') + '">Level ' + s.upgrade + '</span>'
+            : '') +
           '<br>\u2764\ufe0f ' +
           hpPct +
           '%' +
@@ -151,19 +157,31 @@ Panel.tabs = Panel.tabs || {};
         if (v.lat == null) return;
         const icon = L.divIcon({
           className: '',
-          html: '<div style="width:7px;height:7px;background:#d4a843;border-radius:1px;border:1px solid #12100e"></div>',
+          html:
+            '<div style="width:7px;height:7px;background:' +
+            getCssColor('surge', '#d4a843') +
+            ';border-radius:1px;border:1px solid ' +
+            getCssColor('surface-300', '#12100e') +
+            '"></div>',
           iconSize: [7, 7],
           iconAnchor: [3.5, 3.5],
         });
         const m = L.marker([v.lat, v.lng], { icon: icon });
         m.bindTooltip(esc(v.name || i18next.t('web:activity.vehicle')), { direction: 'top', offset: [0, -5] });
         const hpPct = v.maxHealth ? Math.round((v.health / v.maxHealth) * 100) : 0;
-        const hpColor = hpPct > 60 ? '#6dba82' : hpPct > 30 ? '#d4a843' : '#c45a4a';
+        const hpColor =
+          hpPct > 60
+            ? getCssColor('calm', '#6dba82')
+            : hpPct > 30
+              ? getCssColor('surge', '#d4a843')
+              : getCssColor('horde', '#c45a4a');
         const popupHtml =
           '<div class="tl-popup" style="min-width:160px"><b>' +
           entityLink(v.name || i18next.t('web:activity.vehicle'), 'vehicle') +
           '</b>' +
-          '<br><span style="color:#7a746c">' +
+          '<br><span style="color:' +
+          getCssColor('muted', '#7a746c') +
+          '">' +
           i18next.t('web:item_popup.durability') +
           '</span> <span style="color:' +
           hpColor +
@@ -187,7 +205,10 @@ Panel.tabs = Panel.tabs || {};
         if (c.lat == null) return;
         const icon = L.divIcon({
           className: '',
-          html: '<div style="width:4px;height:4px;background:#a855f7;border-radius:50%;border:1px solid #12100e"></div>',
+          html:
+            '<div style="width:4px;height:4px;background:#a855f7;border-radius:50%;border:1px solid ' +
+            getCssColor('surface-300', '#12100e') +
+            '"></div>',
           iconSize: [4, 4],
           iconAnchor: [2, 2],
         });
@@ -217,7 +238,10 @@ Panel.tabs = Panel.tabs || {};
         if (c.lat == null) return;
         const icon = L.divIcon({
           className: '',
-          html: '<div style="width:6px;height:6px;background:#ec4899;border-radius:50%;border:1px solid #12100e"></div>',
+          html:
+            '<div style="width:6px;height:6px;background:#ec4899;border-radius:50%;border:1px solid ' +
+            getCssColor('surface-300', '#12100e') +
+            '"></div>',
           iconSize: [6, 6],
           iconAnchor: [3, 3],
         });
@@ -247,7 +271,12 @@ Panel.tabs = Panel.tabs || {};
         if (z.lat == null) return;
         const icon = L.divIcon({
           className: 'timeline-marker',
-          html: '<div style="width:6px;height:6px;border-radius:50%;background:#9b59b6;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #9b59b660;" title="Zombie"></div>',
+          html:
+            '<div style="width:6px;height:6px;border-radius:50%;background:' +
+            getCssColor('map-zombie', '#9b59b6') +
+            ';border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px ' +
+            getCssColor('map-zombie', '#9b59b6') +
+            '60;" title="Zombie"></div>',
           iconSize: [6, 6],
           iconAnchor: [3, 3],
         });
@@ -264,7 +293,12 @@ Panel.tabs = Panel.tabs || {};
         if (a.lat == null) return;
         const icon = L.divIcon({
           className: 'timeline-marker',
-          html: '<div style="width:7px;height:7px;transform:rotate(45deg);border-radius:2px;background:#e67e22;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #e67e2260;" title="Animal"></div>',
+          html:
+            '<div style="width:7px;height:7px;transform:rotate(45deg);border-radius:2px;background:' +
+            getCssColor('map-animal', '#e67e22') +
+            ';border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px ' +
+            getCssColor('map-animal', '#e67e22') +
+            '60;" title="Animal"></div>',
           iconSize: [7, 7],
           iconAnchor: [3.5, 3.5],
         });
@@ -281,7 +315,12 @@ Panel.tabs = Panel.tabs || {};
         if (b.lat == null) return;
         const icon = L.divIcon({
           className: 'timeline-marker',
-          html: '<div style="width:8px;height:8px;border-radius:2px;background:#e74c3c;border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px #e74c3c60;" title="Bandit"></div>',
+          html:
+            '<div style="width:8px;height:8px;border-radius:2px;background:' +
+            getCssColor('map-bandit', '#e74c3c') +
+            ';border:1.5px solid rgba(255,255,255,0.4);box-shadow:0 0 4px ' +
+            getCssColor('map-bandit', '#e74c3c') +
+            '60;" title="Bandit"></div>',
           iconSize: [8, 8],
           iconAnchor: [4, 4],
         });
@@ -312,13 +351,15 @@ Panel.tabs = Panel.tabs || {};
       if (!showOffline && !p.isOnline) continue;
       if (p.lat == null || p.lng == null) continue;
 
-      const color = p.isOnline ? '#6dba82' : '#7a746c';
+      const color = p.isOnline ? getCssColor('calm', '#6dba82') : getCssColor('muted', '#7a746c');
       const icon = L.divIcon({
         className: '',
         html:
           '<div style="width:10px;height:10px;border-radius:50%;background:' +
           color +
-          ';border:2px solid #12100e"></div>',
+          ';border:2px solid ' +
+          getCssColor('surface-300', '#12100e') +
+          '"></div>',
         iconSize: [10, 10],
         iconAnchor: [5, 5],
       });

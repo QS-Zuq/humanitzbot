@@ -237,7 +237,7 @@ window.Panel = window.Panel || {};
     popup.className = 'item-popup';
 
     // Build header with close button
-    let html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
+    let html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:var(--color-horde, #c45a4a);font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
     html += '<div class="item-popup-body">';
 
     // Instance badge — highlight that this is a tracked specific item

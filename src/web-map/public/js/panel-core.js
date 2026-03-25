@@ -326,6 +326,17 @@ window.Panel = window.Panel || {};
     });
   }
 
+  // ── CSS Color Utility ───────────────────────────
+
+  /** Read a resolved CSS custom property from :root (for Chart.js, Leaflet, etc.) */
+  function getCssColor(name, fallback) {
+    if (typeof document === 'undefined') return fallback || '';
+    var val = getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-' + name)
+      .trim();
+    return val || fallback || '';
+  }
+
   // ── Expose API ────────────────────────────────────
 
   Panel.core = {
@@ -345,5 +356,6 @@ window.Panel = window.Panel || {};
     getSettingDescs: getSettingDescs,
     getEnvDescs: getEnvDescs,
     getDbTables: getDbTables,
+    getCssColor: getCssColor,
   };
 })();

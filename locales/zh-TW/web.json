@@ -554,9 +554,11 @@
     "bot_groups": {
       "core": "核心",
       "connection": "連線設定",
-      "modules": "功能模組",
+      "features": "功能開關",
+      "automation": "自動化",
       "tracking": "追蹤記錄",
-      "display": "顯示設定",
+      "player_display": "玩家顯示",
+      "panel_display": "面板顯示",
       "advanced": "進階設定"
     },
     "secret_set": "已設定",

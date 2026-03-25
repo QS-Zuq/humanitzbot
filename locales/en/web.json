@@ -554,9 +554,11 @@
     "bot_groups": {
       "core": "Core",
       "connection": "Connection",
-      "modules": "Modules",
+      "features": "Features",
+      "automation": "Automation",
       "tracking": "Tracking",
-      "display": "Display",
+      "player_display": "Player Display",
+      "panel_display": "Panel Display",
       "advanced": "Advanced"
     },
     "secret_set": "Configured",

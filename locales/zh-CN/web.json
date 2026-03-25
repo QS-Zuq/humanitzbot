@@ -554,9 +554,11 @@
     "bot_groups": {
       "core": "核心",
       "connection": "连接设置",
-      "modules": "功能模块",
+      "features": "功能开关",
+      "automation": "自动化",
       "tracking": "跟踪记录",
-      "display": "显示设置",
+      "player_display": "玩家显示",
+      "panel_display": "面板显示",
       "advanced": "高级设置"
     },
     "secret_set": "已设置",

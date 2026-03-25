@@ -340,7 +340,7 @@ Panel.tabs = Panel.tabs || {};
       '<button class="srv-modal-cancel btn-secondary text-xs px-4 py-2">' +
       esc(t('cancel_btn')) +
       '</button>' +
-      '<button class="srv-modal-delete btn-primary text-xs px-4 py-2 opacity-50 cursor-not-allowed" disabled style="background:rgba(196,90,74,0.2);border-color:rgba(196,90,74,0.3);color:#c45a4a">' +
+      '<button class="srv-modal-delete btn-primary text-xs px-4 py-2 opacity-50 cursor-not-allowed" disabled style="background:rgba(196,90,74,0.2);border-color:rgba(196,90,74,0.3);color:var(--color-horde, #c45a4a)">' +
       esc(t('action_delete')) +
       '</button>' +
       '</div>';

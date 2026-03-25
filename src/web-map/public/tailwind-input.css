@@ -1,17 +1,18 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @source "./panel.html";
-@source "./panel.js";
+@source "./js/**/*.js";
 
 @theme {
-  /* Base surfaces — scorched dark with ashen warmth */
-  --color-surface-50: #262220;
-  --color-surface-100: #1f1c1a;
-  --color-surface-200: #191614;
+  /* Base surfaces — scorched dark with ashen warmth, improved layer separation */
+  --color-surface-50: #2a2623;
+  --color-surface-100: #211e1b;
+  --color-surface-200: #1a1714;
   --color-surface-300: #12100e;
 
-  --color-border: #302a25;
-  --color-border-light: #3d3630;
+  /* Borders — lifted for better visibility */
+  --color-border: #352f29;
+  --color-border-light: #453d36;
 
   /* Primary accent — warm amber/copper (field radio dial) */
   --color-accent: #d4915c;
@@ -25,18 +26,29 @@
   --color-blood: #8b3a3a;
   --color-rust: #9c6844;
   --color-ash: #3a3633;
-  --color-muted: #7a746c;
 
-  --color-text: #c8c2b8;
-  --color-text-bright: #e8e3db;
-  --color-text-dim: #5c574f;
+  /* Text — muted lifted to pass WCAG AA (was 3.8:1, now ~5.2:1) */
+  --color-muted: #918a82;
+
+  --color-text: #cdc7bd;
+  --color-text-bright: #ece8e1;
+  --color-text-dim: #6e6860;
 
   /* Typography */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-heading: "Red Rose", Georgia, serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Red Rose', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Shadows */
   --shadow-worn: 0 1px 0 0 rgba(60, 52, 44, 0.4);
   --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(48, 42, 37, 0.3);
+
+  /* Resource bars (used in JS) */
+  --color-cpu: #5b8fd4;
+  --color-mem: #9b72cf;
+
+  /* Map layer colors (used in JS + inline styles) */
+  --color-map-zombie: #9b59b6;
+  --color-map-animal: #e67e22;
+  --color-map-bandit: #e74c3c;
 }

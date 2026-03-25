@@ -20,6 +20,7 @@ Panel.tabs = Panel.tabs || {};
   const getEnvDescs = Panel.core.getEnvDescs;
   const humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
   const showToast = Panel.core.utils.showToast;
+  var getCssColor = Panel.core.getCssColor;
 
   let _inited = false;
 
@@ -332,7 +333,6 @@ Panel.tabs = Panel.tabs || {};
     channels: 1,
     restart_schedule: 1,
     server_advanced: 1,
-    server_advanced2: 1,
   };
 
   async function loadBotConfig() {
@@ -435,15 +435,14 @@ Panel.tabs = Panel.tabs || {};
       sectionEl.dataset.sectionId = sec.id || '';
       sectionEl.dataset.sectionLabel = (sec.label || '').toLowerCase();
 
-      var header = el('div', 'settings-category-header');
+      var header = el(
+        'div',
+        'settings-section-label text-xs font-medium text-muted uppercase tracking-wider mt-3 mb-1 px-1',
+      );
       header.innerHTML =
-        '<span class="cat-arrow">\u25B8</span><span class="cat-label">' +
-        esc(sec.label) +
-        '</span><span class="cat-count">' +
-        sec.keys.length +
-        '</span>';
+        '<span class="cat-label">' + esc(sec.label) + '</span><span class="cat-count">' + sec.keys.length + '</span>';
 
-      var body = el('div', 'settings-category-items');
+      var body = el('div', 'settings-category-items open');
       for (var ki = 0; ki < sec.keys.length; ki++) {
         var item = sec.keys[ki];
         var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
@@ -456,7 +455,7 @@ Panel.tabs = Panel.tabs || {};
         if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
         if (item.readOnly)
           nameHtml +=
-            ' <span class="setting-sensitive-badge" style="color:#d4a843;border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
+            ' <span class="setting-sensitive-badge" style="color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
         var inputHtml;
@@ -501,13 +500,6 @@ Panel.tabs = Panel.tabs || {};
         row.innerHTML = nameHtml + (desc ? '<div class="setting-desc">' + esc(desc) + '</div>' : '') + inputHtml;
         body.appendChild(row);
       }
-
-      (function (bodyEl, headerEl) {
-        headerEl.addEventListener('click', function () {
-          bodyEl.classList.toggle('open');
-          headerEl.querySelector('.cat-arrow').classList.toggle('open');
-        });
-      })(body, header);
 
       sectionEl.appendChild(header);
 
@@ -724,11 +716,7 @@ Panel.tabs = Panel.tabs || {};
       for (var oi = 0; oi < orphans.length; oi++) {
         var secEl = renderSection(orphans[oi]);
         if (secEl) {
-          // Auto expand first category if flat
-          if (!hasGroups && oi === 0) {
-            secEl.querySelector('.settings-category-items').classList.add('open');
-            secEl.querySelector('.cat-arrow').classList.add('open');
-          }
+          // Body already has 'open' class by default from renderSection
           orphanContainer.appendChild(secEl);
         }
       }
@@ -798,8 +786,6 @@ Panel.tabs = Panel.tabs || {};
                 // Expand category
                 var items = c.querySelector('.settings-category-items');
                 if (items) items.classList.add('open');
-                var arrow = c.querySelector('.cat-arrow');
-                if (arrow) arrow.classList.add('open');
               } else {
                 c.style.display = 'none';
               }
@@ -841,8 +827,6 @@ Panel.tabs = Panel.tabs || {};
               // Expand category
               var items = c.querySelector('.settings-category-items');
               if (items) items.classList.add('open');
-              var arrow = c.querySelector('.cat-arrow');
-              if (arrow) arrow.classList.add('open');
             } else {
               c.style.display = 'none';
             }
@@ -1079,7 +1063,13 @@ Panel.tabs = Panel.tabs || {};
 
   function buildScheduleTip(name, colorCls, ps) {
     const accent =
-      colorCls === 'calm' ? '#6dba82' : colorCls === 'surge' ? '#d4a843' : colorCls === 'horde' ? '#c45a4a' : '#c8c2b8';
+      colorCls === 'calm'
+        ? getCssColor('calm', '#6dba82')
+        : colorCls === 'surge'
+          ? getCssColor('surge', '#d4a843')
+          : colorCls === 'horde'
+            ? getCssColor('horde', '#c45a4a')
+            : getCssColor('text', '#c8c2b8');
     let h = '<div class="sched-tip"><div class="sched-tip-title" style="color:' + accent + '">' + esc(name) + '</div>';
     for (const k in ps) {
       if (!ps.hasOwnProperty(k) || SCHED_SKIP_KEYS[k]) continue;
@@ -1692,7 +1682,7 @@ Panel.tabs = Panel.tabs || {};
     const statusEl = $('#sched-editor-status');
     if (statusEl) {
       statusEl.textContent = i18next.t('web:schedule_editor.saving');
-      statusEl.style.color = '#d4a843';
+      statusEl.style.color = getCssColor('surge', '#d4a843');
     }
     const tpl = ($('#sched-name-template') || {}).value || '';
     if (tpl) {
@@ -1722,7 +1712,7 @@ Panel.tabs = Panel.tabs || {};
         if (data.ok) {
           if (statusEl) {
             statusEl.textContent = i18next.t('web:schedule_editor.saved_restart');
-            statusEl.style.color = '#6dba82';
+            statusEl.style.color = getCssColor('calm', '#6dba82');
           }
           setTimeout(function () {
             loadScheduleEditor();
@@ -1730,14 +1720,14 @@ Panel.tabs = Panel.tabs || {};
         } else {
           if (statusEl) {
             statusEl.textContent = data.error || i18next.t('web:toast.save_failed');
-            statusEl.style.color = '#c45a4a';
+            statusEl.style.color = getCssColor('horde', '#c45a4a');
           }
         }
       })
       .catch(function (_e) {
         if (statusEl) {
           statusEl.textContent = i18next.t('web:schedule_editor.network_error');
-          statusEl.style.color = '#c45a4a';
+          statusEl.style.color = getCssColor('horde', '#c45a4a');
         }
       });
   }
