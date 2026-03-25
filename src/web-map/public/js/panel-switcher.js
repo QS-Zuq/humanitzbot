@@ -95,10 +95,11 @@ window.Panel = window.Panel || {};
 
   /** Determine dot CSS class from server status string */
   function _dotClass(status) {
-    if (status === 'online') return 'switcher-dot-online';
+    if (status === 'online' || status === 'running') return 'switcher-dot-online';
     if (status === 'stale' || status === 'starting') return 'switcher-dot-starting';
     if (status === 'offline' || status === 'stopped') return 'switcher-dot-offline';
-    return 'switcher-dot-offline';
+    // Unknown / not yet polled — show loading (yellow) instead of falsely showing offline (red)
+    return 'switcher-dot-starting';
   }
 
   // ── Update Button Label ───────────────────────────

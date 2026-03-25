@@ -13,7 +13,9 @@ class ChatRelay {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._db = deps.db || null;
-    this._label = deps.label || 'CHAT RELAY';
+    this._label = String(deps.label || 'CHAT RELAY')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this.adminChannel = null;
     this._lastLines = []; // snapshot for diff
     this._pollTimer = null;

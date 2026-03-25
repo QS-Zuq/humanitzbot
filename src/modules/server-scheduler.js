@@ -41,7 +41,9 @@ class ServerScheduler {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._panelApi = deps.panelApi || _defaultPanelApi;
-    this._label = deps.label || 'SCHEDULER';
+    this._label = String(deps.label || 'SCHEDULER')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this._client = client;
     this._logWatcher = logWatcher || null;
     this._interval = null;

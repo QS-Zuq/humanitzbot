@@ -17,7 +17,9 @@ class ServerStatus {
     this._getPlayerList = deps.getPlayerList || require('../rcon/server-info').getPlayerList;
     this._sendAdminMessage = deps.sendAdminMessage || require('../rcon/server-info').sendAdminMessage;
     this._db = deps.db || null;
-    this._label = deps.label || 'STATUS';
+    this._label = String(deps.label || 'STATUS')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
 
     this.client = client;
     this.channel = null;

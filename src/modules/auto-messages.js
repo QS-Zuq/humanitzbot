@@ -2,7 +2,6 @@ const _defaultConfig = require('../config');
 const { sendAdminMessage, getServerInfo } = require('../rcon/server-info');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
-const SftpClient = require('ssh2-sftp-client');
 
 // Content layer: text generation, color helpers, welcome file builder
 const content = require('./auto-messages-content');
@@ -16,7 +15,9 @@ class AutoMessages {
     this._getServerInfo = deps.getServerInfo || getServerInfo;
     this._sendAdminMessage = deps.sendAdminMessage || sendAdminMessage;
     this._presenceTracker = deps.presenceTracker || null;
-    this._label = deps.label || 'AUTO MSG';
+    this._label = String(deps.label || 'AUTO MSG')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this._db = deps.db || null;
 
     this.discordLink = this._config.discordInviteLink;
@@ -27,6 +28,7 @@ class AutoMessages {
 
     this._linkTimer = null;
     this._promoTimer = null;
+    this._onPlayerJoined = null; // bound listener reference for cleanup
 
     this._lastWelcomeTime = 0; // anti-spam: last RCON welcome sent
     this._welcomeCooldown = 5000; // ms between welcome messages
@@ -53,7 +55,8 @@ class AutoMessages {
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
-      this._presenceTracker.on('playerJoined', (joiner) => this._sendWelcomeMessage(joiner));
+      this._onPlayerJoined = (joiner) => this._sendWelcomeMessage(joiner);
+      this._presenceTracker.on('playerJoined', this._onPlayerJoined);
       console.log(`[${this._label}] RCON welcome messages enabled (on player join)`);
     } else if (this._config.enableWelcomeMsg) {
       console.log(`[${this._label}] RCON welcome messages enabled but no presence tracker — skipping`);
@@ -66,6 +69,10 @@ class AutoMessages {
   stop() {
     if (this._linkTimer) clearInterval(this._linkTimer);
     if (this._promoTimer) clearInterval(this._promoTimer);
+    if (this._onPlayerJoined && this._presenceTracker) {
+      this._presenceTracker.removeListener('playerJoined', this._onPlayerJoined);
+      this._onPlayerJoined = null;
+    }
     this._linkTimer = null;
     this._promoTimer = null;
     console.log(`[${this._label}] Stopped.`);
@@ -136,63 +143,6 @@ class AutoMessages {
       console.log(`[${this._label}] Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
     } catch (err) {
       console.error(`[${this._label}] Failed to send welcome to ${joiner.name}:`, err.message);
-    }
-  }
-
-  // ── SFTP WelcomeMessage.txt ─────────────────────────────────
-
-  async _buildWelcomeFileContent() {
-    const lines = this._config.welcomeFileLines;
-    if (lines.length > 0) {
-      // User-defined lines — resolve placeholders
-      const info = await this._getServerInfoSafe();
-      return lines.map((line) => this._resolvePlaceholders(line, info)).join('\n');
-    }
-    // Default: use the standalone builder (no RCON needed)
-    return buildWelcomeContent({
-      config: this._config,
-      playtime: this._playtime,
-      playerStats: this._playerStats,
-      getServerInfo: this._getServerInfo,
-      db: this._db,
-    });
-  }
-
-  async _getServerInfoSafe() {
-    try {
-      return await this._getServerInfo();
-    } catch {
-      return {};
-    }
-  }
-
-  _resolvePlaceholders(text, info) {
-    const serverName = (info && info.name) || '';
-    const day = (info && info.day) || '';
-    const season = (info && info.season) || '';
-    const weather = (info && info.weather) || '';
-    return text
-      .replace(/\{pvp_schedule\}/gi, (this._pvpScheduleText() || '').trim())
-      .replace(/\{discord_link\}/gi, this.discordLink || '')
-      .replace(/\{discord\}/gi, this.discordLink || '')
-      .replace(/\{server_name\}/gi, serverName)
-      .replace(/\{day\}/gi, day)
-      .replace(/\{season\}/gi, season)
-      .replace(/\{weather\}/gi, weather);
-  }
-
-  async _writeWelcomeFile() {
-    const sftp = new SftpClient();
-    try {
-      await sftp.connect(this._config.sftpConnectConfig());
-
-      const fileContent = await this._buildWelcomeFileContent();
-      await sftp.put(Buffer.from(fileContent, 'utf8'), this._config.ftpWelcomePath);
-      console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
-    } catch (err) {
-      console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-    } finally {
-      await sftp.end().catch(() => {});
     }
   }
 }

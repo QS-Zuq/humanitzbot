@@ -3239,11 +3239,12 @@ class WebMapServer {
           try {
             await sftp.connect(req.srv.config.sftpConnectConfig());
             const buf = await sftp.get(welcomePath);
-            await sftp.end().catch(() => {});
             const content = buf.toString('utf8');
             return sendOk(res, { content, placeholders, source: 'sftp' });
-          } catch (_sftpErr) {
-            // SFTP failed — fall through to config
+          } catch (sftpErr) {
+            console.warn('[WelcomeFile] SFTP read failed, falling back to config:', sftpErr.message);
+          } finally {
+            await sftp.end().catch(() => {});
           }
         }
 
@@ -3261,6 +3262,7 @@ class WebMapServer {
       try {
         const { content } = req.body;
         if (typeof content !== 'string') return sendError(res, 'INVALID_CONTENT', 400);
+        if (content.length > 10000) return sendError(res, 'CONTENT_TOO_LARGE', 400);
 
         // Convert newlines to pipe-separated array
         const lines = content.split('\n');
@@ -3310,8 +3312,13 @@ class WebMapServer {
             });
           }
         }
-
-        return sendOk(res, { message: 'Welcome file saved and uploaded', lineCount: lines.length, uploaded: true });
+        return sendOk(res, {
+          message: welcomePath
+            ? 'Welcome file saved and uploaded'
+            : 'Welcome file saved to config (no SFTP path configured)',
+          lineCount: lines.length,
+          uploaded: !!welcomePath,
+        });
       } catch (err) {
         return sendError(res, 'WELCOME_FILE_SAVE_FAILED', 500, safeError(err));
       }

@@ -18,7 +18,10 @@ class PlayerPresenceTracker extends EventEmitter {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._getPlayerList = deps.getPlayerList || _defaultGetPlayerList;
-    this._label = deps.label || 'PRESENCE';
+    // Sanitize label — may originate from user-configurable server names in multi-server mode
+    this._label = String(deps.label || 'PRESENCE')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
 
     this._onlinePlayers = new Set();
     this._pollTimer = null;
@@ -88,8 +91,15 @@ class PlayerPresenceTracker extends EventEmitter {
   async _poll() {
     if (!this._initialised) return;
 
+    let list;
     try {
-      const list = await this._getPlayerList();
+      list = await this._getPlayerList();
+    } catch (_) {
+      // RCON failure expected during server restarts — silently ignore
+      return;
+    }
+
+    try {
       const currentOnline = new Set();
       const newJoiners = [];
 
@@ -99,17 +109,20 @@ class PlayerPresenceTracker extends EventEmitter {
           const id = hasSteamId ? p.steamId : p.name;
           currentOnline.add(id);
 
-          // Detect new joins — player wasn't in previous snapshot
           if (!this._onlinePlayers.has(id)) {
             newJoiners.push({ id, name: p.name || 'Unknown', steamId: hasSteamId ? p.steamId : null });
           }
         }
       }
 
-      // Detect leaves — player was online but no longer present
+      // Detect leaves
       for (const id of this._onlinePlayers) {
         if (!currentOnline.has(id)) {
-          this.emit('playerLeft', { id });
+          try {
+            this.emit('playerLeft', { id });
+          } catch (e) {
+            console.error(`[${this._label}] Listener error on playerLeft:`, e);
+          }
         }
       }
 
@@ -122,12 +135,16 @@ class PlayerPresenceTracker extends EventEmitter {
         this._playtime.recordUniqueToday(id);
       }
 
-      // Emit join events
+      // Emit join events (wrapped individually so one listener failure doesn't block others)
       for (const joiner of newJoiners) {
-        this.emit('playerJoined', joiner);
+        try {
+          this.emit('playerJoined', joiner);
+        } catch (e) {
+          console.error(`[${this._label}] Listener error on playerJoined:`, e);
+        }
       }
-    } catch (_) {
-      // Silently ignore — server might be restarting
+    } catch (err) {
+      console.error(`[${this._label}] Unexpected poll error:`, err);
     }
   }
 }

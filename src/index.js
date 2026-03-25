@@ -683,7 +683,11 @@ client.once(Events.ClientReady, async (readyClient) => {
       getPlayerList,
       label: 'PRESENCE',
     });
-    await presenceTracker.start();
+    try {
+      await presenceTracker.start();
+    } catch (err) {
+      console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
+    }
 
     // Auto-Messages — periodic broadcasts + join welcome
     const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;

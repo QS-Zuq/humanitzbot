@@ -26,6 +26,9 @@ function SqliteSessionStore(db, opts = {}) {
 
   this._db = db;
   this._table = opts.table || 'web_sessions';
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(this._table)) {
+    throw new Error(`[SESSION] Invalid table name: ${this._table}`);
+  }
   this._cleanupInterval = opts.cleanupInterval ?? 15 * 60 * 1000;
   this._cleanupTimer = null;
 

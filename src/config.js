@@ -271,6 +271,7 @@ const config = {
   enableStatusChannels: envBool('ENABLE_STATUS_CHANNELS', true),
   enableServerStatus: envBool('ENABLE_SERVER_STATUS', true),
   enableChatRelay: envBool('ENABLE_CHAT_RELAY', true),
+  /** @deprecated Use enableAutoMsgLink, enableAutoMsgPromo, enableWelcomeMsg instead */
   enableAutoMessages: envBool('ENABLE_AUTO_MESSAGES', true),
   enableLogWatcher: envBool('ENABLE_LOG_WATCHER', true),
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),

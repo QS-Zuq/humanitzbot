@@ -9,7 +9,9 @@ class PvpScheduler {
   constructor(client, logWatcher, deps = {}) {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
-    this._label = deps.label || 'PVP';
+    this._label = String(deps.label || 'PVP')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this._client = client; // Discord client (for posting announcements)
     this._logWatcher = logWatcher || null; // for posting to activity thread
     this._interval = null;

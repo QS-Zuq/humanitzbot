@@ -13,7 +13,9 @@ class LogWatcher {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._db = deps.db || null;
-    this._label = deps.label || 'LOGS';
+    this._label = String(deps.label || 'LOGS')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this._dataDir = deps.dataDir || null;
     this._panelApi = deps.panelApi || null;
 

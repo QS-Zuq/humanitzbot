@@ -133,7 +133,9 @@ class PlayerStatsChannel {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._db = deps.db || null;
-    this._label = deps.label || 'PLAYER STATS CH';
+    this._label = String(deps.label || 'PLAYER STATS CH')
+      .replace(/[^\w\s:/-]/g, '')
+      .slice(0, 40);
     this._serverId = deps.serverId || ''; // unique suffix for select menu IDs
     this._dataDir = deps.dataDir || null; // for writing save-cache.json (multi-server)
     this._panelApi = deps.panelApi || null;
