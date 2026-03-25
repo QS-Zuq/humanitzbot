@@ -8,7 +8,6 @@ const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const KillTracker = require('../tracking/kill-tracker');
 const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('../parsers/save-parser');
-const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('../parsers/game-data');
 const { cleanItemName: _sharedCleanItemName } = require('../parsers/ue4-names');
 const os = require('os');
@@ -306,25 +305,7 @@ class PlayerStatsChannel {
         // Fetch + cache server settings INI
         await this._fetchServerSettings(sftp);
 
-        // Upload welcome file if enabled
-        if (this._config.enableWelcomeFile) {
-          try {
-            const content = await buildWelcomeContent({
-              config: this._config,
-              playtime: this._playtime,
-              playerStats: this._playerStats,
-              db: this._db,
-            });
-            if (hasPanelApi) {
-              await this._panelApi.writeFile(this._config.ftpWelcomePath, content);
-            } else {
-              await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-            }
-            console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
-          } catch (err) {
-            console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-          }
-        }
+        // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
       } catch (err) {
         console.error(`[${this._label}] Side-channel error:`, err.message);
       } finally {
@@ -557,25 +538,7 @@ class PlayerStatsChannel {
       // Write save-cache.json for web panel (multi-server instances)
       this._writeSaveCache();
 
-      // Welcome file
-      if (this._config.enableWelcomeFile) {
-        try {
-          const content = await buildWelcomeContent({
-            config: this._config,
-            playtime: this._playtime,
-            playerStats: this._playerStats,
-            db: this._db,
-          });
-          if (this._panelApi && this._panelApi.available) {
-            await this._panelApi.writeFile(this._config.ftpWelcomePath, content);
-          } else {
-            await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-          }
-          console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
-        } catch (err) {
-          console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-        }
-      }
+      // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
     } catch (err) {
       console.error(`[${this._label}] Legacy save poll error:`, err.message);
     } finally {

@@ -229,7 +229,6 @@ const ENV_CATEGORIES = [
       { env: 'ENABLE_WELCOME_FILE', label: 'Welcome File SFTP (true/false)', cfg: 'enableWelcomeFile', type: 'bool' },
       { env: 'AUTO_MSG_LINK_TEXT', label: 'Custom Link Broadcast', cfg: 'autoMsgLinkText' },
       { env: 'AUTO_MSG_PROMO_TEXT', label: 'Custom Promo Broadcast', cfg: 'autoMsgPromoText' },
-      { env: 'WELCOME_FILE_LINES', label: 'Welcome Lines (pipe-separated)', cfg: 'welcomeFileLines' },
       { env: 'FTP_WELCOME_PATH', label: 'Welcome File Path', cfg: 'ftpWelcomePath' },
     ],
   },

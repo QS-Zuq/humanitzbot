@@ -26,7 +26,6 @@ const _defaultConfig = require('../config');
 const _defaultRcon = require('../rcon/rcon');
 const _defaultPanelApi = require('../server/panel-api');
 const { getDayOffset, getRotatedProfileIndex, getTodaySchedule } = require('./schedule-utils');
-const { buildWelcomeContent } = require('./auto-messages');
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
@@ -407,20 +406,7 @@ class ServerScheduler {
       }
     }
 
-    // Write WelcomeMessage.txt before restart so the game reads fresh content on boot
-    if (this._config.enableWelcomeFile && this._config.ftpHost) {
-      const wsftp = new SftpClient();
-      try {
-        await wsftp.connect(this._config.sftpConnectConfig());
-        const content = await buildWelcomeContent({ config: this._config });
-        await wsftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-        console.log(`[${this._label}] Updated WelcomeMessage.txt before restart`);
-      } catch (err) {
-        console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-      } finally {
-        await wsftp.end().catch(() => {});
-      }
-    }
+    // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
 
     // Post to activity thread
     await this._postToActivityLog(profileName, profileSettings);

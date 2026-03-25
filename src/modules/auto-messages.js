@@ -66,13 +66,7 @@ class AutoMessages {
       console.log(`[${this._label}] RCON welcome messages disabled`);
     }
 
-    // SFTP WelcomeMessage.txt — write once at startup, then refreshed after each save poll
-    if (this._config.enableWelcomeFile && this._config.ftpHost) {
-      await this._writeWelcomeFile();
-      console.log(`[${this._label}] WelcomeMessage.txt written (updates after each save poll)`);
-    } else if (this._config.enableWelcomeFile) {
-      console.log(`[${this._label}] WelcomeMessage.txt disabled — no SFTP credentials`);
-    }
+    // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
   }
 
   stop() {

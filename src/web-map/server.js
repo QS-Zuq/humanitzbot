@@ -3223,6 +3223,108 @@ class WebMapServer {
     });
 
     // ══════════════════════════════════════════════════════════════════
+    //  Welcome File Editor
+    // ══════════════════════════════════════════════════════════════════
+
+    /** GET /api/panel/welcome-file — read current welcome file from SFTP (fallback to config) */
+    app.get('/api/panel/welcome-file', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
+      const placeholders = [
+        '{server_name}',
+        '{day}',
+        '{season}',
+        '{weather}',
+        '{pvp_schedule}',
+        '{discord_link}',
+        '{discord}',
+      ];
+      try {
+        // Try reading the actual file from the game server via SFTP
+        const welcomePath = req.srv.config.ftpWelcomePath;
+        if (welcomePath) {
+          const SftpClient = require('ssh2-sftp-client');
+          const sftp = new SftpClient();
+          try {
+            await sftp.connect(req.srv.config.sftpConnectConfig());
+            const buf = await sftp.get(welcomePath);
+            await sftp.end().catch(() => {});
+            const content = buf.toString('utf8');
+            return sendOk(res, { content, placeholders, source: 'sftp' });
+          } catch (_sftpErr) {
+            // SFTP failed — fall through to config
+          }
+        }
+
+        // Fallback: read from config (pipe-separated lines → newline-separated)
+        const lines = req.srv.config.welcomeFileLines || [];
+        const content = Array.isArray(lines) ? lines.join('\n') : String(lines);
+        return sendOk(res, { content, placeholders, source: content ? 'config' : 'empty' });
+      } catch (err) {
+        return sendError(res, 'WELCOME_FILE_READ_FAILED', 500, safeError(err));
+      }
+    });
+
+    /** POST /api/panel/welcome-file — save welcome file content + trigger SFTP upload */
+    app.post('/api/panel/welcome-file', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
+      try {
+        const { content } = req.body;
+        if (typeof content !== 'string') return sendError(res, 'INVALID_CONTENT', 400);
+
+        // Convert newlines to pipe-separated array
+        const lines = content.split('\n');
+
+        // Save to config
+        const config = req.srv.config;
+        config.welcomeFileLines = lines;
+
+        if (configRepo) {
+          configRepo.update('app', { welcomeFileLines: lines });
+        } else {
+          // Legacy .env fallback
+          const envPath = path.join(__dirname, '..', '..', '.env');
+          if (fs.existsSync(envPath)) {
+            const envContent = fs.readFileSync(envPath, 'utf8');
+            const envLines = envContent.split('\n');
+            const pipeValue = lines.join('|');
+            let found = false;
+            const newEnvLines = envLines.map((l) => {
+              if (l.startsWith('WELCOME_FILE_LINES=')) {
+                found = true;
+                return `WELCOME_FILE_LINES=${pipeValue}`;
+              }
+              return l;
+            });
+            if (!found) newEnvLines.push(`WELCOME_FILE_LINES=${pipeValue}`);
+            fs.writeFileSync(envPath, newEnvLines.join('\n'));
+          }
+        }
+
+        // Upload directly via SFTP
+        const welcomePath = config.ftpWelcomePath;
+        if (welcomePath) {
+          try {
+            const SftpClient = require('ssh2-sftp-client');
+            const sftp = new SftpClient();
+            await sftp.connect(config.sftpConnectConfig());
+            await sftp.put(Buffer.from(content, 'utf8'), welcomePath);
+            await sftp.end().catch(() => {});
+            console.log('[WelcomeFile] Uploaded WelcomeMessage.txt via panel editor');
+          } catch (sftpErr) {
+            console.error('[WelcomeFile] SFTP upload failed:', sftpErr.message);
+            return sendOk(res, {
+              message: 'Welcome file saved to config but SFTP upload failed: ' + sftpErr.message,
+              lineCount: lines.length,
+              uploaded: false,
+            });
+          }
+        }
+
+        return sendOk(res, { message: 'Welcome file saved and uploaded', lineCount: lines.length, uploaded: true });
+      } catch (err) {
+        return sendError(res, 'WELCOME_FILE_SAVE_FAILED', 500, safeError(err));
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════
     //  Anticheat API — flag browser, risk scores, review
     // ══════════════════════════════════════════════════════════════════
 

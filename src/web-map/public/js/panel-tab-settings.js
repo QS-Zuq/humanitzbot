@@ -1,5 +1,5 @@
 /**
- * Panel Tab: Settings — game settings, bot config (.env), and schedule editor.
+ * Panel Tab: Settings — game settings, bot config (.env), schedule editor, and welcome file editor.
  * @namespace Panel.tabs.settings
  */
 window.Panel = window.Panel || {};
@@ -1746,6 +1746,204 @@ Panel.tabs = Panel.tabs || {};
       };
   })();
 
+  // ══════════════════════════════════════════════════════════════════
+  //  Welcome File Editor
+  // ══════════════════════════════════════════════════════════════════
+
+  async function loadWelcomeEditor() {
+    var container = $('#settings-grid');
+    if (!container) return;
+    container.innerHTML = '<div class="feed-empty">Loading...</div>';
+
+    try {
+      var r = await apiFetch('/api/panel/welcome-file');
+      if (!r.ok) throw new Error('Failed to load');
+      var d = await r.json();
+      var content = d.content || '';
+      var placeholders = d.placeholders || [];
+      renderWelcomeEditor(container, content, placeholders);
+    } catch (_err) {
+      container.innerHTML = '<div class="feed-empty">' + i18next.t('web:settings.welcome_load_failed') + '</div>';
+    }
+  }
+
+  function renderWelcomeEditor(container, content, placeholders) {
+    container.innerHTML = '';
+
+    // ── Header ──
+    var header = el('div', 'mb-4');
+    header.innerHTML =
+      '<h3 class="card-title flex items-center gap-2"><i data-lucide="scroll-text" class="w-4 h-4 text-muted"></i> ' +
+      i18next.t('web:settings.welcome_editor_title') +
+      '</h3>' +
+      '<p class="text-[10px] text-muted mt-1">' +
+      i18next.t('web:settings.welcome_editor_desc') +
+      '</p>';
+    container.appendChild(header);
+
+    // ── Editor grid (split pane) ──
+    var editorGrid = el('div', 'welcome-editor');
+
+    // Left pane
+    var leftPane = el('div', '');
+
+    // Toolbar
+    var toolbar = el('div', 'welcome-toolbar');
+
+    // Color tag label
+    var tagLabel = el('span', 'text-[10px] text-muted');
+    tagLabel.textContent = i18next.t('web:settings.welcome_insert_tag');
+    toolbar.appendChild(tagLabel);
+
+    // Color tag buttons
+    var tags = [
+      { tag: 'PR', label: i18next.t('web:settings.welcome_tag_green'), cls: 'PR' },
+      { tag: 'SP', label: i18next.t('web:settings.welcome_tag_orange'), cls: 'SP' },
+      { tag: 'CL', label: i18next.t('web:settings.welcome_tag_blue'), cls: 'CL' },
+      { tag: 'FO', label: i18next.t('web:settings.welcome_tag_gray'), cls: 'FO' },
+      { tag: 'PN', label: i18next.t('web:settings.welcome_tag_red'), cls: 'PN' },
+    ];
+    for (var ti = 0; ti < tags.length; ti++) {
+      var tagBtn = el('button', 'welcome-tag-btn');
+      tagBtn.dataset.tag = tags[ti].cls;
+      tagBtn.textContent = tags[ti].label;
+      toolbar.appendChild(tagBtn);
+    }
+
+    // Divider
+    var divider = el('div', 'w-px h-4 bg-border mx-1');
+    toolbar.appendChild(divider);
+
+    // Placeholder label
+    var phLabel = el('span', 'text-[10px] text-muted');
+    phLabel.textContent = i18next.t('web:settings.welcome_insert_placeholder');
+    toolbar.appendChild(phLabel);
+
+    // Placeholder buttons
+    var defaultPlaceholders = ['{server_name}', '{discord_link}', '{pvp_schedule}', '{day}', '{season}', '{weather}'];
+    var phList = placeholders.length ? placeholders : defaultPlaceholders;
+    for (var pi = 0; pi < phList.length; pi++) {
+      var phBtn = el('button', 'welcome-tag-btn');
+      phBtn.dataset.placeholder = phList[pi];
+      phBtn.textContent = phList[pi];
+      toolbar.appendChild(phBtn);
+    }
+
+    leftPane.appendChild(toolbar);
+
+    // Textarea
+    var textarea = document.createElement('textarea');
+    textarea.className = 'welcome-textarea';
+    textarea.id = 'welcome-textarea';
+    textarea.value = content;
+    textarea.spellcheck = false;
+    leftPane.appendChild(textarea);
+
+    editorGrid.appendChild(leftPane);
+
+    // Right pane
+    var rightPane = el('div', '');
+    var previewLabel = el('div', 'text-[10px] text-muted mb-2 flex items-center gap-1.5');
+    previewLabel.innerHTML = '<i data-lucide="eye" class="w-3 h-3"></i> ' + i18next.t('web:settings.welcome_preview');
+    rightPane.appendChild(previewLabel);
+
+    var previewBox = el('div', 'welcome-preview-box');
+    previewBox.id = 'welcome-preview';
+    rightPane.appendChild(previewBox);
+
+    editorGrid.appendChild(rightPane);
+    container.appendChild(editorGrid);
+
+    // ── Footer ──
+    var footer = el('div', 'welcome-footer');
+    var charCount = el('span', 'text-[10px] text-muted');
+    charCount.id = 'welcome-char-count';
+    charCount.textContent = i18next.t('web:settings.welcome_char_count', { count: content.length });
+    footer.appendChild(charCount);
+
+    var saveBtn = el('button', 'btn-primary flex items-center gap-1.5');
+    saveBtn.id = 'welcome-save-btn';
+    saveBtn.innerHTML = '<i data-lucide="upload" class="w-3.5 h-3.5"></i> ' + i18next.t('web:settings.welcome_save');
+    footer.appendChild(saveBtn);
+
+    container.appendChild(footer);
+
+    // ── Initial preview render ──
+    renderWelcomePreview(previewBox, content);
+
+    // ── Wire events ──
+    textarea.addEventListener('input', function () {
+      renderWelcomePreview(previewBox, textarea.value);
+      charCount.textContent = i18next.t('web:settings.welcome_char_count', { count: textarea.value.length });
+    });
+
+    // Color tag buttons — wrap selected text or insert at cursor
+    toolbar.addEventListener('click', function (e) {
+      var btn = e.target.closest('.welcome-tag-btn');
+      if (!btn) return;
+      if (btn.dataset.tag) {
+        insertAtCursor(textarea, '<' + btn.dataset.tag + '>', '</>');
+      } else if (btn.dataset.placeholder) {
+        insertAtCursor(textarea, btn.dataset.placeholder, '');
+      }
+    });
+
+    saveBtn.addEventListener('click', function () {
+      saveWelcomeFile(textarea);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function renderWelcomePreview(previewEl, text) {
+    var lines = text.split('\n');
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      // Escape HTML first, then replace escaped tag patterns
+      var rendered = esc(line).replace(/&lt;(PR|SP|CL|FO|PN)&gt;(.*?)&lt;\/&gt;/gi, function (_, tag, inner) {
+        return '<span class="wc-' + tag.toLowerCase() + '">' + inner + '</span>';
+      });
+      html += '<div class="welcome-preview-line">' + (rendered || '&nbsp;') + '</div>';
+    }
+    previewEl.innerHTML = html;
+  }
+
+  function insertAtCursor(textarea, before, after) {
+    var start = textarea.selectionStart;
+    var end = textarea.selectionEnd;
+    var text = textarea.value;
+    var selected = text.substring(start, end);
+    var replacement = before + selected + (after || '');
+    textarea.value = text.substring(0, start) + replacement + text.substring(end);
+    var newPos = start + before.length + selected.length + (after ? after.length : 0);
+    textarea.selectionStart = textarea.selectionEnd = newPos;
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input'));
+  }
+
+  async function saveWelcomeFile(textarea) {
+    var saveBtn = $('#welcome-save-btn');
+    if (!saveBtn) return;
+    saveBtn.disabled = true;
+    saveBtn.textContent = i18next.t('web:settings.welcome_saving');
+    try {
+      var r = await apiFetch('/api/panel/welcome-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }),
+      });
+      if (!r.ok) throw new Error('Save failed');
+      showToast(i18next.t('web:settings.welcome_saved'));
+    } catch (_err) {
+      showToast(i18next.t('web:settings.welcome_save_failed'));
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i data-lucide="upload" class="w-3.5 h-3.5"></i> ' + i18next.t('web:settings.welcome_save');
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  }
+
   function reset() {
     _inited = false;
   }
@@ -1761,6 +1959,7 @@ Panel.tabs = Panel.tabs || {};
       }
       if (S.settingsMode === 'bot') loadBotConfig();
       else if (S.settingsMode === 'schedule') loadScheduleEditor();
+      else if (S.settingsMode === 'welcome') loadWelcomeEditor();
       else loadSettings();
     },
     reset: reset,
@@ -1775,5 +1974,6 @@ Panel.tabs = Panel.tabs || {};
     // Exposed for dashboard schedule rendering
     renderSchedule: renderSchedule,
     renderTomorrowSchedule: renderTomorrowSchedule,
+    loadWelcomeEditor: loadWelcomeEditor,
   };
 })();

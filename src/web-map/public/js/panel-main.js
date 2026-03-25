@@ -680,6 +680,8 @@ window.Panel = window.Panel || {};
           Panel.tabs.settings.loadBotConfig(settingsContainer, S.botConfigSections);
       } else if (S.settingsMode === 'schedule') {
         if (Panel.tabs.settings) Panel.tabs.settings.loadScheduleEditor();
+      } else if (S.settingsMode === 'welcome') {
+        if (Panel.tabs.settings) Panel.tabs.settings.loadWelcomeEditor();
       } else if (Object.keys(S.settingsOriginal || {}).length) {
         if (Panel.tabs.settings) Panel.tabs.settings.loadSettings(settingsContainer, S.settingsOriginal);
       }
@@ -1108,7 +1110,7 @@ window.Panel = window.Panel || {};
         if (e.target === sdModal) sdModal.classList.add('hidden');
       });
 
-    // Settings mode toggle (Game Server / Bot Config / Schedule)
+    // Settings mode toggle (Game Server / Bot Config / Schedule / Welcome File)
     $$('.settings-mode-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const mode = btn.dataset.mode;
@@ -1126,17 +1128,19 @@ window.Panel = window.Panel || {};
         const resetBtn = $('#settings-reset-btn');
         const changeCount = $('#settings-change-count');
         const settingsCount = $('#settings-count');
-        const isSchedule = mode === 'schedule';
-        if (saveBtn) saveBtn.classList.toggle('hidden', isSchedule);
-        if (resetBtn) resetBtn.classList.toggle('hidden', isSchedule);
-        if (changeCount) changeCount.classList.toggle('hidden', isSchedule);
-        if (settingsCount) settingsCount.classList.toggle('hidden', isSchedule);
-        if (searchEl) searchEl.parentElement.classList.toggle('hidden', isSchedule);
+        const hideToolbar = mode === 'schedule' || mode === 'welcome';
+        if (saveBtn) saveBtn.classList.toggle('hidden', hideToolbar);
+        if (resetBtn) resetBtn.classList.toggle('hidden', hideToolbar);
+        if (changeCount) changeCount.classList.toggle('hidden', hideToolbar);
+        if (settingsCount) settingsCount.classList.toggle('hidden', hideToolbar);
+        if (searchEl) searchEl.parentElement.classList.toggle('hidden', hideToolbar);
         if (Panel.tabs.settings) {
           if (mode === 'game') {
             Panel.tabs.settings.loadSettings();
           } else if (mode === 'schedule') {
             Panel.tabs.settings.loadScheduleEditor();
+          } else if (mode === 'welcome') {
+            Panel.tabs.settings.loadWelcomeEditor();
           } else {
             Panel.tabs.settings.loadBotConfig();
           }
