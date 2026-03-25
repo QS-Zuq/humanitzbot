@@ -190,7 +190,6 @@ const ENV_CATEGORIES = [
       },
       { env: 'ENABLE_SERVER_STATUS', label: 'Server Status (true/false)', cfg: 'enableServerStatus', type: 'bool' },
       { env: 'ENABLE_CHAT_RELAY', label: 'Chat Relay (true/false)', cfg: 'enableChatRelay', type: 'bool' },
-      { env: 'ENABLE_AUTO_MESSAGES', label: 'Auto Messages (true/false)', cfg: 'enableAutoMessages', type: 'bool' },
       { env: 'ENABLE_LOG_WATCHER', label: 'Log Watcher (true/false)', cfg: 'enableLogWatcher', type: 'bool' },
       { env: 'ENABLE_PLAYER_STATS', label: 'Player Stats (true/false)', cfg: 'enablePlayerStats', type: 'bool' },
       { env: 'ENABLE_PLAYTIME', label: 'Playtime (true/false)', cfg: 'enablePlaytime', type: 'bool' },

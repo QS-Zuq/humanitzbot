@@ -770,16 +770,14 @@ class PanelChannel {
     const restartTag = category.restart
       ? this._ti(interaction, 'modal_restart_tag_bot')
       : this._ti(interaction, 'modal_restart_tag_live');
-    const modal = new ModalBuilder()
-      .setCustomId(`panel_env_modal:${categoryId}`)
-      .setTitle(
-        _modalTitle(
-          this._ti(interaction, 'modal_edit_category_title', {
-            category: this._ti(interaction, `env_cat_${category.id}`),
-            mode: restartTag,
-          }),
-        ),
-      );
+    const modal = new ModalBuilder().setCustomId(`panel_env_modal:${categoryId}`).setTitle(
+      _modalTitle(
+        this._ti(interaction, 'modal_edit_category_title', {
+          category: this._ti(interaction, `env_cat_${category.id}`),
+          mode: restartTag,
+        }),
+      ),
+    );
 
     for (const field of category.fields) {
       const style = field.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short;
@@ -1715,7 +1713,7 @@ class PanelChannel {
         value: 'welcome',
       });
     }
-    if (config.enableAutoMessages) {
+    if (config.enableAutoMsgLink || config.enableAutoMsgPromo) {
       actionOptions.push({
         label: this._tp('option_broadcasts', {}, locale),
         description: this._tp('option_desc_edit_auto_broadcasts', {}, locale),
@@ -2177,7 +2175,7 @@ class PanelChannel {
         value: 'welcome',
       });
     }
-    if (config.enableAutoMessages) {
+    if (config.enableAutoMsgLink || config.enableAutoMsgPromo) {
       actionOptions.push({
         label: this._tp('option_broadcasts', {}, locale),
         description: this._tp('option_desc_edit_auto_broadcast_messages', {}, locale),

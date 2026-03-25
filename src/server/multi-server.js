@@ -29,6 +29,7 @@ const SaveService = require('../parsers/save-service');
 const ServerStatus = require('../modules/server-status');
 const StatusChannels = require('../modules/status-channels');
 const ChatRelay = require('../modules/chat-relay');
+const PlayerPresenceTracker = require('../modules/player-presence');
 const AutoMessages = require('../modules/auto-messages');
 const LogWatcher = require('../modules/log-watcher');
 const PlayerStatsChannel = require('../modules/player-stats-channel');
@@ -656,16 +657,36 @@ class ServerInstance {
       }
     }
 
-    // Auto Messages
     if (this.config.rconHost) {
       try {
-        const mod = new AutoMessages(deps);
+        const mod = new PlayerPresenceTracker({
+          config: this.config,
+          playtime: this.playtime,
+          getPlayerList: deps.getPlayerList,
+          label: `PRESENCE:${label}`,
+        });
+        await mod.start();
+        this._modules.presenceTracker = mod;
+        console.log(`[MULTI:${label}] PresenceTracker active`);
+      } catch (err) {
+        console.error(`[MULTI:${label}] PresenceTracker failed:`, err.message);
+      }
+    }
+
+    // Auto Messages
+    const hasAnyAutoMsg =
+      this.config.enableAutoMsgLink || this.config.enableAutoMsgPromo || this.config.enableWelcomeMsg;
+    if (hasAnyAutoMsg && this.config.rconHost) {
+      try {
+        const mod = new AutoMessages({ ...deps, presenceTracker: this._modules.presenceTracker || null });
         await mod.start();
         this._modules.autoMessages = mod;
         console.log(`[MULTI:${label}] AutoMessages active`);
       } catch (err) {
         console.error(`[MULTI:${label}] AutoMessages failed:`, err.message);
       }
+    } else if (!hasAnyAutoMsg) {
+      console.log(`[MULTI:${label}] AutoMessages skipped — all message features disabled`);
     }
 
     // PvP Scheduler (needs SFTP + RCON)

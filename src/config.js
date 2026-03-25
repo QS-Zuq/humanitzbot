@@ -22,6 +22,18 @@ if (!_cfgFs.existsSync(_envPath)) {
 
 require('dotenv').config();
 
+// ── Deprecation: ENABLE_AUTO_MESSAGES → individual sub-toggles ──
+// If the old master toggle is explicitly set to 'false', cascade to sub-toggles
+// unless they have been explicitly set by the user.
+if (process.env.ENABLE_AUTO_MESSAGES === 'false') {
+  console.warn(
+    '[DEPRECATED] ENABLE_AUTO_MESSAGES is deprecated. Use individual toggles: ENABLE_AUTO_MSG_LINK, ENABLE_AUTO_MSG_PROMO, ENABLE_WELCOME_MSG',
+  );
+  if (!process.env.ENABLE_AUTO_MSG_LINK) process.env.ENABLE_AUTO_MSG_LINK = 'false';
+  if (!process.env.ENABLE_AUTO_MSG_PROMO) process.env.ENABLE_AUTO_MSG_PROMO = 'false';
+  if (!process.env.ENABLE_WELCOME_MSG) process.env.ENABLE_WELCOME_MSG = 'false';
+}
+
 function envBool(key, defaultValue) {
   const val = process.env[key];
   if (val === undefined || val === '') return defaultValue;

@@ -26,9 +26,11 @@ const path = require('path');
 const config = require('./config');
 const { isAdminView } = require('./config');
 const rcon = require('./rcon/rcon');
+const { getServerInfo, getPlayerList, sendAdminMessage } = require('./rcon/server-info');
 const ChatRelay = require('./modules/chat-relay');
 const StatusChannels = require('./modules/status-channels');
 const ServerStatus = require('./modules/server-status');
+const PlayerPresenceTracker = require('./modules/player-presence');
 const AutoMessages = require('./modules/auto-messages');
 const LogWatcher = require('./modules/log-watcher');
 const playtime = require('./tracking/playtime-tracker');
@@ -202,6 +204,7 @@ let chatRelay;
 let statusChannels;
 let serverStatus;
 let autoMessages;
+let presenceTracker;
 let logWatcher;
 let playerStatsChannel;
 let pvpScheduler;
@@ -673,14 +676,33 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
     }
 
+    // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
+    presenceTracker = new PlayerPresenceTracker({
+      config,
+      playtime,
+      getPlayerList,
+      label: 'PRESENCE',
+    });
+    await presenceTracker.start();
+
     // Auto-Messages — periodic broadcasts + join welcome
-    if (config.enableAutoMessages) {
-      autoMessages = new AutoMessages();
+    const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
+    if (hasAnyAutoMsg) {
+      autoMessages = new AutoMessages({
+        config,
+        presenceTracker,
+        playtime,
+        playerStats,
+        getServerInfo,
+        sendAdminMessage,
+        db,
+        label: 'AUTO MSG',
+      });
       await autoMessages.start();
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');
-      console.log('[BOT] Auto-messages disabled via ENABLE_AUTO_MESSAGES=false');
+      console.log('[AUTO MSG] All message features disabled — skipping');
     }
 
     // Kill Feed — sub-feature of Log Watcher
@@ -1278,6 +1300,7 @@ async function shutdown(reason = 'Manual shutdown') {
   if (statusChannels) statusChannels.stop();
   if (serverStatus) serverStatus.stop();
   if (autoMessages) autoMessages.stop();
+  if (presenceTracker) presenceTracker.stop();
   if (pvpScheduler) pvpScheduler.stop();
   if (serverScheduler) serverScheduler.stop();
   if (panelChannel) panelChannel.stop();
@@ -1496,7 +1519,9 @@ async function _nukeChannel(client, channelId, botId) {
       console.error('  Go to: Your Application → Bot → Privileged Gateway Intents');
       if (requested.length > 0) {
         console.error('  Enable:');
-        requested.forEach((r) => console.error('    ✦ ' + r));
+        requested.forEach((r) => {
+          console.error('    ✦ ' + r);
+        });
       } else {
         console.error('  Enable: Message Content Intent');
       }

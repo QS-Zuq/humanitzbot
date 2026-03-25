@@ -2708,7 +2708,6 @@ class WebMapServer {
       // Module toggles (stored in modules.* in servers.json)
       ENABLE_SERVER_STATUS: { jsonPath: 'modules.serverStatus' },
       ENABLE_CHAT_RELAY: { jsonPath: 'modules.chatRelay' },
-      ENABLE_AUTO_MESSAGES: { jsonPath: 'modules.autoMessages' },
       ENABLE_LOG_WATCHER: { jsonPath: 'modules.logWatcher' },
       ENABLE_PLAYER_STATS: { jsonPath: 'modules.playerStats' },
       // Server enabled
@@ -2785,13 +2784,7 @@ class WebMapServer {
         },
         {
           label: 'Module Toggles',
-          keys: [
-            'ENABLE_SERVER_STATUS',
-            'ENABLE_CHAT_RELAY',
-            'ENABLE_AUTO_MESSAGES',
-            'ENABLE_LOG_WATCHER',
-            'ENABLE_PLAYER_STATS',
-          ],
+          keys: ['ENABLE_SERVER_STATUS', 'ENABLE_CHAT_RELAY', 'ENABLE_LOG_WATCHER', 'ENABLE_PLAYER_STATS'],
         },
         { label: 'Panel API', keys: ['PANEL_SERVER_URL', 'PANEL_API_KEY'] },
       ];
