@@ -2,6 +2,7 @@ const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const _defaultConfig = require('../config');
 const _defaultRcon = require('../rcon/rcon');
+const { createLogger } = require('../utils/log');
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
@@ -9,9 +10,7 @@ class PvpScheduler {
   constructor(client, logWatcher, deps = {}) {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
-    this._label = String(deps.label || 'PVP')
-      .replace(/[^\w\s:/-]/g, '')
-      .slice(0, 40);
+    this._log = createLogger(deps.label, 'PVP');
     this._client = client; // Discord client (for posting announcements)
     this._logWatcher = logWatcher || null; // for posting to activity thread
     this._interval = null;
@@ -32,12 +31,12 @@ class PvpScheduler {
     if (isNaN(this._pvpStart) || isNaN(this._pvpEnd)) {
       // Per-day hours can still work without global defaults, but at least one must exist
       if (!this._pvpDayHours || this._pvpDayHours.size === 0) {
-        console.log(`[${this._label}] PVP start/end time not configured, scheduler idle`);
+        this._log.info('PVP start/end time not configured, scheduler idle');
         return;
       }
-      console.log(`[${this._label}] No global PVP_START/END_TIME — using per-day overrides only`);
+      this._log.info('No global PVP_START/END_TIME — using per-day overrides only');
     } else if (this._pvpStart === this._pvpEnd) {
-      console.error(`[${this._label}] PVP start and end times are the same — scheduler disabled`);
+      this._log.error('PVP start and end times are the same — scheduler disabled');
       return;
     }
 
@@ -52,18 +51,14 @@ class PvpScheduler {
       !isNaN(this._pvpStart) && !isNaN(this._pvpEnd)
         ? `${fmt(this._pvpStart)}–${fmt(this._pvpEnd)}`
         : 'none (per-day only)';
-    console.log(
-      `[${this._label}] Scheduler active: default ${defaultRange} (${this._config.botTimezone}), days: ${dayLabel}`,
-    );
+    this._log.info(`Scheduler active: default ${defaultRange} (${this._config.botTimezone}), days: ${dayLabel}`);
     if (this._pvpDayHours) {
       const dayKeys = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       for (const [d, h] of this._pvpDayHours) {
-        console.log(`[${this._label}]   ${dayKeys[d]}: ${fmt(h.start)}–${fmt(h.end)}`);
+        this._log.info(`  ${dayKeys[d]}: ${fmt(h.start)}–${fmt(h.end)}`);
       }
     }
-    console.log(
-      `[${this._label}] Restart delay: ${this._config.pvpRestartDelay} minutes (warnings start before scheduled time)`,
-    );
+    this._log.info(`Restart delay: ${this._config.pvpRestartDelay} minutes (warnings start before scheduled time)`);
 
     // Resolve admin channel for announcements
     if (this._config.adminChannelId) {
@@ -96,7 +91,7 @@ class PvpScheduler {
       const content = (await sftp.get(this._config.ftpSettingsPath)).toString('utf8');
       const match = content.match(/^PVP\s*=\s*(\d)/m);
       this._currentPvp = match ? match[1] === '1' : false;
-      console.log(`[${this._label}] Current server PvP state: ${this._currentPvp ? 'ON' : 'OFF'}`);
+      this._log.info(`Current server PvP state: ${this._currentPvp ? 'ON' : 'OFF'}`);
 
       // Pre-cache original values for PvP settings overrides (so we can revert if bot started mid-PvP)
       const overrides = this._config.pvpSettingsOverrides;
@@ -107,13 +102,13 @@ class PvpScheduler {
           if (m) this._originalSettings[key] = m[1];
         }
         if (Object.keys(this._originalSettings).length > 0) {
-          console.log(
-            `[${this._label}] Pre-cached ${Object.keys(this._originalSettings).length} PvE setting(s) for PvP override revert`,
+          this._log.info(
+            `Pre-cached ${Object.keys(this._originalSettings).length} PvE setting(s) for PvP override revert`,
           );
         }
       }
     } catch (err) {
-      console.error(`[${this._label}] Failed to read server settings:`, err.message);
+      this._log.error('Failed to read server settings:', err.message);
       this._currentPvp = null;
     } finally {
       await sftp.end().catch(() => {});
@@ -279,7 +274,7 @@ class PvpScheduler {
     // Start countdown when we're within the restart-delay window
     if (minutesUntil <= delay) {
       const targetLabel = targetPvp ? 'ON' : 'OFF';
-      console.log(`[${this._label}] PvP turning ${targetLabel} in ${minutesUntil} minutes — starting countdown`);
+      this._log.info(`PvP turning ${targetLabel} in ${minutesUntil} minutes — starting countdown`);
       this._startCountdown(targetPvp, minutesUntil);
     }
   }
@@ -312,7 +307,7 @@ class PvpScheduler {
       const msg = `Server restart in ${minutesLeft} minute${minutesLeft > 1 ? 's' : ''} — PvP turning ${targetLabel}`;
       this._announce(msg);
       this._rcon.send(`admin ${msg}`).catch((err) => {
-        console.error(`[${this._label}] Failed to send in-game warning:`, err.message);
+        this._log.error('Failed to send in-game warning:', err.message);
       });
 
       stepIndex++;
@@ -331,7 +326,7 @@ class PvpScheduler {
     const targetLabel = targetPvp ? 'ON' : 'OFF';
     const targetValue = targetPvp ? '1' : '0';
 
-    console.log(`[${this._label}] Executing PvP toggle → ${targetLabel}`);
+    this._log.info(`Executing PvP toggle → ${targetLabel}`);
 
     const sftp = new SftpClient();
     try {
@@ -347,10 +342,10 @@ class PvpScheduler {
           // Owner-write bit is not set — temporarily make writable
           originalMode = mode;
           await sftp.chmod(settingsPath, mode | 0o220); // add group+owner write
-          console.log(`[${this._label}] Temporarily set ${settingsPath} writable (was ${mode.toString(8)})`);
+          this._log.info(`Temporarily set ${settingsPath} writable (was ${mode.toString(8)})`);
         }
       } catch (err) {
-        console.warn(`[${this._label}] Could not check/set file permissions:`, err.message);
+        this._log.warn('Could not check/set file permissions:', err.message);
       }
 
       // Download current ini
@@ -358,7 +353,7 @@ class PvpScheduler {
 
       // Toggle the PVP line
       if (!content.match(/^PVP\s*=\s*\d/m)) {
-        console.error(`[${this._label}] Could not find PVP= line in settings file!`);
+        this._log.error('Could not find PVP= line in settings file!');
         this._transitioning = false;
         return;
       }
@@ -373,25 +368,25 @@ class PvpScheduler {
       }
 
       if (updated === content) {
-        console.log(`[${this._label}] Settings file already has PVP=${targetValue}, skipping upload`);
+        this._log.info(`Settings file already has PVP=${targetValue}, skipping upload`);
         // Still restart to ensure server is in sync
       } else {
         // Upload modified ini
         await sftp.put(Buffer.from(updated, 'utf8'), settingsPath);
-        console.log(`[${this._label}] Uploaded settings with PVP=${targetValue}`);
+        this._log.info(`Uploaded settings with PVP=${targetValue}`);
       }
 
       // Restore original permissions if we changed them
       if (originalMode !== null) {
         try {
           await sftp.chmod(settingsPath, originalMode);
-          console.log(`[${this._label}] Restored permissions to ${originalMode.toString(8)}`);
+          this._log.info(`Restored permissions to ${originalMode.toString(8)}`);
         } catch (err) {
-          console.warn(`[${this._label}] Could not restore permissions:`, err.message);
+          this._log.warn('Could not restore permissions:', err.message);
         }
       }
     } catch (err) {
-      console.error(`[${this._label}] SFTP toggle failed:`, err.message);
+      this._log.error('SFTP toggle failed:', err.message);
       this._transitioning = false;
       return;
     } finally {
@@ -421,15 +416,15 @@ class PvpScheduler {
           exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err, stdout) => {
             if (err) reject(err);
             else {
-              if (stdout) console.log(`[${this._label}] LinuxGSM: ${stdout.trim().split('\n').pop()}`);
+              if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
               resolve();
             }
           });
         });
-        console.log(`[${this._label}] Restart via LinuxGSM (${container})`);
+        this._log.info(`Restart via LinuxGSM (${container})`);
         restartSucceeded = true;
       } catch (lgsmErr) {
-        console.warn(`[${this._label}] LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
+        this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
           const { exec } = require('child_process');
           await new Promise((resolve, reject) => {
@@ -438,10 +433,10 @@ class PvpScheduler {
               else resolve();
             });
           });
-          console.log(`[${this._label}] Restart via Docker stop+start (${container})`);
+          this._log.info(`Restart via Docker stop+start (${container})`);
           restartSucceeded = true;
         } catch (dockerErr) {
-          console.warn(`[${this._label}] Docker restart also failed:`, dockerErr.message);
+          this._log.warn('Docker restart also failed:', dockerErr.message);
         }
       }
     }
@@ -450,16 +445,16 @@ class PvpScheduler {
     if (!restartSucceeded) {
       try {
         await this._rcon.send('RestartNow');
-        console.log(`[${this._label}] Restart command sent via RCON`);
+        this._log.info('Restart command sent via RCON');
         restartSucceeded = true;
       } catch (err) {
-        console.warn(`[${this._label}] RCON RestartNow failed:`, err.message);
+        this._log.warn('RCON RestartNow failed:', err.message);
         try {
           await this._rcon.send('QuickRestart');
-          console.log(`[${this._label}] Restart via RCON QuickRestart`);
+          this._log.info('Restart via RCON QuickRestart');
           restartSucceeded = true;
         } catch (err2) {
-          console.error(`[${this._label}] All restart methods failed:`, err2.message);
+          this._log.error('All restart methods failed:', err2.message);
         }
       }
     }
@@ -474,7 +469,7 @@ class PvpScheduler {
         this._scheduleRconHealthCheck(container);
       }
     } else {
-      console.error(`[${this._label}] Server restart failed — PvP state unchanged, will retry next tick`);
+      this._log.error('Server restart failed — PvP state unchanged, will retry next tick');
     }
     this._transitioning = false;
   }
@@ -488,19 +483,17 @@ class PvpScheduler {
     const checkInterval = 10_000;
     const maxWait = 90_000;
     const start = Date.now();
-    console.log(`[${this._label}] RCON health check started — will verify within ${maxWait / 1000}s`);
+    this._log.info(`RCON health check started — will verify within ${maxWait / 1000}s`);
 
     const timer = setInterval(async () => {
       if (this._rcon.connected && this._rcon.authenticated) {
         clearInterval(timer);
-        console.log(`[${this._label}] RCON health check passed — connected`);
+        this._log.info('RCON health check passed — connected');
         return;
       }
       if (Date.now() - start >= maxWait) {
         clearInterval(timer);
-        console.warn(
-          `[${this._label}] RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`,
-        );
+        this._log.warn(`RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`);
         try {
           const { exec } = require('child_process');
           // Try LinuxGSM first, fall back to docker stop+start
@@ -514,16 +507,16 @@ class PvpScheduler {
               } else resolve();
             });
           });
-          console.log(`[${this._label}] Recovery restart sent (${container})`);
+          this._log.info(`Recovery restart sent (${container})`);
         } catch (err) {
-          console.error(`[${this._label}] Recovery restart failed:`, err.message);
+          this._log.error('Recovery restart failed:', err.message);
         }
       }
     }, checkInterval);
   }
 
   async _announce(message) {
-    console.log(`[${this._label}] ${message}`);
+    this._log.info(message);
     const embed = new EmbedBuilder()
       .setAuthor({ name: '⚔️ PvP Scheduler' })
       .setDescription(message)
@@ -534,14 +527,14 @@ class PvpScheduler {
         await this._logWatcher.sendToThread(embed);
         return;
       } catch (err) {
-        console.error(`[${this._label}] Failed to post to activity thread:`, err.message);
+        this._log.error('Failed to post to activity thread:', err.message);
       }
     }
     if (this._adminChannel) {
       try {
         await this._adminChannel.send({ embeds: [embed] });
       } catch (err) {
-        console.error(`[${this._label}] Failed to post to Discord:`, err.message);
+        this._log.error('Failed to post to Discord:', err.message);
       }
     }
   }
@@ -573,18 +566,16 @@ class PvpScheduler {
             this._originalSettings[key] = match[1];
           }
         }
-        console.log(
-          `[${this._label}] Cached ${Object.keys(this._originalSettings).length} original setting(s) for PvP revert`,
-        );
+        this._log.info(`Cached ${Object.keys(this._originalSettings).length} original setting(s) for PvP revert`);
       }
 
       for (const [key, value] of Object.entries(overrides)) {
         const regex = new RegExp(`^(${key}\\s*=\\s*)(.+?)\\s*$`, 'm');
         if (regex.test(updated)) {
           updated = updated.replace(regex, `$1${value}`);
-          console.log(`[${this._label}] PvP override: ${key} → ${value}`);
+          this._log.info(`PvP override: ${key} → ${value}`);
         } else {
-          console.warn(`[${this._label}] PvP override: ${key} not found in settings file`);
+          this._log.warn(`PvP override: ${key} not found in settings file`);
         }
       }
     } else {
@@ -594,12 +585,12 @@ class PvpScheduler {
           const regex = new RegExp(`^(${key}\\s*=\\s*)(.+?)\\s*$`, 'm');
           if (regex.test(updated)) {
             updated = updated.replace(regex, `$1${originalValue}`);
-            console.log(`[${this._label}] PvP revert: ${key} → ${originalValue}`);
+            this._log.info(`PvP revert: ${key} → ${originalValue}`);
           }
         }
-        console.log(`[${this._label}] Restored ${Object.keys(this._originalSettings).length} original setting(s)`);
+        this._log.info(`Restored ${Object.keys(this._originalSettings).length} original setting(s)`);
       } else {
-        console.warn(`[${this._label}] No cached originals to revert — settings may already be in PvE state`);
+        this._log.warn('No cached originals to revert — settings may already be in PvE state');
       }
     }
 
@@ -624,18 +615,18 @@ class PvpScheduler {
     const nameMatch =
       content.match(/^ServerName\s*=\s*"([^"]*)"\s*$/m) || content.match(/^ServerName\s*=\s*(.+?)\s*$/m);
     if (!nameMatch) {
-      console.error(`[${this._label}] Could not find ServerName= line in settings file`);
+      this._log.error('Could not find ServerName= line in settings file');
       return content;
     }
 
     const currentName = nameMatch[1];
-    console.log(`[${this._label}] Current ServerName: ${currentName}`);
+    this._log.info(`Current ServerName: ${currentName}`);
 
     // Cache the original (suffix-free) server name on first encounter
     if (!this._originalServerName) {
       // Strip any existing PvP suffix so we always have the clean base name
       this._originalServerName = currentName.replace(/\s*-\s*PVP Enabled\s+\d{2}:\d{2}-\d{2}:\d{2}\s+\S+/, '').trim();
-      console.log(`[${this._label}] Cached original server name: ${this._originalServerName}`);
+      this._log.info(`Cached original server name: ${this._originalServerName}`);
     }
 
     let newName;
@@ -647,7 +638,7 @@ class PvpScheduler {
 
     // Replace the entire ServerName line (handles both quoted and unquoted)
     const updatedContent = content.replace(/^ServerName\s*=.*$/m, `ServerName="${newName}"`);
-    console.log(`[${this._label}] ServerName → ${newName}`);
+    this._log.info(`ServerName → ${newName}`);
     return updatedContent;
   }
 
@@ -665,7 +656,7 @@ class PvpScheduler {
     try {
       await this._logWatcher.sendToThread(embed);
     } catch (err) {
-      console.error(`[${this._label}] Failed to post to activity thread:`, err.message);
+      this._log.error('Failed to post to activity thread:', err.message);
     }
   }
 }

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const _defaultPlaytime = require('./playtime-tracker');
 const { classifyDamageLabel } = require('./damage-classifier');
+const { createLogger } = require('../utils/log');
 
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
@@ -20,7 +21,7 @@ class PlayerStats {
     // Per-instance overrides (for multi-server support)
     this._dataDir = options.dataDir || DEFAULT_DATA_DIR;
     this._playtime = options.playtime || _defaultPlaytime;
-    this._label = options.label || 'PLAYER STATS';
+    this._log = createLogger(options.label, 'PLAYER STATS');
   }
 
   init() {
@@ -30,11 +31,11 @@ class PlayerStats {
     this._buildNameIndex();
     this._loadLocalIdMap(); // seed name→SteamID from cached PlayerIDMapped.txt
     const count = Object.keys(this._data.players).length;
-    console.log(`[${this._label}] Loaded ${count} player(s) from database`);
+    this._log.info(`Loaded ${count} player(s) from database`);
   }
 
   stop() {
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   /** Attach a HumanitZDB instance for unified alias registration. */
@@ -59,7 +60,7 @@ class PlayerStats {
           const alreadyLogged = record.nameHistory.some((h) => h.name.toLowerCase() === record.name.toLowerCase());
           if (!alreadyLogged) {
             record.nameHistory.push({ name: record.name, until: new Date().toISOString() });
-            console.log(`[${this._label}] Name change detected via ID map: "${record.name}" → "${name}" (${steamId})`);
+            this._log.info(`Name change detected via ID map: "${record.name}" → "${name}" (${steamId})`);
           }
           record.name = name;
         }
@@ -88,10 +89,10 @@ class PlayerStats {
       }
       if (entries.length) {
         this.loadIdMap(entries);
-        console.log(`[${this._label}] Loaded ${entries.length} name(s) from cached PlayerIDMapped.txt`);
+        this._log.info(`Loaded ${entries.length} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err) {
-      console.error(`[${this._label}] Failed to load cached ID map:`, err.message);
+      this._log.error('Failed to load cached ID map:', err.message);
     }
   }
 
@@ -133,9 +134,9 @@ class PlayerStats {
         // Keep dtTotal consistent (unused but guard against old aggregate-only data)
         void dtTotal;
       }
-      console.log(`[${this._label}] Loaded ${rows.length} player(s) from database`);
+      this._log.info(`Loaded ${rows.length} player(s) from database`);
     } catch (err) {
-      console.warn(`[${this._label}] DB load failed, falling back to JSON:`, err.message);
+      this._log.warn('DB load failed, falling back to JSON:', err.message);
       this._data = null; // ensure fallback triggers
     }
   }
@@ -176,7 +177,7 @@ class PlayerStats {
     } catch (err) {
       // Non-critical: in-memory cache is still correct
       if (!this._persistWarnLogged) {
-        console.warn(`[${this._label}] DB persist failed (will suppress further):`, err.message);
+        this._log.warn('DB persist failed (will suppress further):', err.message);
         this._persistWarnLogged = true;
       }
     }
@@ -418,7 +419,7 @@ class PlayerStats {
         const alreadyLogged = record.nameHistory.some((h) => h.name.toLowerCase() === record.name.toLowerCase());
         if (!alreadyLogged) {
           record.nameHistory.push({ name: record.name, until: new Date().toISOString() });
-          console.log(`[${this._label}] Name change detected: "${record.name}" → "${name}" (${steamId})`);
+          this._log.info(`Name change detected: "${record.name}" → "${name}" (${steamId})`);
         }
       }
       // Update to current name
@@ -552,7 +553,7 @@ class PlayerStats {
     }
 
     delete this._data.players[nameKey];
-    console.log(`[${this._label}] Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
+    this._log.info(`Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
   }
 
   _buildNameIndex() {

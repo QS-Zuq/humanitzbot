@@ -80,7 +80,7 @@ function _onDeath(playerName, timestamp) {
       });
     } catch (err) {
       if (!this._deathCauseWarnShown) {
-        console.warn(`[${this._label}] Failed to log death cause:`, err.message);
+        this._log.warn('Failed to log death cause:', err.message);
         this._deathCauseWarnShown = true;
       }
     }

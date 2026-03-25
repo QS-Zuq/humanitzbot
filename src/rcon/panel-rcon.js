@@ -34,6 +34,7 @@
 
 const { EventEmitter } = require('events');
 const WebSocket = require('ws');
+const { createLogger } = require('../utils/log');
 
 class PanelRcon extends EventEmitter {
   /**
@@ -45,7 +46,7 @@ class PanelRcon extends EventEmitter {
   constructor(options = {}) {
     super();
     this._panelApi = options.panelApi || null;
-    this._label = options.label || 'PANEL-RCON';
+    this._log = createLogger(options.label, 'PANEL-RCON');
     this._cacheTtl = options.cacheTtl || null;
     this._WebSocket = options.WebSocket ?? WebSocket;
     this._silenceMs = options.silenceMs ?? 1500;
@@ -135,7 +136,7 @@ class PanelRcon extends EventEmitter {
             }),
           );
         } catch (err) {
-          console.error(`[${this._label}] Auth send failed:`, err.message);
+          this._log.error('Auth send failed:', err.message);
           clearTimeout(timeout);
           reject(err);
           this._cleanup();
@@ -154,7 +155,7 @@ class PanelRcon extends EventEmitter {
       });
 
       this._ws.on('error', (err) => {
-        console.error(`[${this._label}] WebSocket error:`, err.message);
+        this._log.error('WebSocket error:', err.message);
         clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
           this._disconnectedAt = Date.now();
@@ -170,7 +171,7 @@ class PanelRcon extends EventEmitter {
       this._ws.on('close', (code, reason) => {
         const reasonStr = reason?.toString() || `code ${code}`;
         if (this.connected) {
-          console.log(`[${this._label}] WebSocket closed: ${reasonStr}`);
+          this._log.info(`WebSocket closed: ${reasonStr}`);
           if (this._everConnected && !this._disconnectedAt) {
             this._disconnectedAt = Date.now();
             this.emit('disconnect', { reason: reasonStr });
@@ -192,7 +193,7 @@ class PanelRcon extends EventEmitter {
       case 'auth success':
         this.connected = true;
         this.authenticated = true;
-        console.log(`[${this._label}] WebSocket authenticated`);
+        this._log.info('WebSocket authenticated');
         if (this._everConnected) {
           const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
           this.emit('reconnect', { downtime });
@@ -210,7 +211,7 @@ class PanelRcon extends EventEmitter {
 
       case 'token expired':
         // JWT expired — force reconnect
-        console.warn(`[${this._label}] Token expired, reconnecting...`);
+        this._log.warn('Token expired, reconnecting...');
         this._cleanup();
         this._scheduleReconnect();
         break;
@@ -258,7 +259,7 @@ class PanelRcon extends EventEmitter {
       default:
         // Unknown event — log for debugging
         if (event) {
-          console.log(`[${this._label}] Unhandled WS event: ${event}`);
+          this._log.info(`Unhandled WS event: ${event}`);
         }
         break;
     }
@@ -278,10 +279,10 @@ class PanelRcon extends EventEmitter {
             args: [this._token],
           }),
         );
-        console.log(`[${this._label}] Token refreshed`);
+        this._log.info('Token refreshed');
       }
     } catch (err) {
-      console.warn(`[${this._label}] Token refresh failed:`, err.message);
+      this._log.warn('Token refresh failed:', err.message);
     }
   }
 
@@ -457,13 +458,13 @@ class PanelRcon extends EventEmitter {
 
   _scheduleReconnect() {
     if (this._reconnectTimeout) return;
-    console.log(`[${this._label}] Reconnecting in 15 seconds...`);
+    this._log.info('Reconnecting in 15 seconds...');
     this._reconnectTimeout = setTimeout(async () => {
       this._reconnectTimeout = null;
       try {
         await this.connect();
       } catch (err) {
-        console.error(`[${this._label}] Reconnect failed:`, err.message);
+        this._log.error('Reconnect failed:', err.message);
       }
     }, 15000);
   }

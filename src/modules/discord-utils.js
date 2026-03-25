@@ -6,6 +6,7 @@
  *   - embedContentKey()    — content hash for skip-if-unchanged logic
  *   - safeEditMessage()    — resilient message edit with re-create fallback
  */
+const { createLogger } = require('../utils/log');
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Clean own messages
@@ -28,6 +29,7 @@
  */
 async function cleanOwnMessages(channel, client, options = {}) {
   const { savedIds: rawIds, limit = 20, label = 'UTIL' } = options;
+  const log = createLogger(label, 'UTIL');
   const savedIds = rawIds ? (Array.isArray(rawIds) ? rawIds : [rawIds]).filter(Boolean) : [];
 
   let allFound = savedIds.length > 0;
@@ -38,18 +40,18 @@ async function cleanOwnMessages(channel, client, options = {}) {
         const msg = await channel.messages.fetch(savedId);
         if (msg && msg.author.id === client.user.id) {
           await msg.delete();
-          console.log(`[${label}] Cleaned previous message ${savedId}`);
+          log.info(`Cleaned previous message ${savedId}`);
         }
       } catch (err) {
         if (err.code === 10008) {
           allFound = false; // message gone — need bulk sweep
         } else {
-          console.log(`[${label}] Could not clean saved message:`, err.message);
+          log.info('Could not clean saved message:', err.message);
         }
       }
     }
     if (allFound) return; // all saved messages found and deleted
-    console.log(`[${label}] Some saved messages already gone, sweeping channel...`);
+    log.info('Some saved messages already gone, sweeping channel...');
   }
 
   // No saved IDs, or some were stale — sweep ALL old bot messages
@@ -57,7 +59,7 @@ async function cleanOwnMessages(channel, client, options = {}) {
     const messages = await channel.messages.fetch({ limit });
     const botMessages = messages.filter((m) => m.author.id === client.user.id);
     if (botMessages.size > 0) {
-      console.log(`[${label}] Cleaning ${botMessages.size} old bot message(s)`);
+      log.info(`Cleaning ${botMessages.size} old bot message(s)`);
       for (const [, msg] of botMessages) {
         try {
           await msg.delete();
@@ -65,7 +67,7 @@ async function cleanOwnMessages(channel, client, options = {}) {
       }
     }
   } catch (err) {
-    console.log(`[${label}] Could not clean old messages:`, err.message);
+    log.info('Could not clean old messages:', err.message);
   }
 }
 
@@ -107,18 +109,19 @@ function embedContentKey(embeds, components) {
  */
 async function safeEditMessage(message, channel, payload, options = {}) {
   const { label = 'UTIL', onRecreate } = options;
+  const log = createLogger(label, 'UTIL');
   try {
     await message.edit(payload);
     return message;
   } catch (err) {
     if (err.code === 10008) {
-      console.log(`[${label}] Message was deleted, re-creating...`);
+      log.info('Message was deleted, re-creating...');
       try {
         const newMsg = await channel.send(payload);
         if (typeof onRecreate === 'function') onRecreate(newMsg);
         return newMsg;
       } catch (createErr) {
-        console.error(`[${label}] Failed to re-create message:`, createErr.message);
+        log.error('Failed to re-create message:', createErr.message);
         throw createErr;
       }
     }

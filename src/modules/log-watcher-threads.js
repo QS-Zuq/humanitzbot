@@ -16,7 +16,7 @@ async function _checkDayRollover() {
   if (!this._dailyDate) return; // not initialised yet
   const today = this._config.getToday();
   if (this._dailyDate !== today) {
-    console.log(`[${this._label}] Day rollover detected: ${this._dailyDate} → ${today}`);
+    this._log.info(`Day rollover detected: ${this._dailyDate} → ${today}`);
     await this._getOrCreateDailyThread(); // triggers summary + new thread
   }
 }
@@ -89,11 +89,11 @@ async function _getOrCreateDailyThread() {
           this._dayCountsDirty = true;
           this._saveDayCounts();
           this._dailyDate = null; // reset so normal flow continues
-          console.log(`[${this._label}] Posted stale daily summary for ${raw.date}`);
+          this._log.info(`Posted stale daily summary for ${raw.date}`);
         }
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not process stale day-counts:`, err.message);
+      this._log.warn('Could not process stale day-counts:', err.message);
     }
   }
 
@@ -124,7 +124,7 @@ async function _getOrCreateDailyThread() {
     if (existing) {
       this._dailyThread = existing;
       this._dailyDate = today;
-      console.log(`[${this._label}] Using existing thread: ${threadName}`);
+      this._log.info(`Using existing thread: ${threadName}`);
       // Re-add admin members (they may have been removed if bot restarted)
       this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
       return this._dailyThread;
@@ -139,12 +139,12 @@ async function _getOrCreateDailyThread() {
       await archivedMatch.setArchived(false);
       this._dailyThread = archivedMatch;
       this._dailyDate = today;
-      console.log(`[${this._label}] Unarchived existing thread: ${threadName}`);
+      this._log.info(`Unarchived existing thread: ${threadName}`);
       this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
       return this._dailyThread;
     }
   } catch (err) {
-    console.warn(`[${this._label}] Could not search for threads:`, err.message);
+    this._log.warn('Could not search for threads:', err.message);
   }
 
   // Create a new thread (from a starter message so it appears inline in the channel)
@@ -164,12 +164,12 @@ async function _getOrCreateDailyThread() {
       reason: 'Daily summary thread',
     });
     this._dailyDate = today;
-    console.log(`[${this._label}] Created daily thread: ${threadName}`);
+    this._log.info(`Created daily thread: ${threadName}`);
 
     // Auto-join admin users/roles so the thread stays visible for them
     this._config.addAdminMembers(this._dailyThread, this.logChannel.guild).catch(() => {});
   } catch (err) {
-    console.error(`[${this._label}] Failed to create daily thread:`, err.message);
+    this._log.error('Failed to create daily thread:', err.message);
     // Fallback — use the main channel directly
     this._dailyThread = this.logChannel;
     this._dailyDate = today;
@@ -180,7 +180,7 @@ async function _getOrCreateDailyThread() {
     try {
       await this._dayRolloverCb();
     } catch (e) {
-      console.warn(`[${this._label}] Day rollover callback error:`, e.message);
+      this._log.warn('Day rollover callback error:', e.message);
     }
   }
 
@@ -271,7 +271,7 @@ async function _postDailySummary() {
         if (airdrops > 0) lines.push(`**Airdrop Events:** ${airdrops}`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not query DB for daily summary:`, err.message);
+      this._log.warn('Could not query DB for daily summary:', err.message);
     }
   }
 
@@ -299,7 +299,7 @@ async function _postDailySummary() {
     const target = this._dailyThread || this.logChannel;
     await target.send({ embeds: [embed] });
   } catch (err) {
-    console.error(`[${this._label}] Failed to post daily summary:`, err.message);
+    this._log.error('Failed to post daily summary:', err.message);
   }
 }
 
@@ -377,11 +377,11 @@ async function sendToDateThread(embed, dateStr) {
       return result;
     }
   } catch (err) {
-    console.warn(`[${this._label}] Could not find thread for ${dateStr}:`, err.message);
+    this._log.warn(`Could not find thread for ${dateStr}:`, err.message);
   }
 
   // Fallback: post to today's thread
-  console.log(`[${this._label}] No thread found for ${dateStr}, using today's thread`);
+  this._log.info(`No thread found for ${dateStr}, using today's thread`);
   return this.sendToThread(embed);
 }
 
@@ -400,14 +400,14 @@ async function _sendToThread(embed) {
   } catch (err) {
     // Self-heal: if the thread was deleted/recreated (e.g. NUKE_BOT), clear cache and retry once
     if (err.code === 10003 || err.message?.includes('Unknown Channel')) {
-      console.warn(`[${this._label}] Thread gone — clearing cache and retrying...`);
+      this._log.warn('Thread gone — clearing cache and retrying...');
       this.resetThreadCache();
       const fresh = await this._getOrCreateDailyThread();
       return fresh.send({ embeds: [embed] }).catch((retryErr) => {
-        console.error(`[${this._label}] Failed to send to thread (retry):`, retryErr.message);
+        this._log.error('Failed to send to thread (retry):', retryErr.message);
       });
     }
-    console.error(`[${this._label}] Failed to send to thread:`, err.message);
+    this._log.error('Failed to send to thread:', err.message);
   }
 }
 

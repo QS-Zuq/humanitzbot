@@ -2,6 +2,7 @@ const _defaultConfig = require('../config');
 const { sendAdminMessage, getServerInfo } = require('../rcon/server-info');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
+const { createLogger } = require('../utils/log');
 
 // Content layer: text generation, color helpers, welcome file builder
 const content = require('./auto-messages-content');
@@ -15,9 +16,7 @@ class AutoMessages {
     this._getServerInfo = deps.getServerInfo || getServerInfo;
     this._sendAdminMessage = deps.sendAdminMessage || sendAdminMessage;
     this._presenceTracker = deps.presenceTracker || null;
-    this._label = String(deps.label || 'AUTO MSG')
-      .replace(/[^\w\s:/-]/g, '')
-      .slice(0, 40);
+    this._log = createLogger(deps.label, 'AUTO MSG');
     this._db = deps.db || null;
 
     this.discordLink = this._config.discordInviteLink;
@@ -35,33 +34,33 @@ class AutoMessages {
   }
 
   async start() {
-    console.log(`[${this._label}] Starting auto-messages...`);
+    this._log.info('Starting auto-messages...');
 
     // Periodic Discord link broadcast
     if (this._config.enableAutoMsgLink) {
       this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
-      console.log(`[${this._label}] Discord link every ${this.linkInterval / 60000} min`);
+      this._log.info(`Discord link every ${this.linkInterval / 60000} min`);
     } else {
-      console.log(`[${this._label}] Discord link broadcast disabled`);
+      this._log.info('Discord link broadcast disabled');
     }
 
     // Periodic promo message broadcast
     if (this._config.enableAutoMsgPromo) {
       this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
-      console.log(`[${this._label}] Promo message every ${this.promoInterval / 60000} min`);
+      this._log.info(`Promo message every ${this.promoInterval / 60000} min`);
     } else {
-      console.log(`[${this._label}] Promo message disabled`);
+      this._log.info('Promo message disabled');
     }
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
       this._onPlayerJoined = (joiner) => this._sendWelcomeMessage(joiner);
       this._presenceTracker.on('playerJoined', this._onPlayerJoined);
-      console.log(`[${this._label}] RCON welcome messages enabled (on player join)`);
+      this._log.info('RCON welcome messages enabled (on player join)');
     } else if (this._config.enableWelcomeMsg) {
-      console.log(`[${this._label}] RCON welcome messages enabled but no presence tracker — skipping`);
+      this._log.info('RCON welcome messages enabled but no presence tracker \u2014 skipping');
     } else {
-      console.log(`[${this._label}] RCON welcome messages disabled`);
+      this._log.info('RCON welcome messages disabled');
     }
     // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
   }
@@ -75,7 +74,7 @@ class AutoMessages {
     }
     this._linkTimer = null;
     this._promoTimer = null;
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   // ── Private methods ────────────────────────────────────────
@@ -93,9 +92,9 @@ class AutoMessages {
         ? await this._resolveMessagePlaceholders(custom)
         : `<FO>Join our </><CL>Discord</><FO>! ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
-      console.log(`[${this._label}] Sent Discord link to game chat`);
+      this._log.info('Sent Discord link to game chat');
     } catch (err) {
-      console.error(`[${this._label}] Failed to send Discord link:`, err.message);
+      this._log.error('Failed to send Discord link:', err.message);
     }
   }
 
@@ -106,9 +105,9 @@ class AutoMessages {
         ? await this._resolveMessagePlaceholders(custom)
         : `<FO>Issues, suggestions, or just want to connect? ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
-      console.log(`[${this._label}] Sent promo message to game chat`);
+      this._log.info('Sent promo message to game chat');
     } catch (err) {
-      console.error(`[${this._label}] Failed to send promo message:`, err.message);
+      this._log.error('Failed to send promo message:', err.message);
     }
   }
 
@@ -140,9 +139,9 @@ class AutoMessages {
 
       await this._sendAdminMessage(msg);
       this._lastWelcomeTime = Date.now();
-      console.log(`[${this._label}] Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
+      this._log.info(`Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
     } catch (err) {
-      console.error(`[${this._label}] Failed to send welcome to ${joiner.name}:`, err.message);
+      this._log.error(`Failed to send welcome to ${joiner.name}:`, err.message);
     }
   }
 }

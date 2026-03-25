@@ -21,6 +21,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const { t, getLocale } = require('../i18n');
+const { createLogger } = require('../utils/log');
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ class GitHubTracker {
     this.client = client;
     this._config = deps.config || require('../config');
     this._db = deps.db || null;
-    this._label = 'GITHUB';
+    this._log = createLogger(null, 'GITHUB');
     this._locale = getLocale({ serverConfig: this._config });
 
     /** @type {Map<string, import('discord.js').ThreadChannel>} repo → thread */
@@ -60,25 +61,25 @@ class GitHubTracker {
   async start() {
     const channelId = this._config.githubChannelId;
     if (!channelId) {
-      console.log(`[${this._label}] No GITHUB_CHANNEL_ID — skipping`);
+      this._log.info('No GITHUB_CHANNEL_ID — skipping');
       return;
     }
 
     const repos = this._config.githubRepos;
     if (!repos || repos.length === 0) {
-      console.log(`[${this._label}] No GITHUB_REPOS configured — skipping`);
+      this._log.info('No GITHUB_REPOS configured — skipping');
       return;
     }
 
     try {
       this._channel = await this.client.channels.fetch(channelId);
     } catch (err) {
-      console.error(`[${this._label}] Could not fetch channel ${channelId}:`, err.message);
+      this._log.error(`Could not fetch channel ${channelId}:`, err.message);
       return;
     }
 
     if (!this._channel) {
-      console.error(`[${this._label}] GitHub channel not found (${channelId})`);
+      this._log.error(`GitHub channel not found (${channelId})`);
       return;
     }
 
@@ -93,12 +94,9 @@ class GitHubTracker {
 
     // Start polling — run an initial poll immediately, then on each interval
     const interval = this._config.githubPollInterval;
-    this._poll().catch((e) => console.error(`[${this._label}] Initial poll error:`, e.message));
-    this._pollTimer = setInterval(
-      () => this._poll().catch((e) => console.error(`[${this._label}] Poll error:`, e.message)),
-      interval,
-    );
-    console.log(`[${this._label}] Tracking ${repos.length} repo(s) — polling every ${interval / 1000}s`);
+    this._poll().catch((e) => this._log.error('Initial poll error:', e.message));
+    this._pollTimer = setInterval(() => this._poll().catch((e) => this._log.error('Poll error:', e.message)), interval);
+    this._log.info(`Tracking ${repos.length} repo(s) — polling every ${interval / 1000}s`);
   }
 
   stop() {
@@ -106,7 +104,7 @@ class GitHubTracker {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
     }
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   // ── GitHub API ────────────────────────────────────────────────────────────
@@ -131,7 +129,7 @@ class GitHubTracker {
       try {
         await this._pollRepo(repo);
       } catch (err) {
-        console.error(`[${this._label}] Error polling ${repo}:`, err.message);
+        this._log.error(`Error polling ${repo}:`, err.message);
       }
     }
   }
@@ -145,7 +143,7 @@ class GitHubTracker {
   async _pollPRs(repo) {
     const res = await this._ghFetch(`/repos/${repo}/pulls?state=all&sort=updated&per_page=25`);
     if (!res.ok) {
-      if (res.status !== 404) console.warn(`[${this._label}] PR fetch for ${repo} returned ${res.status}`);
+      if (res.status !== 404) this._log.warn(`PR fetch for ${repo} returned ${res.status}`);
       return;
     }
     const prs = await res.json();
@@ -184,7 +182,7 @@ class GitHubTracker {
   async _pollPushes(repo) {
     const res = await this._ghFetch(`/repos/${repo}/commits?per_page=10`);
     if (!res.ok) {
-      if (res.status !== 404) console.warn(`[${this._label}] Commit fetch for ${repo} returned ${res.status}`);
+      if (res.status !== 404) this._log.warn(`Commit fetch for ${repo} returned ${res.status}`);
       return;
     }
     const commits = await res.json();
@@ -243,8 +241,8 @@ class GitHubTracker {
 
     repoState.bootstrapped = true;
     this._saveState();
-    console.log(
-      `[${this._label}] Bootstrapped ${repo} (${(repoState.seenPrIds || []).length} PR(s), ${(repoState.seenCommitShas || []).length} commit(s))`,
+    this._log.info(
+      `Bootstrapped ${repo} (${(repoState.seenPrIds || []).length} PR(s), ${(repoState.seenCommitShas || []).length} commit(s))`,
     );
   }
 
@@ -261,11 +259,11 @@ class GitHubTracker {
       const found = active.threads.find((th) => th.name === threadName);
       if (found) {
         this._threads.set(repo, found);
-        console.log(`[${this._label}] Using existing thread for ${repo}: ${threadName}`);
+        this._log.info(`Using existing thread for ${repo}: ${threadName}`);
         return found;
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not list active threads:`, err.message);
+      this._log.warn('Could not list active threads:', err.message);
     }
 
     // Search archived threads
@@ -275,11 +273,11 @@ class GitHubTracker {
       if (found) {
         await found.setArchived(false).catch(() => {});
         this._threads.set(repo, found);
-        console.log(`[${this._label}] Unarchived thread for ${repo}: ${threadName}`);
+        this._log.info(`Unarchived thread for ${repo}: ${threadName}`);
         return found;
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not search archived threads:`, err.message);
+      this._log.warn('Could not search archived threads:', err.message);
     }
 
     // Create a new thread
@@ -297,10 +295,10 @@ class GitHubTracker {
         reason: t('discord:github_tracker.thread_reason', this._locale, { repo }),
       });
       this._threads.set(repo, thread);
-      console.log(`[${this._label}] Created thread for ${repo}: ${threadName}`);
+      this._log.info(`Created thread for ${repo}: ${threadName}`);
       return thread;
     } catch (err) {
-      console.error(`[${this._label}] Failed to create thread for ${repo}:`, err.message);
+      this._log.error(`Failed to create thread for ${repo}:`, err.message);
       // Fallback to main channel
       this._threads.set(repo, this._channel);
       return this._channel;
@@ -317,12 +315,9 @@ class GitHubTracker {
       if (err.code === 10003 || err.message?.includes('Unknown Channel')) {
         this._threads.delete(repo);
         const fresh = await this._ensureThread(repo);
-        if (fresh)
-          await fresh
-            .send({ embeds: [embed] })
-            .catch((e) => console.error(`[${this._label}] Retry send failed:`, e.message));
+        if (fresh) await fresh.send({ embeds: [embed] }).catch((e) => this._log.error('Retry send failed:', e.message));
       } else {
-        console.error(`[${this._label}] Failed to send embed for ${repo}:`, err.message);
+        this._log.error(`Failed to send embed for ${repo}:`, err.message);
       }
     }
   }
@@ -416,7 +411,7 @@ class GitHubTracker {
     try {
       this._db.setStateJSON('github_tracker', this._state);
     } catch (err) {
-      console.warn(`[${this._label}] Could not save state:`, err.message);
+      this._log.warn('Could not save state:', err.message);
     }
   }
 

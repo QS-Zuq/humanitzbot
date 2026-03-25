@@ -1,5 +1,7 @@
 const _cfgFs = require('fs');
 const _cfgPath = require('path');
+const { createLogger } = require('./utils/log');
+const _cfgLog = createLogger(null, 'CONFIG');
 
 // ── Bootstrap: generate .env from template if missing ────────
 const _envPath = _cfgPath.join(__dirname, '..', '.env');
@@ -550,7 +552,7 @@ if (config.ftpBasePath) {
       config[key] = prefix + '/' + config[key];
     }
   }
-  console.log(`[CONFIG] FTP base path: ${prefix}`);
+  _cfgLog.info('FTP base path:', prefix);
 }
 
 // Validate required values — Discord credentials are always needed.
@@ -721,7 +723,7 @@ config.sftpConnectConfig = function () {
       // If a password is also set, use it as the passphrase for the key
       if (self.ftpPassword) cfg.passphrase = self.ftpPassword;
     } catch (err) {
-      console.error(`[CONFIG] Could not read SSH private key at ${self.ftpPrivateKeyPath}:`, err.message);
+      _cfgLog.error('Could not read SSH private key at ' + self.ftpPrivateKeyPath + ':', err.message);
       // Fall back to password auth
       cfg.password = self.ftpPassword;
     }

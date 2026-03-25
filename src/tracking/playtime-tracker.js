@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const _defaultConfig = require('../config');
+const { createLogger } = require('../utils/log');
 
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
@@ -19,7 +20,7 @@ class PlaytimeTracker {
     // Per-instance overrides (for multi-server support)
     this._dataDir = options.dataDir || DEFAULT_DATA_DIR;
     this._config = options.config || _defaultConfig;
-    this._label = options.label || 'PLAYTIME';
+    this._log = createLogger(options.label, 'PLAYTIME');
   }
 
   init() {
@@ -44,8 +45,8 @@ class PlaytimeTracker {
     }
     this._cleanGhostEntries();
     this._backfillUniqueDayPeak();
-    console.log(`[${this._label}] Tracking since ${this._data.trackingSince}`);
-    console.log(`[${this._label}] ${Object.keys(this._data.players).length} player(s) in database`);
+    this._log.info(`Tracking since ${this._data.trackingSince}`);
+    this._log.info(`${Object.keys(this._data.players).length} player(s) in database`);
   }
 
   stop() {
@@ -55,7 +56,7 @@ class PlaytimeTracker {
       this._addPlaytime(id, now - loginTime);
     }
     this._activeSessions.clear();
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   /** Attach a HumanitZDB instance for unified playtime + alias syncing. */
@@ -98,12 +99,12 @@ class PlaytimeTracker {
             }
           }
           if (reloaded > 0) {
-            console.log(`[${this._label}] Reloaded ${reloaded} player(s) from DB after late setDb()`);
+            this._log.info(`Reloaded ${reloaded} player(s) from DB after late setDb()`);
             this._leaderboardCache = null;
           }
         }
       } catch (err) {
-        console.warn(`[${this._label}] DB reload on setDb() failed:`, err.message);
+        this._log.warn('DB reload on setDb() failed:', err.message);
       }
     }
   }
@@ -152,7 +153,7 @@ class PlaytimeTracker {
       } catch (_) {}
     }
 
-    console.log(`[${this._label}] ${name} (${id}) session started`);
+    this._log.info(`${name} (${id}) session started`);
   }
 
   playerLeave(id, timestamp) {
@@ -165,7 +166,7 @@ class PlaytimeTracker {
 
       const record = this._data.players[id];
       const name = record ? record.name : id;
-      console.log(`[${this._label}] ${name} (${id}) session ended — ${this._formatDuration(duration)}`);
+      this._log.info(`${name} (${id}) session ended — ${this._formatDuration(duration)}`);
     }
   }
 
@@ -389,9 +390,9 @@ class PlaytimeTracker {
           lastSeen: row.playtime_last_seen || null,
         };
       }
-      console.log(`[${this._label}] Loaded ${rows.length} player(s) from database`);
+      this._log.info(`Loaded ${rows.length} player(s) from database`);
     } catch (err) {
-      console.error(`[${this._label}] DB load failed:`, err.message);
+      this._log.error('DB load failed:', err.message);
       this._data = null;
     }
   }
@@ -412,7 +413,7 @@ class PlaytimeTracker {
       });
     } catch (err) {
       if (!this._persistWarnLogged) {
-        console.warn(`[${this._label}] DB persist failed (will suppress further):`, err.message);
+        this._log.warn('DB persist failed (will suppress further):', err.message);
         this._persistWarnLogged = true;
       }
     }
@@ -465,13 +466,13 @@ class PlaytimeTracker {
           if (ghost.firstSeen && (!record.firstSeen || ghost.firstSeen < record.firstSeen)) {
             record.firstSeen = ghost.firstSeen;
           }
-          console.log(`[${this._label}] Merged ghost "${key}" into ${sid} (${record.name})`);
+          this._log.info(`Merged ghost "${key}" into ${sid} (${record.name})`);
           merged = true;
           break;
         }
       }
       if (!merged) {
-        console.log(`[${this._label}] Removing orphan ghost entry "${key}" (no SteamID match)`);
+        this._log.info(`Removing orphan ghost entry "${key}" (no SteamID match)`);
       }
       toDelete.push(key);
     }
@@ -481,7 +482,7 @@ class PlaytimeTracker {
       if (this._data.peaks && Array.isArray(this._data.peaks.uniqueToday)) {
         this._data.peaks.uniqueToday = this._data.peaks.uniqueToday.filter((id) => /^\d{17}$/.test(id));
       }
-      console.log(`[${this._label}] Cleaned ${toDelete.length} ghost entries`);
+      this._log.info(`Cleaned ${toDelete.length} ghost entries`);
     }
   }
 
@@ -531,10 +532,10 @@ class PlaytimeTracker {
           0,
           0,
         ).toISOString();
-        console.log(`[${this._label}] Backfilled uniqueDayPeak: ${bestCount} on ${bestDate}`);
+        this._log.info(`Backfilled uniqueDayPeak: ${bestCount} on ${bestDate}`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not backfill uniqueDayPeak:`, err.message);
+      this._log.warn('Could not backfill uniqueDayPeak:', err.message);
     }
   }
 

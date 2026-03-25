@@ -24,6 +24,7 @@
 
 const crypto = require('crypto');
 const expressSession = require('express-session');
+const csrf = require('csurf');
 const config = require('../config');
 const { createSessionStore } = require('./session-store-factory');
 
@@ -250,6 +251,41 @@ function setupAuth(app, client, opts = {}) {
     }),
   );
 
+  // Same-origin enforcement for mutating requests (CSRF protection via Origin/Referer check)
+  app.use((req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (req.path === '/auth/callback') return next();
+
+    const origin = req.get('origin') || req.get('referer');
+    if (!origin) return next();
+
+    try {
+      const requestOrigin = new URL(origin).origin;
+      const appOrigin = new URL(authCfg.callbackUrl).origin;
+      if (requestOrigin !== appOrigin) {
+        return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Cross-origin request blocked' });
+      }
+    } catch (_) {
+      return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid origin header' });
+    }
+    next();
+  });
+
+  // CSRF token protection (csurf uses session to store the secret)
+  const csrfProtection = csrf();
+  app.use((req, res, next) => {
+    if (req.path === '/auth/callback') return next();
+    csrfProtection(req, res, next);
+  });
+
+  // CSRF validation error handler
+  app.use((err, req, res, next) => {
+    if (err.code === 'EBADCSRFTOKEN') {
+      return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid or missing CSRF token' });
+    }
+    next(err);
+  });
+
   console.log(`[AUTH] Discord OAuth enabled — callback: ${authCfg.callbackUrl}`);
   console.log(`[AUTH] Session store: ${config.sessionStore || 'sqlite'}, TTL: ${sessionTtl}s`);
   if (authCfg.adminRoles.length > 0) console.log(`[AUTH] Admin roles: ${authCfg.adminRoles.join(', ')}`);
@@ -344,8 +380,9 @@ function setupAuth(app, client, opts = {}) {
   app.get('/auth/logout', (req, res) => {
     req.session.destroy((err) => {
       if (err) console.error('[AUTH] Session destroy error:', err.message);
-      const flags = `HttpOnly; SameSite=Lax; Path=/; Max-Age=0` + (isSecure ? '; Secure' : '');
-      res.setHeader('Set-Cookie', [`${COOKIE_NAME}=; ${flags}`, `hmz_oauth_state=; ${flags}`]);
+      const cookieOpts = { httpOnly: true, sameSite: 'lax', secure: isSecure, path: '/' };
+      res.clearCookie(COOKIE_NAME, cookieOpts);
+      res.clearCookie('hmz_oauth_state', cookieOpts);
       res.redirect('/');
     });
   });
@@ -353,7 +390,7 @@ function setupAuth(app, client, opts = {}) {
   app.get('/auth/me', (req, res) => {
     const user = req.session?.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0 });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: req.csrfToken() });
     }
     res.json({
       authenticated: true,
@@ -364,6 +401,7 @@ function setupAuth(app, client, opts = {}) {
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
+      csrfToken: req.csrfToken(),
     });
   });
 
@@ -372,7 +410,7 @@ function setupAuth(app, client, opts = {}) {
   app.get('/auth/refresh', async (req, res) => {
     const user = req.session?.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0 });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: req.csrfToken() });
     }
     // Only attempt refresh if we have the bot client and a guild ID
     if (client && authCfg.guildId && user.userId) {
@@ -416,6 +454,7 @@ function setupAuth(app, client, opts = {}) {
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
+      csrfToken: req.csrfToken(),
     });
   });
 

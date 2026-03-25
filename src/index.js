@@ -1156,14 +1156,14 @@ client.once(Events.ClientReady, async (readyClient) => {
       for (const serverDef of servers) {
         const label = serverDef.name || serverDef.id;
         if (!serverDef.channels?.log) {
-          console.log(`[NUKE] Skipping ${label} thread rebuild (no log channel)`);
+          console.log('[NUKE] Skipping %s thread rebuild (no log channel)', label);
           continue;
         }
         const serverConfig = createServerConfig(serverDef);
-        console.log(`[NUKE] Rebuilding threads for ${label}...`);
+        console.log('[NUKE] Rebuilding threads for %s...', label);
         const srvResult = await rebuildThreads(readyClient, null, serverConfig);
         if (srvResult.error) {
-          console.error(`[NUKE] Thread rebuild for ${label} failed:`, srvResult.error);
+          console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
         } else {
           console.log(
             `[NUKE] ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`,

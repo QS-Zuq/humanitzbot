@@ -9,6 +9,7 @@
  */
 const EventEmitter = require('events');
 const _defaultConfig = require('../config');
+const { createLogger } = require('../utils/log');
 const { getPlayerList: _defaultGetPlayerList } = require('../rcon/server-info');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 
@@ -19,9 +20,7 @@ class PlayerPresenceTracker extends EventEmitter {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._getPlayerList = deps.getPlayerList || _defaultGetPlayerList;
     // Sanitize label — may originate from user-configurable server names in multi-server mode
-    this._label = String(deps.label || 'PRESENCE')
-      .replace(/[^\w\s:/-]/g, '')
-      .slice(0, 40);
+    this._log = createLogger(deps.label, 'PRESENCE');
 
     this._onlinePlayers = new Set();
     this._pollTimer = null;
@@ -31,16 +30,16 @@ class PlayerPresenceTracker extends EventEmitter {
   // ── Lifecycle ─────────────────────────────────────────────
 
   async start() {
-    console.log(`[${this._label}] Starting player presence tracker...`);
+    this._log.info('Starting player presence tracker...');
     await this._seedPlayers();
     this._pollTimer = setInterval(() => this._poll(), this._config.autoMsgJoinCheckInterval);
-    console.log(`[${this._label}] Polling every ${this._config.autoMsgJoinCheckInterval / 1000}s`);
+    this._log.info(`Polling every ${this._config.autoMsgJoinCheckInterval / 1000}s`);
   }
 
   stop() {
     if (this._pollTimer) clearInterval(this._pollTimer);
     this._pollTimer = null;
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   // ── Public API ────────────────────────────────────────────
@@ -77,9 +76,9 @@ class PlayerPresenceTracker extends EventEmitter {
         }
       }
       this._initialised = true;
-      console.log(`[${this._label}] Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
+      this._log.info(`Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
     } catch (err) {
-      console.error(`[${this._label}] Failed to seed players:`, err.message);
+      this._log.error('Failed to seed players:', err.message);
       this._initialised = true; // continue anyway
     }
   }
@@ -121,7 +120,7 @@ class PlayerPresenceTracker extends EventEmitter {
           try {
             this.emit('playerLeft', { id });
           } catch (e) {
-            console.error(`[${this._label}] Listener error on playerLeft:`, e);
+            this._log.error('Listener error on playerLeft:', e);
           }
         }
       }
@@ -140,11 +139,11 @@ class PlayerPresenceTracker extends EventEmitter {
         try {
           this.emit('playerJoined', joiner);
         } catch (e) {
-          console.error(`[${this._label}] Listener error on playerJoined:`, e);
+          this._log.error('Listener error on playerJoined:', e);
         }
       }
     } catch (err) {
-      console.error(`[${this._label}] Unexpected poll error:`, err);
+      this._log.error('Unexpected poll error:', err);
     }
   }
 }

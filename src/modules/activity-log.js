@@ -22,6 +22,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
+const { createLogger } = require('../utils/log');
 const { cleanName, cleanItemName } = require('../parsers/ue4-names');
 const { t, getLocale, fmtNumber } = require('../i18n');
 
@@ -86,7 +87,7 @@ class ActivityLog {
     this._db = options.db;
     this._saveService = options.saveService;
     this._logWatcher = options.logWatcher || null;
-    this._label = options.label || 'ActivityLog';
+    this._log = createLogger(options.label, 'ActivityLog');
     this._channel = null; // fallback channel when no logWatcher
     this._started = false;
   }
@@ -99,17 +100,17 @@ class ActivityLog {
     if (!this._logWatcher) {
       const channelId = config.activityLogChannelId || config.adminChannelId;
       if (!channelId) {
-        console.log(`[${this._label}] No logWatcher or channel configured — activity log disabled`);
+        this._log.info('No logWatcher or channel configured \u2014 activity log disabled');
         return;
       }
       try {
         this._channel = await this._client.channels.fetch(channelId);
         if (!this._channel) {
-          console.warn(`[${this._label}] Channel ${channelId} not found`);
+          this._log.warn(`Channel ${channelId} not found`);
           return;
         }
       } catch (err) {
-        console.warn(`[${this._label}] Failed to fetch channel ${channelId}:`, err.message);
+        this._log.warn(`Failed to fetch channel ${channelId}:`, err.message);
         return;
       }
     }
@@ -121,7 +122,7 @@ class ActivityLog {
     }
 
     const target = this._logWatcher ? 'daily thread (via LogWatcher)' : `#${this._channel?.name || 'unknown'}`;
-    console.log(`[${this._label}] Started — posting to ${target}`);
+    this._log.info(`Started \u2014 posting to ${target}`);
   }
 
   stop() {
@@ -159,7 +160,7 @@ class ActivityLog {
           }
         } catch (sendErr) {
           // Log individual embed failures but continue sending the rest
-          console.warn(`[${this._label}] Embed send failed (continuing):`, sendErr.message);
+          this._log.warn('Embed send failed (continuing):', sendErr.message);
         }
         // Small delay to respect Discord rate limits (1 embed per 500ms)
         if (embeds.length > 3) {
@@ -168,10 +169,10 @@ class ActivityLog {
       }
 
       if (result.diffEvents.length > maxEvents) {
-        console.log(`[${this._label}] Capped activity batch: ${result.diffEvents.length} events → ${maxEvents} posted`);
+        this._log.info(`Capped activity batch: ${result.diffEvents.length} events \u2192 ${maxEvents} posted`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Failed to post activity:`, err.message);
+      this._log.warn('Failed to post activity:', err.message);
     }
   }
 

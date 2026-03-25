@@ -1283,6 +1283,7 @@ window.Panel = window.Panel || {};
 
     const res = await fetch('/auth/me');
     S.user = await res.json();
+    if (S.user.csrfToken) Panel.core.setCsrfToken(S.user.csrfToken);
     S.tier = S.user.tierLevel || 0;
     if (!S.user.authenticated || S.tier < 1) {
       if (Panel.landing) Panel.landing.show();
@@ -1308,6 +1309,7 @@ window.Panel = window.Panel || {};
           try {
             const r = await fetch('/auth/refresh');
             const d = await r.json();
+            if (d.csrfToken) Panel.core.setCsrfToken(d.csrfToken);
             if (d.tierLevel >= 1) {
               clearInterval(S._refreshPoll);
               S.user = d;

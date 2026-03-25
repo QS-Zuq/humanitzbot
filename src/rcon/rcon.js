@@ -1,6 +1,7 @@
 const net = require('net');
 const { EventEmitter } = require('events');
 const _defaultConfig = require('../config');
+const { createLogger } = require('../utils/log');
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
@@ -29,7 +30,7 @@ class RconManager extends EventEmitter {
     this._host = options.host || null;
     this._port = options.port || null;
     this._password = options.password || null;
-    this._label = options.label || 'RCON';
+    this._log = createLogger(options.label, 'RCON');
     this._cacheTtl = options.cacheTtl || null;
     /** True after first successful connect — distinguishes initial connection from reconnects. */
     this._everConnected = false;
@@ -56,7 +57,7 @@ class RconManager extends EventEmitter {
 
       this.socket.connect(port, host, () => {
         this.connected = true;
-        console.log(`[${this._label}] TCP connected to ${host}:${port}`);
+        this._log.info(`TCP connected to ${host}:${port}`);
 
         // Send auth packet
         this._sendPacket(1, SERVERDATA_AUTH, password);
@@ -76,7 +77,7 @@ class RconManager extends EventEmitter {
             reject(new Error('Authentication failed — wrong RCON password'));
           } else {
             this.authenticated = true;
-            console.log(`[${this._label}] Authenticated successfully`);
+            this._log.info('Authenticated successfully');
             // Emit reconnect event (after first initial connect, subsequent connects are reconnects)
             if (this._everConnected) {
               const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
@@ -92,7 +93,7 @@ class RconManager extends EventEmitter {
       this.socket.on('data', (data) => this._onData(data));
 
       this.socket.on('error', (err) => {
-        console.error(`[${this._label}] Socket error:`, err.message);
+        this._log.error('Socket error:', err.message);
         clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
           this._disconnectedAt = Date.now();
@@ -108,7 +109,7 @@ class RconManager extends EventEmitter {
 
       this.socket.on('close', () => {
         if (this.connected) {
-          console.log(`[${this._label}] Connection closed`);
+          this._log.info('Connection closed');
           if (this._everConnected && !this._disconnectedAt) {
             this._disconnectedAt = Date.now();
             this.emit('disconnect', { reason: 'Connection closed' });
@@ -156,7 +157,7 @@ class RconManager extends EventEmitter {
           if (responseData) {
             resolve(responseData);
           } else {
-            console.error(`[${this._label}] No response for: ${command}`);
+            this._log.error(`No response for: ${command}`);
             reject(new Error(`No response for command: ${command}`));
           }
         }
@@ -247,7 +248,7 @@ class RconManager extends EventEmitter {
 
       // Sanity check — if size is nonsensical, try treating raw data as text
       if (size < 10 || size > 65536) {
-        console.log(`[${this._label}] Non-standard packet (size=${size}), treating as raw text`);
+        this._log.info(`Non-standard packet (size=${size}), treating as raw text`);
         const rawText = this._responseBuffer.toString('utf8');
         this._responseBuffer = Buffer.alloc(0);
         if (this._commandCallback) {
@@ -306,13 +307,13 @@ class RconManager extends EventEmitter {
 
   _scheduleReconnect() {
     if (this.reconnectTimeout) return;
-    console.log(`[${this._label}] Reconnecting in 15 seconds...`);
+    this._log.info('Reconnecting in 15 seconds...');
     this.reconnectTimeout = setTimeout(async () => {
       this.reconnectTimeout = null;
       try {
         await this.connect();
       } catch (err) {
-        console.error(`[${this._label}] Reconnect failed:`, err.message);
+        this._log.error('Reconnect failed:', err.message);
       }
     }, 15000);
   }

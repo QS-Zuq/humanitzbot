@@ -68,6 +68,12 @@ window.Panel = window.Panel || {};
 
   // ── API Utilities ─────────────────────────────────
 
+  var _csrfToken = null;
+
+  function setCsrfToken(token) {
+    _csrfToken = token || null;
+  }
+
   /** Build API URL with server query param appended */
   function apiUrl(path) {
     if (S.currentServer === 'primary') return path;
@@ -75,8 +81,12 @@ window.Panel = window.Panel || {};
     return path + sep + 'server=' + encodeURIComponent(S.currentServer);
   }
 
-  /** Fetch wrapper that auto-appends server param to /api/ URLs */
+  /** Fetch wrapper that auto-appends server param and CSRF token */
   function apiFetch(url, opts) {
+    opts = opts || {};
+    if (_csrfToken && opts.method && opts.method !== 'GET') {
+      opts.headers = Object.assign({}, opts.headers, { 'X-CSRF-Token': _csrfToken });
+    }
     return fetch(apiUrl(url), opts);
   }
 
@@ -346,6 +356,7 @@ window.Panel = window.Panel || {};
     esc: esc,
     apiUrl: apiUrl,
     apiFetch: apiFetch,
+    setCsrfToken: setCsrfToken,
     toI18nSnakeCase: toI18nSnakeCase,
     SETTING_CATEGORY_KEY_MAP: SETTING_CATEGORY_KEY_MAP,
     SETTING_DESC_KEY_OVERRIDES: SETTING_DESC_KEY_OVERRIDES,

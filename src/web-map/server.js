@@ -27,32 +27,20 @@ const serverResources = require('../server/server-resources');
 const { formatBytes, formatUptime } = require('../server/server-resources');
 const { ENV_CATEGORIES, ENV_CATEGORY_GROUPS } = require('../modules/panel-constants');
 const { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } = require('../db/config-migration');
+const { readPrivateKey } = require('../utils/security');
 
-// ── Rate limiter (simple in-memory, per-IP) ──
-const _rateBuckets = new Map();
+// ── Rate limiter (express-rate-limit, per-IP + path) ──
+const expressRateLimit = require('express-rate-limit');
 function rateLimit(windowMs, maxReqs) {
-  return (req, res, next) => {
-    const key = req.ip + ':' + req.path;
-    const now = Date.now();
-    let bucket = _rateBuckets.get(key);
-    if (!bucket || now - bucket.start > windowMs) {
-      bucket = { start: now, count: 0 };
-      _rateBuckets.set(key, bucket);
-    }
-    bucket.count++;
-    if (bucket.count > maxReqs) {
-      return sendError(res, API_ERRORS.RATE_LIMITED, 429);
-    }
-    next();
-  };
+  return expressRateLimit({
+    windowMs,
+    max: maxReqs,
+    standardHeaders: false,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip + ':' + req.path,
+    handler: (_req, res) => sendError(res, API_ERRORS.RATE_LIMITED, 429),
+  });
 }
-// Prune stale rate buckets every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, bucket] of _rateBuckets) {
-    if (now - bucket.start > 300000) _rateBuckets.delete(key);
-  }
-}, 300000).unref();
 
 // ── Discovery job tracking (multi-server SFTP auto-discovery) ──
 const _discoveryJobs = new Map();
@@ -3446,6 +3434,15 @@ class WebMapServer {
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
     function _testRconAuth(host, port, password, timeout = 10000) {
+      // Validate host: must be hostname or IP, no URL schemes/paths/spaces
+      if (typeof host !== 'string' || !/^[\w.:-]+$/.test(host) || host.includes('://')) {
+        return Promise.resolve({ ok: false, error: 'Invalid host format' });
+      }
+      const numPort = Number(port);
+      if (!Number.isInteger(numPort) || numPort < 1 || numPort > 65535) {
+        return Promise.resolve({ ok: false, error: 'Invalid port (must be 1-65535)' });
+      }
+      console.log('[WebMap] RCON test: %s:%d by admin', host, numPort);
       const net = require('net');
       return new Promise((resolve) => {
         const socket = new net.Socket();
@@ -3506,9 +3503,9 @@ class WebMapServer {
         if (sftpCfg.password) opts.password = sftpCfg.password;
         if (sftpCfg.privateKeyPath) {
           try {
-            opts.privateKey = fs.readFileSync(sftpCfg.privateKeyPath);
+            opts.privateKey = readPrivateKey(sftpCfg.privateKeyPath);
           } catch (keyErr) {
-            return { ok: false, error: `Cannot read private key at ${sftpCfg.privateKeyPath}: ${keyErr.message}` };
+            return { ok: false, error: 'Cannot read private key: ' + keyErr.message };
           }
         }
         await client.connect(opts);
@@ -3920,7 +3917,8 @@ class WebMapServer {
             await this._multiServerManager.updateServer(id, patch);
           } catch (hotReloadErr) {
             console.warn(
-              `[WebMap] Hot-reload for server ${id} failed, will apply on next start:`,
+              '[WebMap] Hot-reload for server %s failed, will apply on next start:',
+              id,
               hotReloadErr.message,
             );
           }
@@ -3949,7 +3947,7 @@ class WebMapServer {
           try {
             await this._multiServerManager.removeServer(id);
           } catch (removeErr) {
-            console.warn(`[WebMap] removeServer(${id}) cleanup warning:`, removeErr.message);
+            console.warn('[WebMap] removeServer(%s) cleanup warning:', id, removeErr.message);
           }
         }
         if (configRepo) {

@@ -6,6 +6,7 @@ const { cleanName } = require('../parsers/ue4-names');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const { classifyDamageSource, isNpcDamageSource } = require('../tracking/damage-classifier');
+const { createLogger } = require('../utils/log');
 
 class LogWatcher {
   constructor(client, deps = {}) {
@@ -13,9 +14,8 @@ class LogWatcher {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._db = deps.db || null;
-    this._label = String(deps.label || 'LOGS')
-      .replace(/[^\w\s:/-]/g, '')
-      .slice(0, 40);
+    this._log = createLogger(deps.label, 'LOGS');
+    this._label = this._log.label;
     this._dataDir = deps.dataDir || null;
     this._panelApi = deps.panelApi || null;
 
@@ -117,10 +117,10 @@ class LogWatcher {
       const raw = this._db.getStateJSON('day_counts', null);
       if (raw && raw.date === this._config.getToday()) {
         this._dayCounts = { ...this._dayCounts, ...raw.counts };
-        console.log(`[${this._label}] Restored day counts for ${raw.date} (DB)`);
+        this._log.info(`Restored day counts for ${raw.date} (DB)`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not load day counts:`, err.message);
+      this._log.warn('Could not load day counts:', err.message);
     }
   }
 
@@ -132,7 +132,7 @@ class LogWatcher {
       this._db.setStateJSON('day_counts', data);
       this._dayCountsDirty = false;
     } catch (err) {
-      console.warn(`[${this._label}] Could not save day counts:`, err.message);
+      this._log.warn('Could not save day counts:', err.message);
     }
   }
 
@@ -149,10 +149,10 @@ class LogWatcher {
       const raw = this._db.getStateJSON('pvp_kills', null);
       if (Array.isArray(raw)) {
         this._pvpKills = raw;
-        console.log(`[${this._label}:PVP] Loaded ${raw.length} PvP kill(s) from DB`);
+        this._log.info(`PVP: Loaded ${raw.length} PvP kill(s) from DB`);
       }
     } catch (err) {
-      console.warn(`[${this._label}:PVP] Could not load pvp kills:`, err.message);
+      this._log.warn('PVP: Could not load pvp kills:', err.message);
       this._pvpKills = [];
     }
   }
@@ -164,7 +164,7 @@ class LogWatcher {
       this._db.setStateJSON('pvp_kills', this._pvpKills);
       this._pvpKillsDirty = false;
     } catch (err) {
-      console.warn(`[${this._label}:PVP] Could not save pvp kills:`, err.message);
+      this._log.warn('PVP: Could not save pvp kills:', err.message);
     }
   }
 
@@ -285,7 +285,7 @@ class LogWatcher {
   async start() {
     // Validate required FTP config
     if (!this._config.ftpHost || this._config.ftpHost.startsWith('PASTE_')) {
-      console.log(`[${this._label}] FTP not configured, skipping log watcher.`);
+      this._log.info('FTP not configured, skipping log watcher.');
       return;
     }
 
@@ -294,36 +294,34 @@ class LogWatcher {
       // No Discord channel — run in headless mode (DB writes only, no Discord posting).
       // This is used by multi-server instances that only serve the web panel.
       this._headless = true;
-      console.log(`[${this._label}] No LOG_CHANNEL_ID — running in headless mode (DB-only, no Discord posting)`);
+      this._log.info('No LOG_CHANNEL_ID — running in headless mode (DB-only, no Discord posting)');
     }
 
     if (!this._headless) {
       try {
         this.logChannel = await this.client.channels.fetch(channelId);
         if (!this.logChannel) {
-          console.error(`[${this._label}] Log channel not found! Check LOG_CHANNEL_ID.`);
+          this._log.error('Log channel not found! Check LOG_CHANNEL_ID.');
           return;
         }
       } catch (err) {
-        console.error(`[${this._label}] Failed to fetch log channel:`, err.message);
+        this._log.error('Failed to fetch log channel:', err.message);
         return;
       }
-      console.log(
-        `[${this._label}] Posting events to ${this._config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`,
+      this._log.info(
+        `Posting events to ${this._config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`,
       );
     }
 
-    console.log(`[${this._label}] Connecting to ${this._config.ftpHost}:${this._config.ftpPort} for log watching...`);
+    this._log.info(`Connecting to ${this._config.ftpHost}:${this._config.ftpPort} for log watching...`);
 
     // First poll — detect HZLogs or legacy, get current file size
     await this._initSize();
 
     if (this._useRotatedLogs) {
-      console.log(`[${this._label}] Using rotated logs (HZLogs/ per-restart files)`);
+      this._log.info('Using rotated logs (HZLogs/ per-restart files)');
     } else {
-      console.log(
-        `[${this._label}] Using legacy monolithic logs: ${this._config.ftpLogPath}, ${this._config.ftpConnectLogPath}`,
-      );
+      this._log.info(`Using legacy monolithic logs: ${this._config.ftpLogPath}, ${this._config.ftpConnectLogPath}`);
     }
 
     // Initialise today's thread (skip during nuke — phase 2 rebuilds them)
@@ -395,7 +393,7 @@ class LogWatcher {
         }
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not load saved offsets:`, err.message);
+      this._log.warn('Could not load saved offsets:', err.message);
     }
     return null;
   }
@@ -414,7 +412,7 @@ class LogWatcher {
         this._db.setStateJSON('log_offsets', data);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not save offsets:`, err.message);
+      this._log.warn('Could not save offsets:', err.message);
     }
   }
 
@@ -499,9 +497,9 @@ class LogWatcher {
         this._useRotatedLogs = true;
         this._hmzLogFile = rotatedHmz;
         this._connectLogFile = rotatedConnect;
-        console.log(`[${this._label}] Detected HZLogs directory — using per-restart log files`);
-        console.log(`[${this._label}]   HMZLog: ${rotatedHmz}`);
-        if (rotatedConnect) console.log(`[${this._label}]   ConnectLog: ${rotatedConnect}`);
+        this._log.info('Detected HZLogs directory — using per-restart log files');
+        this._log.info(`  HMZLog: ${rotatedHmz}`);
+        if (rotatedConnect) this._log.info(`  ConnectLog: ${rotatedConnect}`);
 
         // If saved offsets match the same file, resume; otherwise start fresh
         try {
@@ -509,13 +507,13 @@ class LogWatcher {
           if (saved && saved.hmzLogFile === rotatedHmz && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
             this.lastSize = saved.hmzLogSize;
             this.initialised = true;
-            console.log(
-              `[${this._label}] HMZLog: resuming from saved offset ${this.lastSize} (${stat.size - this.lastSize} bytes to catch up)`,
+            this._log.info(
+              `HMZLog: resuming from saved offset ${this.lastSize} (${stat.size - this.lastSize} bytes to catch up)`,
             );
           } else {
             this.lastSize = stat.size;
             this.initialised = true;
-            console.log(`[${this._label}] HMZLog: tailing from ${this.lastSize} bytes`);
+            this._log.info(`HMZLog: tailing from ${this.lastSize} bytes`);
           }
         } catch {
           this.lastSize = 0;
@@ -533,13 +531,13 @@ class LogWatcher {
             ) {
               this._connectLastSize = saved.connectLogSize;
               this._connectInitialised = true;
-              console.log(
-                `[${this._label}] ConnectLog: resuming from saved offset ${this._connectLastSize} (${stat2.size - this._connectLastSize} bytes to catch up)`,
+              this._log.info(
+                `ConnectLog: resuming from saved offset ${this._connectLastSize} (${stat2.size - this._connectLastSize} bytes to catch up)`,
               );
             } else {
               this._connectLastSize = stat2.size;
               this._connectInitialised = true;
-              console.log(`[${this._label}] ConnectLog: tailing from ${this._connectLastSize} bytes`);
+              this._log.info(`ConnectLog: tailing from ${this._connectLastSize} bytes`);
             }
           } catch {
             this._connectLastSize = 0;
@@ -554,16 +552,14 @@ class LogWatcher {
             this.lastSize = saved.hmzLogSize;
             this.initialised = true;
             const behind = stat.size - saved.hmzLogSize;
-            console.log(
-              `[${this._label}] HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`,
-            );
+            this._log.info(`HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`);
           } else {
             this.lastSize = stat.size;
             this.initialised = true;
-            console.log(`[${this._label}] HMZLog size: ${this.lastSize} bytes — tailing from here`);
+            this._log.info(`HMZLog size: ${this.lastSize} bytes — tailing from here`);
           }
         } catch (err) {
-          console.warn(`[${this._label}] HMZLog.log not found, will retry:`, err.message);
+          this._log.warn('HMZLog.log not found, will retry:', err.message);
           this.lastSize = 0;
           this.initialised = false;
         }
@@ -575,22 +571,22 @@ class LogWatcher {
             this._connectLastSize = saved.connectLogSize;
             this._connectInitialised = true;
             const behind = stat2.size - saved.connectLogSize;
-            console.log(
-              `[${this._label}] ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`,
+            this._log.info(
+              `ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`,
             );
           } else {
             this._connectLastSize = stat2.size;
             this._connectInitialised = true;
-            console.log(`[${this._label}] ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
+            this._log.info(`ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
           }
         } catch (err) {
-          console.warn(`[${this._label}] PlayerConnectedLog.txt not found, will retry:`, err.message);
+          this._log.warn('PlayerConnectedLog.txt not found, will retry:', err.message);
           this._connectLastSize = 0;
           this._connectInitialised = false;
         }
       }
     } catch (err) {
-      console.error(`[${this._label}] SFTP init failed:`, err.message);
+      this._log.error('SFTP init failed:', err.message);
       this.lastSize = 0;
       this.initialised = false;
       this._connectLastSize = 0;
@@ -622,7 +618,7 @@ class LogWatcher {
         if (latestHmz && latestHmz !== this._hmzLogFile) {
           // Server restarted — new log file. Read remaining from old, then switch.
           if (this._hmzLogFile) {
-            console.log(`[${this._label}] HMZLog rotated: ${this._hmzLogFile} → ${latestHmz}`);
+            this._log.info(`HMZLog rotated: ${this._hmzLogFile} → ${latestHmz}`);
             // Flush remaining bytes from old file first
             await this._pollFile(sftp, {
               path: this._hmzLogFile,
@@ -650,7 +646,7 @@ class LogWatcher {
 
         if (latestConnect && latestConnect !== this._connectLogFile) {
           if (this._connectLogFile) {
-            console.log(`[${this._label}] ConnectLog rotated: ${this._connectLogFile} → ${latestConnect}`);
+            this._log.info(`ConnectLog rotated: ${this._connectLogFile} → ${latestConnect}`);
             await this._pollFile(sftp, {
               path: this._connectLogFile,
               label: 'ConnectLog(old)',
@@ -737,7 +733,7 @@ class LogWatcher {
       // Persist day counts
       this._saveDayCounts();
     } catch (err) {
-      console.error(`[${this._label}] Poll error:`, err.message);
+      this._log.error('Poll error:', err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
@@ -751,7 +747,7 @@ class LogWatcher {
 
       // File was truncated/rotated (server restart)
       if (currentSize < lastSize) {
-        console.log(`[${this._label}] ${opts.label} rotated — resetting`);
+        this._log.info(`${opts.label} rotated — resetting`);
         opts.setSize(0);
         opts.setPartial('');
       }
@@ -762,12 +758,12 @@ class LogWatcher {
       if (!opts.getInit()) {
         opts.setSize(currentSize);
         opts.setInit(true);
-        console.log(`[${this._label}] ${opts.label} initialised at ${currentSize} bytes`);
+        this._log.info(`${opts.label} initialised at ${currentSize} bytes`);
         return;
       }
 
       const bytesNew = currentSize - opts.getSize();
-      console.log(`[${this._label}] ${opts.label}: ${bytesNew} new bytes`);
+      this._log.info(`${opts.label}: ${bytesNew} new bytes`);
 
       const newBytes = await this._downloadFrom(sftp, opts.path, opts.getSize(), currentSize);
       opts.setSize(currentSize);
@@ -785,14 +781,14 @@ class LogWatcher {
           totalLines++;
           if (opts.processLine(trimmed)) eventLines++;
         }
-        console.log(`[${this._label}] ${opts.label}: ${totalLines} lines (${eventLines} events)`);
+        this._log.info(`${opts.label}: ${totalLines} lines (${eventLines} events)`);
       }
     } catch (err) {
       // File may not exist yet — that's OK
       if (err.code === 2 || err.message.includes('No such file')) {
         return; // silently skip missing files
       }
-      console.warn(`[${this._label}] ${opts.label} poll error:`, err.message);
+      this._log.warn(`${opts.label} poll error:`, err.message);
     }
   }
 
@@ -818,7 +814,7 @@ class LogWatcher {
       readStream.on('data', (chunk) => chunks.push(chunk));
       readStream.on('end', () => resolve(chunks.join('')));
       readStream.on('error', (err) => {
-        console.warn(`[${this._label}] Stream read failed, trying full download:`, err.message);
+        this._log.warn('Stream read failed, trying full download:', err.message);
         // Fallback: download full file and slice
         sftpClient
           .get(remotePath)
@@ -1257,7 +1253,7 @@ class LogWatcher {
       }
     } catch (err) {
       // DB errors should never disrupt event processing
-      console.warn(`[${this._label}] Failed to log event ${entry.type}:`, err.message);
+      this._log.warn(`Failed to log event ${entry.type}:`, err.message);
     }
   }
 
@@ -1317,7 +1313,7 @@ class LogWatcher {
     } catch (err) {
       // Not critical — file may not exist yet
       if (!this._idMapWarned) {
-        console.warn(`[${this._label}] Could not read PlayerIDMapped.txt:`, err.message);
+        this._log.warn('Could not read PlayerIDMapped.txt:', err.message);
         this._idMapWarned = true;
       }
     }
