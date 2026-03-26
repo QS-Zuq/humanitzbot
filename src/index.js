@@ -41,6 +41,7 @@ const ServerScheduler = require('./modules/server-scheduler');
 const panelApi = require('./server/panel-api');
 const PanelChannel = require('./modules/panel-channel');
 const MultiServerManager = require('./server/multi-server');
+const { postAdminAlert } = require('./utils/admin-alert');
 const ActivityLog = require('./modules/activity-log');
 const MilestoneTracker = require('./modules/milestone-tracker');
 const RecapService = require('./modules/recap-service');
@@ -1062,25 +1063,30 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
     }
 
-    // Panel — admin dashboard channel + /qspanel command
-    if (config.enablePanel) {
-      // Multi-server manager (before panel, so panel can reference it)
-      multiServerManager = new MultiServerManager(readyClient, { configRepo });
-      await multiServerManager.startAll();
-      if (webMapServer) {
-        webMapServer.setMultiServerManager(multiServerManager);
-        // Register hzmod web plugin now that multiServerManager is available
-        if (hzmodWebPlugin) {
-          try {
-            hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc || null });
-            // Pass HowyagarnManager to web plugin for MMO API endpoints
-            if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
-          } catch (err) {
-            console.error('[BOT] hzmod plugin registration failed:', err.message);
-          }
+    // ── Multi-server manager (independent of Panel) ──────────
+    multiServerManager = new MultiServerManager(readyClient, { configRepo });
+    await multiServerManager.startAll();
+    if (webMapServer) {
+      webMapServer.setMultiServerManager(multiServerManager);
+      // Register hzmod web plugin now that multiServerManager is available
+      if (hzmodWebPlugin) {
+        try {
+          hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc || null });
+          // Pass HowyagarnManager to web plugin for MMO API endpoints
+          if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
+        } catch (err) {
+          console.error('[BOT] hzmod plugin registration failed:', err.message);
         }
       }
+    }
 
+    // ── BotControlService (used by both Panel and Web) ───────
+    const BotControlService = require('./server/bot-control');
+    const botControl = new BotControlService({ exit: (code) => process.exit(code) });
+    if (webMapServer) webMapServer.setBotControl(botControl);
+
+    // ── Panel — admin dashboard channel ──────────────────────
+    if (config.enablePanel) {
       if (config.panelChannelId) {
         panelChannel = new PanelChannel(readyClient, {
           moduleStatus,
@@ -1090,6 +1096,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           saveService,
           logWatcher,
           configRepo,
+          botControl,
         });
         await panelChannel.start();
       }
@@ -1377,20 +1384,22 @@ process.on('unhandledRejection', (reason) => {
 });
 
 /**
- * Post a hard-error embed to the panel channel for visibility.
- * Silently ignores failures (panel channel may not be initialised yet).
+ * Post a hard-error embed to admin alert channels for visibility.
+ * Silently ignores failures (client may not be ready yet).
  */
 async function _postErrorEmbed(title, err) {
-  const ch = panelChannel?.channel;
-  if (!ch) return;
+  if (!client?.isReady()) return;
   try {
     const raw = err instanceof Error ? err.stack?.slice(0, 1000) || err.message : String(err).slice(0, 1000);
     const embed = new EmbedBuilder()
-      .setTitle(`🔥 ${title}`)
+      .setTitle(`\uD83D\uDD25 ${title}`)
       .setDescription(`\`\`\`\n${raw}\n\`\`\``)
       .setColor(0xff0000)
       .setTimestamp();
-    await Promise.race([ch.send({ embeds: [embed] }), new Promise((resolve) => setTimeout(resolve, 3000))]);
+    await postAdminAlert(client, embed, {
+      adminAlertChannelIds: config.adminAlertChannelIds,
+      fallbackChannelId: config.panelChannelId,
+    });
   } catch (_) {
     /* best-effort */
   }

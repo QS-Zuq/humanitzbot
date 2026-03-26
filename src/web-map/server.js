@@ -180,6 +180,10 @@ class WebMapServer {
     this.setMultiServerManager = (msm) => {
       this._multiServerManager = msm;
     };
+    /** @param {import('../server/bot-control')} bc BotControlService instance */
+    this.setBotControl = (bc) => {
+      this._botControl = bc;
+    };
 
     // Response cache — keyed by "endpoint:serverId", entries = { data, ts }
     this._responseCache = new Map();
