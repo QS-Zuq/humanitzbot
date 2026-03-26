@@ -333,6 +333,8 @@ function setupAuth(app, client, opts = {}) {
     if (
       !state ||
       !expectedState ||
+      typeof state !== 'string' ||
+      typeof expectedState !== 'string' ||
       state.length !== expectedState.length ||
       !crypto.timingSafeEqual(Buffer.from(state), Buffer.from(expectedState))
     ) {

@@ -8,6 +8,17 @@ function parseSave(buf) {
   return _parseSaveFull(buf).players;
 }
 const Client = require('ssh2-sftp-client');
+const expressRateLimit = require('express-rate-limit');
+
+function rateLimit(windowMs, maxReqs) {
+  return expressRateLimit({
+    windowMs,
+    max: maxReqs,
+    standardHeaders: false,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip + ':' + req.path,
+  });
+}
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -270,7 +281,7 @@ app.get('/api/refresh', async (req, res) => {
   }
 });
 
-app.get('/api/calibration', (req, res) => {
+app.get('/api/calibration', rateLimit(10000, 10), (req, res) => {
   try {
     bounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8'));
   } catch (_e) {

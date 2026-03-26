@@ -1491,7 +1491,7 @@ class WebMapServer {
 
       // Only allow SELECT statements
       const upper = sql
-        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\*[^*]*(?:\*(?!\/)[^*]*)*\*\//g, '')
         .replace(/--[^\n]*/g, '')
         .trim()
         .toUpperCase();
