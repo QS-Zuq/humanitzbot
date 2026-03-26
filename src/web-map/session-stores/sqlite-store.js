@@ -31,6 +31,7 @@ function SqliteSessionStore(db, opts = {}) {
   }
   this._cleanupInterval = opts.cleanupInterval ?? 15 * 60 * 1000;
   this._cleanupTimer = null;
+  this._ttlMs = opts.ttlMs || 7 * 24 * 60 * 60 * 1000; // default 7 days
 
   this._ensureTable();
   this._prepareStatements();
@@ -143,11 +144,23 @@ SqliteSessionStore.prototype.all = function (callback) {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 SqliteSessionStore.prototype._getExpireTime = function (session) {
-  if (session && session.cookie && session.cookie.expires) {
-    return new Date(session.cookie.expires).getTime();
+  if (session && session.cookie) {
+    // 1. Absolute expiry (set by express-session from maxAge)
+    if (session.cookie.expires) {
+      const t = new Date(session.cookie.expires).getTime();
+      if (!isNaN(t)) return t;
+    }
+    // 2. Relative maxAge (rolling sessions update this on each request)
+    if (typeof session.cookie.maxAge === 'number' && session.cookie.maxAge > 0) {
+      return Date.now() + session.cookie.maxAge;
+    }
+    // 3. Original maxAge (initial value before countdown)
+    if (typeof session.cookie.originalMaxAge === 'number' && session.cookie.originalMaxAge > 0) {
+      return Date.now() + session.cookie.originalMaxAge;
+    }
   }
-  // Fallback: 24 hours from now
-  return Date.now() + 86400000;
+  // 4. Fallback: configured TTL (default 7 days, matching auth.js SESSION_TTL)
+  return Date.now() + (this._ttlMs || 7 * 24 * 60 * 60 * 1000);
 };
 
 // ── Background Cleanup ──────────────────────────────────────────────────────

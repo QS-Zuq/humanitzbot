@@ -116,6 +116,7 @@ class SaveService extends EventEmitter {
     this._agentPath = ''; // full remote path to uploaded agent
     this._cachePath = ''; // full remote path to humanitz-cache.json
     this._runScriptPath = ''; // full remote path to run-agent.sh
+    this._checkNodeScriptPath = ''; // full remote path to check-node.sh
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -291,6 +292,12 @@ class SaveService extends EventEmitter {
       this._runScriptPath = path.dirname(this._agentPath) + '/run-agent.sh';
       await sftp.put(Buffer.from(runScript, 'utf-8'), this._runScriptPath);
       this._log.info(`Runner script deployed → ${this._runScriptPath}`);
+
+      const checkScript = this._generateCheckNodeScript();
+      const checkScriptPath = path.dirname(this._agentPath) + '/check-node.sh';
+      await sftp.put(Buffer.from(checkScript, 'utf-8'), checkScriptPath);
+      this._checkNodeScriptPath = checkScriptPath;
+      this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
       sftp.end();
     }
@@ -302,6 +309,10 @@ class SaveService extends EventEmitter {
       'exec ' + shQuote(this._agentNodePath) + ' ' + shQuote(this._agentPath) + ' --save ' + shQuote(this._savePath),
     ];
     return lines.join('\n') + '\n';
+  }
+
+  _generateCheckNodeScript() {
+    return '#!/bin/bash\n' + shQuote(this._agentNodePath) + ' --version\n';
   }
 
   /**
@@ -328,7 +339,8 @@ class SaveService extends EventEmitter {
    */
   async checkNodeAvailable() {
     try {
-      const result = await this._sshExec('node --version');
+      const scriptPath = this._checkNodeScriptPath || path.dirname(this._agentPath) + '/check-node.sh';
+      const result = await this._sshExec('bash ' + shQuote(scriptPath));
       const version = (result.stdout || '').trim();
       if (result.code === 0 && version.startsWith('v')) {
         this._agentCapable = true;

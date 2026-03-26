@@ -68,11 +68,12 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function initTimeline() {
-    if (S.currentServer === 'all') {
-      var tabEl = document.getElementById('tab-timeline');
-      if (tabEl) tabEl.innerHTML = Panel.core.utils.scopeEmptyState('timeline');
-      if (window.lucide) lucide.createIcons();
-      return;
+    Panel.core.utils.setTabUnavailable('tab-timeline', S.currentServer === 'all');
+    if (S.currentServer === 'all') return;
+    if (TL.map) {
+      setTimeout(function () {
+        TL.map.invalidateSize();
+      }, 100);
     }
     // Init map
     if (!TL.ready) {

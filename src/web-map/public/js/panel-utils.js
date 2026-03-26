@@ -56,6 +56,50 @@ Panel.core = Panel.core || {};
     );
   }
 
+  /**
+   * Show/hide an "unavailable" placeholder over a tab without destroying its DOM.
+   * @param {string} tabId - e.g. 'tab-chat', 'tab-players'
+   * @param {boolean} show - true to show placeholder, false to restore tab
+   * @param {string} [message] - optional message text
+   */
+  function setTabUnavailable(tabId, show, message) {
+    var tab = document.getElementById(tabId);
+    if (!tab) return;
+
+    var placeholderId = tabId + '-unavailable';
+    var existing = document.getElementById(placeholderId);
+
+    if (show) {
+      // Hide all direct children
+      for (var i = 0; i < tab.children.length; i++) {
+        if (tab.children[i].id !== placeholderId) {
+          tab.children[i].style.display = 'none';
+        }
+      }
+      // Create or show placeholder
+      if (!existing) {
+        var div = document.createElement('div');
+        div.id = placeholderId;
+        div.className = 'feed-empty';
+        div.style.marginTop = '4rem';
+        div.textContent = message || i18next.t('web:common.select_server', 'Select a server to view this tab');
+        tab.appendChild(div);
+      } else {
+        existing.style.display = '';
+        if (message) existing.textContent = message;
+      }
+    } else {
+      // Restore children
+      for (var i = 0; i < tab.children.length; i++) {
+        if (tab.children[i].id !== placeholderId) {
+          tab.children[i].style.display = '';
+        }
+      }
+      // Hide placeholder
+      if (existing) existing.style.display = 'none';
+    }
+  }
+
   // ── Expose API ────────────────────────────────────
 
   Panel.core.utils = {
@@ -64,5 +108,6 @@ Panel.core = Panel.core || {};
     formatPlaytime: formatPlaytime,
     humanizeSettingKey: humanizeSettingKey,
     scopeEmptyState: scopeEmptyState,
+    setTabUnavailable: setTabUnavailable,
   };
 })();

@@ -20,7 +20,8 @@ function createSessionStore(config, db) {
     case 'redis': {
       try {
         // Lazy require — only loaded if redis + connect-redis are installed
-        const RedisStore = require('connect-redis').default;
+        const connectRedis = require('connect-redis');
+        const RedisStore = connectRedis.RedisStore || connectRedis.default || connectRedis;
         const { createClient } = require('redis');
 
         const redisClient = createClient({ url: config.sessionRedisUrl || 'redis://localhost:6379' });
