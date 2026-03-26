@@ -3,6 +3,7 @@ const { cleanOwnMessages, embedContentKey, safeEditMessage } = require('./discor
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const _defaultServerResources = require('../server/server-resources');
+const { createLogger } = require('../utils/log');
 
 // Embed builders — presentation layer (mixed into prototype below)
 const statusEmbeds = require('./server-status-embeds');
@@ -17,7 +18,8 @@ class ServerStatus {
     this._getPlayerList = deps.getPlayerList || require('../rcon/server-info').getPlayerList;
     this._sendAdminMessage = deps.sendAdminMessage || require('../rcon/server-info').sendAdminMessage;
     this._db = deps.db || null;
-    this._label = deps.label || 'STATUS';
+    this._log = createLogger(deps.label, 'STATUS');
+    this._label = this._log.label;
 
     this.client = client;
     this.channel = null;
@@ -38,24 +40,22 @@ class ServerStatus {
   }
 
   async start() {
-    console.log(`[${this._label}] Module starting...`);
-    console.log(`[${this._label}] Channel ID from config: "${this._config.serverStatusChannelId}"`);
+    this._log.info('Module starting...');
+    this._log.info(`Channel ID from config: "${this._config.serverStatusChannelId}"`);
     try {
       if (!this._config.serverStatusChannelId) {
-        console.log(`[${this._label}] No SERVER_STATUS_CHANNEL_ID set, skipping.`);
+        this._log.info('No SERVER_STATUS_CHANNEL_ID set, skipping.');
         return;
       }
 
-      console.log(`[${this._label}] Fetching channel ${this._config.serverStatusChannelId}...`);
+      this._log.info(`Fetching channel ${this._config.serverStatusChannelId}...`);
       this.channel = await this.client.channels.fetch(this._config.serverStatusChannelId);
       if (!this.channel) {
-        console.error(`[${this._label}] Channel not found! Check SERVER_STATUS_CHANNEL_ID.`);
+        this._log.error('Channel not found! Check SERVER_STATUS_CHANNEL_ID.');
         return;
       }
 
-      console.log(
-        `[${this._label}] Posting live status in #${this.channel.name} (every ${this.updateIntervalMs / 1000}s)`,
-      );
+      this._log.info(`Posting live status in #${this.channel.name} (every ${this.updateIntervalMs / 1000}s)`);
 
       // Delete previous own message (by saved ID), not all bot messages
       await this._cleanOwnMessage();
@@ -71,8 +71,8 @@ class ServerStatus {
       // Start the loop
       this.interval = setInterval(() => this._update(), this.updateIntervalMs);
     } catch (err) {
-      console.error(`[${this._label}] Failed to start:`, err.message);
-      console.error(`[${this._label}] Full error:`, err);
+      this._log.error('Failed to start:', err.message);
+      this._log.error('Full error:', err);
     }
   }
 
@@ -120,7 +120,7 @@ class ServerStatus {
 
       const wasOffline = this._lastOnline === false;
       if (wasOffline) {
-        console.log(`[${this._label}] Server is back online`);
+        this._log.info('Server is back online');
       }
       if (!this._onlineSince || wasOffline) {
         this._onlineSince = new Date();
@@ -155,7 +155,7 @@ class ServerStatus {
         // Server is offline — show offline embed with cached data
         if (this._lastOnline !== false) {
           this._offlineSince = new Date();
-          console.log(`[${this._label}] Server appears offline`);
+          this._log.info('Server appears offline');
         }
         this._lastOnline = false;
         this._saveState();
@@ -183,7 +183,7 @@ class ServerStatus {
           }
         }
       } else {
-        console.error(`[${this._label}] Update error:`, err.message);
+        this._log.error('Update error:', err.message);
       }
     }
   }
@@ -201,9 +201,9 @@ class ServerStatus {
       if (data.lastOnline !== undefined) this._lastOnline = data.lastOnline;
       if (data.lastInfo) this._lastInfo = data.lastInfo;
       if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList;
-      console.log(`[${this._label}] Loaded cached state (online since: ${data.onlineSince || 'unknown'})`);
+      this._log.info(`Loaded cached state (online since: ${data.onlineSince || 'unknown'})`);
     } catch (err) {
-      console.log(`[${this._label}] Could not load cached state:`, err.message);
+      this._log.info('Could not load cached state:', err.message);
     }
   }
 
@@ -222,7 +222,7 @@ class ServerStatus {
         savedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error(`[${this._label}] Could not save state:`, err.message);
+      this._log.error('Could not save state:', err.message);
     }
   }
 

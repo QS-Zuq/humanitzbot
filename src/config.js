@@ -1,5 +1,7 @@
 const _cfgFs = require('fs');
 const _cfgPath = require('path');
+const { createLogger } = require('./utils/log');
+const _cfgLog = createLogger(null, 'CONFIG');
 
 // ── Bootstrap: generate .env from template if missing ────────
 const _envPath = _cfgPath.join(__dirname, '..', '.env');
@@ -21,6 +23,18 @@ if (!_cfgFs.existsSync(_envPath)) {
 }
 
 require('dotenv').config();
+
+// ── Deprecation: ENABLE_AUTO_MESSAGES → individual sub-toggles ──
+// If the old master toggle is explicitly set to 'false', cascade to sub-toggles
+// unless they have been explicitly set by the user.
+if (process.env.ENABLE_AUTO_MESSAGES === 'false') {
+  _cfgLog.warn(
+    'ENABLE_AUTO_MESSAGES is deprecated. Use individual toggles: ENABLE_AUTO_MSG_LINK, ENABLE_AUTO_MSG_PROMO, ENABLE_WELCOME_MSG',
+  );
+  if (!process.env.ENABLE_AUTO_MSG_LINK) process.env.ENABLE_AUTO_MSG_LINK = 'false';
+  if (!process.env.ENABLE_AUTO_MSG_PROMO) process.env.ENABLE_AUTO_MSG_PROMO = 'false';
+  if (!process.env.ENABLE_WELCOME_MSG) process.env.ENABLE_WELCOME_MSG = 'false';
+}
 
 function envBool(key, defaultValue) {
   const val = process.env[key];
@@ -212,6 +226,11 @@ const config = {
   // See: https://expressjs.com/en/guide/behind-proxies.html
   webMapTrustProxy: process.env.WEB_MAP_TRUST_PROXY || 'loopback',
 
+  // Session store for the web panel (memory | sqlite | redis)
+  sessionStore: (process.env.SESSION_STORE || 'sqlite').toLowerCase(),
+  sessionTtl: parseInt(process.env.SESSION_TTL, 10) || 604800, // seconds, default 7 days
+  sessionRedisUrl: process.env.SESSION_REDIS_URL || 'redis://localhost:6379',
+
   // Interactive stdin console for headless hosts (Bisect, etc.)
   enableStdinConsole: envBool('ENABLE_STDIN_CONSOLE', false),
   stdinConsoleWritable: envBool('STDIN_CONSOLE_WRITABLE', false),
@@ -254,6 +273,7 @@ const config = {
   enableStatusChannels: envBool('ENABLE_STATUS_CHANNELS', true),
   enableServerStatus: envBool('ENABLE_SERVER_STATUS', true),
   enableChatRelay: envBool('ENABLE_CHAT_RELAY', true),
+  /** @deprecated Use enableAutoMsgLink, enableAutoMsgPromo, enableWelcomeMsg instead */
   enableAutoMessages: envBool('ENABLE_AUTO_MESSAGES', true),
   enableLogWatcher: envBool('ENABLE_LOG_WATCHER', true),
   enablePlayerStats: envBool('ENABLE_PLAYER_STATS', true),
@@ -532,7 +552,7 @@ if (config.ftpBasePath) {
       config[key] = prefix + '/' + config[key];
     }
   }
-  console.log(`[CONFIG] FTP base path: ${prefix}`);
+  _cfgLog.info('FTP base path:', prefix);
 }
 
 // Validate required values — Discord credentials are always needed.
@@ -703,7 +723,7 @@ config.sftpConnectConfig = function () {
       // If a password is also set, use it as the passphrase for the key
       if (self.ftpPassword) cfg.passphrase = self.ftpPassword;
     } catch (err) {
-      console.error(`[CONFIG] Could not read SSH private key at ${self.ftpPrivateKeyPath}:`, err.message);
+      _cfgLog.error('Could not read SSH private key at %s: %s', self.ftpPrivateKeyPath, err.message);
       // Fall back to password auth
       cfg.password = self.ftpPassword;
     }

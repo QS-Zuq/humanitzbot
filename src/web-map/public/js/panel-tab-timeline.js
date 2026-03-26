@@ -15,6 +15,7 @@ Panel.tabs = Panel.tabs || {};
   const esc = Panel.core.esc;
   const apiFetch = Panel.core.apiFetch;
   const fmtDateTime = Panel.core.utils.fmtDateTime;
+  var getCssColor = Panel.core.getCssColor;
 
   // ── Timeline State (self-contained) ──
   const TL = {
@@ -67,6 +68,13 @@ Panel.tabs = Panel.tabs || {};
   }
 
   async function initTimeline() {
+    Panel.core.utils.setTabUnavailable('tab-timeline', S.currentServer === 'all');
+    if (S.currentServer === 'all') return;
+    if (TL.map) {
+      setTimeout(function () {
+        TL.map.invalidateSize();
+      }, 100);
+    }
     // Init map
     if (!TL.ready) {
       const c = $('#tl-map');
@@ -308,7 +316,12 @@ Panel.tabs = Panel.tabs || {};
       d.players.forEach(function (p) {
         if (p.lat == null) return;
         const online = !!p.online;
-        const icon = tlIcon(online ? '#6dba82' : '#7a746c', online ? 14 : 10, 'circle', p.name);
+        const icon = tlIcon(
+          online ? getCssColor('calm', '#6dba82') : getCssColor('muted', '#7a746c'),
+          online ? 14 : 10,
+          'circle',
+          p.name,
+        );
         const m = L.marker([p.lat, p.lng], { icon: icon, zIndexOffset: online ? 1000 : 500 });
         m.bindTooltip((online ? '🟢 ' : '') + p.name, { direction: 'top', offset: [0, -8] });
         m.bindPopup(
@@ -349,10 +362,10 @@ Panel.tabs = Panel.tabs || {};
         if (cat === 'bandit' && !TL.visible.bandits) return;
         const icon =
           cat === 'animal'
-            ? tlIcon('#e67e22', 6, 'diamond')
+            ? tlIcon(getCssColor('map-animal', '#e67e22'), 6, 'diamond')
             : cat === 'bandit'
-              ? tlIcon('#e74c3c', 7, 'square')
-              : tlIcon('#9b59b6', 5, 'circle');
+              ? tlIcon(getCssColor('map-bandit', '#e74c3c'), 7, 'square')
+              : tlIcon(getCssColor('map-zombie', '#9b59b6'), 5, 'circle');
         const layerKey = cat === 'animal' ? 'animals' : cat === 'bandit' ? 'bandits' : 'zombies';
         const m = L.marker([a.lat, a.lng], { icon: icon });
         m.bindTooltip(a.display_name || a.ai_type, { direction: 'top', offset: [0, -5] });

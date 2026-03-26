@@ -293,7 +293,7 @@ function createBotStatusManager(client, opts = {}) {
     if (isOn('Log Watcher', config.enableLogWatcher)) {
       features.push({ type: ActivityType.Watching, name: 'Activity Threads' });
     }
-    if (isOn('Auto-Messages', config.enableAutoMessages)) {
+    if (isOn('Auto-Broadcasts', config.enableAutoMsgLink || config.enableAutoMsgPromo)) {
       features.push({ type: ActivityType.Playing, name: 'Automated Broadcasts' });
     }
     if (isOn('PvP Scheduler', config.enablePvpScheduler)) {

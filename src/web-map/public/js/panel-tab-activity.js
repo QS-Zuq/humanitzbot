@@ -27,6 +27,8 @@ Panel.tabs = Panel.tabs || {};
   // ── Activity Loading ────────────────────────────────────────────
 
   async function loadActivity(append) {
+    Panel.core.utils.setTabUnavailable('tab-activity', S.currentServer === 'all');
+    if (S.currentServer === 'all') return;
     const container = $('#activity-feed');
     if (!container) return;
     const category = S.activityCategory || '';

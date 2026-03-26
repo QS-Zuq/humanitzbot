@@ -2,6 +2,7 @@ const { Events, EmbedBuilder } = require('discord.js');
 const _defaultConfig = require('../config');
 const _defaultRcon = require('../rcon/rcon');
 const { t, getLocale } = require('../i18n');
+const { createLogger } = require('../utils/log');
 
 // Data-layer parser: regexes, line parsing, diffing, sanitisation
 const chatParser = require('./chat-relay-parser');
@@ -13,7 +14,7 @@ class ChatRelay {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._db = deps.db || null;
-    this._label = deps.label || 'CHAT RELAY';
+    this._log = createLogger(deps.label, 'CHAT RELAY');
     this.adminChannel = null;
     this._lastLines = []; // snapshot for diff
     this._pollTimer = null;
@@ -41,20 +42,20 @@ class ChatRelay {
         // No Discord channel — run in headless mode (RCON polling + DB writes only).
         // Used by multi-server instances that only serve the web panel.
         this._headless = true;
-        console.log(`[${this._label}] No CHAT_CHANNEL_ID — running in headless mode (DB-only, no Discord posting)`);
+        this._log.info('No CHAT_CHANNEL_ID — running in headless mode (DB-only, no Discord posting)');
       }
 
       if (!this._headless) {
         this.adminChannel = await this.client.channels.fetch(chatId);
         if (!this.adminChannel) {
-          console.error(`[${this._label}] Chat channel not found! Check ADMIN_CHANNEL_ID / CHAT_CHANNEL_ID.`);
+          this._log.error('Chat channel not found! Check ADMIN_CHANNEL_ID / CHAT_CHANNEL_ID.');
           this._healthy = false;
           return;
         }
 
-        console.log(`[${this._label}] Admin bridge: #${this.adminChannel.name} → server`);
-        console.log(
-          `[${this._label}] Chat relay:   server → ${this._config.useChatThreads ? 'daily thread in' : ''} #${this.adminChannel.name}`,
+        this._log.info(`Admin bridge: #${this.adminChannel.name} → server`);
+        this._log.info(
+          `Chat relay:   server → ${this._config.useChatThreads ? 'daily thread in' : ''} #${this.adminChannel.name}`,
         );
 
         // Clean old bot starter messages (keep the channel tidy across restarts)
@@ -77,10 +78,10 @@ class ChatRelay {
       // Start polling fetchchat (works in both normal and headless mode)
       const pollMs = this._config.chatPollInterval || 10000;
       this._pollTimer = setInterval(() => this._pollChat(), pollMs);
-      console.log(`[${this._label}] Polling fetchchat every ${pollMs / 1000}s`);
+      this._log.info(`Polling fetchchat every ${pollMs / 1000}s`);
     } catch (err) {
       this._healthy = false;
-      console.error(`[${this._label}] Failed to start:`, err.message, err.stack);
+      this._log.error('Failed to start:', err.message, err.stack);
     }
   }
 
@@ -93,7 +94,7 @@ class ChatRelay {
       this.client.removeListener(Events.MessageCreate, this._boundOnMessage);
       this._boundOnMessage = null;
     }
-    console.log(`[${this._label}] Stopped.`);
+    this._log.info('Stopped.');
   }
 
   /**
@@ -112,7 +113,7 @@ class ChatRelay {
         (m) => m.author.id === botId && !m.hasThread && m.createdTimestamp < bootTime,
       );
       if (botMessages.size > 0) {
-        console.log(`[${this._label}] Cleaning ${botMessages.size} orphaned bot message(s)`);
+        this._log.info(`Cleaning ${botMessages.size} orphaned bot message(s)`);
         for (const [, msg] of botMessages) {
           try {
             await msg.delete();
@@ -120,7 +121,7 @@ class ChatRelay {
         }
       }
     } catch (err) {
-      console.log(`[${this._label}] Could not clean old messages:`, err.message);
+      this._log.info('Could not clean old messages:', err.message);
     }
   }
 
@@ -178,10 +179,10 @@ class ChatRelay {
       try {
         if (!this._chatThread.archived && typeof this._chatThread.setArchived === 'function') {
           await this._chatThread.setArchived(true);
-          console.log(`[${this._label}] Archived previous thread: ${this._chatThread.name}`);
+          this._log.info(`Archived previous thread: ${this._chatThread.name}`);
         }
       } catch (e) {
-        console.warn(`[${this._label}] Could not archive old thread:`, e.message);
+        this._log.warn('Could not archive old thread:', e.message);
       }
       this._chatThread = null;
       this._chatThreadDate = null;
@@ -194,7 +195,7 @@ class ChatRelay {
         this._rolloverFallback = setTimeout(() => {
           this._rolloverPending = false;
           this._rolloverFallback = null;
-          console.log(`[${this._label}] Rollover fallback — creating chat thread now`);
+          this._log.info('Rollover fallback — creating chat thread now');
         }, 120_000);
         return this.adminChannel;
       }
@@ -214,7 +215,7 @@ class ChatRelay {
       if (existing) {
         this._chatThread = existing;
         this._chatThreadDate = today;
-        console.log(`[${this._label}] Using existing thread: ${threadName}`);
+        this._log.info(`Using existing thread: ${threadName}`);
         // Re-add admin members (they may have been removed if bot restarted)
         this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
         return this._chatThread;
@@ -227,12 +228,12 @@ class ChatRelay {
         await archivedMatch.setArchived(false);
         this._chatThread = archivedMatch;
         this._chatThreadDate = today;
-        console.log(`[${this._label}] Unarchived existing thread: ${threadName}`);
+        this._log.info(`Unarchived existing thread: ${threadName}`);
         this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
         return this._chatThread;
       }
     } catch (err) {
-      console.warn(`[${this._label}] Could not search for threads:`, err.message);
+      this._log.warn('Could not search for threads:', err.message);
     }
 
     // Create a new thread (from a starter message so it appears inline in the channel)
@@ -257,12 +258,12 @@ class ChatRelay {
         reason: t('discord:chat_relay.daily_thread_reason', this._locale),
       });
       this._chatThreadDate = today;
-      console.log(`[${this._label}] Created daily thread: ${threadName}`);
+      this._log.info(`Created daily thread: ${threadName}`);
 
       // Auto-join admin users/roles so the thread stays visible for them
       this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
     } catch (err) {
-      console.error(`[${this._label}] Failed to create chat thread:`, err.message);
+      this._log.error('Failed to create chat thread:', err.message);
       // Fallback — use the main channel directly so messages aren't dropped
       this._chatThread = this.adminChannel;
       this._chatThreadDate = today;
@@ -306,7 +307,7 @@ class ChatRelay {
     } catch (err) {
       // Don't spam on RCON issues — the RCON module already logs
       if (!err.message.includes('not connected') && !err.message.includes('No response')) {
-        console.error(`[${this._label}] Poll error:`, err.message);
+        this._log.error('Poll error:', err.message);
       }
     }
   }
@@ -329,7 +330,7 @@ class ChatRelay {
     if (!adminMatch) return;
 
     const reason = adminMatch[1] || t('discord:chat_relay.admin_call_no_reason', this._locale);
-    console.log(`[${this._label}] !admin call from ${name}: ${reason}`);
+    this._log.info(`!admin call from ${name}: ${reason}`);
 
     // Alert in the daily chat thread (with @here so admins are notified)
     const embed = new EmbedBuilder()
@@ -353,7 +354,7 @@ class ChatRelay {
           const ch = await this.client.channels.fetch(channelId);
           if (ch) await ch.send(payload);
         } catch (err) {
-          console.error(`[${this._label}] Failed to send admin alert to ${channelId}:`, err.message);
+          this._log.error(`Failed to send admin alert to ${channelId}:`, err.message);
         }
       }
     } else {
@@ -366,7 +367,7 @@ class ChatRelay {
           await this.adminChannel.send(payload);
         }
       } catch (err) {
-        console.error(`[${this._label}] Failed to send admin alert:`, err.message);
+        this._log.error('Failed to send admin alert:', err.message);
       }
     }
 
@@ -391,7 +392,7 @@ class ChatRelay {
       this._db.insertChat(entry);
     } catch (err) {
       if (!this._logChatWarned) {
-        console.warn(`[${this._label}] DB chat insert failed:`, err.message);
+        this._log.warn('DB chat insert failed:', err.message);
         this._logChatWarned = true;
       }
     }
@@ -432,7 +433,7 @@ class ChatRelay {
       });
       await message.react('✅');
     } catch (err) {
-      console.error(`[${this._label}] Failed to relay admin message:`, err.message);
+      this._log.error('Failed to relay admin message:', err.message);
       await message.react('❌');
     }
   }

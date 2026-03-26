@@ -18,6 +18,7 @@
 const _defaultConfig = require('../config');
 const _defaultPlaytime = require('./playtime-tracker');
 const _defaultPlayerStats = require('./player-stats');
+const { createLogger } = require('../utils/log');
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Standalone player resolver — shared between KillTracker and PSC
@@ -130,7 +131,7 @@ class KillTracker {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._db = deps.db || null;
-    this._label = deps.label || 'KillTracker';
+    this._log = createLogger(deps.label, 'KillTracker');
 
     // { players: { steamId: { cumulative, lastSnapshot, survivalCumulative, ... } } }
     this._data = { players: {} };
@@ -149,7 +150,7 @@ class KillTracker {
         if (raw) {
           this._data = raw;
           const count = Object.keys(this._data.players || {}).length;
-          console.log(`[${this._label}] Loaded ${count} player(s) from kill tracker (DB)`);
+          this._log.info(`Loaded ${count} player(s) from kill tracker (DB)`);
         }
       }
       if (raw) {
@@ -177,7 +178,7 @@ class KillTracker {
         }
       }
     } catch (err) {
-      console.error(`[${this._label}] Failed to load kill tracker, starting fresh:`, err.message);
+      this._log.error('Failed to load kill tracker, starting fresh:', err.message);
       this._data = { players: {} };
     }
   }
@@ -188,7 +189,7 @@ class KillTracker {
       if (this._db) this._db.setStateJSON('kill_tracker', this._data);
       this._dirty = false;
     } catch (err) {
-      console.error(`[${this._label}] Failed to save kill tracker:`, err.message);
+      this._log.error('Failed to save kill tracker:', err.message);
     }
   }
 
@@ -258,7 +259,7 @@ class KillTracker {
     this._dirty = true;
 
     if (targetDate !== today) {
-      console.log(`[${this._label}] First poll after restart — pending deltas for ${targetDate}`);
+      this._log.info(`First poll after restart — pending deltas for ${targetDate}`);
     }
 
     const killDeltas = [];
@@ -333,7 +334,7 @@ class KillTracker {
         record.hasExtendedStats = true;
         // Clear stale cumulative data
         if (record.cumulative.zeeksKilled > 0 || record.survivalCumulative?.daysSurvived > 0) {
-          console.log(`[${this._label}] ${id}: ExtendedStats available — clearing banked cumulative`);
+          this._log.info(`${id}: ExtendedStats available — clearing banked cumulative`);
           record.cumulative = KillTracker._emptyKills();
           record.survivalCumulative = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
         }
@@ -360,8 +361,8 @@ class KillTracker {
           }
           record.deathCheckpoint = cp;
           record.lastKnownDeaths = logDeaths;
-          console.log(
-            `[${this._label}] ${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`,
+          this._log.info(
+            `${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`,
           );
           this._dirty = true;
         } else if (record.lastKnownDeaths !== logDeaths) {
@@ -379,8 +380,8 @@ class KillTracker {
           for (const k of KillTracker.SURVIVAL_KEYS) {
             record.survivalCumulative[k] += lastSurvival[k];
           }
-          console.log(
-            `[${this._label}] ${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`,
+          this._log.info(
+            `${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`,
           );
           record.lastSnapshot = currentKills;
           record.survivalSnapshot = currentSurvival;
@@ -727,9 +728,9 @@ class KillTracker {
       }
       try {
         if (this._db) this._db.setStateJSON('weekly_baseline', baseline);
-        console.log(`[${this._label}] Weekly baseline reset`);
+        this._log.info('Weekly baseline reset');
       } catch (err) {
-        console.error(`[${this._label}] Failed to write weekly baseline:`, err.message);
+        this._log.error('Failed to write weekly baseline:', err.message);
       }
     }
 

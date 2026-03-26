@@ -237,7 +237,7 @@ window.Panel = window.Panel || {};
     popup.className = 'item-popup';
 
     // Build header with close button
-    let html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:#c45a4a;font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
+    let html = `<div class="item-popup-header">${esc(name)}<span class="item-popup-close" style="cursor:pointer;color:var(--color-horde, #c45a4a);font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>`;
     html += '<div class="item-popup-body">';
 
     // Instance badge — highlight that this is a tracked specific item
@@ -472,7 +472,7 @@ window.Panel = window.Panel || {};
   //  SERVER SWITCHING
   // ══════════════════════════════════════════════════
 
-  /** Load server list and build the carousel switcher */
+  /** Load server list and build the scope switcher */
   async function loadServerList() {
     try {
       const r = await fetch('/api/servers');
@@ -480,12 +480,17 @@ window.Panel = window.Panel || {};
       let d = await r.json();
       S.multiServer = d.multiServer || false;
       S.serverList = d.servers || [];
-      if (!S.multiServer || !d.servers || d.servers.length <= 1) return;
 
-      // Build carousel
-      renderServerCarousel(d.servers);
+      // Always show server bar and initialize switcher (even single-server)
+      const bar = $('#server-bar');
+      if (bar) bar.classList.remove('hidden');
+      await updateServerStatuses();
+      if (Panel.switcher) {
+        Panel.switcher.init();
+        Panel.switcher.refresh();
+      }
     } catch (_e) {
-      /* non-critical */
+      console.warn('[Panel] loadServerList failed:', _e.message || _e);
     }
   }
 
@@ -518,56 +523,10 @@ window.Panel = window.Panel || {};
     }
   }
 
-  /** Render the server carousel (left/right arrows + server name) */
-  function renderServerCarousel(servers) {
-    const bar = $('#server-bar');
-    if (!bar || servers.length <= 1) return;
+  // Note: renderServerCarousel() removed — replaced by Panel.switcher dropdown
 
-    // Find current index
-    let idx = 0;
-    for (let i = 0; i < servers.length; i++) {
-      if (servers[i].id === S.currentServer) {
-        idx = i;
-        break;
-      }
-    }
-
-    function updateDisplay() {
-      const srv = servers[idx];
-      const nameEl = $('#srv-carousel-name');
-      const countEl = $('#srv-carousel-count');
-      const dotEl = $('#srv-carousel-dot');
-      if (nameEl) nameEl.textContent = srv.name || srv.id;
-      if (countEl) countEl.textContent = idx + 1 + '/' + servers.length;
-      // Update dot status from cached statuses
-      if (dotEl) {
-        dotEl.classList.remove('online', 'stale');
-        const st = S.serverStatuses[srv.id];
-        if (st && st.status === 'online') dotEl.classList.add('online');
-        else if (st && st.status === 'stale') dotEl.classList.add('stale');
-      }
-    }
-
-    $('#srv-prev').addEventListener('click', function () {
-      idx = (idx - 1 + servers.length) % servers.length;
-      updateDisplay();
-      switchServer(servers[idx].id);
-    });
-    $('#srv-next').addEventListener('click', function () {
-      idx = (idx + 1) % servers.length;
-      updateDisplay();
-      switchServer(servers[idx].id);
-    });
-
-    bar.classList.remove('hidden');
-    updateDisplay();
-
-    // Fetch status to color the dot
-    updateServerCarouselStatus();
-  }
-
-  /** Update server carousel dot based on landing API statuses */
-  async function updateServerCarouselStatus() {
+  /** Fetch server statuses from landing API and update switcher */
+  async function updateServerStatuses() {
     try {
       const r = await fetch('/api/landing');
       if (!r.ok) return;
@@ -580,14 +539,8 @@ window.Panel = window.Panel || {};
         const s = allServers[j];
         S.serverStatuses[s.id || 'primary'] = s;
       }
-      // Refresh dot for the currently displayed server
-      const dotEl = $('#srv-carousel-dot');
-      const st = S.serverStatuses[S.currentServer];
-      if (dotEl) {
-        dotEl.classList.remove('online', 'stale');
-        if (st && st.status === 'online') dotEl.classList.add('online');
-        else if (st && st.status === 'stale') dotEl.classList.add('stale');
-      }
+      // Refresh switcher with updated statuses
+      if (Panel.switcher) Panel.switcher.refresh();
     } catch (_e) {
       /* non-critical */
     }
@@ -596,14 +549,8 @@ window.Panel = window.Panel || {};
   /** Switch active server across all tabs */
   function switchServer(id) {
     S.currentServer = id;
-    // Update carousel dot status
-    const dotEl = $('#srv-carousel-dot');
-    if (dotEl) {
-      dotEl.classList.remove('online', 'stale');
-      const st = S.serverStatuses[id];
-      if (st && st.status === 'online') dotEl.classList.add('online');
-      else if (st && st.status === 'stale') dotEl.classList.add('stale');
-    }
+    // Refresh switcher display
+    if (Panel.switcher) Panel.switcher.refresh();
 
     // ── Reset ALL server-specific cached state ──
     // Player data
@@ -733,6 +680,8 @@ window.Panel = window.Panel || {};
           Panel.tabs.settings.loadBotConfig(settingsContainer, S.botConfigSections);
       } else if (S.settingsMode === 'schedule') {
         if (Panel.tabs.settings) Panel.tabs.settings.loadScheduleEditor();
+      } else if (S.settingsMode === 'welcome') {
+        if (Panel.tabs.settings) Panel.tabs.settings.loadWelcomeEditor();
       } else if (Object.keys(S.settingsOriginal || {}).length) {
         if (Panel.tabs.settings) Panel.tabs.settings.loadSettings(settingsContainer, S.settingsOriginal);
       }
@@ -744,6 +693,7 @@ window.Panel = window.Panel || {};
         activity: Panel.tabs.activity ? Panel.tabs.activity.loadActivity : null,
         chat: Panel.tabs.chat ? Panel.tabs.chat.load : null,
         clans: Panel.tabs.clans ? Panel.tabs.clans.load : null,
+        servers: Panel.tabs.servers ? Panel.tabs.servers.load : null,
       };
       if (tabLoaders[S.currentTab]) tabLoaders[S.currentTab]();
     }
@@ -1160,7 +1110,7 @@ window.Panel = window.Panel || {};
         if (e.target === sdModal) sdModal.classList.add('hidden');
       });
 
-    // Settings mode toggle (Game Server / Bot Config / Schedule)
+    // Settings mode toggle (Game Server / Bot Config / Schedule / Welcome File)
     $$('.settings-mode-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const mode = btn.dataset.mode;
@@ -1178,17 +1128,19 @@ window.Panel = window.Panel || {};
         const resetBtn = $('#settings-reset-btn');
         const changeCount = $('#settings-change-count');
         const settingsCount = $('#settings-count');
-        const isSchedule = mode === 'schedule';
-        if (saveBtn) saveBtn.classList.toggle('hidden', isSchedule);
-        if (resetBtn) resetBtn.classList.toggle('hidden', isSchedule);
-        if (changeCount) changeCount.classList.toggle('hidden', isSchedule);
-        if (settingsCount) settingsCount.classList.toggle('hidden', isSchedule);
-        if (searchEl) searchEl.parentElement.classList.toggle('hidden', isSchedule);
+        const hideToolbar = mode === 'schedule' || mode === 'welcome';
+        if (saveBtn) saveBtn.classList.toggle('hidden', hideToolbar);
+        if (resetBtn) resetBtn.classList.toggle('hidden', hideToolbar);
+        if (changeCount) changeCount.classList.toggle('hidden', hideToolbar);
+        if (settingsCount) settingsCount.classList.toggle('hidden', hideToolbar);
+        if (searchEl) searchEl.parentElement.classList.toggle('hidden', hideToolbar);
         if (Panel.tabs.settings) {
           if (mode === 'game') {
             Panel.tabs.settings.loadSettings();
           } else if (mode === 'schedule') {
             Panel.tabs.settings.loadScheduleEditor();
+          } else if (mode === 'welcome') {
+            Panel.tabs.settings.loadWelcomeEditor();
           } else {
             Panel.tabs.settings.loadBotConfig();
           }
@@ -1331,6 +1283,7 @@ window.Panel = window.Panel || {};
 
     const res = await fetch('/auth/me');
     S.user = await res.json();
+    if (S.user.csrfToken) Panel.core.setCsrfToken(S.user.csrfToken);
     S.tier = S.user.tierLevel || 0;
     if (!S.user.authenticated || S.tier < 1) {
       if (Panel.landing) Panel.landing.show();
@@ -1356,6 +1309,7 @@ window.Panel = window.Panel || {};
           try {
             const r = await fetch('/auth/refresh');
             const d = await r.json();
+            if (d.csrfToken) Panel.core.setCsrfToken(d.csrfToken);
             if (d.tierLevel >= 1) {
               clearInterval(S._refreshPoll);
               S.user = d;
@@ -1385,6 +1339,7 @@ window.Panel = window.Panel || {};
   Panel._internal.showItemPopup = showItemPopup;
   Panel._internal.showEntityPopup = showEntityPopup;
   Panel._internal.resetActivityPaging = resetActivityPaging;
+  Panel._internal.switchServer = switchServer;
   Panel._internal.buildPlayerDetail = function (p) {
     return Panel.tabs.players ? Panel.tabs.players.buildPlayerDetail(p) : '';
   };

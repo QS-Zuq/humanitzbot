@@ -26,7 +26,7 @@ const _defaultConfig = require('../config');
 const _defaultRcon = require('../rcon/rcon');
 const _defaultPanelApi = require('../server/panel-api');
 const { getDayOffset, getRotatedProfileIndex, getTodaySchedule } = require('./schedule-utils');
-const { buildWelcomeContent } = require('./auto-messages');
+const { createLogger } = require('../utils/log');
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
@@ -42,7 +42,7 @@ class ServerScheduler {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._panelApi = deps.panelApi || _defaultPanelApi;
-    this._label = deps.label || 'SCHEDULER';
+    this._log = createLogger(deps.label, 'SCHEDULER');
     this._client = client;
     this._logWatcher = logWatcher || null;
     this._interval = null;
@@ -74,7 +74,7 @@ class ServerScheduler {
       .sort((a, b) => a.totalMinutes - b.totalMinutes);
 
     if (this._restartTimes.length === 0) {
-      console.log(`[${this._label}] No RESTART_TIMES configured — scheduler idle`);
+      this._log.info('No RESTART_TIMES configured — scheduler idle');
       return;
     }
 
@@ -97,7 +97,7 @@ class ServerScheduler {
           try {
             this._profileSettings[name] = JSON.parse(raw);
           } catch (e) {
-            console.error(`[${this._label}] Invalid JSON in ${envKey}:`, e.message);
+            this._log.error(`Invalid JSON in ${envKey}:`, e.message);
           }
         }
       }
@@ -106,7 +106,7 @@ class ServerScheduler {
     // If no named profiles, create a default "restart-only" with no settings changes
     if (this._profiles.length === 0) {
       this._profiles = ['default'];
-      console.log(`[${this._label}] No profiles configured — restarts only (no settings changes)`);
+      this._log.info('No profiles configured — restarts only (no settings changes)');
     }
 
     const delay = parseInt(process.env.RESTART_DELAY, 10) || this._config.pvpRestartDelay || 10;
@@ -114,17 +114,15 @@ class ServerScheduler {
 
     // Log configuration
     const fmt = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
-    console.log(
-      `[${this._label}] Scheduled restarts: ${this._restartTimes.map(fmt).join(', ')} (${this._config.botTimezone})`,
-    );
-    console.log(`[${this._label}] Countdown: ${delay} minutes before each restart`);
+    this._log.info(`Scheduled restarts: ${this._restartTimes.map(fmt).join(', ')} (${this._config.botTimezone})`);
+    this._log.info(`Countdown: ${delay} minutes before each restart`);
     if (this._profiles.length > 0 && this._profiles[0] !== 'default') {
-      console.log(`[${this._label}] Profiles: ${this._profiles.join(' → ')} (cycling)`);
+      this._log.info(`Profiles: ${this._profiles.join(' → ')} (cycling)`);
       for (const name of this._profiles) {
         const settings = this._profileSettings[name];
         if (settings) {
           const keys = Object.keys(settings).join(', ');
-          console.log(`[${this._label}]   ${name}: ${keys}`);
+          this._log.info(`  ${name}: ${keys}`);
         }
       }
     }
@@ -132,7 +130,7 @@ class ServerScheduler {
     // Determine current profile based on time
     this._currentProfileIndex = this._determineCurrentProfile();
     this._currentProfileName = this._profiles[this._currentProfileIndex] || this._profiles[0];
-    console.log(`[${this._label}] Current profile: ${this._currentProfileName}`);
+    this._log.info(`Current profile: ${this._currentProfileName}`);
 
     // Resolve admin channel
     if (this._config.adminChannelId) {
@@ -217,7 +215,7 @@ class ServerScheduler {
         const nextSlotIndex = this._restartTimes.indexOf(restartTime);
         const nextProfileIdx = getRotatedProfileIndex(nextSlotIndex, this._profiles.length, dayOffset);
         const nextProfile = this._profiles[nextProfileIdx];
-        console.log(`[${this._label}] Restart in ${minutesUntil} min — switching to profile: ${nextProfile}`);
+        this._log.info(`Restart in ${minutesUntil} min — switching to profile: ${nextProfile}`);
         this._lastRestartMinute = restartTime.totalMinutes;
         this._startCountdown(nextProfile, nextProfileIdx, minutesUntil);
         return;
@@ -266,7 +264,7 @@ class ServerScheduler {
 
       this._announce(msg, 0xf39c12);
       this._rcon.send(`admin ${rconMsg}`).catch((err) => {
-        console.error(`[${this._label}] Failed to send in-game warning:`, err.message);
+        this._log.error('Failed to send in-game warning:', err.message);
       });
 
       stepIndex++;
@@ -331,7 +329,7 @@ class ServerScheduler {
   }
 
   async _executeRestart(profileName, profileIndex, profileSettings) {
-    console.log(`[${this._label}] Executing restart → profile: ${profileName}`);
+    this._log.info(`Executing restart → profile: ${profileName}`);
 
     const hasSettings = Object.keys(profileSettings).length > 0;
 
@@ -363,15 +361,15 @@ class ServerScheduler {
           const regex = new RegExp(`^(${key}\\s*=\\s*)(.+?)\\s*$`, 'm');
           if (regex.test(updated)) {
             updated = updated.replace(regex, `$1${value}`);
-            console.log(`[${this._label}] ${profileName}: ${key} → ${value}`);
+            this._log.info(`${profileName}: ${key} → ${value}`);
           } else {
-            console.warn(`[${this._label}] ${profileName}: ${key} not found in settings`);
+            this._log.warn(`${profileName}: ${key} not found in settings`);
           }
         }
 
         if (updated !== content) {
           await sftp.put(Buffer.from(updated, 'utf8'), settingsPath);
-          console.log(`[${this._label}] Settings updated for profile: ${profileName}`);
+          this._log.info(`Settings updated for profile: ${profileName}`);
         }
 
         // Restore permissions
@@ -379,7 +377,7 @@ class ServerScheduler {
           await sftp.chmod(settingsPath, originalMode).catch(() => {});
         }
       } catch (err) {
-        console.error(`[${this._label}] SFTP settings update failed:`, err.message);
+        this._log.error('SFTP settings update failed:', err.message);
       } finally {
         await sftp.end().catch(() => {});
       }
@@ -401,26 +399,13 @@ class ServerScheduler {
         const capName = profileName.charAt(0).toUpperCase() + profileName.slice(1);
         const serverName = this._config.serverNameTemplate.replace('{mode}', capName);
         await this._panelApi.updateStartupVariable('SERVER_NAME', serverName);
-        console.log(`[${this._label}] Panel API: SERVER_NAME → ${serverName}`);
+        this._log.info(`Panel API: SERVER_NAME → ${serverName}`);
       } catch (err) {
-        console.warn(`[${this._label}] Panel API server name update failed:`, err.message);
+        this._log.warn('Panel API server name update failed:', err.message);
       }
     }
 
-    // Write WelcomeMessage.txt before restart so the game reads fresh content on boot
-    if (this._config.enableWelcomeFile && this._config.ftpHost) {
-      const wsftp = new SftpClient();
-      try {
-        await wsftp.connect(this._config.sftpConnectConfig());
-        const content = await buildWelcomeContent({ config: this._config });
-        await wsftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-        console.log(`[${this._label}] Updated WelcomeMessage.txt before restart`);
-      } catch (err) {
-        console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-      } finally {
-        await wsftp.end().catch(() => {});
-      }
-    }
+    // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
 
     // Post to activity thread
     await this._postToActivityLog(profileName, profileSettings);
@@ -441,15 +426,15 @@ class ServerScheduler {
           exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err, stdout) => {
             if (err) reject(err);
             else {
-              if (stdout) console.log(`[${this._label}] LinuxGSM: ${stdout.trim().split('\n').pop()}`);
+              if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
               resolve();
             }
           });
         });
-        console.log(`[${this._label}] Restart via LinuxGSM (${container})`);
+        this._log.info(`Restart via LinuxGSM (${container})`);
         restartSucceeded = true;
       } catch (lgsmErr) {
-        console.warn(`[${this._label}] LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
+        this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
           const { exec } = require('child_process');
           await new Promise((resolve, reject) => {
@@ -458,10 +443,10 @@ class ServerScheduler {
               else resolve();
             });
           });
-          console.log(`[${this._label}] Restart via Docker stop+start (${container})`);
+          this._log.info(`Restart via Docker stop+start (${container})`);
           restartSucceeded = true;
         } catch (dockerErr) {
-          console.warn(`[${this._label}] Docker restart also failed:`, dockerErr.message);
+          this._log.warn('Docker restart also failed:', dockerErr.message);
         }
       }
     }
@@ -470,10 +455,10 @@ class ServerScheduler {
     if (!restartSucceeded && this._panelApi.available) {
       try {
         await this._panelApi.sendPowerAction('restart');
-        console.log(`[${this._label}] Restart via Panel API`);
+        this._log.info('Restart via Panel API');
         restartSucceeded = true;
       } catch (err) {
-        console.warn(`[${this._label}] Panel API restart failed:`, err.message);
+        this._log.warn('Panel API restart failed:', err.message);
       }
     }
 
@@ -481,16 +466,16 @@ class ServerScheduler {
     if (!restartSucceeded) {
       try {
         await this._rcon.send('RestartNow');
-        console.log(`[${this._label}] Restart command sent via RCON`);
+        this._log.info('Restart command sent via RCON');
         restartSucceeded = true;
       } catch (err) {
-        console.warn(`[${this._label}] RCON RestartNow failed:`, err.message);
+        this._log.warn('RCON RestartNow failed:', err.message);
         try {
           await this._rcon.send('QuickRestart');
-          console.log(`[${this._label}] Restart via RCON QuickRestart`);
+          this._log.info('Restart via RCON QuickRestart');
           restartSucceeded = true;
         } catch {
-          console.error(`[${this._label}] All restart methods failed`);
+          this._log.error('All restart methods failed');
         }
       }
     }
@@ -509,7 +494,7 @@ class ServerScheduler {
   }
 
   async _announce(message, color = 0xf39c12) {
-    console.log(`[${this._label}] ${message}`);
+    this._log.info(message);
     const embed = new EmbedBuilder()
       .setAuthor({ name: '🔄 Server Scheduler' })
       .setDescription(message)
@@ -542,22 +527,20 @@ class ServerScheduler {
     const checkInterval = 10_000; // check every 10s
     const maxWait = 90_000; // give up after 90s
     const start = Date.now();
-    console.log(`[${this._label}] RCON health check started — will verify within ${maxWait / 1000}s`);
+    this._log.info(`RCON health check started — will verify within ${maxWait / 1000}s`);
 
     const timer = setInterval(async () => {
       // RCON reconnected successfully
       if (this._rcon.connected && this._rcon.authenticated) {
         clearInterval(timer);
-        console.log(`[${this._label}] RCON health check passed — connected`);
+        this._log.info('RCON health check passed — connected');
         return;
       }
 
       // Timed out — RCON never came back
       if (Date.now() - start >= maxWait) {
         clearInterval(timer);
-        console.warn(
-          `[${this._label}] RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`,
-        );
+        this._log.warn(`RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`);
 
         // Try Docker first (if configured)
         if (container) {
@@ -573,10 +556,10 @@ class ServerScheduler {
                 } else resolve();
               });
             });
-            console.log(`[${this._label}] Recovery restart sent (${container})`);
+            this._log.info(`Recovery restart sent (${container})`);
             return;
           } catch (err) {
-            console.error(`[${this._label}] Docker recovery restart failed:`, err.message);
+            this._log.error('Docker recovery restart failed:', err.message);
           }
         }
 
@@ -584,14 +567,14 @@ class ServerScheduler {
         if (this._panelApi.available) {
           try {
             await this._panelApi.sendPowerAction('restart');
-            console.log(`[${this._label}] Recovery restart sent via Panel API`);
+            this._log.info('Recovery restart sent via Panel API');
             return;
           } catch (err) {
-            console.error(`[${this._label}] Panel API recovery restart failed:`, err.message);
+            this._log.error('Panel API recovery restart failed:', err.message);
           }
         }
 
-        console.error(`[${this._label}] All recovery restart methods exhausted`);
+        this._log.error('All recovery restart methods exhausted');
       }
     }, checkInterval);
   }
@@ -617,7 +600,7 @@ class ServerScheduler {
     try {
       await this._logWatcher.sendToThread(embed);
     } catch (err) {
-      console.error(`[${this._label}] Failed to post to activity thread:`, err.message);
+      this._log.error('Failed to post to activity thread:', err.message);
     }
   }
 

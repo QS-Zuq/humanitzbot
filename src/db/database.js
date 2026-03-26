@@ -19,6 +19,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const { SCHEMA_VERSION, ALL_TABLES } = require('./schema');
+const { createLogger } = require('../utils/log');
 
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
 
@@ -32,7 +33,7 @@ class HumanitZDB {
   constructor(options = {}) {
     this._dbPath = options.dbPath || DEFAULT_DB_PATH;
     this._memory = options.memory || false;
-    this._label = options.label || 'DB';
+    this._log = createLogger(options.label, 'DB');
     this._db = null;
     this._stmts = {}; // cached prepared statements
   }
@@ -54,7 +55,7 @@ class HumanitZDB {
         const templatePath = path.join(path.dirname(this._dbPath), 'humanitz-template.db');
         if (fs.existsSync(templatePath)) {
           fs.copyFileSync(templatePath, this._dbPath);
-          console.log(`[${this._label}] Copied template DB as starting point`);
+          this._log.info('Copied template DB as starting point');
         }
       }
     }
@@ -68,7 +69,7 @@ class HumanitZDB {
     this._prepareStatements();
 
     const version = this._getMeta('schema_version');
-    console.log(`[${this._label}] Database ready (v${version}, ${this._memory ? 'in-memory' : this._dbPath})`);
+    this._log.info(`Database ready (v${version}, ${this._memory ? 'in-memory' : this._dbPath})`);
   }
 
   close() {
@@ -98,7 +99,7 @@ class HumanitZDB {
       }
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._db.exec('COMMIT');
-      console.log(`[${this._label}] Schema created (v${SCHEMA_VERSION})`);
+      this._log.info(`Schema created (v${SCHEMA_VERSION})`);
     } else if (parseInt(currentVersion, 10) < SCHEMA_VERSION) {
       this._db.exec('BEGIN');
       const fromVersion = parseInt(currentVersion, 10);
@@ -137,7 +138,7 @@ class HumanitZDB {
             /* ignore bad JSON */
           }
         }
-        console.log(`[${this._label}] Migration v1→v2: created player_aliases (seeded ${players.length} players)`);
+        this._log.info(`Migration v1→v2: created player_aliases (seeded ${players.length} players)`);
       }
 
       // v2 → v3: Add day_incremented + infection_timer columns to players
@@ -153,7 +154,7 @@ class HumanitZDB {
         } catch {
           /* already exists */
         }
-        console.log(`[${this._label}] Migration v2→v3: added day_incremented + infection_timer columns`);
+        this._log.info('Migration v2→v3: added day_incremented + infection_timer columns');
       }
 
       // v3 → v4: Add world_horses table, enrich containers, add activity_log
@@ -236,7 +237,7 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_activity_item ON activity_log(item);
         `);
 
-        console.log(`[${this._label}] Migration v3→v4: added world_horses, enriched containers, added activity_log`);
+        this._log.info('Migration v3→v4: added world_horses, enriched containers, added activity_log');
       }
 
       // v4 → v5: Add steam_id + source + target columns to activity_log, create chat_log
@@ -293,7 +294,7 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_chat_player ON chat_log(player_name);
         `);
 
-        console.log(`[${this._label}] Migration v4→v5: enriched activity_log, added chat_log`);
+        this._log.info('Migration v4→v5: enriched activity_log, added chat_log');
       }
 
       // v5 → v6: Add level, exp_current, exp_required, skills_point columns to players
@@ -318,7 +319,7 @@ class HumanitZDB {
         } catch {
           /* already exists */
         }
-        console.log(`[${this._label}] Migration v5→v6: added level, exp_current, exp_required, skills_point`);
+        this._log.info('Migration v5→v6: added level, exp_current, exp_required, skills_point');
       }
 
       // v6 → v7: Item instance tracking, item movements, world drops
@@ -400,7 +401,7 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_world_drops_pos ON world_drops(pos_x, pos_y);
         `);
 
-        console.log(`[${this._label}] Migration v6→v7: added item_instances, item_movements, world_drops`);
+        this._log.info('Migration v6→v7: added item_instances, item_movements, world_drops');
       }
 
       // v7 → v8: Item groups (fungible item tracking) + schema updates
@@ -468,7 +469,7 @@ class HumanitZDB {
         // SQLite doesn't support ALTER COLUMN, but the column already allows NULL values
         // since the NOT NULL constraint is only enforced on INSERT
 
-        console.log(`[${this._label}] Migration v7→v8: added item_groups, group_id columns`);
+        this._log.info('Migration v7→v8: added item_groups, group_id columns');
       }
 
       // v8 → v9: DB-first player stats & playtime — add detailed log columns + server_peaks
@@ -545,7 +546,7 @@ class HumanitZDB {
           );
         `);
 
-        console.log(`[${this._label}] Migration v8→v9: DB-first player stats & playtime`);
+        this._log.info('Migration v8→v9: DB-first player stats & playtime');
       }
 
       // v9 → v10: Timeline tables (full temporal tracking) + death causes
@@ -725,7 +726,7 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_death_cause_steam ON death_causes(victim_steam_id);
         `);
 
-        console.log(`[${this._label}] Migration v9→v10: timeline tables + death causes`);
+        this._log.info('Migration v9→v10: timeline tables + death causes');
       }
 
       // v10 → v11: Expanded game_items schema + new reference tables
@@ -885,7 +886,7 @@ class HumanitZDB {
           );
         `);
 
-        console.log(`[${this._label}] Migration v10→v11: expanded game_items, added 11 new reference tables`);
+        this._log.info('Migration v10→v11: expanded game_items, added 11 new reference tables');
       }
 
       // v11 → v12: bot_state key-value table for runtime operational state
@@ -897,7 +898,7 @@ class HumanitZDB {
             updated_at TEXT DEFAULT (datetime('now'))
           );
         `);
-        console.log(`[${this._label}] Migration v11→v12: bot_state table`);
+        this._log.info('Migration v11→v12: bot_state table');
       }
 
       // v12 → v13: anticheat tables (flags, risk scores, entity fingerprints)
@@ -971,7 +972,7 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_fpe_type        ON fingerprint_events(event_type);
           CREATE INDEX IF NOT EXISTS idx_fpe_created     ON fingerprint_events(created_at);
         `);
-        console.log(`[${this._label}] Migration v12→v13: anticheat flags, risk scores, entity fingerprints`);
+        this._log.info('Migration v12→v13: anticheat flags, risk scores, entity fingerprints');
       }
 
       // v14 → v15: config_documents table (DB-backed configuration storage)
@@ -984,12 +985,12 @@ class HumanitZDB {
             updated_at TEXT DEFAULT (datetime('now'))
           );
         `);
-        console.log(`[${this._label}] Migration v14→v15: config_documents table`);
+        this._log.info('Migration v14→v15: config_documents table');
       }
 
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._db.exec('COMMIT');
-      console.log(`[${this._label}] Schema migrated to v${SCHEMA_VERSION}`);
+      this._log.info(`Schema migrated to v${SCHEMA_VERSION}`);
     }
   }
 

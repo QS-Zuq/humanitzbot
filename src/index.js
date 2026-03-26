@@ -26,9 +26,11 @@ const path = require('path');
 const config = require('./config');
 const { isAdminView } = require('./config');
 const rcon = require('./rcon/rcon');
+const { getServerInfo, getPlayerList, sendAdminMessage } = require('./rcon/server-info');
 const ChatRelay = require('./modules/chat-relay');
 const StatusChannels = require('./modules/status-channels');
 const ServerStatus = require('./modules/server-status');
+const PlayerPresenceTracker = require('./modules/player-presence');
 const AutoMessages = require('./modules/auto-messages');
 const LogWatcher = require('./modules/log-watcher');
 const playtime = require('./tracking/playtime-tracker');
@@ -202,6 +204,7 @@ let chatRelay;
 let statusChannels;
 let serverStatus;
 let autoMessages;
+let presenceTracker;
 let logWatcher;
 let playerStatsChannel;
 let pvpScheduler;
@@ -648,9 +651,9 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     // Chat Relay — bidirectional chat bridge
     if (config.enableChatRelay) {
-      if (!config.adminChannelId) {
-        setStatus('Chat Relay', '🟡 Skipped (ADMIN_CHANNEL_ID not set)');
-        console.log('[BOT] Chat relay skipped — ADMIN_CHANNEL_ID not configured');
+      if (!config.adminChannelId && !config.chatChannelId) {
+        setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
+        console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
       } else {
         chatRelay = new ChatRelay(readyClient, { db });
         if (config.nukeBot) chatRelay._nukeActive = true;
@@ -673,14 +676,37 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
     }
 
+    // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
+    presenceTracker = new PlayerPresenceTracker({
+      config,
+      playtime,
+      getPlayerList,
+      label: 'PRESENCE',
+    });
+    try {
+      await presenceTracker.start();
+    } catch (err) {
+      console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
+    }
+
     // Auto-Messages — periodic broadcasts + join welcome
-    if (config.enableAutoMessages) {
-      autoMessages = new AutoMessages();
+    const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
+    if (hasAnyAutoMsg) {
+      autoMessages = new AutoMessages({
+        config,
+        presenceTracker,
+        playtime,
+        playerStats,
+        getServerInfo,
+        sendAdminMessage,
+        db,
+        label: 'AUTO MSG',
+      });
       await autoMessages.start();
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');
-      console.log('[BOT] Auto-messages disabled via ENABLE_AUTO_MESSAGES=false');
+      console.log('[AUTO MSG] All message features disabled — skipping');
     }
 
     // Kill Feed — sub-feature of Log Watcher
@@ -1130,14 +1156,14 @@ client.once(Events.ClientReady, async (readyClient) => {
       for (const serverDef of servers) {
         const label = serverDef.name || serverDef.id;
         if (!serverDef.channels?.log) {
-          console.log(`[NUKE] Skipping ${label} thread rebuild (no log channel)`);
+          console.log('[NUKE] Skipping %s thread rebuild (no log channel)', label);
           continue;
         }
         const serverConfig = createServerConfig(serverDef);
-        console.log(`[NUKE] Rebuilding threads for ${label}...`);
+        console.log('[NUKE] Rebuilding threads for %s...', label);
         const srvResult = await rebuildThreads(readyClient, null, serverConfig);
         if (srvResult.error) {
-          console.error(`[NUKE] Thread rebuild for ${label} failed:`, srvResult.error);
+          console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
         } else {
           console.log(
             `[NUKE] ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`,
@@ -1278,6 +1304,7 @@ async function shutdown(reason = 'Manual shutdown') {
   if (statusChannels) statusChannels.stop();
   if (serverStatus) serverStatus.stop();
   if (autoMessages) autoMessages.stop();
+  if (presenceTracker) presenceTracker.stop();
   if (pvpScheduler) pvpScheduler.stop();
   if (serverScheduler) serverScheduler.stop();
   if (panelChannel) panelChannel.stop();
@@ -1496,7 +1523,9 @@ async function _nukeChannel(client, channelId, botId) {
       console.error('  Go to: Your Application → Bot → Privileged Gateway Intents');
       if (requested.length > 0) {
         console.error('  Enable:');
-        requested.forEach((r) => console.error('    ✦ ' + r));
+        requested.forEach((r) => {
+          console.error('    ✦ ' + r);
+        });
       } else {
         console.error('  Enable: Message Content Intent');
       }

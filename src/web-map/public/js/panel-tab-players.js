@@ -29,6 +29,8 @@ Panel.tabs = Panel.tabs || {};
   // ── Data Loading ────────────────────────────────────────────────
 
   async function loadPlayers() {
+    Panel.core.utils.setTabUnavailable('tab-players', S.currentServer === 'all');
+    if (S.currentServer === 'all') return;
     try {
       const r = await apiFetch('/api/players');
       if (!r.ok) return;

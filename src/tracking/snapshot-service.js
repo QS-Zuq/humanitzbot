@@ -12,6 +12,7 @@
  */
 
 const { cleanName } = require('../parsers/ue4-names');
+const { createLogger } = require('../utils/log');
 
 // ── AI type → display name mapping ──────────────────────────
 
@@ -74,7 +75,7 @@ class SnapshotService {
    */
   constructor(db, options = {}) {
     this._db = db;
-    this._label = options.label || 'TIMELINE';
+    this._log = createLogger(options.label, 'TIMELINE');
     this._retentionDays = options.retentionDays || 14;
     this._trackStructures = options.trackStructures !== false;
     this._trackHouses = options.trackHouses !== false;
@@ -293,11 +294,11 @@ class SnapshotService {
         timelineHouses.length +
         timelineCompanions.length +
         timelineBackpacks.length;
-      console.log(`[${this._label}] Snapshot #${this._snapshotCount} recorded (${entityCount} entities, id=${snapId})`);
+      this._log.info(`Snapshot #${this._snapshotCount} recorded (${entityCount} entities, id=${snapId})`);
 
       return snapId;
     } catch (err) {
-      console.error(`[${this._label}] Failed to record snapshot:`, err.message);
+      this._log.error('Failed to record snapshot:', err.message);
       return null;
     }
   }
@@ -375,10 +376,10 @@ class SnapshotService {
     try {
       const result = this._db.purgeOldTimeline(`-${this._retentionDays} days`);
       if (result.changes > 0) {
-        console.log(`[${this._label}] Pruned ${result.changes} old timeline snapshots (>${this._retentionDays}d)`);
+        this._log.info(`Pruned ${result.changes} old timeline snapshots (>${this._retentionDays}d)`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Failed to prune timeline:`, err.message);
+      this._log.warn('Failed to prune timeline:', err.message);
     }
   }
 }

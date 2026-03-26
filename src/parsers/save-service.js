@@ -35,6 +35,14 @@ const path = require('path');
 const { parseSave, parseClanData } = require('./save-parser');
 const { diffSaveState } = require('../db/diff-engine');
 const { reconcileItems } = require('../db/item-tracker');
+const { createLogger } = require('../utils/log');
+
+// Shell-safe single-quote escaping for SSH exec arguments
+function shQuote(v) {
+  const s = String(v);
+  if (/[\0\r\n]/.test(s)) throw new Error('Invalid shell argument: contains null/newline');
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
 
 class SaveService extends EventEmitter {
   /**
@@ -67,7 +75,7 @@ class SaveService extends EventEmitter {
     this._localPath = options.localPath || '';
     this._pollInterval = options.pollInterval || 60_000;
     this._idMap = options.idMap || {};
-    this._label = options.label || 'SaveService';
+    this._log = createLogger(options.label, 'SaveService');
     this._dataDir = options.dataDir || path.join(__dirname, '..', '..');
 
     // Auto-load cached PlayerIDMapped.txt if no idMap provided
@@ -107,6 +115,8 @@ class SaveService extends EventEmitter {
     this._resolvedTrigger = null; // actual trigger after auto-detection
     this._agentPath = ''; // full remote path to uploaded agent
     this._cachePath = ''; // full remote path to humanitz-cache.json
+    this._runScriptPath = ''; // full remote path to run-agent.sh
+    this._checkNodeScriptPath = ''; // full remote path to check-node.sh
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -127,9 +137,7 @@ class SaveService extends EventEmitter {
       this._agentMode === 'direct'
         ? 'direct'
         : `${this._agentMode} (agent-capable: ${this._agentCapable ?? 'unknown'})`;
-    console.log(
-      `[${this._label}] Starting save service — mode: ${modeLabel}, poll every ${this._pollInterval / 1000}s`,
-    );
+    this._log.info(`Starting save service — mode: ${modeLabel}, poll every ${this._pollInterval / 1000}s`);
     await this._poll();
     this._timer = setInterval(() => this._poll(), this._pollInterval);
   }
@@ -139,7 +147,7 @@ class SaveService extends EventEmitter {
       clearInterval(this._timer);
       this._timer = null;
     }
-    console.log(`[${this._label}] Stopped (${this._syncCount} syncs, mode: ${this._mode || this._agentMode})`);
+    this._log.info(`Stopped (${this._syncCount} syncs, mode: ${this._mode || this._agentMode})`);
   }
 
   /** Force an immediate sync (for slash commands, etc.). */
@@ -175,11 +183,11 @@ class SaveService extends EventEmitter {
       }
       if (count > 0) {
         this._idMap = map;
-        console.log(`[${this._label}] Loaded ${count} name(s) from cached PlayerIDMapped.txt`);
+        this._log.info(`Loaded ${count} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err) {
       // Non-critical — file may not exist yet
-      console.warn(`[${this._label}] Could not load cached ID map:`, err.message);
+      this._log.warn('Could not load cached ID map:', err.message);
     }
   }
 
@@ -212,10 +220,10 @@ class SaveService extends EventEmitter {
       }
 
       if (fixed > 0) {
-        console.log(`[${this._label}] Repaired ${fixed} activity_log row(s) with resolved player names`);
+        this._log.info(`Repaired ${fixed} activity_log row(s) with resolved player names`);
       }
     } catch (err) {
-      console.warn(`[${this._label}] DB name repair failed (non-fatal):`, err.message);
+      this._log.warn('DB name repair failed (non-fatal):', err.message);
     }
   }
 
@@ -278,10 +286,33 @@ class SaveService extends EventEmitter {
       await sftp.connect(this._sftpConfig);
       await sftp.put(Buffer.from(script, 'utf-8'), this._agentPath);
       this._agentDeployed = true;
-      console.log(`[${this._label}] Agent deployed → ${this._agentPath} (${(script.length / 1024).toFixed(1)}KB)`);
+      this._log.info(`Agent deployed → ${this._agentPath} (${(script.length / 1024).toFixed(1)}KB)`);
+
+      const runScript = this._generateRunScript();
+      this._runScriptPath = path.dirname(this._agentPath) + '/run-agent.sh';
+      await sftp.put(Buffer.from(runScript, 'utf-8'), this._runScriptPath);
+      this._log.info(`Runner script deployed → ${this._runScriptPath}`);
+
+      const checkScript = this._generateCheckNodeScript();
+      const checkScriptPath = path.dirname(this._agentPath) + '/check-node.sh';
+      await sftp.put(Buffer.from(checkScript, 'utf-8'), checkScriptPath);
+      this._checkNodeScriptPath = checkScriptPath;
+      this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
       sftp.end();
     }
+  }
+
+  _generateRunScript() {
+    const lines = [
+      '#!/bin/bash',
+      'exec ' + shQuote(this._agentNodePath) + ' ' + shQuote(this._agentPath) + ' --save ' + shQuote(this._savePath),
+    ];
+    return lines.join('\n') + '\n';
+  }
+
+  _generateCheckNodeScript() {
+    return '#!/bin/bash\n' + shQuote(this._agentNodePath) + ' --version\n';
   }
 
   /**
@@ -289,16 +320,16 @@ class SaveService extends EventEmitter {
    * Returns the parsed stdout/stderr and exit code.
    */
   async executeAgent() {
-    const cmd = `${this._agentNodePath} "${this._agentPath}" --save "${this._savePath}"`;
-    console.log(`[${this._label}] Executing agent: ${cmd}`);
-    const result = await this._sshExec(cmd);
+    const scriptPath = this._runScriptPath || path.dirname(this._agentPath) + '/run-agent.sh';
+    this._log.info(`Executing agent via runner script: ${scriptPath}`);
+    const result = await this._sshExec('bash ' + shQuote(scriptPath));
 
     if (result.code !== 0) {
       const msg = (result.stderr || result.stdout || '').trim().slice(0, 300);
       throw new Error(`Agent exited with code ${result.code}: ${msg}`);
     }
 
-    console.log(`[${this._label}] Agent output: ${result.stdout.trim().slice(0, 200)}`);
+    this._log.info(`Agent output: ${result.stdout.trim().slice(0, 200)}`);
     return result;
   }
 
@@ -308,15 +339,16 @@ class SaveService extends EventEmitter {
    */
   async checkNodeAvailable() {
     try {
-      const result = await this._sshExec(`${this._agentNodePath} --version`);
+      const scriptPath = this._checkNodeScriptPath || path.dirname(this._agentPath) + '/check-node.sh';
+      const result = await this._sshExec('bash ' + shQuote(scriptPath));
       const version = (result.stdout || '').trim();
       if (result.code === 0 && version.startsWith('v')) {
         this._agentCapable = true;
-        console.log(`[${this._label}] Node.js available on game server: ${version}`);
+        this._log.info(`Node.js available on game server: ${version}`);
         return true;
       }
     } catch (err) {
-      console.log(`[${this._label}] SSH check failed: ${err.message}`);
+      this._log.info(`SSH check failed: ${err.message}`);
     }
     this._agentCapable = false;
     return false;
@@ -418,7 +450,7 @@ class SaveService extends EventEmitter {
         if (!agentOk && this._agentMode === 'auto') {
           // Fallback to direct download
           if (!this._mode || this._mode === 'direct') {
-            console.log(`[${this._label}] Agent unavailable — falling back to direct .sav download`);
+            this._log.info('Agent unavailable — falling back to direct .sav download');
           }
           this._mode = 'direct';
           await this._pollDirect(force);
@@ -428,7 +460,7 @@ class SaveService extends EventEmitter {
       }
     } catch (err) {
       this._lastError = err.message;
-      console.error(`[${this._label}] Sync error:`, err.message);
+      this._log.error('Sync error:', err.message);
       this.emit('error', err);
     } finally {
       this._syncing = false;
@@ -466,7 +498,7 @@ class SaveService extends EventEmitter {
       try {
         clans = parseClanData(clanBuf);
       } catch (err) {
-        console.warn(`[${this._label}] Failed to parse clan data:`, err.message);
+        this._log.warn('Failed to parse clan data:', err.message);
       }
     }
 
@@ -522,10 +554,10 @@ class SaveService extends EventEmitter {
         return true;
       }
 
-      console.warn(`[${this._label}] Agent triggered (${trigger}) but cache not found at ${this._cachePath}`);
+      this._log.warn(`Agent triggered (${trigger}) but cache not found at ${this._cachePath}`);
       return false;
     } catch (err) {
-      console.warn(`[${this._label}] Agent mode failed: ${err.message}`);
+      this._log.warn(`Agent mode failed: ${err.message}`);
       return false;
     }
   }
@@ -568,7 +600,7 @@ class SaveService extends EventEmitter {
 
     // 1. Try RCON trigger — but only if Panel API is configured (Pterodactyl/Bisect)
     if (this._isRconAvailable() && this._checkPanelAvailable()) {
-      console.log(`[${this._label}] Auto-selected RCON trigger (Panel API detected — Pterodactyl host)`);
+      this._log.info('Auto-selected RCON trigger (Panel API detected — Pterodactyl host)');
       this._resolvedTrigger = 'rcon';
       return 'rcon';
     }
@@ -576,7 +608,7 @@ class SaveService extends EventEmitter {
     // 2. Try SSH (VPS / self-hosted — the normal agent path)
     if (this._agentCapable === null) await this.checkNodeAvailable();
     if (this._agentCapable) {
-      console.log(`[${this._label}] Auto-selected SSH trigger`);
+      this._log.info('Auto-selected SSH trigger');
       this._resolvedTrigger = 'ssh';
       return 'ssh';
     }
@@ -584,9 +616,9 @@ class SaveService extends EventEmitter {
     // 3. RCON available but no Panel API and no SSH — skip agent entirely.
     //    Don't try createHZSocket on a non-Pterodactyl server.
     if (this._isRconAvailable()) {
-      console.log(`[${this._label}] RCON available but no Panel API or SSH — agent trigger skipped`);
+      this._log.info('RCON available but no Panel API or SSH — agent trigger skipped');
     } else {
-      console.log(`[${this._label}] No RCON, Panel API, or SSH available — will check for host-managed cache only`);
+      this._log.info('No RCON, Panel API, or SSH available — will check for host-managed cache only');
     }
     this._resolvedTrigger = 'none';
     return 'none';
@@ -638,7 +670,7 @@ class SaveService extends EventEmitter {
         throw new Error('RCON module not available');
       }
     }
-    console.log(`[${this._label}] Sending RCON command: "${this._agentPanelCommand}"`);
+    this._log.info(`Sending RCON command: "${this._agentPanelCommand}"`);
     await this._rcon.send(this._agentPanelCommand);
 
     // Wait for the server to write the cache file
@@ -653,7 +685,7 @@ class SaveService extends EventEmitter {
    * We wait a configurable delay for the host to finish writing the cache.
    */
   async _triggerViaPanel() {
-    console.log(`[${this._label}] Sending panel command: "${this._agentPanelCommand}"`);
+    this._log.info(`Sending panel command: "${this._agentPanelCommand}"`);
     await this._panelApi.sendCommand(this._agentPanelCommand);
 
     // Wait for the host to parse + write the cache
@@ -711,7 +743,7 @@ class SaveService extends EventEmitter {
         return { saveBuf: null, clanBuf: null };
       }
 
-      console.log(`[${this._label}] Downloading save file (direct mode)...`);
+      this._log.info('Downloading save file (direct mode)...');
       const saveBuf = await sftp.get(this._savePath);
       this._lastMtime = mtime;
 
@@ -782,11 +814,11 @@ class SaveService extends EventEmitter {
           this._lastMtime = mtime;
         }
       } catch (err) {
-        console.warn(`[${this._label}] Panel file list failed (will download anyway):`, err.message);
+        this._log.warn('Panel file list failed (will download anyway):', err.message);
       }
     }
 
-    console.log(`[${this._label}] Downloading save file via Panel API (direct mode)...`);
+    this._log.info('Downloading save file via Panel API (direct mode)...');
     const saveBuf = await api.downloadFile(this._savePath);
     if (!saveBuf || saveBuf.length === 0) {
       throw new Error('Empty save file downloaded from Panel API');
@@ -839,7 +871,7 @@ class SaveService extends EventEmitter {
     }
 
     const sizeMB = (saveBuf.length / 1024 / 1024).toFixed(2);
-    console.log(`[${this._label}] Downloaded ${sizeMB}MB save via Panel API`);
+    this._log.info(`Downloaded ${sizeMB}MB save via Panel API`);
     return { saveBuf, clanBuf };
   }
 
@@ -929,7 +961,7 @@ class SaveService extends EventEmitter {
       const json = await api.readFile(this._cachePath);
       return this._parseCache(json, mtime);
     } catch (err) {
-      console.warn(`[${this._label}] Panel cache read failed:`, err.message);
+      this._log.warn('Panel cache read failed:', err.message);
       return null;
     }
   }
@@ -943,19 +975,19 @@ class SaveService extends EventEmitter {
     try {
       cache = JSON.parse(json);
     } catch (err) {
-      console.warn(`[${this._label}] Invalid cache JSON: ${err.message}`);
+      this._log.warn(`Invalid cache JSON: ${err.message}`);
       return null;
     }
 
     // Validate cache version — accept any v >= 1 for forward-compatibility
     if (!cache || typeof cache.v !== 'number' || cache.v < 1) {
-      console.warn(`[${this._label}] Invalid or missing cache version (got ${cache?.v})`);
+      this._log.warn(`Invalid or missing cache version (got ${cache?.v})`);
       return null;
     }
 
     if (mtime) this._lastCacheMtime = mtime;
     const sizeMB = (json.length / 1024 / 1024).toFixed(2);
-    console.log(`[${this._label}] Downloaded cache: ${sizeMB}MB (${Object.keys(cache.players || {}).length} players)`);
+    this._log.info(`Downloaded cache: ${sizeMB}MB (${Object.keys(cache.players || {}).length} players)`);
 
     return cache;
   }
@@ -1089,7 +1121,7 @@ class SaveService extends EventEmitter {
         diffEvents = diffSaveState(oldState, newState, nameResolver);
       }
     } catch (err) {
-      console.warn(`[${this._label}] Diff engine error (non-fatal):`, err.message);
+      this._log.warn('Diff engine error (non-fatal):', err.message);
     }
 
     // ── Write all data to DB ──
@@ -1156,7 +1188,7 @@ class SaveService extends EventEmitter {
         }
       }
     } catch (err) {
-      console.warn(`[${this._label}] World drops build error (non-fatal):`, err.message);
+      this._log.warn('World drops build error (non-fatal):', err.message);
     }
 
     // Sync everything into the database in ONE atomic transaction
@@ -1202,16 +1234,16 @@ class SaveService extends EventEmitter {
         this._db.purgeOldMovements('-30 days');
       }
     } catch (err) {
-      console.warn(`[${this._label}] Item tracker error (non-fatal):`, err.message);
+      this._log.warn('Item tracker error (non-fatal):', err.message);
     }
 
     // ── Write activity log entries from diff ──
     if (diffEvents.length > 0) {
       try {
         this._db.insertActivities(diffEvents);
-        console.log(`[${this._label}] Activity log: ${diffEvents.length} events recorded`);
+        this._log.info(`Activity log: ${diffEvents.length} events recorded`);
       } catch (err) {
-        console.warn(`[${this._label}] Failed to write activity log:`, err.message);
+        this._log.warn('Failed to write activity log:', err.message);
       }
     }
 
@@ -1237,8 +1269,8 @@ class SaveService extends EventEmitter {
           ? ` grp: ${itemStats.groups.matched}m/${itemStats.groups.created}c/${itemStats.groups.adjusted}a/${itemStats.groups.transferred}t/${itemStats.groups.lost}l`
           : '')
       : '';
-    console.log(
-      `[${this._label}] Sync complete (${mode}): ${parsed.players.size} players, ${parsed.structures.length} structures, ${parsed.vehicles.length} vehicles, ${clans.length} clans${horsesLabel}${containersLabel}${activityLabel}${itemLabel} (${elapsed}ms)`,
+    this._log.info(
+      `Sync complete (${mode}): ${parsed.players.size} players, ${parsed.structures.length} structures, ${parsed.vehicles.length} vehicles, ${clans.length} clans${horsesLabel}${containersLabel}${activityLabel}${itemLabel} (${elapsed}ms)`,
     );
 
     // Write save-cache.json for web map consumption BEFORE emitting sync,
@@ -1305,7 +1337,7 @@ class SaveService extends EventEmitter {
 
       return { containers, horses, players, worldState, vehicles, structures };
     } catch (err) {
-      console.warn(`[${this._label}] Could not read old state for diff:`, err.message);
+      this._log.warn('Could not read old state for diff:', err.message);
       return null;
     }
   }
@@ -1339,7 +1371,7 @@ class SaveService extends EventEmitter {
       const cachePath = path.join(__dirname, '..', '..', 'data', 'save-cache.json');
       fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
     } catch (err) {
-      console.error(`[${this._label}] Failed to write save-cache.json:`, err.message);
+      this._log.error('Failed to write save-cache.json:', err.message);
     }
   }
 }

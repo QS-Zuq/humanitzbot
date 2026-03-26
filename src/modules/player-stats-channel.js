@@ -2,13 +2,13 @@ const { EmbedBuilder } = require('discord.js');
 const SftpClient = require('ssh2-sftp-client');
 const fs = require('fs');
 const path = require('path');
+const { createLogger } = require('../utils/log');
 const _defaultConfig = require('../config');
 const { cleanOwnMessages, embedContentKey } = require('./discord-utils');
 const _defaultPlaytime = require('../tracking/playtime-tracker');
 const _defaultPlayerStats = require('../tracking/player-stats');
 const KillTracker = require('../tracking/kill-tracker');
 const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('../parsers/save-parser');
-const { buildWelcomeContent } = require('./auto-messages');
 const gameData = require('../parsers/game-data');
 const { cleanItemName: _sharedCleanItemName } = require('../parsers/ue4-names');
 const os = require('os');
@@ -134,7 +134,8 @@ class PlayerStatsChannel {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._db = deps.db || null;
-    this._label = deps.label || 'PLAYER STATS CH';
+    this._log = createLogger(deps.label, 'PLAYER STATS CH');
+    this._label = this._log.label;
     this._serverId = deps.serverId || ''; // unique suffix for select menu IDs
     this._dataDir = deps.dataDir || null; // for writing save-cache.json (multi-server)
     this._panelApi = deps.panelApi || null;
@@ -197,22 +198,22 @@ class PlayerStatsChannel {
       // No Discord channel — run in headless mode.
       // Still poll save data to write save-cache.json for the web panel.
       this._headless = true;
-      console.log(`[${this._label}] No PLAYER_STATS_CHANNEL_ID — running in headless mode (save-cache only)`);
+      this._log.info('No PLAYER_STATS_CHANNEL_ID — running in headless mode (save-cache only)');
     }
 
     if (!this._headless) {
       try {
         this.channel = await this.client.channels.fetch(this._config.playerStatsChannelId);
         if (!this.channel) {
-          console.error(`[${this._label}] Channel not found! Check PLAYER_STATS_CHANNEL_ID.`);
+          this._log.error('Channel not found! Check PLAYER_STATS_CHANNEL_ID.');
           return;
         }
       } catch (err) {
-        console.error(`[${this._label}] Failed to fetch channel:`, err.message);
+        this._log.error('Failed to fetch channel:', err.message);
         return;
       }
 
-      console.log(`[${this._label}] Posting in #${this.channel.name}`);
+      this._log.info(`Posting in #${this.channel.name}`);
 
       // Load persistent kill tracker
       this._killTracker.load();
@@ -251,9 +252,9 @@ class PlayerStatsChannel {
         .then(() => {
           if (!this._headless) this._updateEmbed();
         })
-        .catch((err) => console.error(`[${this._label}] Save poll error:`, err.message));
+        .catch((err) => this._log.error('Save poll error:', err.message));
     }, pollMs);
-    console.log(`[${this._label}] Save poll every ${pollMs / 1000}s${this._headless ? ' (headless)' : ''}`);
+    this._log.info(`Save poll every ${pollMs / 1000}s${this._headless ? ' (headless)' : ''}`);
 
     // Update embed every 60s (for playtime changes etc.) — skip in headless mode
     if (!this._headless) {
@@ -286,7 +287,7 @@ class PlayerStatsChannel {
         await this._pollSaveLegacy();
         return;
       }
-      console.log(`[${this._label}] No save data in DB and no SFTP credentials — skipping poll`);
+      this._log.info('No save data in DB and no SFTP credentials — skipping poll');
       return;
     }
 
@@ -306,27 +307,9 @@ class PlayerStatsChannel {
         // Fetch + cache server settings INI
         await this._fetchServerSettings(sftp);
 
-        // Upload welcome file if enabled
-        if (this._config.enableWelcomeFile) {
-          try {
-            const content = await buildWelcomeContent({
-              config: this._config,
-              playtime: this._playtime,
-              playerStats: this._playerStats,
-              db: this._db,
-            });
-            if (hasPanelApi) {
-              await this._panelApi.writeFile(this._config.ftpWelcomePath, content);
-            } else {
-              await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-            }
-            console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
-          } catch (err) {
-            console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-          }
-        }
+        // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
       } catch (err) {
-        console.error(`[${this._label}] Side-channel error:`, err.message);
+        this._log.error('Side-channel error:', err.message);
       } finally {
         if (sftp) await sftp.end().catch(() => {});
       }
@@ -367,10 +350,10 @@ class PlayerStatsChannel {
       try {
         this._clanData = this._db.getAllClans() || [];
       } catch (err) {
-        console.error(`[${this._label}] Clan DB read error:`, err.message);
+        this._log.error('Clan DB read error:', err.message);
       }
 
-      console.log(`[${this._label}] DB-first load: ${players.size} players`);
+      this._log.info(`DB-first load: ${players.size} players`);
 
       // Load entity data from DB for save-cache.json (map data)
       try {
@@ -385,7 +368,7 @@ class PlayerStatsChannel {
           this._structures = [];
         }
       } catch (err) {
-        console.warn(`[${this._label}] Entity load from DB:`, err.message);
+        this._log.warn('Entity load from DB:', err.message);
       }
 
       // Accumulate lifetime stats across deaths (kills + survival + activity)
@@ -401,7 +384,7 @@ class PlayerStatsChannel {
 
       return true;
     } catch (err) {
-      console.error(`[${this._label}] DB load error:`, err.message);
+      this._log.error('DB load error:', err.message);
       return false;
     }
   }
@@ -433,7 +416,7 @@ class PlayerStatsChannel {
       const cachePath = path.join(this._dataDir, 'save-cache.json');
       fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
     } catch (err) {
-      console.error(`[${this._label}] Failed to write save-cache.json:`, err.message);
+      this._log.error('Failed to write save-cache.json:', err.message);
     }
   }
 
@@ -454,11 +437,11 @@ class PlayerStatsChannel {
       try {
         if (this._db) this._db.setStateJSON('server_settings', this._serverSettings);
       } catch (_) {}
-      console.log(`[${this._label}] Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
+      this._log.info(`Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
     } catch (err) {
       this._loadCachedServerSettings();
       if (!err.message.includes('No such file')) {
-        console.error(`[${this._label}] Server settings error:`, err.message);
+        this._log.error('Server settings error:', err.message);
       }
     }
   }
@@ -526,9 +509,7 @@ class PlayerStatsChannel {
 
       const prevWorldState = this._worldState || null;
       this._worldState = worldState || {};
-      console.log(
-        `[${this._label}] Legacy parse: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`,
-      );
+      this._log.info(`Legacy parse: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
 
       this._runAccumulate();
 
@@ -538,13 +519,15 @@ class PlayerStatsChannel {
 
       // Clan data
       try {
-        const clanPath = this._config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav');
+        const _savePath = this._config.ftpSavePath;
+        const _slIdx = _savePath.indexOf('SaveList/');
+        const clanPath = _slIdx !== -1 ? _savePath.slice(0, _slIdx) + 'Save_ClanData.sav' : _savePath;
         const clanBuf = await sftp.get(clanPath);
         this._clanData = parseClanData(clanBuf);
-        console.log(`[${this._label}] Parsed clans: ${this._clanData.length} clans`);
+        this._log.info(`Parsed clans: ${this._clanData.length} clans`);
       } catch (err) {
         if (!err.message.includes('No such file')) {
-          console.error(`[${this._label}] Clan data error:`, err.message);
+          this._log.error('Clan data error:', err.message);
         }
       }
 
@@ -557,27 +540,9 @@ class PlayerStatsChannel {
       // Write save-cache.json for web panel (multi-server instances)
       this._writeSaveCache();
 
-      // Welcome file
-      if (this._config.enableWelcomeFile) {
-        try {
-          const content = await buildWelcomeContent({
-            config: this._config,
-            playtime: this._playtime,
-            playerStats: this._playerStats,
-            db: this._db,
-          });
-          if (this._panelApi && this._panelApi.available) {
-            await this._panelApi.writeFile(this._config.ftpWelcomePath, content);
-          } else {
-            await sftp.put(Buffer.from(content, 'utf8'), this._config.ftpWelcomePath);
-          }
-          console.log(`[${this._label}] Updated WelcomeMessage.txt on server`);
-        } catch (err) {
-          console.error(`[${this._label}] Failed to write WelcomeMessage.txt:`, err.message);
-        }
-      }
+      // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
     } catch (err) {
-      console.error(`[${this._label}] Legacy save poll error:`, err.message);
+      this._log.error('Legacy save poll error:', err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
@@ -599,8 +564,8 @@ class PlayerStatsChannel {
       const localStat = fs.statSync(tmpFile);
 
       if (remoteStat.size && localStat.size !== remoteStat.size) {
-        console.warn(
-          `[${this._label}] Save download size mismatch: remote=${remoteStat.size} local=${localStat.size}, retrying with buffered get`,
+        this._log.warn(
+          `Save download size mismatch: remote=${remoteStat.size} local=${localStat.size}, retrying with buffered get`,
         );
         const buf = await sftp.get(remotePath);
         try {
@@ -616,7 +581,7 @@ class PlayerStatsChannel {
       return buf;
     } catch (err) {
       // fastGet can fail on some SFTP servers — fall back to buffered get
-      console.warn(`[${this._label}] fastGet failed (${err.message}), using buffered get`);
+      this._log.warn(`fastGet failed (${err.message}), using buffered get`);
       try {
         fs.unlinkSync(tmpFile);
       } catch (_) {}
@@ -708,7 +673,7 @@ class PlayerStatsChannel {
       };
       if (this._db) this._db.setStateJSON('welcome_stats', cache);
     } catch (err) {
-      console.error(`[${this._label}] Failed to cache welcome stats:`, err.message);
+      this._log.error('Failed to cache welcome stats:', err.message);
     }
   }
 
@@ -735,7 +700,7 @@ class PlayerStatsChannel {
     } catch (err) {
       // Message was deleted externally — re-create it
       if (err.code === 10008) {
-        console.log(`[${this._label}] Embed message was deleted, re-creating...`);
+        this._log.info('Embed message was deleted, re-creating...');
         try {
           const freshEmbed = this._buildOverviewEmbed();
           const components = [...this._buildPlayerRow(), ...this._buildClanRow()];
@@ -745,10 +710,10 @@ class PlayerStatsChannel {
           });
           this._saveMessageId();
         } catch (createErr) {
-          console.error(`[${this._label}] Failed to re-create message:`, createErr.message);
+          this._log.error('Failed to re-create message:', createErr.message);
         }
       } else {
-        console.error(`[${this._label}] Embed update error:`, err.message);
+        this._log.error('Embed update error:', err.message);
       }
     }
   }
@@ -794,12 +759,12 @@ class PlayerStatsChannel {
       }
       if (entries.length > 0) {
         this._playerStats.loadIdMap(entries);
-        console.log(`[${this._label}] Loaded ${entries.length} name(s) from PlayerIDMapped.txt`);
+        this._log.info(`Loaded ${entries.length} name(s) from PlayerIDMapped.txt`);
       }
     } catch (err) {
       // Not critical — file may not exist on this server
       if (!err.message.includes('No such file')) {
-        console.log(`[${this._label}] Could not read PlayerIDMapped.txt:`, err.message);
+        this._log.info('Could not read PlayerIDMapped.txt:', err.message);
       }
     }
   }
@@ -994,7 +959,7 @@ class PlayerStatsChannel {
         await this._sendFeedEmbed(embed, targetDate);
       }
     } catch (err) {
-      console.error(`[${this._label}] Failed to post activity summary to thread:`, err.message);
+      this._log.error('Failed to post activity summary to thread:', err.message);
     }
   }
 
@@ -1036,7 +1001,7 @@ class PlayerStatsChannel {
     try {
       await this._sendFeedEmbed(embed);
     } catch (err) {
-      console.error(`[${this._label}] Failed to post world event feed to activity thread:`, err.message);
+      this._log.error('Failed to post world event feed to activity thread:', err.message);
     }
   }
 

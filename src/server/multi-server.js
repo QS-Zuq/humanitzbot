@@ -21,6 +21,8 @@ const { createPanelApi } = require('./panel-api');
 const { PlayerStats } = require('../tracking/player-stats');
 const { PlaytimeTracker } = require('../tracking/playtime-tracker');
 const { getServerInfo, getPlayerList, sendAdminMessage } = require('../rcon/server-info');
+const { createLogger } = require('../utils/log');
+const { readPrivateKey } = require('../utils/security');
 
 // Module classes
 const HumanitZDB = require('../db/database');
@@ -29,6 +31,7 @@ const SaveService = require('../parsers/save-service');
 const ServerStatus = require('../modules/server-status');
 const StatusChannels = require('../modules/status-channels');
 const ChatRelay = require('../modules/chat-relay');
+const PlayerPresenceTracker = require('../modules/player-presence');
 const AutoMessages = require('../modules/auto-messages');
 const LogWatcher = require('../modules/log-watcher');
 const PlayerStatsChannel = require('../modules/player-stats-channel');
@@ -159,13 +162,15 @@ async function _discoverFiles(sftp, dir, depth, maxDepth, found) {
  * @param {string} label - server name for logging
  * @returns {Promise<object|null>} paths object or null if discovery fails
  */
-async function discoverPaths(sftpConfig, label = 'DISCOVER') {
+async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
   if (
     !sftpConfig?.host ||
     !sftpConfig?.user ||
     (!sftpConfig?.password && !sftpConfig?.privateKey && !sftpConfig?.privateKeyPath)
   )
     return null;
+
+  const log = createLogger(rawLabel, 'DISCOVER');
 
   const sftp = new SftpClient();
   try {
@@ -178,20 +183,20 @@ async function discoverPaths(sftpConfig, label = 'DISCOVER') {
       connectOpts.privateKey = sftpConfig.privateKey;
       if (sftpConfig.passphrase) connectOpts.passphrase = sftpConfig.passphrase;
     } else if (sftpConfig.privateKeyPath) {
-      connectOpts.privateKey = require('fs').readFileSync(sftpConfig.privateKeyPath);
+      connectOpts.privateKey = readPrivateKey(sftpConfig.privateKeyPath);
       if (sftpConfig.password) connectOpts.passphrase = sftpConfig.password;
     } else {
       connectOpts.password = sftpConfig.password;
     }
     await sftp.connect(connectOpts);
 
-    console.log(`[${label}] Auto-discovering file paths on ${sftpConfig.host}...`);
+    log.info('Auto-discovering file paths on', sftpConfig.host);
     const found = new Map();
     await _discoverFiles(sftp, '/', 0, 8, found);
 
     if (found.size === 0) {
       await sftp.end().catch(() => {});
-      console.log(`[${label}] No game files found on server`);
+      log.info('No game files found on server');
       return null;
     }
 
@@ -210,7 +215,7 @@ async function discoverPaths(sftpConfig, label = 'DISCOVER') {
             const saveFile = items.find((f) => f.name === `Save_${saveName}.sav`);
             if (saveFile) {
               found.set('__save_file__', `${saveDir}/${saveFile.name}`);
-              console.log(`[${label}] Found custom save: Save_${saveName}.sav (from GameServerSettings.ini SaveName)`);
+              log.info('Found custom save:', `Save_${saveName}.sav`, '(from GameServerSettings.ini SaveName)');
             }
           } catch {
             /* SaveList dir not at expected location — will use whatever was discovered */
@@ -238,15 +243,15 @@ async function discoverPaths(sftpConfig, label = 'DISCOVER') {
       const hzLogsDir = found.get('HZLogs');
       const parentDir = hzLogsDir.substring(0, hzLogsDir.lastIndexOf('/'));
       paths.logPath = parentDir + '/HMZLog.log'; // LogWatcher derives HZLogs/ from this parent
-      console.log(`[${label}] HZLogs directory found at ${hzLogsDir} — using per-restart log files`);
+      log.info('HZLogs directory found at', hzLogsDir, '— using per-restart log files');
     }
 
     const foundCount = Object.keys(paths).length;
     const fileNames = Object.values(paths).map((p) => path.basename(p));
-    console.log(`[${label}] Discovered ${foundCount} file(s): ${fileNames.join(', ')}`);
+    log.info('Discovered', foundCount, 'file(s):', fileNames.join(', '));
     return paths;
   } catch (err) {
-    console.log(`[${label}] SFTP auto-discovery failed: ${err.message}`);
+    log.info('SFTP auto-discovery failed:', err.message);
     try {
       await sftp.end();
     } catch {}
@@ -398,18 +403,17 @@ class ServerInstance {
     this.config = createServerConfig(serverDef);
 
     // Per-server singletons
-    const label = this.name || this.id;
-
+    this._log = createLogger('MULTI:' + (this.name || this.id), 'MULTI:SERVER');
     // Per-server SQLite database (isolated from primary)
     this.db = new HumanitZDB({
       dbPath: path.join(this.dataDir, 'humanitz.db'),
-      label: `DB:${label}`,
+      label: 'DB:' + this._log.label,
     });
     this.db.init();
     try {
       gameReference.seed(this.db);
     } catch (err) {
-      console.warn(`[MULTI:${label}] Game reference seed failed:`, err.message);
+      this._log.warn('Game reference seed failed:', err.message);
     }
 
     // Per-server Panel API (if configured in server definition)
@@ -420,7 +424,7 @@ class ServerInstance {
         apiKey: serverDef.panel.apiKey,
       });
       if (this.panelApi) {
-        console.log(`[MULTI:${label}] Panel API configured (Pterodactyl)`);
+        this._log.info('Panel API configured (Pterodactyl)');
       }
     }
 
@@ -428,15 +432,15 @@ class ServerInstance {
     if (this.panelApi) {
       this.rcon = new PanelRcon({
         panelApi: this.panelApi,
-        label: `RCON:${label}`,
+        label: 'RCON:' + this._log.label,
       });
-      console.log(`[MULTI:${label}] Using WebSocket RCON (Panel API)`);
+      this._log.info('Using WebSocket RCON (Panel API)');
     } else {
       this.rcon = new RconManager({
         host: this.config.rconHost,
         port: this.config.rconPort,
         password: this.config.rconPassword,
-        label: `RCON:${label}`,
+        label: 'RCON:' + this._log.label,
       });
     }
 
@@ -444,14 +448,14 @@ class ServerInstance {
       dataDir: this.dataDir,
       db: this.db,
       playtime: null, // set after playtime is created
-      label: `STATS:${label}`,
+      label: 'STATS:' + this._log.label,
     });
 
     this.playtime = new PlaytimeTracker({
       dataDir: this.dataDir,
       db: this.db,
       config: this.config,
-      label: `PLAYTIME:${label}`,
+      label: 'PLAYTIME:' + this._log.label,
     });
 
     // Wire up cross-reference
@@ -487,7 +491,7 @@ class ServerInstance {
       db: this.db,
       dataDir: this.dataDir,
       serverId: this.id,
-      label: this.name || this.id,
+      label: this._log.label,
       panelApi: this.panelApi,
       // Per-server panel API gets its own resource monitoring if available;
       // otherwise disable to prevent inheriting primary's Pterodactyl stats
@@ -497,16 +501,15 @@ class ServerInstance {
 
   async start() {
     if (this.running) return;
-    const label = this.name || this.id;
-    console.log(`[MULTI] Starting server: ${label}`);
+    this._log.info('Starting server');
 
     // ── Auto-discover SFTP paths if needed ──
     // If this server has its own SFTP but no explicit paths, discover them automatically.
     const hasOwnSftp = this.def.sftp?.host && this.def.sftp.host !== _defaultConfig.ftpHost;
     const hasExplicitPaths = this.def.paths && Object.keys(this.def.paths).length > 0;
     if (hasOwnSftp && !hasExplicitPaths) {
-      console.log(`[MULTI:${label}] No file paths configured — running auto-discovery...`);
-      const discovered = await discoverPaths(this.def.sftp, label);
+      this._log.info('No file paths configured — running auto-discovery...');
+      const discovered = await discoverPaths(this.def.sftp, this._log.label);
       if (discovered) {
         // Apply discovered paths to runtime config
         if (discovered.logPath) this.config.ftpLogPath = discovered.logPath;
@@ -520,7 +523,7 @@ class ServerInstance {
         try {
           if (this._configRepo) {
             this._configRepo.update('server:' + this.id, { paths: discovered });
-            console.log(`[MULTI:${label}] Paths saved to DB`);
+            this._log.info('Paths saved to DB');
           } else {
             // Legacy fallback: write to servers.json
             const servers = loadServers();
@@ -528,11 +531,11 @@ class ServerInstance {
             if (idx !== -1) {
               servers[idx].paths = discovered;
               saveServers(servers);
-              console.log(`[MULTI:${label}] Paths saved to servers.json`);
+              this._log.info('Paths saved to servers.json');
             }
           }
         } catch (err) {
-          console.log(`[MULTI:${label}] Could not persist paths: ${err.message}`);
+          this._log.info('Could not persist paths:', err.message);
         }
       }
     }
@@ -547,9 +550,12 @@ class ServerInstance {
         this.saveService = new SaveService(this.db, {
           sftpConfig,
           savePath: this.config.ftpSavePath,
-          clanSavePath: this.config.ftpSavePath
-            ? this.config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav')
-            : null,
+          clanSavePath: (() => {
+            const sp = this.config.ftpSavePath;
+            if (!sp) return null;
+            const idx = sp.indexOf('SaveList/');
+            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : null;
+          })(),
           pollInterval:
             typeof this.config.getEffectiveSavePollInterval === 'function'
               ? this.config.getEffectiveSavePollInterval()
@@ -560,20 +566,25 @@ class ServerInstance {
           agentCachePath: this.config.agentCachePath,
           panelApi: this.panelApi || null,
           dataDir: this.dataDir,
-          label: `SAVE:${label}`,
+          label: 'SAVE:' + this._log.label,
         });
         this.saveService.on('sync', (result) => {
-          console.log(
-            `[MULTI:${label}] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
+          this._log.info(
+            'Save sync:',
+            result.playerCount,
+            'players,',
+            result.structureCount,
+            'structures',
+            `(${result.mode}, ${result.elapsed}ms)`,
           );
         });
         this.saveService.on('error', (err) => {
-          console.error(`[MULTI:${label}] Save error:`, err.message);
+          this._log.error('Save error:', err.message);
         });
         await this.saveService.start();
-        console.log(`[MULTI:${label}] SaveService active (${this.saveService.stats?.mode || 'direct'} mode)`);
+        this._log.info('SaveService active', `(${this.saveService.stats?.mode || 'direct'} mode)`);
       } catch (err) {
-        console.error(`[MULTI:${label}] SaveService failed:`, err.message);
+        this._log.error('SaveService failed:', err.message);
         this.saveService = null;
       }
     }
@@ -584,9 +595,9 @@ class ServerInstance {
         const mod = new ServerStatus(this.client, deps);
         await mod.start();
         this._modules.serverStatus = mod;
-        console.log(`[MULTI:${label}] ServerStatus active`);
+        this._log.info('ServerStatus active');
       } catch (err) {
-        console.error(`[MULTI:${label}] ServerStatus failed:`, err.message);
+        this._log.error('ServerStatus failed:', err.message);
       }
     }
 
@@ -597,9 +608,9 @@ class ServerInstance {
         if (_defaultConfig.nukeBot) mod._nukeActive = true;
         await mod.start();
         this._modules.logWatcher = mod;
-        console.log(`[MULTI:${label}] LogWatcher active`);
+        this._log.info('LogWatcher active');
       } catch (err) {
-        console.error(`[MULTI:${label}] LogWatcher failed:`, err.message);
+        this._log.error('LogWatcher failed:', err.message);
       }
     }
 
@@ -625,9 +636,9 @@ class ServerInstance {
         }
         await mod.start();
         this._modules.chatRelay = mod;
-        console.log(`[MULTI:${label}] ChatRelay active`);
+        this._log.info('ChatRelay active');
       } catch (err) {
-        console.error(`[MULTI:${label}] ChatRelay failed:`, err.message);
+        this._log.error('ChatRelay failed:', err.message);
       }
     }
 
@@ -637,9 +648,9 @@ class ServerInstance {
         const mod = new PlayerStatsChannel(this.client, this._modules.logWatcher || null, deps);
         await mod.start();
         this._modules.playerStatsChannel = mod;
-        console.log(`[MULTI:${label}] PlayerStatsChannel active`);
+        this._log.info('PlayerStatsChannel active');
       } catch (err) {
-        console.error(`[MULTI:${label}] PlayerStatsChannel failed:`, err.message);
+        this._log.error('PlayerStatsChannel failed:', err.message);
       }
     }
 
@@ -650,22 +661,42 @@ class ServerInstance {
         const mod = new StatusChannels(this.client, { ...deps, categoryName });
         await mod.start();
         this._modules.statusChannels = mod;
-        console.log(`[MULTI:${label}] StatusChannels active`);
+        this._log.info('StatusChannels active');
       } catch (err) {
-        console.error(`[MULTI:${label}] StatusChannels failed:`, err.message);
+        this._log.error('StatusChannels failed:', err.message);
+      }
+    }
+
+    if (this.config.rconHost) {
+      try {
+        const mod = new PlayerPresenceTracker({
+          config: this.config,
+          playtime: this.playtime,
+          getPlayerList: deps.getPlayerList,
+          label: 'PRESENCE:' + this._log.label,
+        });
+        await mod.start();
+        this._modules.presenceTracker = mod;
+        this._log.info('PresenceTracker active');
+      } catch (err) {
+        this._log.error('PresenceTracker failed:', err.message);
       }
     }
 
     // Auto Messages
-    if (this.config.rconHost) {
+    const hasAnyAutoMsg =
+      this.config.enableAutoMsgLink || this.config.enableAutoMsgPromo || this.config.enableWelcomeMsg;
+    if (hasAnyAutoMsg && this.config.rconHost) {
       try {
-        const mod = new AutoMessages(deps);
+        const mod = new AutoMessages({ ...deps, presenceTracker: this._modules.presenceTracker || null });
         await mod.start();
         this._modules.autoMessages = mod;
-        console.log(`[MULTI:${label}] AutoMessages active`);
+        this._log.info('AutoMessages active');
       } catch (err) {
-        console.error(`[MULTI:${label}] AutoMessages failed:`, err.message);
+        this._log.error('AutoMessages failed:', err.message);
       }
+    } else if (!hasAnyAutoMsg) {
+      this._log.info('AutoMessages skipped — all message features disabled');
     }
 
     // PvP Scheduler (needs SFTP + RCON)
@@ -674,9 +705,9 @@ class ServerInstance {
         const mod = new PvpScheduler(this.client, this._modules.logWatcher || null, deps);
         await mod.start();
         this._modules.pvpScheduler = mod;
-        console.log(`[MULTI:${label}] PvpScheduler active`);
+        this._log.info('PvpScheduler active');
       } catch (err) {
-        console.error(`[MULTI:${label}] PvpScheduler failed:`, err.message);
+        this._log.error('PvpScheduler failed:', err.message);
       }
     }
 
@@ -686,9 +717,9 @@ class ServerInstance {
         const mod = new ServerScheduler(this.client, this._modules.logWatcher || null, deps);
         await mod.start();
         this._modules.serverScheduler = mod;
-        console.log(`[MULTI:${label}] ServerScheduler active`);
+        this._log.info('ServerScheduler active');
       } catch (err) {
-        console.error(`[MULTI:${label}] ServerScheduler failed:`, err.message);
+        this._log.error('ServerScheduler failed:', err.message);
       }
     }
 
@@ -699,13 +730,13 @@ class ServerInstance {
           db: this.db,
           saveService: this.saveService,
           logWatcher: this._modules.logWatcher || null,
-          label: `ActivityLog:${label}`,
+          label: 'ActivityLog:' + this._log.label,
         });
         await mod.start();
         this._modules.activityLog = mod;
-        console.log(`[MULTI:${label}] ActivityLog active`);
+        this._log.info('ActivityLog active');
       } catch (err) {
-        console.error(`[MULTI:${label}] ActivityLog failed:`, err.message);
+        this._log.error('ActivityLog failed:', err.message);
       }
     }
 
@@ -721,14 +752,14 @@ class ServerInstance {
         if (mod.available && this.saveService) {
           this.saveService.on('sync', (result) => {
             mod.onSaveSync(result).catch((err) => {
-              console.error(`[MULTI:${label}] Anticheat save sync error:`, err.message);
+              this._log.error('Anticheat save sync error:', err.message);
             });
           });
         }
         this._modules.anticheat = mod;
-        console.log(`[MULTI:${label}] Anticheat ${mod.available ? 'active' : 'shim only (package not installed)'}`);
+        this._log.info('Anticheat', mod.available ? 'active' : 'shim only (package not installed)');
       } catch (err) {
-        console.error(`[MULTI:${label}] Anticheat failed:`, err.message);
+        this._log.error('Anticheat failed:', err.message);
       }
     }
 
@@ -741,18 +772,17 @@ class ServerInstance {
       } catch (_) {}
     }, 60000);
 
-    console.log(`[MULTI] Server "${label}" started with ${Object.keys(this._modules).length} module(s)`);
+    this._log.info('Server started with', Object.keys(this._modules).length, 'module(s)');
   }
 
   async stop() {
-    const label = this.name || this.id;
-    console.log(`[MULTI] Stopping server: ${label}`);
+    this._log.info('Stopping server');
 
     for (const [name, mod] of Object.entries(this._modules)) {
       try {
         if (typeof mod.stop === 'function') mod.stop();
       } catch (err) {
-        console.error(`[MULTI:${label}] Error stopping ${name}:`, err.message);
+        this._log.error('Error stopping', name + ':', err.message);
       }
     }
     this._modules = {};
@@ -877,7 +907,7 @@ class MultiServerManager {
       return;
     }
 
-    console.log(`[MULTI] Starting ${enabled.length} additional server(s)...`);
+    console.log('[MULTI] Starting %d additional server(s)...', enabled.length);
 
     for (const serverDef of enabled) {
       try {
@@ -885,7 +915,7 @@ class MultiServerManager {
         this._instances.set(serverDef.id, instance);
         await instance.start();
       } catch (err) {
-        console.error(`[MULTI] Failed to start "${serverDef.name}":`, err.message);
+        console.error('[MULTI] Failed to start %s: %s', serverDef.name, err.message);
       }
     }
   }
@@ -896,7 +926,7 @@ class MultiServerManager {
       try {
         await instance.stop();
       } catch (err) {
-        console.error(`[MULTI] Error stopping "${instance.name}":`, err.message);
+        console.error('[MULTI] Error stopping %s: %s', instance.name, err.message);
       }
     }
     this._instances.clear();
@@ -966,13 +996,13 @@ class MultiServerManager {
     this._removeServerDef(id);
 
     // Delete server data directory
-    const dataDir = path.join(SERVERS_DIR, id);
-    if (fs.existsSync(dataDir)) {
+    const dataDir = path.join(SERVERS_DIR, path.basename(id));
+    if (dataDir.startsWith(SERVERS_DIR) && fs.existsSync(dataDir)) {
       try {
         fs.rmSync(dataDir, { recursive: true, force: true });
-        console.log(`[MULTI] Deleted data directory for ${id}`);
+        console.log('[MULTI] Deleted data directory for %s', id);
       } catch (err) {
-        console.warn(`[MULTI] Could not delete data directory for ${id}:`, err.message);
+        console.warn('[MULTI] Could not delete data directory for %s: %s', id, err.message);
       }
     }
 
@@ -1008,12 +1038,12 @@ class MultiServerManager {
 
   /** Get all server definitions (both running and not). */
   getAllServers() {
-    return loadServers();
+    return this._loadServerDefs();
   }
 
   /** Get status of all instances. */
   getStatuses() {
-    const servers = loadServers();
+    const servers = this._loadServerDefs();
     return servers.map((s) => {
       const instance = this._instances.get(s.id);
       return {

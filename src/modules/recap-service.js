@@ -23,6 +23,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const { t, getLocale, fmtNumber } = require('../i18n');
+const { createLogger } = require('../utils/log');
 
 const STATE_KEY = 'recap_service';
 
@@ -82,7 +83,7 @@ class RecapService {
     this._logWatcher = opts.logWatcher || null;
     this._config = opts.config || require('../config');
     this._playtime = opts.playtime || null;
-    this._label = opts.label || 'RECAP';
+    this._log = createLogger(opts.label, 'RECAP');
   }
 
   // ── Daily Recap ────────────────────────────────────────────
@@ -103,7 +104,7 @@ class RecapService {
 
       const stats = this._gatherDayStats(startOfDay, endOfDay);
       if (!stats || stats.totalEvents === 0) {
-        console.log(`[${this._label}] No events for ${date} — skipping daily recap`);
+        this._log.info(`No events for ${date} — skipping daily recap`);
         return;
       }
 
@@ -111,12 +112,12 @@ class RecapService {
       const embed = this._buildDailyEmbed(stats, dateLabel);
 
       await this._post([embed]);
-      console.log(`[${this._label}] Posted daily recap for ${date}`);
+      this._log.info(`Posted daily recap for ${date}`);
 
       // Save stats for weekly comparison
       this._saveLastDaily(date, stats);
     } catch (err) {
-      console.error(`[${this._label}] Daily recap error:`, err.message);
+      this._log.error('Daily recap error:', err.message);
     }
   }
 
@@ -340,7 +341,7 @@ class RecapService {
 
       const events = this._db.getActivitySince(startOfWeek);
       if (events.length === 0) {
-        console.log(`[${this._label}] No events this week — skipping weekly digest`);
+        this._log.info('No events this week — skipping weekly digest');
         return;
       }
 
@@ -467,7 +468,7 @@ class RecapService {
         .setTimestamp();
 
       await this._post([embed]);
-      console.log(`[${this._label}] Posted weekly digest`);
+      this._log.info('Posted weekly digest');
 
       // Save this week's stats for next week comparison
       this._saveWeeklyStats({
@@ -479,7 +480,7 @@ class RecapService {
         totalEvents: events.length,
       });
     } catch (err) {
-      console.error(`[${this._label}] Weekly digest error:`, err.message);
+      this._log.error('Weekly digest error:', err.message);
     }
   }
 
@@ -504,13 +505,13 @@ class RecapService {
   async _post(embeds) {
     const target = this._getPostTarget();
     if (!target) {
-      console.warn(`[${this._label}] No channel available — recap dropped`);
+      this._log.warn('No channel available — recap dropped');
       return;
     }
     try {
       await target.send({ embeds });
     } catch (err) {
-      console.error(`[${this._label}] Failed to post recap:`, err.message);
+      this._log.error('Failed to post recap:', err.message);
     }
   }
 
@@ -544,7 +545,7 @@ class RecapService {
       state.lastDaily = { date, ...stats };
       this._db.setStateJSON(STATE_KEY, state);
     } catch (err) {
-      console.error(`[${this._label}] Failed to save daily state:`, err.message);
+      this._log.error('Failed to save daily state:', err.message);
     }
   }
 
@@ -555,7 +556,7 @@ class RecapService {
       state.lastWeekly = stats;
       this._db.setStateJSON(STATE_KEY, state);
     } catch (err) {
-      console.error(`[${this._label}] Failed to save weekly state:`, err.message);
+      this._log.error('Failed to save weekly state:', err.message);
     }
   }
 

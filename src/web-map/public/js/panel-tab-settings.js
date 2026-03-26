@@ -1,5 +1,5 @@
 /**
- * Panel Tab: Settings — game settings, bot config (.env), and schedule editor.
+ * Panel Tab: Settings — game settings, bot config (.env), schedule editor, and welcome file editor.
  * @namespace Panel.tabs.settings
  */
 window.Panel = window.Panel || {};
@@ -20,6 +20,7 @@ Panel.tabs = Panel.tabs || {};
   const getEnvDescs = Panel.core.getEnvDescs;
   const humanizeSettingKey = Panel.core.utils.humanizeSettingKey;
   const showToast = Panel.core.utils.showToast;
+  var getCssColor = Panel.core.getCssColor;
 
   let _inited = false;
 
@@ -323,44 +324,85 @@ Panel.tabs = Panel.tabs || {};
   //  Bot Configuration (.env editor)
   // ══════════════════════════════════════════════════════════════════
 
+  // Server-scoped category IDs — hidden when scope is "all"
+  var SERVER_SCOPED_CATS = {
+    credentials: 1,
+    sftp: 1,
+    sftp_paths: 1,
+    agent: 1,
+    channels: 1,
+    restart_schedule: 1,
+    server_advanced: 1,
+  };
+
   async function loadBotConfig() {
-    const container = $('#settings-grid');
+    var container = $('#settings-grid');
     if (!container) return;
     try {
-      const r = await apiFetch('/api/panel/bot-config');
+      var r = await apiFetch('/api/panel/bot-config');
       if (!r.ok) {
         container.innerHTML =
           '<div class="feed-empty">' + i18next.t('web:empty_states.bot_configuration_unavailable') + '</div>';
         return;
       }
-      const d = await r.json();
-      S.botConfigSections = d.sections || [];
+      var d = await r.json();
+      var allSections = d.sections || [];
+
+      // ── Scope filtering: when 'all', show only app-global categories ──
+      var sections = allSections;
+      if (S.currentServer === 'all') {
+        sections = [];
+        for (var fi = 0; fi < allSections.length; fi++) {
+          if (!allSections[fi].id || !SERVER_SCOPED_CATS[allSections[fi].id]) {
+            sections.push(allSections[fi]);
+          }
+        }
+      }
+
+      S.botConfigGroups = d.groups || [];
+      S.botConfigSections = sections;
       S.botConfigOriginal = {};
       S.botConfigChanged = {};
-      for (let si = 0; si < S.botConfigSections.length; si++) {
-        const sec = S.botConfigSections[si];
-        for (let ki = 0; ki < sec.keys.length; ki++) {
-          const k = sec.keys[ki];
+      for (var si = 0; si < S.botConfigSections.length; si++) {
+        var sec = S.botConfigSections[si];
+        for (var ki = 0; ki < sec.keys.length; ki++) {
+          var k = sec.keys[ki];
           S.botConfigOriginal[k.key] = k.value;
         }
       }
-      renderBotConfig(container, S.botConfigSections);
-      const countEl = $('#settings-count');
-      const total = S.botConfigSections.reduce(function (sum, s) {
+
+      // Render banner + filtered sections
+      container.innerHTML = '';
+      if (S.currentServer === 'all') {
+        var banner = el(
+          'div',
+          'flex items-center gap-2 text-xs px-3 py-2 rounded-lg border bg-accent/5 border-accent/20 text-accent mb-3',
+        );
+        banner.innerHTML =
+          '<i data-lucide="info" class="w-3.5 h-3.5 shrink-0"></i><span>' +
+          esc(i18next.t('web:settings.scope_banner_global')) +
+          '</span>';
+        container.appendChild(banner);
+      }
+
+      renderBotConfig(container, S.botConfigSections, S.botConfigGroups);
+      var countEl = $('#settings-count');
+      var total = S.botConfigSections.reduce(function (sum, s) {
         return sum + s.keys.length;
       }, 0);
       if (countEl) countEl.textContent = total + ' settings';
-      const btn = $('#settings-save-btn');
+      var btn = $('#settings-save-btn');
       if (btn) {
         btn.disabled = true;
         btn.classList.add('opacity-50', 'cursor-not-allowed');
       }
-      const countBadge = $('#settings-change-count');
+      var countBadge = $('#settings-change-count');
       if (countBadge) countBadge.classList.add('hidden');
-      const resetBtn = $('#settings-reset-btn');
+      var resetBtn = $('#settings-reset-btn');
       if (resetBtn) resetBtn.classList.add('hidden');
-      const restartBadge = $('#settings-restart-badge');
+      var restartBadge = $('#settings-restart-badge');
       if (restartBadge) restartBadge.classList.add('hidden');
+      if (window.lucide) lucide.createIcons({ attrs: { class: '' } });
     } catch (e) {
       container.innerHTML =
         '<div class="feed-empty">' + i18next.t('web:empty_states.failed_to_load_bot_configuration') + '</div>';
@@ -368,52 +410,74 @@ Panel.tabs = Panel.tabs || {};
     }
   }
 
-  function renderBotConfig(container, sections) {
+  function renderBotConfig(container, sections, groups) {
+    // Keep existing banner if any, else clear
+    var banner = container.querySelector('.bg-accent\\/5');
     container.innerHTML = '';
+    if (banner) container.appendChild(banner);
 
-    const envDescs = getEnvDescs();
-    for (let si = 0; si < sections.length; si++) {
-      const sec = sections[si];
-      if (!sec.keys.length) continue;
+    // Use the existing header search bar (#settings-search) instead of a duplicate inline search
 
-      const section = el('div', 'settings-category');
-      const header = el('div', 'settings-category-header');
+    // ── 2. Group Sections ──
+    groups = groups || [];
+    var sectionById = {};
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].id) sectionById[sections[i].id] = sections[i];
+    }
+
+    var renderedSectionIds = {};
+    var envDescs = getEnvDescs();
+
+    // Helper to render a single section (category)
+    function renderSection(sec) {
+      if (!sec || !sec.keys.length) return null;
+      var sectionEl = el('div', 'settings-category mb-2');
+      sectionEl.dataset.sectionId = sec.id || '';
+      sectionEl.dataset.sectionLabel = (sec.label || '').toLowerCase();
+
+      var header = el(
+        'div',
+        'settings-section-label text-xs font-medium text-muted uppercase tracking-wider mt-3 mb-1 px-1',
+      );
       header.innerHTML =
-        '<span class="cat-arrow">\u25B8</span><span class="cat-label">' +
-        esc(sec.label) +
-        '</span><span class="cat-count">' +
-        sec.keys.length +
-        '</span>';
+        '<span class="cat-label">' + esc(sec.label) + '</span><span class="cat-count">' + sec.keys.length + '</span>';
 
-      const body = el('div', 'settings-category-items');
-      for (let ki = 0; ki < sec.keys.length; ki++) {
-        const item = sec.keys[ki];
-        const row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
+      var body = el('div', 'settings-category-items open');
+      for (var ki = 0; ki < sec.keys.length; ki++) {
+        var item = sec.keys[ki];
+        var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
         row.dataset.key = item.key;
-        const desc = envDescs[item.key] || '';
-        const isBool = ENV_BOOLEANS.has(item.key);
-        let nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
+        var desc = envDescs[item.key] || '';
+        row.dataset.desc = desc.toLowerCase();
+
+        var isBool = ENV_BOOLEANS.has(item.key);
+        var nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
         if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
         if (item.readOnly)
           nameHtml +=
-            ' <span class="setting-sensitive-badge" style="color:#d4a843;border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
+            ' <span class="setting-sensitive-badge" style="color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
-        let inputHtml;
+        var inputHtml;
         if (item.readOnly) {
           inputHtml = '<span class="text-xs text-muted font-mono">' + esc(item.value || '-') + '</span>';
         } else if (item.sensitive) {
           inputHtml = '<div class="flex items-center gap-2">';
           if (item.hasValue)
-            inputHtml += '<span class="text-xs text-calm">\u2022\u2022\u2022\u2022\u2022\u2022 set</span>';
-          else inputHtml += '<span class="text-xs text-muted">not set</span>';
+            inputHtml +=
+              '<span class="text-xs text-calm font-mono">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 <i data-lucide="check" class="w-3 h-3 inline"></i> ' +
+              esc(i18next.t('web:settings.secret_set')) +
+              '</span>';
+          else
+            inputHtml +=
+              '<span class="text-xs text-red-400/70">' + esc(i18next.t('web:settings.secret_not_set')) + '</span>';
           inputHtml +=
             '<input type="password" class="setting-input bot-config-input" style="width:180px" placeholder="Enter new value..." data-key="' +
             esc(item.key) +
             '" data-original="" data-sensitive="true" autocomplete="off">';
           inputHtml += '</div>';
         } else if (isBool) {
-          const isOn = item.value === 'true';
+          var isOn = item.value === 'true';
           inputHtml =
             '<label class="setting-toggle"><input type="checkbox" class="bot-config-toggle" data-key="' +
             esc(item.key) +
@@ -437,29 +501,355 @@ Panel.tabs = Panel.tabs || {};
         body.appendChild(row);
       }
 
-      (function (bodyEl, headerEl) {
-        headerEl.addEventListener('click', function () {
-          bodyEl.classList.toggle('open');
-          headerEl.querySelector('.cat-arrow').classList.toggle('open');
+      sectionEl.appendChild(header);
+
+      // Add SFTP discovery button for sftp_paths category
+      if (sec.id === 'sftp_paths') {
+        var discoverBtn = el(
+          'button',
+          'text-xs px-3 py-1.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors flex items-center gap-1.5 mt-2 mb-1',
+        );
+        discoverBtn.innerHTML =
+          '<i data-lucide="search" class="w-3 h-3"></i> ' + esc(i18next.t('web:settings.discover_paths'));
+        discoverBtn.addEventListener('click', async function () {
+          discoverBtn.disabled = true;
+          discoverBtn.innerHTML =
+            '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> ' + esc(i18next.t('web:settings.discovering'));
+          if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
+          try {
+            // Use server's existing SFTP config (includes password/key from config singleton)
+            var r = await fetch('/api/panel/servers/discover', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ useCurrentConfig: true }),
+            });
+            if (!r.ok) {
+              throw new Error('HTTP ' + r.status);
+            }
+            var d = await r.json();
+            if (!d.jobId) {
+              throw new Error('No job ID');
+            }
+            var jobId = d.jobId;
+            var poll = setInterval(async function () {
+              try {
+                var pr = await fetch('/api/panel/servers/discover/' + encodeURIComponent(jobId));
+                var pd = await pr.json();
+                if (pd.state === 'completed' && pd.result) {
+                  clearInterval(poll);
+                  discoverBtn.disabled = false;
+                  discoverBtn.innerHTML =
+                    '<i data-lucide="check" class="w-3 h-3"></i> ' + esc(i18next.t('web:settings.discover_done'));
+                  if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
+                  // Fill discovered paths into inputs
+                  var paths = pd.result.paths || pd.result;
+                  var pathMap = {
+                    FTP_LOG_PATH: paths.logPath,
+                    FTP_CONNECT_LOG_PATH: paths.connectLogPath,
+                    FTP_ID_MAP_PATH: paths.idMapPath,
+                    FTP_SAVE_PATH: paths.savePath,
+                    FTP_SETTINGS_PATH: paths.settingsPath,
+                  };
+                  for (var pk in pathMap) {
+                    if (pathMap[pk]) {
+                      var inp = body.querySelector('input[data-key="' + pk + '"]');
+                      if (inp) {
+                        inp.value = pathMap[pk];
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                    }
+                  }
+                } else if (pd.state === 'failed') {
+                  clearInterval(poll);
+                  discoverBtn.disabled = false;
+                  discoverBtn.innerHTML =
+                    '<i data-lucide="alert-triangle" class="w-3 h-3"></i> ' +
+                    esc(pd.error || i18next.t('web:settings.discover_failed'));
+                  if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
+                }
+              } catch (_e) {
+                clearInterval(poll);
+                discoverBtn.disabled = false;
+                discoverBtn.innerHTML =
+                  '<i data-lucide="alert-triangle" class="w-3 h-3"></i> ' +
+                  esc(_e.message || i18next.t('web:settings.discover_failed'));
+                if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
+              }
+            }, 2000);
+          } catch (err) {
+            discoverBtn.disabled = false;
+            discoverBtn.innerHTML = '<i data-lucide="alert-triangle" class="w-3 h-3"></i> ' + esc(err.message);
+            if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
+          }
         });
-      })(body, header);
-
-      if (si === 0) {
-        body.classList.add('open');
-        header.querySelector('.cat-arrow').classList.add('open');
+        body.insertBefore(discoverBtn, body.firstChild);
       }
-
-      section.appendChild(header);
-      section.appendChild(body);
-      container.appendChild(section);
+      sectionEl.appendChild(body);
+      return sectionEl;
     }
 
+    // Render groups
+    var hasGroups = groups && groups.length > 0;
+    if (hasGroups) {
+      for (var gi = 0; gi < groups.length; gi++) {
+        var group = groups[gi];
+        var groupSecs = [];
+        for (var ci = 0; ci < group.categories.length; ci++) {
+          var cId = group.categories[ci];
+          if (sectionById[cId]) {
+            groupSecs.push(sectionById[cId]);
+            renderedSectionIds[cId] = true;
+          }
+        }
+
+        if (groupSecs.length === 0) continue;
+
+        var groupEl = el('div', 'bot-config-group mb-4 bg-surface rounded-lg border border-border overflow-hidden');
+        var groupHeader = el(
+          'div',
+          'bot-config-group-header flex items-center justify-between p-3 bg-surface-50 cursor-pointer select-none hover:bg-surface-100 transition-colors border-l-2 border-l-accent',
+        );
+
+        var gLabel = i18next.t('web:settings.bot_groups.' + group.id, {
+          defaultValue: group.id.charAt(0).toUpperCase() + group.id.slice(1),
+        });
+        groupHeader.innerHTML =
+          '<div class="flex items-center gap-2">' +
+          '<i data-lucide="' +
+          (group.icon || 'folder') +
+          '" class="w-4 h-4 text-accent"></i>' +
+          '<span class="font-bold text-sm">' +
+          esc(gLabel) +
+          '</span>' +
+          '</div>' +
+          '<div class="flex items-center gap-3">' +
+          '<span class="text-xs text-muted bg-surface border border-border px-2 py-0.5 rounded-full">' +
+          groupSecs.length +
+          ' ' +
+          i18next.t('web:settings.categories', { defaultValue: 'categories' }) +
+          '</span>' +
+          '<i data-lucide="chevron-down" class="w-4 h-4 text-muted group-chevron transition-transform duration-200"></i>' +
+          '</div>';
+
+        var groupBody = el('div', 'bot-config-group-body p-3 hidden');
+
+        for (var gsi = 0; gsi < groupSecs.length; gsi++) {
+          var secEl = renderSection(groupSecs[gsi]);
+          if (secEl) groupBody.appendChild(secEl);
+        }
+
+        (function (bodyEl, headerEl) {
+          headerEl.addEventListener('click', function () {
+            var isHidden = bodyEl.classList.contains('hidden');
+            if (isHidden) {
+              bodyEl.classList.remove('hidden');
+              headerEl.querySelector('.group-chevron').style.transform = 'rotate(180deg)';
+            } else {
+              bodyEl.classList.add('hidden');
+              headerEl.querySelector('.group-chevron').style.transform = '';
+            }
+          });
+        })(groupBody, groupHeader);
+
+        // Auto-expand the first group
+        if (gi === 0) {
+          groupBody.classList.remove('hidden');
+          var chev = groupHeader.querySelector('.group-chevron');
+          if (chev) chev.style.transform = 'rotate(180deg)';
+        }
+
+        groupEl.appendChild(groupHeader);
+        groupEl.appendChild(groupBody);
+        container.appendChild(groupEl);
+      }
+    }
+
+    // Render orphans (if any) or if groups is not provided
+    var orphans = [];
+    for (var i = 0; i < sections.length; i++) {
+      if (!renderedSectionIds[sections[i].id || sections[i].label]) {
+        orphans.push(sections[i]);
+      }
+    }
+
+    if (orphans.length > 0) {
+      var orphanContainer = container;
+      if (hasGroups) {
+        var groupEl = el('div', 'bot-config-group mb-4 bg-surface rounded-lg border border-border overflow-hidden');
+        var groupHeader = el(
+          'div',
+          'bot-config-group-header flex items-center justify-between p-3 bg-surface-50 cursor-pointer select-none hover:bg-surface-100 transition-colors border-l-2 border-l-muted',
+        );
+        groupHeader.innerHTML =
+          '<div class="flex items-center gap-2">' +
+          '<i data-lucide="archive" class="w-4 h-4 text-muted"></i>' +
+          '<span class="font-bold text-sm">' +
+          esc(i18next.t('web:settings.bot_groups.other', { defaultValue: 'Other' })) +
+          '</span>' +
+          '</div>' +
+          '<div class="flex items-center gap-3">' +
+          '<span class="text-xs text-muted bg-surface border border-border px-2 py-0.5 rounded-full">' +
+          orphans.length +
+          ' categories</span>' +
+          '<i data-lucide="chevron-down" class="w-4 h-4 text-muted group-chevron transition-transform duration-200 rotate-180"></i>' +
+          '</div>';
+        var groupBody = el('div', 'bot-config-group-body p-3');
+        groupEl.appendChild(groupHeader);
+        groupEl.appendChild(groupBody);
+        container.appendChild(groupEl);
+        orphanContainer = groupBody;
+
+        (function (bodyEl, headerEl) {
+          headerEl.addEventListener('click', function () {
+            var isHidden = bodyEl.classList.contains('hidden');
+            if (isHidden) {
+              bodyEl.classList.remove('hidden');
+              headerEl.querySelector('.group-chevron').style.transform = 'rotate(180deg)';
+            } else {
+              bodyEl.classList.add('hidden');
+              headerEl.querySelector('.group-chevron').style.transform = '';
+            }
+          });
+        })(groupBody, groupHeader);
+      }
+
+      for (var oi = 0; oi < orphans.length; oi++) {
+        var secEl = renderSection(orphans[oi]);
+        if (secEl) {
+          // Body already has 'open' class by default from renderSection
+          orphanContainer.appendChild(secEl);
+        }
+      }
+    }
+
+    // Re-initialize icons
+    if (window.lucide) window.lucide.createIcons();
+
+    // ── 3. Wire Events ──
+
+    // Search logic
+    var searchInput = $('#settings-search');
+    var searchClear = null; // header search has no dedicated clear button
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        var q = this.value.toLowerCase().trim();
+        if (q) {
+          if (searchClear) searchClear.classList.remove('hidden');
+        } else {
+          if (searchClear) searchClear.classList.add('hidden');
+        }
+
+        var groups = container.querySelectorAll('.bot-config-group');
+        var categories = container.querySelectorAll('.settings-category');
+
+        if (!q) {
+          // Reset view
+          categories.forEach(function (c) {
+            c.style.display = '';
+            var rows = c.querySelectorAll('.setting-row');
+            rows.forEach(function (r) {
+              r.style.display = '';
+            });
+          });
+          groups.forEach(function (g) {
+            g.style.display = '';
+          });
+          return;
+        }
+
+        if (groups.length > 0) {
+          groups.forEach(function (g) {
+            var hasVisible = false;
+            var cats = g.querySelectorAll('.settings-category');
+            cats.forEach(function (c) {
+              var catLabel = c.dataset.sectionLabel || '';
+              var rows = c.querySelectorAll('.setting-row');
+              var catHasVisible = false;
+
+              rows.forEach(function (r) {
+                var key = (r.dataset.key || '').toLowerCase();
+                var nameEl = r.querySelector('.setting-name');
+                var name = nameEl ? nameEl.textContent.toLowerCase() : '';
+                var desc = r.dataset.desc || '';
+
+                if (catLabel.includes(q) || key.includes(q) || name.includes(q) || desc.includes(q)) {
+                  r.style.display = '';
+                  catHasVisible = true;
+                  hasVisible = true;
+                } else {
+                  r.style.display = 'none';
+                }
+              });
+
+              if (catHasVisible) {
+                c.style.display = '';
+                // Expand category
+                var items = c.querySelector('.settings-category-items');
+                if (items) items.classList.add('open');
+              } else {
+                c.style.display = 'none';
+              }
+            });
+
+            if (hasVisible) {
+              g.style.display = '';
+              // Expand group
+              var body = g.querySelector('.bot-config-group-body');
+              if (body) body.classList.remove('hidden');
+              var chev = g.querySelector('.group-chevron');
+              if (chev) chev.style.transform = 'rotate(180deg)';
+            } else {
+              g.style.display = 'none';
+            }
+          });
+        } else {
+          categories.forEach(function (c) {
+            var catLabel = c.dataset.sectionLabel || '';
+            var rows = c.querySelectorAll('.setting-row');
+            var catHasVisible = false;
+
+            rows.forEach(function (r) {
+              var key = (r.dataset.key || '').toLowerCase();
+              var nameEl = r.querySelector('.setting-name');
+              var name = nameEl ? nameEl.textContent.toLowerCase() : '';
+              var desc = r.dataset.desc || '';
+
+              if (catLabel.includes(q) || key.includes(q) || name.includes(q) || desc.includes(q)) {
+                r.style.display = '';
+                catHasVisible = true;
+              } else {
+                r.style.display = 'none';
+              }
+            });
+
+            if (catHasVisible) {
+              c.style.display = '';
+              // Expand category
+              var items = c.querySelector('.settings-category-items');
+              if (items) items.classList.add('open');
+            } else {
+              c.style.display = 'none';
+            }
+          });
+        }
+      });
+
+      if (searchClear) {
+        searchClear.addEventListener('click', function () {
+          searchInput.value = '';
+          searchInput.dispatchEvent(new Event('input'));
+          searchInput.focus();
+        });
+      }
+    }
+
+    // Input changes
     container.addEventListener('input', function (e) {
       if (!e.target.classList.contains('bot-config-input')) return;
-      let key = e.target.dataset.key;
-      const orig = e.target.dataset.original;
-      const val = e.target.value;
-      const isSensitive = e.target.dataset.sensitive === 'true';
+      var key = e.target.dataset.key;
+      var orig = e.target.dataset.original;
+      var val = e.target.value;
+      var isSensitive = e.target.dataset.sensitive === 'true';
 
       if (isSensitive) {
         if (val.length > 0) {
@@ -481,11 +871,12 @@ Panel.tabs = Panel.tabs || {};
       updateBotConfigBadges();
     });
 
+    // Toggles
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('bot-config-toggle')) return;
-      let key = e.target.dataset.key;
-      const orig = e.target.dataset.original;
-      const val = e.target.checked ? 'true' : 'false';
+      var key = e.target.dataset.key;
+      var orig = e.target.dataset.original;
+      var val = e.target.checked ? 'true' : 'false';
       if (val !== orig) {
         S.botConfigChanged[key] = val;
       } else {
@@ -672,7 +1063,13 @@ Panel.tabs = Panel.tabs || {};
 
   function buildScheduleTip(name, colorCls, ps) {
     const accent =
-      colorCls === 'calm' ? '#6dba82' : colorCls === 'surge' ? '#d4a843' : colorCls === 'horde' ? '#c45a4a' : '#c8c2b8';
+      colorCls === 'calm'
+        ? getCssColor('calm', '#6dba82')
+        : colorCls === 'surge'
+          ? getCssColor('surge', '#d4a843')
+          : colorCls === 'horde'
+            ? getCssColor('horde', '#c45a4a')
+            : getCssColor('text', '#c8c2b8');
     let h = '<div class="sched-tip"><div class="sched-tip-title" style="color:' + accent + '">' + esc(name) + '</div>';
     for (const k in ps) {
       if (!ps.hasOwnProperty(k) || SCHED_SKIP_KEYS[k]) continue;
@@ -1285,7 +1682,7 @@ Panel.tabs = Panel.tabs || {};
     const statusEl = $('#sched-editor-status');
     if (statusEl) {
       statusEl.textContent = i18next.t('web:schedule_editor.saving');
-      statusEl.style.color = '#d4a843';
+      statusEl.style.color = getCssColor('surge', '#d4a843');
     }
     const tpl = ($('#sched-name-template') || {}).value || '';
     if (tpl) {
@@ -1315,7 +1712,7 @@ Panel.tabs = Panel.tabs || {};
         if (data.ok) {
           if (statusEl) {
             statusEl.textContent = i18next.t('web:schedule_editor.saved_restart');
-            statusEl.style.color = '#6dba82';
+            statusEl.style.color = getCssColor('calm', '#6dba82');
           }
           setTimeout(function () {
             loadScheduleEditor();
@@ -1323,14 +1720,14 @@ Panel.tabs = Panel.tabs || {};
         } else {
           if (statusEl) {
             statusEl.textContent = data.error || i18next.t('web:toast.save_failed');
-            statusEl.style.color = '#c45a4a';
+            statusEl.style.color = getCssColor('horde', '#c45a4a');
           }
         }
       })
       .catch(function (_e) {
         if (statusEl) {
           statusEl.textContent = i18next.t('web:schedule_editor.network_error');
-          statusEl.style.color = '#c45a4a';
+          statusEl.style.color = getCssColor('horde', '#c45a4a');
         }
       });
   }
@@ -1349,6 +1746,204 @@ Panel.tabs = Panel.tabs || {};
       };
   })();
 
+  // ══════════════════════════════════════════════════════════════════
+  //  Welcome File Editor
+  // ══════════════════════════════════════════════════════════════════
+
+  async function loadWelcomeEditor() {
+    var container = $('#settings-grid');
+    if (!container) return;
+    container.innerHTML = '<div class="feed-empty">Loading...</div>';
+
+    try {
+      var r = await apiFetch('/api/panel/welcome-file');
+      if (!r.ok) throw new Error('Failed to load');
+      var d = await r.json();
+      var content = d.content || '';
+      var placeholders = d.placeholders || [];
+      renderWelcomeEditor(container, content, placeholders);
+    } catch (_err) {
+      container.innerHTML = '<div class="feed-empty">' + i18next.t('web:settings.welcome_load_failed') + '</div>';
+    }
+  }
+
+  function renderWelcomeEditor(container, content, placeholders) {
+    container.innerHTML = '';
+
+    // ── Header ──
+    var header = el('div', 'mb-4');
+    header.innerHTML =
+      '<h3 class="card-title flex items-center gap-2"><i data-lucide="scroll-text" class="w-4 h-4 text-muted"></i> ' +
+      i18next.t('web:settings.welcome_editor_title') +
+      '</h3>' +
+      '<p class="text-[10px] text-muted mt-1">' +
+      i18next.t('web:settings.welcome_editor_desc') +
+      '</p>';
+    container.appendChild(header);
+
+    // ── Editor grid (split pane) ──
+    var editorGrid = el('div', 'welcome-editor');
+
+    // Left pane
+    var leftPane = el('div', '');
+
+    // Toolbar
+    var toolbar = el('div', 'welcome-toolbar');
+
+    // Color tag label
+    var tagLabel = el('span', 'text-[10px] text-muted');
+    tagLabel.textContent = i18next.t('web:settings.welcome_insert_tag');
+    toolbar.appendChild(tagLabel);
+
+    // Color tag buttons
+    var tags = [
+      { tag: 'PR', label: i18next.t('web:settings.welcome_tag_green'), cls: 'PR' },
+      { tag: 'SP', label: i18next.t('web:settings.welcome_tag_orange'), cls: 'SP' },
+      { tag: 'CL', label: i18next.t('web:settings.welcome_tag_blue'), cls: 'CL' },
+      { tag: 'FO', label: i18next.t('web:settings.welcome_tag_gray'), cls: 'FO' },
+      { tag: 'PN', label: i18next.t('web:settings.welcome_tag_red'), cls: 'PN' },
+    ];
+    for (var ti = 0; ti < tags.length; ti++) {
+      var tagBtn = el('button', 'welcome-tag-btn');
+      tagBtn.dataset.tag = tags[ti].cls;
+      tagBtn.textContent = tags[ti].label;
+      toolbar.appendChild(tagBtn);
+    }
+
+    // Divider
+    var divider = el('div', 'w-px h-4 bg-border mx-1');
+    toolbar.appendChild(divider);
+
+    // Placeholder label
+    var phLabel = el('span', 'text-[10px] text-muted');
+    phLabel.textContent = i18next.t('web:settings.welcome_insert_placeholder');
+    toolbar.appendChild(phLabel);
+
+    // Placeholder buttons
+    var defaultPlaceholders = ['{server_name}', '{discord_link}', '{pvp_schedule}', '{day}', '{season}', '{weather}'];
+    var phList = placeholders.length ? placeholders : defaultPlaceholders;
+    for (var pi = 0; pi < phList.length; pi++) {
+      var phBtn = el('button', 'welcome-tag-btn');
+      phBtn.dataset.placeholder = phList[pi];
+      phBtn.textContent = phList[pi];
+      toolbar.appendChild(phBtn);
+    }
+
+    leftPane.appendChild(toolbar);
+
+    // Textarea
+    var textarea = document.createElement('textarea');
+    textarea.className = 'welcome-textarea';
+    textarea.id = 'welcome-textarea';
+    textarea.value = content;
+    textarea.spellcheck = false;
+    leftPane.appendChild(textarea);
+
+    editorGrid.appendChild(leftPane);
+
+    // Right pane
+    var rightPane = el('div', '');
+    var previewLabel = el('div', 'text-[10px] text-muted mb-2 flex items-center gap-1.5');
+    previewLabel.innerHTML = '<i data-lucide="eye" class="w-3 h-3"></i> ' + i18next.t('web:settings.welcome_preview');
+    rightPane.appendChild(previewLabel);
+
+    var previewBox = el('div', 'welcome-preview-box');
+    previewBox.id = 'welcome-preview';
+    rightPane.appendChild(previewBox);
+
+    editorGrid.appendChild(rightPane);
+    container.appendChild(editorGrid);
+
+    // ── Footer ──
+    var footer = el('div', 'welcome-footer');
+    var charCount = el('span', 'text-[10px] text-muted');
+    charCount.id = 'welcome-char-count';
+    charCount.textContent = i18next.t('web:settings.welcome_char_count', { count: content.length });
+    footer.appendChild(charCount);
+
+    var saveBtn = el('button', 'btn-primary flex items-center gap-1.5');
+    saveBtn.id = 'welcome-save-btn';
+    saveBtn.innerHTML = '<i data-lucide="upload" class="w-3.5 h-3.5"></i> ' + i18next.t('web:settings.welcome_save');
+    footer.appendChild(saveBtn);
+
+    container.appendChild(footer);
+
+    // ── Initial preview render ──
+    renderWelcomePreview(previewBox, content);
+
+    // ── Wire events ──
+    textarea.addEventListener('input', function () {
+      renderWelcomePreview(previewBox, textarea.value);
+      charCount.textContent = i18next.t('web:settings.welcome_char_count', { count: textarea.value.length });
+    });
+
+    // Color tag buttons — wrap selected text or insert at cursor
+    toolbar.addEventListener('click', function (e) {
+      var btn = e.target.closest('.welcome-tag-btn');
+      if (!btn) return;
+      if (btn.dataset.tag) {
+        insertAtCursor(textarea, '<' + btn.dataset.tag + '>', '</>');
+      } else if (btn.dataset.placeholder) {
+        insertAtCursor(textarea, btn.dataset.placeholder, '');
+      }
+    });
+
+    saveBtn.addEventListener('click', function () {
+      saveWelcomeFile(textarea);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function renderWelcomePreview(previewEl, text) {
+    var lines = text.split('\n');
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      // Escape HTML first, then replace escaped tag patterns
+      var rendered = esc(line).replace(/&lt;(PR|SP|CL|FO|PN)&gt;(.*?)&lt;\/&gt;/gi, function (_, tag, inner) {
+        return '<span class="wc-' + tag.toLowerCase() + '">' + inner + '</span>';
+      });
+      html += '<div class="welcome-preview-line">' + (rendered || '&nbsp;') + '</div>';
+    }
+    previewEl.innerHTML = html;
+  }
+
+  function insertAtCursor(textarea, before, after) {
+    var start = textarea.selectionStart;
+    var end = textarea.selectionEnd;
+    var text = textarea.value;
+    var selected = text.substring(start, end);
+    var replacement = before + selected + (after || '');
+    textarea.value = text.substring(0, start) + replacement + text.substring(end);
+    var newPos = start + before.length + selected.length + (after ? after.length : 0);
+    textarea.selectionStart = textarea.selectionEnd = newPos;
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input'));
+  }
+
+  async function saveWelcomeFile(textarea) {
+    var saveBtn = $('#welcome-save-btn');
+    if (!saveBtn) return;
+    saveBtn.disabled = true;
+    saveBtn.textContent = i18next.t('web:settings.welcome_saving');
+    try {
+      var r = await apiFetch('/api/panel/welcome-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }),
+      });
+      if (!r.ok) throw new Error('Save failed');
+      showToast(i18next.t('web:settings.welcome_saved'));
+    } catch (_err) {
+      showToast(i18next.t('web:settings.welcome_save_failed'));
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i data-lucide="upload" class="w-3.5 h-3.5"></i> ' + i18next.t('web:settings.welcome_save');
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+  }
+
   function reset() {
     _inited = false;
   }
@@ -1356,8 +1951,15 @@ Panel.tabs = Panel.tabs || {};
   Panel.tabs.settings = {
     init: init,
     load: function () {
+      // When scope is 'all', game settings and schedule are server-specific — force bot mode
+      if (S.currentServer === 'all' && (S.settingsMode === 'game' || S.settingsMode === 'schedule')) {
+        S.settingsMode = 'bot';
+        var btns = $$('.settings-mode-btn');
+        for (var bi = 0; bi < btns.length; bi++) btns[bi].classList.toggle('active', btns[bi].dataset.mode === 'bot');
+      }
       if (S.settingsMode === 'bot') loadBotConfig();
       else if (S.settingsMode === 'schedule') loadScheduleEditor();
+      else if (S.settingsMode === 'welcome') loadWelcomeEditor();
       else loadSettings();
     },
     reset: reset,
@@ -1372,5 +1974,6 @@ Panel.tabs = Panel.tabs || {};
     // Exposed for dashboard schedule rendering
     renderSchedule: renderSchedule,
     renderTomorrowSchedule: renderTomorrowSchedule,
+    loadWelcomeEditor: loadWelcomeEditor,
   };
 })();

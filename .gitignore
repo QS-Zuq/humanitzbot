@@ -42,3 +42,7 @@ GameServerSettings.ini
 
 # Backup files from dev edits
 *.bak
+# Prevent accidental screenshot/image commits in repo root
+/*.png
+/*.jpg
+/*.jpeg

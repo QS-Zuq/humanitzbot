@@ -21,6 +21,7 @@
 
 const { EmbedBuilder } = require('discord.js');
 const { t, getLocale, fmtNumber } = require('../i18n');
+const { createLogger } = require('../utils/log');
 
 // ── Milestone Thresholds ─────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ class MilestoneTracker {
     this._db = opts.db || null;
     this._logWatcher = opts.logWatcher || null;
     this._config = opts.config || require('../config');
-    this._label = opts.label || 'MILESTONES';
+    this._log = createLogger(opts.label, 'MILESTONES');
     this._locale = getLocale({ serverConfig: this._config });
 
     // In-memory state (loaded from DB on start)
@@ -178,7 +179,7 @@ class MilestoneTracker {
         this._pendingEmbeds = [];
         this._needsBackfill = false;
         if (count > 0) {
-          console.log(`[${this._label}] First run — silently recorded ${count} existing milestones (no announcements)`);
+          this._log.info(`First run — silently recorded ${count} existing milestones (no announcements)`);
         }
         return;
       }
@@ -189,7 +190,7 @@ class MilestoneTracker {
       // Post queued embeds
       await this._flushEmbeds();
     } catch (err) {
-      console.error(`[${this._label}] Check error:`, err.message);
+      this._log.error('Check error:', err.message);
     }
   }
 
@@ -410,7 +411,7 @@ class MilestoneTracker {
     const embeds = this._pendingEmbeds.splice(0);
     const target = this._getPostTarget();
     if (!target) {
-      console.warn(`[${this._label}] No channel/thread available — ${embeds.length} milestones dropped`);
+      this._log.warn(`No channel/thread available — ${embeds.length} milestones dropped`);
       return;
     }
 
@@ -420,7 +421,7 @@ class MilestoneTracker {
       try {
         await target.send({ embeds: batch });
       } catch (err) {
-        console.error(`[${this._label}] Failed to post milestones:`, err.message);
+        this._log.error('Failed to post milestones:', err.message);
       }
     }
   }
