@@ -24,7 +24,8 @@
 
 const crypto = require('crypto');
 const expressSession = require('express-session');
-const csrf = require('csurf');
+const csrf = require('tiny-csrf');
+const cookieParser = require('cookie-parser');
 const config = require('../config');
 const { createSessionStore } = require('./session-store-factory');
 
@@ -271,12 +272,10 @@ function setupAuth(app, client, opts = {}) {
     next();
   });
 
-  // CSRF token protection (csurf uses session to store the secret)
-  const csrfProtection = csrf();
-  app.use((req, res, next) => {
-    if (req.path === '/auth/callback') return next();
-    csrfProtection(req, res, next);
-  });
+  // CSRF protection (tiny-csrf, session-backed synchronizer token)
+  const csrfSecret = (authCfg.sessionSecret || 'default-csrf-secret-replace-me').padEnd(32, '0').slice(0, 32);
+  app.use(cookieParser(authCfg.sessionSecret));
+  app.use(csrf(csrfSecret, ['POST', 'PUT', 'PATCH', 'DELETE'], ['/auth/callback']));
 
   // CSRF validation error handler
   app.use((err, req, res, next) => {

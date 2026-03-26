@@ -82,7 +82,8 @@ Panel.core = Panel.core || {};
         div.id = placeholderId;
         div.className = 'feed-empty';
         div.style.marginTop = '4rem';
-        div.textContent = message || i18next.t('web:common.select_server', 'Select a server to view this tab');
+        div.textContent =
+          message || i18next.t('web:common.select_server', { defaultValue: 'Select a server to view this tab' });
         tab.appendChild(div);
       } else {
         existing.style.display = '';

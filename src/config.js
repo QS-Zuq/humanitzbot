@@ -28,8 +28,8 @@ require('dotenv').config();
 // If the old master toggle is explicitly set to 'false', cascade to sub-toggles
 // unless they have been explicitly set by the user.
 if (process.env.ENABLE_AUTO_MESSAGES === 'false') {
-  console.warn(
-    '[DEPRECATED] ENABLE_AUTO_MESSAGES is deprecated. Use individual toggles: ENABLE_AUTO_MSG_LINK, ENABLE_AUTO_MSG_PROMO, ENABLE_WELCOME_MSG',
+  _cfgLog.warn(
+    'ENABLE_AUTO_MESSAGES is deprecated. Use individual toggles: ENABLE_AUTO_MSG_LINK, ENABLE_AUTO_MSG_PROMO, ENABLE_WELCOME_MSG',
   );
   if (!process.env.ENABLE_AUTO_MSG_LINK) process.env.ENABLE_AUTO_MSG_LINK = 'false';
   if (!process.env.ENABLE_AUTO_MSG_PROMO) process.env.ENABLE_AUTO_MSG_PROMO = 'false';
@@ -723,7 +723,7 @@ config.sftpConnectConfig = function () {
       // If a password is also set, use it as the passphrase for the key
       if (self.ftpPassword) cfg.passphrase = self.ftpPassword;
     } catch (err) {
-      _cfgLog.error('Could not read SSH private key at ' + self.ftpPrivateKeyPath + ':', err.message);
+      _cfgLog.error('Could not read SSH private key at %s: %s', self.ftpPrivateKeyPath, err.message);
       // Fall back to password auth
       cfg.password = self.ftpPassword;
     }

@@ -550,9 +550,12 @@ class ServerInstance {
         this.saveService = new SaveService(this.db, {
           sftpConfig,
           savePath: this.config.ftpSavePath,
-          clanSavePath: this.config.ftpSavePath
-            ? this.config.ftpSavePath.slice(0, this.config.ftpSavePath.indexOf('SaveList/')) + 'Save_ClanData.sav'
-            : null,
+          clanSavePath: (() => {
+            const sp = this.config.ftpSavePath;
+            if (!sp) return null;
+            const idx = sp.indexOf('SaveList/');
+            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : null;
+          })(),
           pollInterval:
             typeof this.config.getEffectiveSavePollInterval === 'function'
               ? this.config.getEffectiveSavePollInterval()

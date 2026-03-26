@@ -12,6 +12,8 @@
 
 const { Store } = require('express-session');
 const util = require('util');
+const { createLogger } = require('../../utils/log');
+const _log = createLogger(null, 'SESSION:SQLite');
 
 // ── SqliteSessionStore ──────────────────────────────────────────────────────
 
@@ -171,10 +173,10 @@ SqliteSessionStore.prototype._startCleanup = function () {
     try {
       const result = this._stmtPrune.run(Date.now());
       if (result.changes > 0) {
-        console.log(`[SESSION] Pruned ${result.changes} expired session(s)`);
+        _log.info('Pruned %d expired session(s)', result.changes);
       }
     } catch (err) {
-      console.error('[SESSION] Cleanup error:', err.message);
+      _log.error('Cleanup error:', err.message);
     }
   }, this._cleanupInterval);
   this._cleanupTimer.unref();

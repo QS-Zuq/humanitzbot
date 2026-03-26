@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
-    "csurf": "^1.11.0",
+    "cookie-parser": "^1.4.7",
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -33,6 +33,7 @@
     "express-session": "^1.19.0",
     "i18next": "^25.8.18",
     "ssh2-sftp-client": "^12.1.0",
+    "tiny-csrf": "^1.1.6",
     "ws": "^8.19.0"
   },
   "engines": {

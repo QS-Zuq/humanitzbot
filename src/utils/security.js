@@ -22,9 +22,10 @@ function readPrivateKey(inputPath) {
     throw new Error('Private key file not found: ' + filename);
   }
 
-  const stat = fs.statSync(target);
-  if (!stat.isFile()) throw new Error('Private key path is not a file');
-  if (stat.size > 64 * 1024) throw new Error('Private key file too large (max 64KB)');
+  const lstat = fs.lstatSync(target);
+  if (lstat.isSymbolicLink()) throw new Error('Private key path must not be a symlink');
+  if (!lstat.isFile()) throw new Error('Private key path is not a file');
+  if (lstat.size > 64 * 1024) throw new Error('Private key file too large (max 64KB)');
 
   return fs.readFileSync(target);
 }

@@ -13,6 +13,9 @@
 
 'use strict';
 
+const { createLogger } = require('../utils/log');
+const _log = createLogger(null, 'SESSION');
+
 function createSessionStore(config, db) {
   const storeType = (config.sessionStore || 'sqlite').toLowerCase();
 
@@ -27,16 +30,16 @@ function createSessionStore(config, db) {
         const redisClient = createClient({ url: config.sessionRedisUrl || 'redis://localhost:6379' });
 
         redisClient.on('error', (err) => {
-          console.error('[SESSION] Redis client error:', err.message);
+          _log.error('Redis client error:', err.message);
         });
 
         // connect-redis handles connect asynchronously; connect and log
         redisClient
           .connect()
-          .then(() => console.log('[SESSION] Redis connected'))
+          .then(() => _log.info('Redis connected'))
           .catch((err) => {
-            console.error('[SESSION] Redis connect failed:', err.message);
-            console.error('[SESSION] Sessions will fail until Redis is available');
+            _log.error('Redis connect failed:', err.message);
+            _log.error('Sessions will fail until Redis is available');
           });
 
         const store = new RedisStore({
@@ -48,12 +51,12 @@ function createSessionStore(config, db) {
         // Attach redis client for graceful shutdown
         store._redisClient = redisClient;
 
-        console.log('[SESSION] Using Redis session store');
+        _log.info('Using Redis session store');
         return store;
       } catch (err) {
         if (err.code === 'MODULE_NOT_FOUND') {
-          console.error('[SESSION] Redis packages not installed. Run: npm install redis connect-redis');
-          console.log('[SESSION] Falling back to SQLite store');
+          _log.error('Redis packages not installed. Run: npm install redis connect-redis');
+          _log.info('Falling back to SQLite store');
           // Fall through to sqlite
         } else {
           throw err;
@@ -63,20 +66,20 @@ function createSessionStore(config, db) {
     // eslint-disable-next-line no-fallthrough
     case 'sqlite': {
       if (!db) {
-        console.warn('[SESSION] No database provided for SQLite store — falling back to memory');
+        _log.warn('No database provided for SQLite store — falling back to memory');
         return undefined;
       }
       const { SqliteSessionStore } = require('./session-stores/sqlite-store');
       const store = new SqliteSessionStore(db, { table: 'web_sessions' });
-      console.log('[SESSION] Using SQLite session store');
+      _log.info('Using SQLite session store');
       return store;
     }
     default: {
       // 'memory' or any unrecognized value
       if (storeType !== 'memory') {
-        console.warn(`[SESSION] Unknown store type "${storeType}" — falling back to memory`);
+        _log.warn('Unknown store type %s — falling back to memory', storeType);
       }
-      console.log('[SESSION] Using in-memory session store (sessions lost on restart)');
+      _log.info('Using in-memory session store (sessions lost on restart)');
       return undefined; // express-session uses MemoryStore by default
     }
   }
