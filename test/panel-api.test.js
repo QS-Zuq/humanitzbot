@@ -1115,3 +1115,70 @@ describe('getFileDownloadUrl', () => {
     assert.equal(url, null);
   });
 });
+
+// ── _parseUrl ────────────────────────────────────────────────
+describe('_parseUrl', () => {
+  const { _parseUrl } = panelApi._test;
+
+  // Valid URLs
+  it('parses standard https panel URL', () => {
+    const result = _parseUrl('https://panel.example.com/server/abc123');
+    assert.deepStrictEqual(result, { baseUrl: 'https://panel.example.com', serverId: 'abc123' });
+  });
+
+  it('parses http panel URL', () => {
+    const result = _parseUrl('http://panel.example.com/server/abc123');
+    assert.deepStrictEqual(result, { baseUrl: 'http://panel.example.com', serverId: 'abc123' });
+  });
+
+  it('strips trailing slashes before parsing', () => {
+    const result = _parseUrl('https://panel.example.com/server/abc123///');
+    assert.deepStrictEqual(result, { baseUrl: 'https://panel.example.com', serverId: 'abc123' });
+  });
+
+  it('parses URL with port', () => {
+    const result = _parseUrl('https://panel.example.com:8443/server/abc123');
+    assert.deepStrictEqual(result, { baseUrl: 'https://panel.example.com:8443', serverId: 'abc123' });
+  });
+
+  it('parses URL with subpath before /server/', () => {
+    const result = _parseUrl('https://panel.example.com/pterodactyl/server/abc123');
+    assert.deepStrictEqual(result, { baseUrl: 'https://panel.example.com/pterodactyl', serverId: 'abc123' });
+  });
+
+  // Invalid URLs — must return null
+  it('rejects URL without scheme', () => {
+    assert.equal(_parseUrl('panel.example.com/server/abc123'), null);
+  });
+
+  it('rejects URL with extra path after serverId', () => {
+    assert.equal(_parseUrl('https://panel.example.com/server/abc123/files'), null);
+  });
+
+  it('rejects URL ending with /server/ (no id)', () => {
+    assert.equal(_parseUrl('https://panel.example.com/server/'), null);
+  });
+
+  it('rejects URL without /server/ segment', () => {
+    assert.equal(_parseUrl('https://panel.example.com/abc123'), null);
+  });
+
+  it('rejects empty string', () => {
+    assert.equal(_parseUrl(''), null);
+  });
+
+  it('rejects null/undefined', () => {
+    assert.equal(_parseUrl(null), null);
+    assert.equal(_parseUrl(undefined), null);
+  });
+
+  it('rejects ftp:// scheme', () => {
+    assert.equal(_parseUrl('ftp://panel.example.com/server/abc123'), null);
+  });
+
+  it('rejects serverId with special characters', () => {
+    assert.equal(_parseUrl('https://panel.example.com/server/abc-123'), null);
+    assert.equal(_parseUrl('https://panel.example.com/server/abc_123'), null);
+    assert.equal(_parseUrl('https://panel.example.com/server/abc 123'), null);
+  });
+});

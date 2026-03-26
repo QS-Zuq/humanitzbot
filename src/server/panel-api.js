@@ -33,15 +33,11 @@ function _parseUrl(rawUrl) {
   const raw = (rawUrl || '').replace(/\/+$/, '');
   if (!raw) return null;
 
-  const lastSlash = raw.lastIndexOf('/');
-  if (lastSlash <= 0) return null;
+  // Require http(s):// scheme and /server/{serverId} at the end
+  const match = raw.match(/^(https?:\/\/.+)\/server\/([a-zA-Z0-9]+)$/);
+  if (!match) return null;
 
-  const serverId = raw.substring(lastSlash + 1);
-  const parentSlash = raw.lastIndexOf('/', lastSlash - 1);
-  const baseUrl = parentSlash > 0 ? raw.substring(0, parentSlash) : raw.substring(0, lastSlash);
-
-  if (!baseUrl || !serverId) return null;
-  return { baseUrl, serverId };
+  return { baseUrl: match[1], serverId: match[2] };
 }
 
 /** Map raw Pterodactyl allocation to a clean shape. */
@@ -595,3 +591,6 @@ for (const method of _BOUND_METHODS) {
   }
   module.exports[method] = instance[method].bind(instance);
 }
+
+// ── Test escape hatch ───────────────────────────────────────
+module.exports._test = { _parseUrl };
