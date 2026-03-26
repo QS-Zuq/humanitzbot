@@ -193,6 +193,7 @@ class PanelChannel {
       saveService = null,
       logWatcher = null,
       configRepo = null,
+      botControl = null,
     } = {},
   ) {
     this.client = client;
@@ -215,6 +216,7 @@ class PanelChannel {
     this._saveService = saveService;
     this._logWatcher = logWatcher;
     this._configRepo = configRepo || config._configRepo || null;
+    this._botControl = botControl;
     this._pendingServers = new Map(); // userId  { ...partial server config, _createdAt }
     // Setup wizard state (when config.needsSetup is true)
     this._setupWizard = null; // { profile, rcon: {host,port,password}, sftp: {host,port,user,password}, channels: {...}, step }
@@ -615,13 +617,22 @@ class PanelChannel {
   async _handleBotRestart(interaction) {
     if (!(await this._requireAdmin(interaction, this._ti(interaction, 'action_restart_bot')))) return true;
 
+    try {
+      if (this._botControl) {
+        this._botControl.restart({ source: 'discord', user: interaction.user.tag });
+      } else {
+        setTimeout(() => process.exit(0), 1500);
+      }
+    } catch (err) {
+      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
+      return true;
+    }
+
     await interaction.reply({
       content: this._ti(interaction, 'restart_notice'),
       flags: MessageFlags.Ephemeral,
     });
 
-    // Let Discord deliver the reply before exiting
-    setTimeout(() => process.exit(0), 1500);
     return true;
   }
 
@@ -663,27 +674,45 @@ class PanelChannel {
     }
 
     // Set NUKE_BOT=true in .env and restart
-    _writeEnvValues({ NUKE_BOT: 'true' });
+    try {
+      if (this._botControl) {
+        this._botControl.factoryReset({ source: 'discord', user: interaction.user.tag });
+      } else {
+        _writeEnvValues({ NUKE_BOT: 'true' });
+        setTimeout(() => process.exit(0), 1500);
+      }
+    } catch (err) {
+      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
+      return true;
+    }
     await interaction.reply({
       content: `${this._ti(interaction, 'nuke_started')}\n\n${this._ti(interaction, 'nuke_timing_notice')}`,
       flags: MessageFlags.Ephemeral,
     });
 
-    setTimeout(() => process.exit(0), 1500);
     return true;
   }
 
   async _handleReimportButton(interaction) {
     if (!(await this._requireAdmin(interaction, this._ti(interaction, 'action_reimport_data')))) return true;
 
-    // Set FIRST_RUN=true and restart  re-downloads logs and rebuilds stats
-    _writeEnvValues({ FIRST_RUN: 'true' });
+    // Set FIRST_RUN=true and restart — re-downloads logs and rebuilds stats
+    try {
+      if (this._botControl) {
+        this._botControl.reimport({ source: 'discord', user: interaction.user.tag });
+      } else {
+        _writeEnvValues({ FIRST_RUN: 'true' });
+        setTimeout(() => process.exit(0), 1500);
+      }
+    } catch (err) {
+      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
+      return true;
+    }
     await interaction.reply({
       content: `${this._ti(interaction, 'reimport_started')}\n\n${this._ti(interaction, 'reimport_preserves_messages')}`,
       flags: MessageFlags.Ephemeral,
     });
 
-    setTimeout(() => process.exit(0), 1500);
     return true;
   }
 
@@ -1061,17 +1090,29 @@ class PanelChannel {
       return true;
     }
 
-    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync');
-
-    if (!needsSync()) {
-      await interaction.editReply(this._ti(interaction, 'ok_env_already_up_to_date'));
-      return true;
-    }
-
     try {
-      const currentVer = getVersion();
-      const targetVer = getExampleVersion();
-      const result = syncEnv();
+      const result = this._botControl
+        ? this._botControl.envSync()
+        : (() => {
+            const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync');
+            if (!needsSync()) return { action: 'env_sync', needed: false };
+            const currentVer = getVersion();
+            const targetVer = getExampleVersion();
+            const r = syncEnv();
+            return {
+              action: 'env_sync',
+              needed: true,
+              currentVer,
+              targetVer,
+              added: r.added,
+              deprecated: r.deprecated,
+            };
+          })();
+
+      if (!result.needed) {
+        await interaction.editReply(this._ti(interaction, 'ok_env_already_up_to_date'));
+        return true;
+      }
 
       const changes = [];
       if (result.added > 0) {
@@ -1083,7 +1124,7 @@ class PanelChannel {
 
       await interaction.editReply(
         `${this._ti(interaction, 'ok_env_synchronized')}\n\n` +
-          `${this._ti(interaction, 'env_sync_schema_line', { currentVer, targetVer })}\n` +
+          `${this._ti(interaction, 'env_sync_schema_line', { currentVer: result.currentVer, targetVer: result.targetVer })}\n` +
           `${this._ti(interaction, 'env_sync_changes_line', { changes: changes.join(', ') || this._ti(interaction, 'env_sync_no_changes') })}\n\n` +
           `${this._ti(interaction, 'env_sync_backup_line')}\n\n` +
           `${this._ti(interaction, 'warn_restart_bot_apply_env')}`,
