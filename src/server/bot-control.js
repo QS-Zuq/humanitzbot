@@ -92,13 +92,18 @@ class BotControlService {
    */
   _doExitAction(action, meta, beforeExit) {
     this._guardPending();
+    // Mark pending BEFORE side-effects so concurrent callers are blocked.
+    // Roll back if beforeExit throws to avoid permanent lock.
+    this._pendingAction = action;
+    try {
+      if (beforeExit) beforeExit();
+    } catch (err) {
+      this._pendingAction = null;
+      throw err;
+    }
     const scheduledAt = new Date().toISOString();
     const label = action.replace(/_/g, ' ');
     console.log(`[BOT-CONTROL] ${label} requested by ${meta.source || 'unknown'}${meta.user ? ` (${meta.user})` : ''}`);
-    // Run side-effect BEFORE setting _pendingAction — if writeEnvValues throws,
-    // we must not leave the service in a permanently locked state.
-    if (beforeExit) beforeExit();
-    this._pendingAction = action;
     setTimeout(() => this._exit(0), 1500);
     return { action, scheduledAt };
   }
@@ -106,7 +111,9 @@ class BotControlService {
   /** @private */
   _guardPending() {
     if (this._pendingAction) {
-      throw new Error(`Another action is already pending: ${this._pendingAction}`);
+      const err = new Error(`Another action is already pending: ${this._pendingAction}`);
+      err.code = 'BOT_ACTION_PENDING';
+      throw err;
     }
   }
 }

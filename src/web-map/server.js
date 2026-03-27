@@ -4045,7 +4045,7 @@ class WebMapServer {
 
         sendOk(res, result);
       } catch (err) {
-        if (err.message?.includes('already pending')) {
+        if (err.code === 'BOT_ACTION_PENDING') {
           return sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
         }
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));

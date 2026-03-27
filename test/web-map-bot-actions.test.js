@@ -267,7 +267,9 @@ describe('POST /api/panel/bot-actions/:action', () => {
       _server.setBotControl(
         mockBotControl({
           restart() {
-            throw new Error('Another action is already pending: factory_reset');
+            const err = new Error('Another action is already pending: factory_reset');
+            err.code = 'BOT_ACTION_PENDING';
+            throw err;
           },
         }),
       );

@@ -47,7 +47,6 @@ function _stateInfo(state, locale = 'en') {
 //  .env file helpers (shared via panel-env.js)
 const {
   getEnvValue: _getEnvValue,
-  writeEnvValues: _writeEnvValues,
   applyLiveConfig: _applyLiveConfig,
   getCachedSettings: _getCachedSettings,
 } = require('./panel-env');
@@ -620,10 +619,6 @@ class PanelChannel {
    * @private
    */
   async _execBotAction(interaction, method, successMessage) {
-    // Send reply FIRST so the user sees confirmation before the exit timer starts.
-    // The original code deliberately placed reply before process.exit — preserve that.
-    await interaction.reply({ content: successMessage, flags: MessageFlags.Ephemeral });
-
     try {
       if (this._botControl) {
         this._botControl[method]({ source: 'discord', user: interaction.user.tag });
@@ -633,12 +628,14 @@ class PanelChannel {
       }
     } catch (err) {
       console.error('[PANEL] Bot action failed:', err.message);
-      await interaction.followUp({
+      await interaction.reply({
         content: this._ti(interaction, 'err_action_failed') || err.message,
         flags: MessageFlags.Ephemeral,
       });
+      return true;
     }
-
+    // Reply AFTER action succeeds — the 1.5s exit delay gives Discord time to deliver.
+    await interaction.reply({ content: successMessage, flags: MessageFlags.Ephemeral });
     return true;
   }
 
