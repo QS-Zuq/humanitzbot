@@ -12,6 +12,7 @@ Panel.tabs = Panel.tabs || {};
   var $ = Panel.core.$;
   var el = Panel.core.el;
   var esc = Panel.core.esc;
+  var apiFetch = Panel.core.apiFetch;
 
   var _inited = false;
   var _refreshTimer = null;
@@ -855,7 +856,7 @@ Panel.tabs = Panel.tabs || {};
     if (!hasSftp) return;
 
     try {
-      var r = await fetch('/api/panel/servers/discover', {
+      var r = await apiFetch('/api/panel/servers/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -885,7 +886,7 @@ Panel.tabs = Panel.tabs || {};
   async function pollDiscovery() {
     if (!_discoveryJobId) return;
     try {
-      var r = await fetch('/api/panel/servers/discover/' + encodeURIComponent(_discoveryJobId));
+      var r = await apiFetch('/api/panel/servers/discover/' + encodeURIComponent(_discoveryJobId));
       var d = await r.json();
 
       var statusEl = document.querySelector('#wiz-discovery-status');

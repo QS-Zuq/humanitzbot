@@ -518,7 +518,7 @@ Panel.tabs = Panel.tabs || {};
           if (window.lucide) lucide.createIcons({ nodes: [discoverBtn] });
           try {
             // Use server's existing SFTP config (includes password/key from config singleton)
-            var r = await fetch('/api/panel/servers/discover', {
+            var r = await apiFetch('/api/panel/servers/discover', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ useCurrentConfig: true }),
@@ -533,7 +533,7 @@ Panel.tabs = Panel.tabs || {};
             var jobId = d.jobId;
             var poll = setInterval(async function () {
               try {
-                var pr = await fetch('/api/panel/servers/discover/' + encodeURIComponent(jobId));
+                var pr = await apiFetch('/api/panel/servers/discover/' + encodeURIComponent(jobId));
                 var pd = await pr.json();
                 if (pd.state === 'completed' && pd.result) {
                   clearInterval(poll);
