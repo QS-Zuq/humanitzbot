@@ -32,8 +32,10 @@ async function postAdminAlert(client, embed, opts = {}) {
         console.warn(`[ADMIN-ALERT] Channel ${channelId} not found or not accessible — skipping alert`);
         continue;
       }
-      const sendPromise = ch.send({ embeds: [embed] }).catch(() => {});
+      const sendPromise = ch.send({ embeds: [embed] });
       await Promise.race([sendPromise, new Promise((resolve) => setTimeout(resolve, 3000))]);
+      // Prevent unhandled rejection if send rejects after the timeout won the race
+      sendPromise.catch(() => {});
     } catch (sendErr) {
       console.warn(`[ADMIN-ALERT] Failed to send alert to channel ${channelId}:`, sendErr.message);
     }
