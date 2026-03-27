@@ -602,7 +602,16 @@
     "create_backup": "创建备份",
     "server_info": "服务器信息",
     "player_list": "玩家列表",
-    "save_world": "保存世界"
+    "save_world": "保存世界",
+    "bot_management": "Bot 管理",
+    "bot_management_description": "重启、重新导入或重置 Bot 进程。",
+    "bot_restart": "重启 Bot",
+    "bot_reimport": "重新导入数据",
+    "bot_env_sync": "同步 .env",
+    "bot_factory_reset": "出厂重置",
+    "confirm_bot_restart": "确定要重启 Bot 吗？",
+    "confirm_bot_reimport": "这将重新下载日志并重建统计数据。继续？",
+    "confirm_factory_reset_prompt": "输入 NUKE 以确认出厂重置："
   },
   "database": {
     "browse": "浏览",

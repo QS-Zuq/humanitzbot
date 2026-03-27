@@ -1,5 +1,5 @@
 /**
- * Panel Tab: Controls — server power controls and backup management.
+ * Panel Tab: Controls — server power controls, bot management, and backup management.
  * @namespace Panel.tabs.controls
  */
 window.Panel = window.Panel || {};
@@ -18,7 +18,29 @@ Panel.tabs = Panel.tabs || {};
   function init() {
     if (_inited) return;
     _inited = true;
-    // One-time event bindings for power buttons, backup actions
+
+    // Bot management buttons
+    const btnRestart = $('#btn-bot-restart');
+    const btnReimport = $('#btn-bot-reimport');
+    const btnEnvSync = $('#btn-bot-env-sync');
+    const btnFactoryReset = $('#btn-bot-factory-reset');
+
+    if (btnRestart)
+      btnRestart.addEventListener('click', () => {
+        if (confirm(i18next.t('web:controls.confirm_bot_restart'))) doBotAction('restart');
+      });
+    if (btnReimport)
+      btnReimport.addEventListener('click', () => {
+        if (confirm(i18next.t('web:controls.confirm_bot_reimport'))) doBotAction('reimport');
+      });
+    if (btnEnvSync) btnEnvSync.addEventListener('click', () => doBotAction('env_sync'));
+    if (btnFactoryReset)
+      btnFactoryReset.addEventListener('click', () => {
+        const input = prompt(i18next.t('web:controls.confirm_factory_reset_prompt'));
+        if (input && input.toUpperCase() === 'NUKE') {
+          doBotAction('factory_reset', { confirm: 'NUKE' });
+        }
+      });
   }
 
   async function doPowerAction(action) {
@@ -34,6 +56,25 @@ Panel.tabs = Panel.tabs || {};
       const d = await r.json();
       if (d.ok) appendLog(log, '[' + time + '] \u2713 ' + d.message, 'text-calm');
       else appendLog(log, '[' + time + '] \u2715 ' + (d.error || 'Failed'), 'text-red-400');
+    } catch (e) {
+      appendLog(log, '[' + time + '] \u2715 ' + e.message, 'text-red-400');
+    }
+  }
+
+  async function doBotAction(action, body) {
+    const log = $('#controls-log');
+    const time = window.fmtTime ? window.fmtTime(new Date()) : new Date().toLocaleTimeString();
+    appendLog(log, '[' + time + '] Bot action: ' + action + '...', 'text-muted');
+    try {
+      const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await apiFetch('/api/panel/bot-actions/' + action, opts);
+      const d = await r.json();
+      if (d.ok) {
+        appendLog(log, '[' + time + '] \u2713 ' + action + ' initiated', 'text-calm');
+      } else {
+        appendLog(log, '[' + time + '] \u2715 ' + (d.error || 'Failed'), 'text-red-400');
+      }
     } catch (e) {
       appendLog(log, '[' + time + '] \u2715 ' + e.message, 'text-red-400');
     }

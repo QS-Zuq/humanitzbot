@@ -602,7 +602,16 @@
     "create_backup": "Create Backup",
     "server_info": "Server Info",
     "player_list": "Player List",
-    "save_world": "Save World"
+    "save_world": "Save World",
+    "bot_management": "Bot Management",
+    "bot_management_description": "Restart, reimport, or reset the bot process.",
+    "bot_restart": "Restart Bot",
+    "bot_reimport": "Reimport Data",
+    "bot_env_sync": "Sync .env",
+    "bot_factory_reset": "Factory Reset",
+    "confirm_bot_restart": "Are you sure you want to restart the bot?",
+    "confirm_bot_reimport": "This will re-download logs and rebuild stats. Continue?",
+    "confirm_factory_reset_prompt": "Type NUKE to confirm factory reset:"
   },
   "database": {
     "browse": "Browse",

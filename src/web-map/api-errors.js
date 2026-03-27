@@ -69,6 +69,10 @@ const API_ERRORS = {
   MISSING_CONNECTION_CONFIG: 'MISSING_CONNECTION_CONFIG',
   MAX_CONCURRENT_DISCOVERIES: 'MAX_CONCURRENT_DISCOVERIES',
   DISCOVERY_JOB_NOT_FOUND: 'DISCOVERY_JOB_NOT_FOUND',
+  INVALID_BOT_ACTION: 'INVALID_BOT_ACTION',
+  BOT_CONTROL_NOT_AVAILABLE: 'BOT_CONTROL_NOT_AVAILABLE',
+  CONFIRM_NUKE_REQUIRED: 'CONFIRM_NUKE_REQUIRED',
+  BOT_ACTION_PENDING: 'BOT_ACTION_PENDING',
 };
 
 const EN_MESSAGES = {
@@ -142,6 +146,10 @@ const EN_MESSAGES = {
   [API_ERRORS.MISSING_CONNECTION_CONFIG]: 'At least one of rcon or sftp configuration is required',
   [API_ERRORS.MAX_CONCURRENT_DISCOVERIES]: 'Too many concurrent discovery jobs (max 3)',
   [API_ERRORS.DISCOVERY_JOB_NOT_FOUND]: 'Discovery job not found or expired',
+  [API_ERRORS.INVALID_BOT_ACTION]: 'Invalid action. Must be restart, reimport, factory_reset, or env_sync',
+  [API_ERRORS.BOT_CONTROL_NOT_AVAILABLE]: 'Bot control service is not available',
+  [API_ERRORS.CONFIRM_NUKE_REQUIRED]: 'Confirmation required \u2014 send { "confirm": "NUKE" } in request body',
+  [API_ERRORS.BOT_ACTION_PENDING]: 'Another bot action is already in progress',
 };
 
 function sendError(res, code, status = 400, details) {

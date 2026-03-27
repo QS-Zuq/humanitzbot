@@ -180,6 +180,10 @@ class WebMapServer {
     this.setMultiServerManager = (msm) => {
       this._multiServerManager = msm;
     };
+    /** @param {import('../server/bot-control')} bc BotControlService instance */
+    this.setBotControl = (bc) => {
+      this._botControl = bc;
+    };
 
     // Response cache — keyed by "endpoint:serverId", entries = { data, ts }
     this._responseCache = new Map();
@@ -3999,6 +4003,51 @@ class WebMapServer {
         await this._multiServerManager.startServer(id);
         sendOk(res, { status: 'running' });
       } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    // ── Panel: Bot actions (restart, reimport, factory reset, env sync) ──
+    /** POST /api/panel/bot-actions/:action — Bot lifecycle control */
+    app.post('/api/panel/bot-actions/:action', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
+      try {
+        const { action } = req.params;
+        const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
+        if (!validActions.includes(action)) {
+          return sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
+        }
+        if (!this._botControl) {
+          return sendError(res, API_ERRORS.BOT_CONTROL_NOT_AVAILABLE, 500);
+        }
+
+        const meta = { source: 'web', user: req.session?.username || 'unknown' };
+        let result;
+
+        switch (action) {
+          case 'restart':
+            result = this._botControl.restart(meta);
+            break;
+          case 'reimport':
+            result = this._botControl.reimport(meta);
+            break;
+          case 'factory_reset': {
+            const { confirm } = req.body;
+            if (confirm !== 'NUKE') {
+              return sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
+            }
+            result = this._botControl.factoryReset(meta);
+            break;
+          }
+          case 'env_sync':
+            result = this._botControl.envSync();
+            break;
+        }
+
+        sendOk(res, result);
+      } catch (err) {
+        if (err.code === 'BOT_ACTION_PENDING') {
+          return sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
+        }
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
