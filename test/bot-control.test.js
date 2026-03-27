@@ -80,34 +80,41 @@ describe('BotControlService', () => {
     });
   });
 
-  // ── restart ────────────────────────────────────────────────
+  // ── Shared exit-action tests ────────────────────────────────
 
-  describe('restart', () => {
-    it('returns { action: "restart", scheduledAt }', () => {
-      const result = svc.restart({ source: 'test' });
-      assert.equal(result.action, 'restart');
+  /**
+   * Register shared tests for an exit action (restart/factoryReset/reimport).
+   * @param {string} methodName - Service method name
+   * @param {string} actionId - Expected action ID in result
+   */
+  function describeExitAction(methodName, actionId) {
+    it(`returns { action: "${actionId}", scheduledAt }`, () => {
+      const result = svc[methodName]({ source: 'test' });
+      assert.equal(result.action, actionId);
       assert.ok(result.scheduledAt);
-      // scheduledAt should be a valid ISO date
       assert.ok(!isNaN(Date.parse(result.scheduledAt)));
     });
 
     it('schedules exit(0) after delay', async () => {
-      svc.restart({ source: 'test' });
-      // exit not called yet (setTimeout delay)
+      svc[methodName]({ source: 'test' });
       assert.equal(exitSpy.calls.length, 0);
-      // Wait for the setTimeout to fire
       await new Promise((resolve) => setTimeout(resolve, 1600));
       assert.equal(exitSpy.calls.length, 1);
       assert.equal(exitSpy.calls[0], 0);
     });
 
     it('throws if another action is already pending', () => {
-      svc.restart({ source: 'test' });
-      assert.throws(() => svc.restart({ source: 'test' }), /already pending/);
+      svc[methodName]({ source: 'test' });
+      assert.throws(() => svc[methodName]({ source: 'test' }), /already pending/);
     });
+  }
+
+  // ── restart ────────────────────────────────────────────────
+
+  describe('restart', () => {
+    describeExitAction('restart', 'restart');
 
     it('logs source and user', () => {
-      // Just ensure no throw — console output is not tested
       svc.restart({ source: 'discord', user: 'TestUser#1234' });
       assert.equal(svc.pendingAction, 'restart');
     });
@@ -116,56 +123,22 @@ describe('BotControlService', () => {
   // ── factoryReset ───────────────────────────────────────────
 
   describe('factoryReset', () => {
-    it('returns { action: "factory_reset", scheduledAt }', () => {
-      const result = svc.factoryReset({ source: 'test' });
-      assert.equal(result.action, 'factory_reset');
-      assert.ok(result.scheduledAt);
-    });
+    describeExitAction('factoryReset', 'factory_reset');
 
     it('sets NUKE_BOT=true in process.env', () => {
       svc.factoryReset({ source: 'test' });
       assert.equal(process.env.NUKE_BOT, 'true');
-    });
-
-    it('schedules exit(0) after delay', async () => {
-      svc.factoryReset({ source: 'test' });
-      assert.equal(exitSpy.calls.length, 0);
-      await new Promise((resolve) => setTimeout(resolve, 1600));
-      assert.equal(exitSpy.calls.length, 1);
-      assert.equal(exitSpy.calls[0], 0);
-    });
-
-    it('throws if another action is already pending', () => {
-      svc.restart({ source: 'test' });
-      assert.throws(() => svc.factoryReset({ source: 'test' }), /already pending/);
     });
   });
 
   // ── reimport ───────────────────────────────────────────────
 
   describe('reimport', () => {
-    it('returns { action: "reimport", scheduledAt }', () => {
-      const result = svc.reimport({ source: 'test' });
-      assert.equal(result.action, 'reimport');
-      assert.ok(result.scheduledAt);
-    });
+    describeExitAction('reimport', 'reimport');
 
     it('sets FIRST_RUN=true in process.env', () => {
       svc.reimport({ source: 'test' });
       assert.equal(process.env.FIRST_RUN, 'true');
-    });
-
-    it('schedules exit(0) after delay', async () => {
-      svc.reimport({ source: 'test' });
-      assert.equal(exitSpy.calls.length, 0);
-      await new Promise((resolve) => setTimeout(resolve, 1600));
-      assert.equal(exitSpy.calls.length, 1);
-      assert.equal(exitSpy.calls[0], 0);
-    });
-
-    it('throws if another action is already pending', () => {
-      svc.factoryReset({ source: 'test' });
-      assert.throws(() => svc.reimport({ source: 'test' }), /already pending/);
     });
   });
 

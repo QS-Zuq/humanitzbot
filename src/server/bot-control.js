@@ -28,12 +28,7 @@ class BotControlService {
    * @returns {{ action: 'restart', scheduledAt: string }}
    */
   restart(meta = {}) {
-    this._guardPending();
-    this._pendingAction = 'restart';
-    const scheduledAt = new Date().toISOString();
-    console.log(`[BOT-CONTROL] Restart requested by ${meta.source || 'unknown'}${meta.user ? ` (${meta.user})` : ''}`);
-    setTimeout(() => this._exit(0), 1500);
-    return { action: 'restart', scheduledAt };
+    return this._doExitAction('restart', meta);
   }
 
   /**
@@ -42,15 +37,7 @@ class BotControlService {
    * @returns {{ action: 'factory_reset', scheduledAt: string }}
    */
   factoryReset(meta = {}) {
-    this._guardPending();
-    this._pendingAction = 'factory_reset';
-    const scheduledAt = new Date().toISOString();
-    console.log(
-      `[BOT-CONTROL] Factory reset requested by ${meta.source || 'unknown'}${meta.user ? ` (${meta.user})` : ''}`,
-    );
-    writeEnvValues({ NUKE_BOT: 'true' });
-    setTimeout(() => this._exit(0), 1500);
-    return { action: 'factory_reset', scheduledAt };
+    return this._doExitAction('factory_reset', meta, () => writeEnvValues({ NUKE_BOT: 'true' }));
   }
 
   /**
@@ -59,19 +46,13 @@ class BotControlService {
    * @returns {{ action: 'reimport', scheduledAt: string }}
    */
   reimport(meta = {}) {
-    this._guardPending();
-    this._pendingAction = 'reimport';
-    const scheduledAt = new Date().toISOString();
-    console.log(`[BOT-CONTROL] Reimport requested by ${meta.source || 'unknown'}${meta.user ? ` (${meta.user})` : ''}`);
-    writeEnvValues({ FIRST_RUN: 'true' });
-    setTimeout(() => this._exit(0), 1500);
-    return { action: 'reimport', scheduledAt };
+    return this._doExitAction('reimport', meta, () => writeEnvValues({ FIRST_RUN: 'true' }));
   }
 
   /**
    * Sync .env with .env.example. Does NOT restart.
-   * @returns {{ action: 'env_sync', needed: boolean, added?: number, deprecated?: number,
-   *             currentVer?: string, targetVer?: string }}
+   * Returns `{ needed: false }` when already up to date, or sync result details when changes were applied.
+   * @returns {{ action: 'env_sync', needed: false } | { action: 'env_sync', needed: true, added: number, deprecated: number, currentVer: string, targetVer: string }}
    */
   envSync() {
     // Lazy require — matches existing pattern in panel-channel.js
@@ -100,6 +81,27 @@ class BotControlService {
   }
 
   // ── Internal ───────────────────────────────────────────────
+
+  /**
+   * Shared ceremony for actions that schedule a process exit.
+   * @param {string} action - Action name (e.g. 'restart', 'reimport')
+   * @param {{ source?: string, user?: string }} meta
+   * @param {Function} [beforeExit] - Optional side-effect before scheduling exit
+   * @returns {{ action: string, scheduledAt: string }}
+   * @private
+   */
+  _doExitAction(action, meta, beforeExit) {
+    this._guardPending();
+    const scheduledAt = new Date().toISOString();
+    const label = action.replace(/_/g, ' ');
+    console.log(`[BOT-CONTROL] ${label} requested by ${meta.source || 'unknown'}${meta.user ? ` (${meta.user})` : ''}`);
+    // Run side-effect BEFORE setting _pendingAction — if writeEnvValues throws,
+    // we must not leave the service in a permanently locked state.
+    if (beforeExit) beforeExit();
+    this._pendingAction = action;
+    setTimeout(() => this._exit(0), 1500);
+    return { action, scheduledAt };
+  }
 
   /** @private */
   _guardPending() {

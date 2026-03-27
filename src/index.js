@@ -1400,8 +1400,8 @@ async function _postErrorEmbed(title, err) {
       adminAlertChannelIds: config.adminAlertChannelIds,
       fallbackChannelId: config.panelChannelId,
     });
-  } catch (_) {
-    /* best-effort */
+  } catch (embedErr) {
+    console.warn('[BOT] Failed to post error embed:', embedErr.message);
   }
 }
 

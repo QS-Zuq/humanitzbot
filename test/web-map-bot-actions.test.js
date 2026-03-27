@@ -88,13 +88,47 @@ function mockBotControl(overrides = {}) {
   };
 }
 
+// ── Shared handler (module-level for use in helpers) ────────
+const handler = getHandler('POST', '/api/panel/bot-actions/:action');
+
+/**
+ * Shared helper — register tests asserting an action captures meta and returns ok.
+ * @param {string} action - Route action name (e.g. 'restart')
+ * @param {string} method - BotControlService method name
+ * @param {object} [extraReq] - Extra mockReq overrides (e.g. body for factory_reset)
+ */
+function describeActionCapture(action, method, extraReq = {}) {
+  it(`calls botControl.${method} with web source and session username`, async () => {
+    let captured = null;
+    _server.setBotControl(
+      mockBotControl({
+        [method](meta) {
+          captured = meta;
+          return { action, scheduledAt: '2026-03-26T00:00:00.000Z' };
+        },
+      }),
+    );
+    const req = mockReq({ params: { action }, ...extraReq });
+    const res = mockRes();
+    await handler(req, res);
+    assert.deepEqual(captured, { source: 'web', user: 'TestAdmin' });
+  });
+
+  it(`returns { ok: true, action: "${action}" }`, async () => {
+    _server.setBotControl(mockBotControl());
+    const req = mockReq({ params: { action }, ...extraReq });
+    const res = mockRes();
+    await handler(req, res);
+    assert.equal(res._json.ok, true);
+    assert.equal(res._json.action, action);
+  });
+}
+
 // ══════════════════════════════════════════════════════════════
 // POST /api/panel/bot-actions/:action
 // ══════════════════════════════════════════════════════════════
 
 describe('POST /api/panel/bot-actions/:action', () => {
-  const handler = getHandler('POST', '/api/panel/bot-actions/:action');
-
   // ── Auth ────────────────────────────────────────────────────
 
   describe('auth', () => {
@@ -147,60 +181,13 @@ describe('POST /api/panel/bot-actions/:action', () => {
   // ── restart ────────────────────────────────────────────────
 
   describe('restart', () => {
-    it('calls botControl.restart with web source and session username', async () => {
-      let captured = null;
-      _server.setBotControl(
-        mockBotControl({
-          restart(meta) {
-            captured = meta;
-            return { action: 'restart', scheduledAt: '2026-03-26T00:00:00.000Z' };
-          },
-        }),
-      );
-      const req = mockReq({ params: { action: 'restart' } });
-      const res = mockRes();
-      await handler(req, res);
-      assert.deepEqual(captured, { source: 'web', user: 'TestAdmin' });
-    });
-
-    it('returns { ok: true, action: "restart", scheduledAt }', async () => {
-      _server.setBotControl(mockBotControl());
-      const req = mockReq({ params: { action: 'restart' } });
-      const res = mockRes();
-      await handler(req, res);
-      assert.equal(res._json.ok, true);
-      assert.equal(res._json.action, 'restart');
-      assert.ok(res._json.scheduledAt);
-    });
+    describeActionCapture('restart', 'restart');
   });
 
   // ── reimport ───────────────────────────────────────────────
 
   describe('reimport', () => {
-    it('calls botControl.reimport with web source', async () => {
-      let captured = null;
-      _server.setBotControl(
-        mockBotControl({
-          reimport(meta) {
-            captured = meta;
-            return { action: 'reimport', scheduledAt: '2026-03-26T00:00:00.000Z' };
-          },
-        }),
-      );
-      const req = mockReq({ params: { action: 'reimport' } });
-      const res = mockRes();
-      await handler(req, res);
-      assert.deepEqual(captured, { source: 'web', user: 'TestAdmin' });
-    });
-
-    it('returns { ok: true, action: "reimport", scheduledAt }', async () => {
-      _server.setBotControl(mockBotControl());
-      const req = mockReq({ params: { action: 'reimport' } });
-      const res = mockRes();
-      await handler(req, res);
-      assert.equal(res._json.ok, true);
-      assert.equal(res._json.action, 'reimport');
-    });
+    describeActionCapture('reimport', 'reimport');
   });
 
   // ── factory_reset ──────────────────────────────────────────
@@ -212,7 +199,7 @@ describe('POST /api/panel/bot-actions/:action', () => {
       const res = mockRes();
       await handler(req, res);
       assert.equal(res._status, 400);
-      assert.equal(res._json.code, API_ERRORS.CONFIRM_REQUIRED);
+      assert.equal(res._json.code, API_ERRORS.CONFIRM_NUKE_REQUIRED);
     });
 
     it('returns 400 when confirm is wrong value', async () => {
@@ -221,7 +208,7 @@ describe('POST /api/panel/bot-actions/:action', () => {
       const res = mockRes();
       await handler(req, res);
       assert.equal(res._status, 400);
-      assert.equal(res._json.code, API_ERRORS.CONFIRM_REQUIRED);
+      assert.equal(res._json.code, API_ERRORS.CONFIRM_NUKE_REQUIRED);
     });
 
     it('calls botControl.factoryReset when confirm === "NUKE"', async () => {
@@ -276,11 +263,26 @@ describe('POST /api/panel/bot-actions/:action', () => {
   // ── Error handling ─────────────────────────────────────────
 
   describe('error handling', () => {
-    it('returns 500 with safe error when botControl throws', async () => {
+    it('returns 409 when another action is already pending', async () => {
       _server.setBotControl(
         mockBotControl({
           restart() {
             throw new Error('Another action is already pending: factory_reset');
+          },
+        }),
+      );
+      const req = mockReq({ params: { action: 'restart' } });
+      const res = mockRes();
+      await handler(req, res);
+      assert.equal(res._status, 409);
+      assert.equal(res._json.code, API_ERRORS.BOT_ACTION_PENDING);
+    });
+
+    it('returns 500 for unexpected errors', async () => {
+      _server.setBotControl(
+        mockBotControl({
+          restart() {
+            throw new Error('Unexpected filesystem error');
           },
         }),
       );

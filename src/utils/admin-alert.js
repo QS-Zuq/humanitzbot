@@ -1,8 +1,8 @@
 /**
  * Admin alert helper — sends embeds to all configured admin alert channels.
  *
- * Follows the multi-channel pattern from chat-relay.js with a single-channel
- * fallback.  Best-effort — never throws.
+ * Iterates over alert channel IDs with a single-channel fallback.
+ * Best-effort — never throws.
  */
 
 'use strict';
@@ -28,11 +28,14 @@ async function postAdminAlert(client, embed, opts = {}) {
   for (const channelId of channelIds) {
     try {
       const ch = await client.channels.fetch(channelId);
-      if (ch) {
-        await Promise.race([ch.send({ embeds: [embed] }), new Promise((resolve) => setTimeout(resolve, 3000))]);
+      if (!ch) {
+        console.warn(`[ADMIN-ALERT] Channel ${channelId} not found or not accessible — skipping alert`);
+        continue;
       }
-    } catch (_) {
-      /* best-effort */
+      const sendPromise = ch.send({ embeds: [embed] }).catch(() => {});
+      await Promise.race([sendPromise, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    } catch (sendErr) {
+      console.warn(`[ADMIN-ALERT] Failed to send alert to channel ${channelId}:`, sendErr.message);
     }
   }
 }

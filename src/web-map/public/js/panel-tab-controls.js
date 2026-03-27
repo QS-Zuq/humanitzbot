@@ -1,5 +1,5 @@
 /**
- * Panel Tab: Controls — server power controls and backup management.
+ * Panel Tab: Controls — server power controls, bot management, and backup management.
  * @namespace Panel.tabs.controls
  */
 window.Panel = window.Panel || {};

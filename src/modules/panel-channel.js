@@ -614,26 +614,37 @@ class PanelChannel {
     return true;
   }
 
-  async _handleBotRestart(interaction) {
-    if (!(await this._requireAdmin(interaction, this._ti(interaction, 'action_restart_bot')))) return true;
+  /**
+   * Execute a bot lifecycle action via BotControlService, with fallback for
+   * when the service is unavailable. Shared by restart/factoryReset/reimport.
+   * @private
+   */
+  async _execBotAction(interaction, method, successMessage) {
+    // Send reply FIRST so the user sees confirmation before the exit timer starts.
+    // The original code deliberately placed reply before process.exit — preserve that.
+    await interaction.reply({ content: successMessage, flags: MessageFlags.Ephemeral });
 
     try {
       if (this._botControl) {
-        this._botControl.restart({ source: 'discord', user: interaction.user.tag });
+        this._botControl[method]({ source: 'discord', user: interaction.user.tag });
       } else {
+        console.warn('[PANEL] botControl not available, falling back to direct process.exit');
         setTimeout(() => process.exit(0), 1500);
       }
     } catch (err) {
-      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
-      return true;
+      console.error('[PANEL] Bot action failed:', err.message);
+      await interaction.followUp({
+        content: this._ti(interaction, 'err_action_failed') || err.message,
+        flags: MessageFlags.Ephemeral,
+      });
     }
 
-    await interaction.reply({
-      content: this._ti(interaction, 'restart_notice'),
-      flags: MessageFlags.Ephemeral,
-    });
-
     return true;
+  }
+
+  async _handleBotRestart(interaction) {
+    if (!(await this._requireAdmin(interaction, this._ti(interaction, 'action_restart_bot')))) return true;
+    return this._execBotAction(interaction, 'restart', this._ti(interaction, 'restart_notice'));
   }
 
   async _handleNukeButton(interaction) {
@@ -673,47 +684,20 @@ class PanelChannel {
       return true;
     }
 
-    // Set NUKE_BOT=true in .env and restart
-    try {
-      if (this._botControl) {
-        this._botControl.factoryReset({ source: 'discord', user: interaction.user.tag });
-      } else {
-        _writeEnvValues({ NUKE_BOT: 'true' });
-        setTimeout(() => process.exit(0), 1500);
-      }
-    } catch (err) {
-      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
-      return true;
-    }
-    await interaction.reply({
-      content: `${this._ti(interaction, 'nuke_started')}\n\n${this._ti(interaction, 'nuke_timing_notice')}`,
-      flags: MessageFlags.Ephemeral,
-    });
-
-    return true;
+    return this._execBotAction(
+      interaction,
+      'factoryReset',
+      `${this._ti(interaction, 'nuke_started')}\n\n${this._ti(interaction, 'nuke_timing_notice')}`,
+    );
   }
 
   async _handleReimportButton(interaction) {
     if (!(await this._requireAdmin(interaction, this._ti(interaction, 'action_reimport_data')))) return true;
-
-    // Set FIRST_RUN=true and restart — re-downloads logs and rebuilds stats
-    try {
-      if (this._botControl) {
-        this._botControl.reimport({ source: 'discord', user: interaction.user.tag });
-      } else {
-        _writeEnvValues({ FIRST_RUN: 'true' });
-        setTimeout(() => process.exit(0), 1500);
-      }
-    } catch (err) {
-      await interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
-      return true;
-    }
-    await interaction.reply({
-      content: `${this._ti(interaction, 'reimport_started')}\n\n${this._ti(interaction, 'reimport_preserves_messages')}`,
-      flags: MessageFlags.Ephemeral,
-    });
-
-    return true;
+    return this._execBotAction(
+      interaction,
+      'reimport',
+      `${this._ti(interaction, 'reimport_started')}\n\n${this._ti(interaction, 'reimport_preserves_messages')}`,
+    );
   }
 
   //
@@ -1091,23 +1075,9 @@ class PanelChannel {
     }
 
     try {
-      const result = this._botControl
-        ? this._botControl.envSync()
-        : (() => {
-            const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync');
-            if (!needsSync()) return { action: 'env_sync', needed: false };
-            const currentVer = getVersion();
-            const targetVer = getExampleVersion();
-            const r = syncEnv();
-            return {
-              action: 'env_sync',
-              needed: true,
-              currentVer,
-              targetVer,
-              added: r.added,
-              deprecated: r.deprecated,
-            };
-          })();
+      // botControl always available via index.js; lazy instantiation is purely defensive
+      const ctrl = this._botControl || new (require('../server/bot-control'))();
+      const result = ctrl.envSync();
 
       if (!result.needed) {
         await interaction.editReply(this._ti(interaction, 'ok_env_already_up_to_date'));

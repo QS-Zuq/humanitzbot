@@ -4033,7 +4033,7 @@ class WebMapServer {
           case 'factory_reset': {
             const { confirm } = req.body;
             if (confirm !== 'NUKE') {
-              return sendError(res, API_ERRORS.CONFIRM_REQUIRED, 400);
+              return sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
             }
             result = this._botControl.factoryReset(meta);
             break;
@@ -4045,6 +4045,9 @@ class WebMapServer {
 
         sendOk(res, result);
       } catch (err) {
+        if (err.message?.includes('already pending')) {
+          return sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
+        }
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
