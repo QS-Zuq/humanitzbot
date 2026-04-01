@@ -8,7 +8,7 @@
  *
  * Consumers:
  *   - ServerStatus (Discord embed)
- *   - PanelChannel (admin dashboard)
+ *   - Web panel (admin dashboard)
  *   - AutoMessages (RCON welcome / broadcast)
  *   - Web panel API (dashboard, status cards)
  *   - RecapService, DidYouKnow, etc.
@@ -174,7 +174,7 @@ function progressBar(ratio, width = 10, filledChar = '▓', emptyChar = '░') {
 }
 
 /**
- * Block-style progress bar (█░) used by panel-channel.
+ * Block-style progress bar (█░) used by server status displays.
  * @param {number} ratio - 0–1
  * @param {number} [width=12]
  * @returns {string}

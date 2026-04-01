@@ -53,7 +53,7 @@ const PlayerStatsChannel = require('./modules/player-stats-channel');
 const PvpScheduler = require('./modules/pvp-scheduler');
 const ServerScheduler = require('./modules/server-scheduler');
 const panelApi = require('./server/panel-api');
-const PanelChannel = require('./modules/panel-channel');
+
 const MultiServerManager = require('./server/multi-server');
 const { postAdminAlert } = require('./utils/admin-alert');
 const ActivityLog = require('./modules/activity-log');
@@ -132,21 +132,6 @@ for (const entry of fs.readdirSync(commandsPath, { withFileTypes: true })) {
 
 // ── Handle interactions ─────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
-  // ── Panel channel interactions (buttons, select menus, modals) ──
-  if (panelChannel) {
-    const isPanel = interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit();
-    if (isPanel) {
-      try {
-        const handled = await panelChannel.handleInteraction(interaction);
-        if (handled) return;
-      } catch (err) {
-        const cid = interaction.customId || interaction.commandName || 'unknown';
-        console.error(`[BOT] Panel interaction error [${cid}]:`, err.message);
-        console.error(err.stack);
-      }
-    }
-  }
-
   // ── Persistent select menu on the player-stats channel ──
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_player_select')) {
     try {
@@ -224,7 +209,7 @@ let logWatcher;
 let playerStatsChannel;
 let pvpScheduler;
 let serverScheduler;
-let panelChannel;
+
 let multiServerManager;
 let webMapServer; // Web map server instance
 let hzmodPlugin; // Howyagarn web plugin result (for cleanup)
@@ -563,7 +548,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     if (config.chatChannelId) channelsToClean.add(config.chatChannelId);
     if (config.serverStatusChannelId) channelsToClean.add(config.serverStatusChannelId);
     if (config.playerStatsChannelId) channelsToClean.add(config.playerStatsChannelId);
-    if (config.panelChannelId) channelsToClean.add(config.panelChannelId);
+
     if (config.activityLogChannelId) channelsToClean.add(config.activityLogChannelId);
     // Additional server channels (including any from removed servers still in servers.json)
     const { loadServers } = require('./server/multi-server');
@@ -1073,38 +1058,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   const BotControlService = require('./server/bot-control');
   const botControl = new BotControlService({ exit: (code) => process.exit(code) });
   if (webMapServer) webMapServer.setBotControl(botControl);
+  if (webMapServer) webMapServer.setModuleStatus(moduleStatus);
 
-  // ── Panel — admin dashboard channel ──────────────────────
-  if (config.enablePanel) {
-    if (config.panelChannelId) {
-      panelChannel = new PanelChannel(readyClient, {
-        moduleStatus,
-        startedAt,
-        multiServerManager,
-        db,
-        saveService,
-        logWatcher,
-        configRepo,
-        botControl,
-      });
-      await panelChannel.start();
-    }
-    if (config.needsSetup) {
-      setStatus('Panel', '🟡 Limited (RCON not configured — run: npm run setup)');
-    } else if (panelApi.available) {
-      const channelNote = config.panelChannelId ? 'channel + ' : '';
-      setStatus('Panel', `🟢 Active (${channelNote}/qspanel command)`);
-      console.log(`[BOT] Panel API available — ${channelNote}/qspanel command active`);
-    } else if (config.panelChannelId) {
-      setStatus('Panel', '🟢 Active (channel only)');
-      console.log('[BOT] Panel channel active (bot controls + env editor). Panel API not configured.');
-    } else {
-      setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY or PANEL_CHANNEL_ID)');
-      console.log('[BOT] Panel skipped — no API credentials or channel configured');
-    }
+  // ── Panel API status (/qspanel command) ─────────────────────
+  if (panelApi.available) {
+    setStatus('Panel', '🟢 Active (/qspanel command)');
+    console.log('[BOT] Panel API available — /qspanel command active');
   } else {
-    setStatus('Panel', '⚫ Disabled');
-    console.log('[BOT] Panel disabled via ENABLE_PANEL=false');
+    setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY)');
   }
 
   // ── Stdin console (for headless hosts like Bisect) ──────────
@@ -1115,22 +1076,24 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[BOT] Stdin console active${config.stdinConsoleWritable ? ' (writable)' : ' (read-only)'}`);
   }
 
-  // ── Post online notification to panel channel (self-cleaning) ──
+  // ── Write running flag + post online notification ──
   try {
-    // Write running flag — removed on clean shutdown (used to detect crashes)
     if (db) {
       try {
         db.setStateJSON('bot_running', { startedAt: startedAt.toISOString() });
       } catch (_) {}
     }
 
-    const panelCh = panelChannel?.channel;
-    if (panelCh) {
-      // Clean previous offline embeds — bot is back, no need to show old downtime notices
-      await _cleanOfflineEmbeds(panelCh, readyClient).catch(() => {});
-    }
+    const onlineEmbed = new EmbedBuilder()
+      .setTitle('🟢 Bot Online')
+      .setDescription(`Started at ${startedAt.toISOString()}`)
+      .setColor(0x2ecc71)
+      .setTimestamp();
+    await postAdminAlert(readyClient, onlineEmbed, {
+      adminAlertChannelIds: config.adminAlertChannelIds,
+    });
   } catch (err) {
-    console.error('[BOT] Failed to clean lifecycle embeds:', err.message);
+    console.error('[BOT] Failed to post online notification:', err.message);
   }
 
   // ── NUKE_BOT phase 2: rebuild activity threads from log history ──
@@ -1237,31 +1200,6 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 // ── Lifecycle embed cleanup ─────────────────────────────────
 
-/**
- * Delete previous "Bot Offline" embeds from the admin channel.
- * On startup the bot self-cleans old offline notices — the bot being online is the default state.
- */
-async function _cleanOfflineEmbeds(channel, botClient) {
-  try {
-    const messages = await channel.messages.fetch({ limit: 30 });
-    const botId = botClient.user?.id;
-    const toDelete = messages.filter(
-      (m) => m.author.id === botId && m.embeds.length > 0 && m.embeds.some((e) => e.title === '🔴 Bot Offline'),
-    );
-    if (toDelete.size > 0) {
-      try {
-        await channel.bulkDelete(toDelete, true);
-      } catch {
-        for (const msg of toDelete.values()) {
-          await msg.delete().catch(() => {});
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[BOT] Could not clean offline embeds:', err.message);
-  }
-}
-
 // ── Graceful shutdown ───────────────────────────────────────
 let shuttingDown = false;
 async function shutdown(reason = 'Manual shutdown') {
@@ -1277,7 +1215,6 @@ async function shutdown(reason = 'Manual shutdown') {
   if (presenceTracker) presenceTracker.stop();
   if (pvpScheduler) pvpScheduler.stop();
   if (serverScheduler) serverScheduler.stop();
-  if (panelChannel) panelChannel.stop();
   if (webMapServer) webMapServer.stop();
   if (hzmodPlugin?.ipcClient) hzmodPlugin.ipcClient.destroy();
   if (hzmodIpc) hzmodIpc.destroy();
@@ -1306,31 +1243,26 @@ async function shutdown(reason = 'Manual shutdown') {
     db.close();
   }
 
-  // Post offline notification to panel channel (best-effort; DB is already closed above)
+  // Post offline notification to admin alert channels (best-effort; DB is already closed above)
   try {
-    const panelCh = panelChannel?.channel;
-    if (panelCh) {
-      const uptime = _formatUptime(Date.now() - startedAt.getTime());
-      const activeCount = Object.values(moduleStatus).filter((s) => s.startsWith('🟢')).length;
-      const totalCount = Object.keys(moduleStatus).length;
+    const uptime = _formatUptime(Date.now() - startedAt.getTime());
+    const activeCount = Object.values(moduleStatus).filter((s) => s.startsWith('🟢')).length;
+    const totalCount = Object.keys(moduleStatus).length;
 
-      const embed = new EmbedBuilder()
-        .setTitle('🔴 Bot Offline')
-        .setDescription(reason)
-        .addFields(
-          { name: 'Uptime', value: uptime, inline: true },
-          { name: 'Modules', value: `${activeCount}/${totalCount} active`, inline: true },
-        )
-        .setColor(0xe74c3c)
-        .setTimestamp();
+    const embed = new EmbedBuilder()
+      .setTitle('🔴 Bot Offline')
+      .setDescription(reason)
+      .addFields(
+        { name: 'Uptime', value: uptime, inline: true },
+        { name: 'Modules', value: `${activeCount}/${totalCount} active`, inline: true },
+      )
+      .setColor(0xe74c3c)
+      .setTimestamp();
 
-      await Promise.race([
-        panelCh
-          .send({ embeds: [embed] })
-          .catch((e) => console.warn('[BOT] Offline notification send failed:', e.message)),
-        new Promise((resolve) => setTimeout(resolve, 5000)),
-      ]);
-    }
+    await Promise.race([
+      postAdminAlert(client, embed, { adminAlertChannelIds: config.adminAlertChannelIds }),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
   } catch (err) {
     console.error('[BOT] Failed to post offline notification:', err.message);
   }
@@ -1394,7 +1326,6 @@ async function _postErrorEmbed(title, err) {
       .setTimestamp();
     await postAdminAlert(client, embed, {
       adminAlertChannelIds: config.adminAlertChannelIds,
-      fallbackChannelId: config.panelChannelId,
     });
   } catch (embedErr) {
     console.warn('[BOT] Failed to post error embed:', embedErr.message);

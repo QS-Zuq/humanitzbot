@@ -52,19 +52,18 @@
 
 ### 🎮 Discord Integration
 
-| Feature             | Description                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Server Status**   | Live embed with player count, game day, season, server health, and system resources                    |
-| **Player Stats**    | Per-player kill stats, playtime, profession, lifetime records, and progression tracking                |
-| **Chat Relay**      | Bidirectional chat bridge between Discord and in-game with rich formatting                             |
-| **Activity Log**    | Real-time feeds for connects, deaths, builds, looting, raids, and PvP kills                            |
-| **Kill Feed**       | PvP kill attribution with damage tracking, death cause classification, and death loop detection        |
-| **Auto Messages**   | Welcome messages, Discord link broadcasts, and SFTP-hosted welcome files with leaderboard templates    |
-| **Milestones**      | Automatic announcements when players hit kill milestones                                               |
-| **Recaps**          | Periodic server summary recaps with trending stats                                                     |
-| **Daily Threads**   | Auto-created daily threads for activity and chat — keeps channels clean                                |
-| **Status Channels** | Voice channel names that display live player count, game day, and season                               |
-| **Panel Channel**   | Interactive bot control panel in Discord with buttons for settings, diagnostics, and server management |
+| Feature             | Description                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| **Server Status**   | Live embed with player count, game day, season, server health, and system resources                 |
+| **Player Stats**    | Per-player kill stats, playtime, profession, lifetime records, and progression tracking             |
+| **Chat Relay**      | Bidirectional chat bridge between Discord and in-game with rich formatting                          |
+| **Activity Log**    | Real-time feeds for connects, deaths, builds, looting, raids, and PvP kills                         |
+| **Kill Feed**       | PvP kill attribution with damage tracking, death cause classification, and death loop detection     |
+| **Auto Messages**   | Welcome messages, Discord link broadcasts, and SFTP-hosted welcome files with leaderboard templates |
+| **Milestones**      | Automatic announcements when players hit kill milestones                                            |
+| **Recaps**          | Periodic server summary recaps with trending stats                                                  |
+| **Daily Threads**   | Auto-created daily threads for activity and chat — keeps channels clean                             |
+| **Status Channels** | Voice channel names that display live player count, game day, and season                            |
 
 ### 🗺️ Web Dashboard
 
@@ -125,18 +124,17 @@ cp .env.example .env
 
 Fill in the required values:
 
-| Key                 | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `DISCORD_TOKEN`     | Your bot token                                       |
-| `DISCORD_CLIENT_ID` | Discord application ID                               |
-| `DISCORD_GUILD_ID`  | Your Discord server ID                               |
-| `PANEL_CHANNEL_ID`  | (Optional) Discord channel for the bot control panel |
+| Key                 | Description            |
+| ------------------- | ---------------------- |
+| `DISCORD_TOKEN`     | Your bot token         |
+| `DISCORD_CLIENT_ID` | Discord application ID |
+| `DISCORD_GUILD_ID`  | Your Discord server ID |
 
 All other settings (RCON, SFTP, channels, toggles, etc.) can be configured in `.env` or via the Web Dashboard. Settings are stored in the SQLite database.
 
 #### Language / Locale
 
-The bot language is configured via the Discord Panel or Web Dashboard. The web dashboard detects your browser language automatically and can also be switched manually via the language selector in the bottom-left corner.
+The bot language is configured via the Web Dashboard. The web dashboard detects your browser language automatically and can also be switched manually via the language selector in the bottom-left corner.
 
 ### First Run
 
@@ -221,7 +219,7 @@ your-domain.com {
 
 ## Multi-Server
 
-Manage additional servers from the Discord Panel or Web Dashboard. Each server's config is stored in the SQLite database. Each server is fully isolated with its own:
+Manage additional servers from the Web Dashboard. Each server's config is stored in the SQLite database. Each server is fully isolated with its own:
 
 - 📊 SQLite database
 - 🔌 RCON connection (TCP or WebSocket via Pterodactyl)
@@ -256,7 +254,6 @@ src/
 │   ├── server-status.js    # Live server status embed
 │   ├── pvp-scheduler.js    # Automated PvP time windows
 │   ├── server-scheduler.js # Restart scheduling with profiles
-│   ├── panel-channel.js    # Discord control panel with buttons
 │   ├── activity-log.js     # DB-backed activity event processing
 │   └── ...                 # 20+ module files
 ├── parsers/

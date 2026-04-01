@@ -25,7 +25,7 @@ const { setupAuth, requireTier } = require('./auth');
 const { API_ERRORS, sendError, sendOk } = require('./api-errors');
 const serverResources = require('../server/server-resources');
 const { formatBytes, formatUptime } = require('../server/server-resources');
-const { ENV_CATEGORIES, ENV_CATEGORY_GROUPS } = require('../modules/panel-constants');
+const { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } = require('../modules/panel-constants');
 const { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } = require('../db/config-migration');
 const { readPrivateKey } = require('../utils/security');
 
@@ -184,6 +184,10 @@ class WebMapServer {
     /** @param {import('../server/bot-control')} bc BotControlService instance */
     this.setBotControl = (bc) => {
       this._botControl = bc;
+    };
+    /** @param {object} status Module status map { moduleName: statusString } */
+    this.setModuleStatus = (status) => {
+      this._moduleStatus = status;
     };
 
     // Response cache — keyed by "endpoint:serverId", entries = { data, ts }
@@ -1157,6 +1161,11 @@ class WebMapServer {
     // ═══════════════════════════════════════════════════════
     // Panel API routes — server management, activity, chat, RCON console, settings
     // ═══════════════════════════════════════════════════════
+
+    // ── Status: Module status ──
+    app.get('/api/status/modules', requireTier('survivor'), (req, res) => {
+      res.json({ modules: this._moduleStatus || {} });
+    });
 
     // ── Panel: Server status (RCON info + resources) — served from background cache ──
     app.get('/api/panel/status', requireTier('survivor'), async (req, res) => {
@@ -2247,7 +2256,7 @@ class WebMapServer {
     // Supports Docker CLI (VPS), Pterodactyl API, or SSH-based controls
     app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
       const { action } = req.body;
-      const valid = ['start', 'stop', 'restart', 'backup'];
+      const valid = ['start', 'stop', 'restart', 'backup', 'kill'];
       if (!valid.includes(action)) return sendError(res, API_ERRORS.INVALID_ACTION, 400, action);
 
       // Try Pterodactyl API first (per-server or primary singleton)
@@ -2662,7 +2671,7 @@ class WebMapServer {
       SFTP_PASSWORD: { jsonPath: 'sftp.password', sensitive: true },
       SFTP_PRIVATE_KEY_PATH: { jsonPath: 'sftp.privateKeyPath', sensitive: true },
       // Channels
-      PANEL_CHANNEL_ID: { jsonPath: 'channels.panel' },
+
       SERVER_STATUS_CHANNEL_ID: { jsonPath: 'channels.serverStatus' },
       PLAYER_STATS_CHANNEL_ID: { jsonPath: 'channels.playerStats' },
       CHAT_CHANNEL_ID: { jsonPath: 'channels.chat' },
@@ -2738,7 +2747,6 @@ class WebMapServer {
         {
           label: 'Channel IDs',
           keys: [
-            'PANEL_CHANNEL_ID',
             'SERVER_STATUS_CHANNEL_ID',
             'PLAYER_STATS_CHANNEL_ID',
             'CHAT_CHANNEL_ID',
@@ -4016,6 +4024,70 @@ class WebMapServer {
         }
         await this._multiServerManager.startServer(id);
         sendOk(res, { status: 'running' });
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    // ── Panel: Settings Schema ──
+    /** GET /api/panel/settings-schema — Return game settings category definitions */
+    app.get('/api/panel/settings-schema', requireTier('survivor'), (req, res) => {
+      res.json({ categories: GAME_SETTINGS_CATEGORIES });
+    });
+
+    // ── Panel: Per-Server Auto-Messages ──
+    /** GET /api/panel/servers/:id/auto-messages — Read auto-messages config for a server */
+    app.get('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      try {
+        const { id } = req.params;
+        const defaults = {
+          enableWelcomeMsg: true,
+          enableWelcomeFile: false,
+          enableAutoMsgLink: true,
+          enableAutoMsgPromo: true,
+          linkText: '',
+          promoText: '',
+          discordLink: '',
+        };
+        const key = `server:${id}.autoMessages`;
+        const stored = configRepo ? configRepo.get(key) : null;
+        const data = Object.assign({}, defaults, stored || {});
+        sendOk(res, data);
+      } catch (err) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    /** POST /api/panel/servers/:id/auto-messages — Save auto-messages config for a server */
+    app.post('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+      try {
+        const { id } = req.params;
+        const {
+          enableWelcomeMsg,
+          enableWelcomeFile,
+          enableAutoMsgLink,
+          enableAutoMsgPromo,
+          linkText,
+          promoText,
+          discordLink,
+        } = req.body || {};
+
+        const data = {
+          enableWelcomeMsg: !!enableWelcomeMsg,
+          enableWelcomeFile: !!enableWelcomeFile,
+          enableAutoMsgLink: !!enableAutoMsgLink,
+          enableAutoMsgPromo: !!enableAutoMsgPromo,
+          linkText: typeof linkText === 'string' ? linkText.trim() : '',
+          promoText: typeof promoText === 'string' ? promoText.trim() : '',
+          discordLink: typeof discordLink === 'string' ? discordLink.trim() : '',
+        };
+
+        if (!configRepo) {
+          return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+        }
+        const key = `server:${id}.autoMessages`;
+        configRepo.set(key, data);
+        sendOk(res, { saved: true, requiresRestart: true });
       } catch (err) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }

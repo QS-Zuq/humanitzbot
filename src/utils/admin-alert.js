@@ -25,6 +25,11 @@ async function postAdminAlert(client, embed, opts = {}) {
         ? [opts.fallbackChannelId]
         : [];
 
+  if (channelIds.length === 0) {
+    console.warn('[ADMIN-ALERT] No alert channels configured — embed discarded. Set ADMIN_ALERT_CHANNEL_IDS in .env');
+    return;
+  }
+
   for (const channelId of channelIds) {
     try {
       const ch = await client.channels.fetch(channelId);

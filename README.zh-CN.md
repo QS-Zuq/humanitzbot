@@ -64,7 +64,6 @@
 | **数据汇总**   | 定期发布服务器数据汇总报告及统计趋势                                   |
 | **每日讨论串** | 自动创建用于活动播报和聊天的每日讨论串 — 保持频道整洁                  |
 | **状态频道**   | 显示实时玩家数量、游戏天数和季节的语音频道名称                         |
-| **控制台频道** | Discord 中的交互式机器人控制面板，提供设置、诊断和服务器管理的快捷按钮 |
 
 ### 🗺️ Web 仪表盘
 
@@ -125,18 +124,17 @@ cp .env.example .env
 
 填写必需的值：
 
-| 键                  | 描述                                          |
-| ------------------- | --------------------------------------------- |
-| `DISCORD_TOKEN`     | 你的 Discord Bot Token                        |
-| `DISCORD_CLIENT_ID` | Discord 应用程序 ID                           |
-| `DISCORD_GUILD_ID`  | 你的 Discord 服务器 ID                        |
-| `PANEL_CHANNEL_ID`  | （可选）用于放置机器人控制面板的 Discord 频道 |
+| 键                  | 描述                   |
+| ------------------- | ---------------------- |
+| `DISCORD_TOKEN`     | 你的 Discord Bot Token |
+| `DISCORD_CLIENT_ID` | Discord 应用程序 ID    |
+| `DISCORD_GUILD_ID`  | 你的 Discord 服务器 ID |
 
 其余所有设置（RCON、SFTP、频道、开关等）均可在 `.env` 中配置，或通过 Web 仪表盘进行配置。设置存储在 SQLite 数据库中。
 
 #### 语言 / 区域设置
 
-机器人语言可通过 Discord Panel 或 Web 仪表盘进行配置。Web 仪表盘会自动检测你的浏览器语言，也可通过左下角的语言选择器手动切换。
+机器人语言可通过 Web 仪表盘进行配置。Web 仪表盘会自动检测你的浏览器语言，也可通过左下角的语言选择器手动切换。
 
 ### 首次运行
 
@@ -221,7 +219,7 @@ your-domain.com {
 
 ## 多服务器支持
 
-通过 Discord Panel 或 Web 仪表盘管理额外的服务器。每个服务器的配置存储在 SQLite 数据库中。每个服务器都是完全隔离的，拥有独立的：
+通过 Web 仪表盘管理额外的服务器。每个服务器的配置存储在 SQLite 数据库中。每个服务器都是完全隔离的，拥有独立的：
 
 - 📊 SQLite 数据库
 - 🔌 RCON 连接（TCP 协议，或通过 Pterodactyl 的 WebSocket）
@@ -256,7 +254,6 @@ src/
 │   ├── server-status.js    # 实时服务器状态嵌入消息
 │   ├── pvp-scheduler.js    # 自动化的 PvP 时间窗口
 │   ├── server-scheduler.js # 带配置轮换的重启调度
-│   ├── panel-channel.js    # 带有按钮的 Discord 控制面板
 │   ├── activity-log.js     # 由数据库支持的活动事件处理
 │   └── ...                 # 20+ 个模块文件
 ├── parsers/

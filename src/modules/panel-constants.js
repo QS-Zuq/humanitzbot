@@ -1,58 +1,11 @@
 /**
- * Panel channel constants — custom IDs, env categories, and game settings.
+ * Config constants — env categories and game settings definitions.
  *
- * Extracted from panel-channel.js to keep the main class focused on logic.
+ * Used by config-migration, web-map/server, and settings UI.
  * Pure data definitions, zero runtime dependencies.
  */
 
 'use strict';
-
-// ── Custom IDs ──────────────────────────────────────────────
-const BTN = {
-  START: 'panel_start',
-  STOP: 'panel_stop',
-  RESTART: 'panel_restart',
-  BACKUP: 'panel_backup',
-  KILL: 'panel_kill',
-  BOT_RESTART: 'panel_bot_restart',
-  NUKE: 'panel_nuke',
-  REIMPORT: 'panel_reimport',
-  ADD_SERVER: 'panel_add_server',
-  WELCOME_EDIT: 'panel_welcome_edit',
-  BROADCASTS: 'panel_broadcasts',
-  DIAGNOSTICS: 'panel_diagnostics',
-  ENV_SYNC: 'panel_env_sync',
-};
-
-const SELECT = {
-  ENV: 'panel_env_select',
-  ENV2: 'panel_env_select2',
-  SETTINGS: 'panel_settings_select',
-  SERVER: 'panel_server_select',
-  VIEW: 'panel_view_select',
-  ACTIONS_BOT: 'panel_actions_bot',
-  ACTIONS_SERVER: 'panel_actions_server',
-  ACTIONS_MANAGED: 'panel_actions_managed',
-};
-
-// ── Setup wizard custom IDs ─────────────────────────────────
-const SETUP = {
-  PROFILE_VPS: 'setup_profile_vps',
-  PROFILE_BISECT: 'setup_profile_bisect',
-  PROFILE_RCON: 'setup_profile_rcon',
-  RCON_BTN: 'setup_rcon_btn',
-  SFTP_BTN: 'setup_sftp_btn',
-  CHANNELS_BTN: 'setup_channels_btn',
-  APPLY_BTN: 'setup_apply',
-  SKIP_SFTP_BTN: 'setup_skip_sftp',
-  RCON_MODAL: 'setup_rcon_modal',
-  SFTP_MODAL: 'setup_sftp_modal',
-  CHANNELS_MODAL: 'setup_channels_modal',
-  // Bisect auto-detection flow
-  PANEL_BTN: 'setup_panel_btn',
-  PANEL_MODAL: 'setup_panel_modal',
-  PANEL_MANUAL_BTN: 'setup_panel_manual',
-};
 
 // ── Env categories ──────────────────────────────────────────
 // Max 5 fields per category (Discord modal limit).
@@ -88,7 +41,7 @@ const ENV_CATEGORIES = [
     restart: true,
     fields: [
       { env: 'SERVER_NAME', label: 'Server Display Name', cfg: 'serverName' },
-      { env: 'PANEL_CHANNEL_ID', label: 'Panel Channel', cfg: 'panelChannelId' },
+
       { env: 'GAME_PORT', label: 'Game Port (direct connect)', cfg: 'gamePort' },
       {
         env: 'ENABLE_GAME_SETTINGS_EDITOR',
@@ -194,7 +147,7 @@ const ENV_CATEGORIES = [
       { env: 'ENABLE_PLAYER_STATS', label: 'Player Stats (true/false)', cfg: 'enablePlayerStats', type: 'bool' },
       { env: 'ENABLE_PLAYTIME', label: 'Playtime (true/false)', cfg: 'enablePlaytime', type: 'bool' },
       { env: 'ENABLE_PVP_SCHEDULER', label: 'PvP Scheduler (true/false)', cfg: 'enablePvpScheduler', type: 'bool' },
-      { env: 'ENABLE_PANEL', label: 'Panel (true/false)', cfg: 'enablePanel', type: 'bool' },
+
       { env: 'ENABLE_KILL_FEED', label: 'Kill Feed (true/false)', cfg: 'enableKillFeed', type: 'bool' },
       { env: 'ENABLE_MILESTONES', label: 'Milestones (true/false)', cfg: 'enableMilestones', type: 'bool' },
       { env: 'ENABLE_RECAPS', label: 'Recaps (true/false)', cfg: 'enableRecaps', type: 'bool' },
@@ -1017,4 +970,4 @@ const ENV_CATEGORY_GROUPS = [
   },
 ];
 
-module.exports = { ENV_CATEGORY_GROUPS, BTN, SELECT, SETUP, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };
+module.exports = { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };

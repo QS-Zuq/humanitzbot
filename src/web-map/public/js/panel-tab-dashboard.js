@@ -276,6 +276,31 @@ Panel.tabs = Panel.tabs || {};
       } else if (rc) {
         rc.classList.add('hidden');
       }
+
+      // Module status card — admin only
+      const mc = $('#modules-card');
+      if (S.tier >= 3 && S.viewMode === 'admin') {
+        try {
+          const modRes = await apiFetch('/api/status/modules');
+          if (modRes.ok) {
+            const modData = await modRes.json();
+            const modules = modData.modules || {};
+            const keys = Object.keys(modules);
+            if (keys.length && mc) {
+              mc.classList.remove('hidden');
+              renderModuleStatus($('#modules-info'), modules);
+            } else if (mc) {
+              mc.classList.add('hidden');
+            }
+          } else if (mc) {
+            mc.classList.add('hidden');
+          }
+        } catch (_e) {
+          if (mc) mc.classList.add('hidden');
+        }
+      } else if (mc) {
+        mc.classList.add('hidden');
+      }
     } catch (e) {
       console.error('Dashboard error:', e);
     }
@@ -617,6 +642,94 @@ Panel.tabs = Panel.tabs || {};
         esc(uptime) +
         '</span>';
       container.appendChild(up);
+    }
+  }
+
+  // ── Module Status ─────────────────────────────────
+
+  // Module name → i18n key mapping
+  var _modKeys = {
+    WebMap: 'mod_webmap',
+    'Status Channels': 'mod_status_channels',
+    'Server Status': 'mod_server_status',
+    'Log Watcher': 'mod_log_watcher',
+    'Chat Relay': 'mod_chat_relay',
+    'Auto-Messages': 'mod_auto_messages',
+    'Kill Feed': 'mod_kill_feed',
+    'PvP Kill Feed': 'mod_pvp_kill_feed',
+    'Save Service': 'mod_save_service',
+    Timeline: 'mod_timeline',
+    'Activity Log': 'mod_activity_log',
+    Milestones: 'mod_milestones',
+    Recaps: 'mod_recaps',
+    Anticheat: 'mod_anticheat',
+    HOWYAGARN: 'mod_howyagarn',
+    'Player Stats': 'mod_player_stats',
+    'PvP Scheduler': 'mod_pvp_scheduler',
+    'Server Scheduler': 'mod_server_scheduler',
+    Panel: 'mod_panel',
+    Console: 'mod_console',
+  };
+
+  // Translate status keywords in description string
+  function _translateStatus(desc) {
+    var t = typeof i18next !== 'undefined' ? i18next.t.bind(i18next) : null;
+    if (!t) return desc;
+    var map = {
+      Active: t('web:dashboard.status_active'),
+      Disabled: t('web:dashboard.status_disabled'),
+      Skipped: t('web:dashboard.status_skipped'),
+      'Running on': t('web:dashboard.status_running'),
+      Limited: t('web:dashboard.status_limited'),
+      Failed: t('web:dashboard.status_failed'),
+      Requires: t('web:dashboard.status_requires'),
+    };
+    var result = desc;
+    for (var en in map) {
+      if (map[en] && !map[en].startsWith('web:dashboard.')) {
+        result = result.replace(en, map[en]);
+      }
+    }
+    return result;
+  }
+
+  function renderModuleStatus(container, modules) {
+    if (!container) return;
+    container.innerHTML = '';
+    var t = typeof i18next !== 'undefined' ? i18next.t.bind(i18next) : null;
+    var keys = Object.keys(modules);
+    for (var i = 0; i < keys.length; i++) {
+      var name = keys[i];
+      var statusStr = modules[name] || '';
+      var dot, dotCls;
+      if (statusStr.indexOf('🟢') !== -1) {
+        dot = '🟢';
+        dotCls = 'text-green-400';
+      } else if (statusStr.indexOf('🟡') !== -1 || statusStr.indexOf('⚠') !== -1) {
+        dot = '🟡';
+        dotCls = 'text-yellow-400';
+      } else {
+        dot = '⚫';
+        dotCls = 'text-gray-500';
+      }
+      var desc = statusStr.replace(/^[\S]+\s+/, '');
+      var translatedName = t && _modKeys[name] ? t('web:dashboard.' + _modKeys[name]) : name;
+      var translatedDesc = _translateStatus(desc);
+      var row = el('div', 'flex items-center gap-2 text-xs py-0.5');
+
+      var dotSpan = el('span', 'text-base leading-none ' + dotCls);
+      dotSpan.textContent = dot;
+
+      var nameSpan = el('span', 'text-text font-medium w-28 shrink-0');
+      nameSpan.textContent = translatedName;
+
+      var descSpan = el('span', 'text-muted truncate');
+      descSpan.textContent = translatedDesc;
+
+      row.appendChild(dotSpan);
+      row.appendChild(nameSpan);
+      row.appendChild(descSpan);
+      container.appendChild(row);
     }
   }
 

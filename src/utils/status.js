@@ -2,6 +2,7 @@
 
 const { ActivityType } = require('discord.js');
 const config = require('../config');
+const panelApi = require('../server/panel-api');
 const { getServerInfo } = require('../rcon/server-info');
 
 function _toInt(value) {
@@ -266,7 +267,7 @@ function createBotStatusManager(client, opts = {}) {
     if (_isModuleActive(moduleStatus, 'WebMap') || getWebMapEnabled()) {
       features.push({ type: ActivityType.Watching, name: 'Live Map & Timeline' });
     }
-    if (isOn('Panel', config.enablePanel)) {
+    if (isOn('Panel', panelApi.available)) {
       features.push({ type: ActivityType.Playing, name: '/qspanel Controls' });
     }
     if (isOn('Status Channels', config.enableStatusChannels)) {

@@ -204,7 +204,7 @@ const ENV_KEY_VALIDATORS = {
   LOG_CHANNEL_ID: { type: 'snowflake' },
   SERVER_STATUS_CHANNEL_ID: { type: 'snowflake' },
   PLAYER_STATS_CHANNEL_ID: { type: 'snowflake' },
-  PANEL_CHANNEL_ID: { type: 'snowflake' },
+
   ACTIVITY_LOG_CHANNEL_ID: { type: 'snowflake' },
   GITHUB_CHANNEL_ID: { type: 'snowflake' },
   HOWYAGARN_CHANNEL_ID: { type: 'snowflake' },

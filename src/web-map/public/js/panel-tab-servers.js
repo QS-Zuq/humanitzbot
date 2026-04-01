@@ -209,6 +209,15 @@ Panel.tabs = Panel.tabs || {};
       esc(t('action_restart')) +
       '</button>' +
       '<div class="ml-auto flex items-center gap-1">' +
+      '<button data-srv-action="game-settings" data-srv-id="' +
+      esc(srv.id) +
+      '" class="srv-action-btn text-muted hover:text-text" title="Game Settings"><i data-lucide="sliders" class="w-3 h-3"></i></button>' +
+      '<button data-srv-action="welcome" data-srv-id="' +
+      esc(srv.id) +
+      '" class="srv-action-btn text-muted hover:text-text" title="Welcome Message"><i data-lucide="message-square" class="w-3 h-3"></i></button>' +
+      '<button data-srv-action="auto-messages" data-srv-id="' +
+      esc(srv.id) +
+      '" class="srv-action-btn text-muted hover:text-text" title="Auto-Messages"><i data-lucide="megaphone" class="w-3 h-3"></i></button>' +
       '<button data-srv-action="edit" data-srv-id="' +
       esc(srv.id) +
       '" class="srv-action-btn text-muted hover:text-text"><i data-lucide="pencil" class="w-3 h-3"></i></button>' +
@@ -252,6 +261,15 @@ Panel.tabs = Panel.tabs || {};
         break;
       case 'edit':
         editServer(serverId);
+        break;
+      case 'game-settings':
+        openGameSettings(serverId);
+        break;
+      case 'welcome':
+        openWelcome(serverId);
+        break;
+      case 'auto-messages':
+        openAutoMessages(serverId);
         break;
     }
   }
@@ -1015,6 +1033,340 @@ Panel.tabs = Panel.tabs || {};
     } catch (err) {
       showToast(t('toast_create_fail', { error: err.message }));
     }
+  }
+
+  // ── Game Settings Modal ────────────────────────
+
+  async function openGameSettings(serverId) {
+    removeModal();
+    var overlay = el('div', 'srv-modal-overlay');
+    var modal = el('div', 'srv-modal');
+    var titleHtml =
+      '<div class="flex items-center justify-between mb-4">' +
+      '<h3 class="text-base font-semibold text-text-bright flex items-center gap-2">' +
+      '<i data-lucide="sliders" class="w-4 h-4"></i> Game Settings' +
+      '</h3>' +
+      '<button class="srv-modal-close modal-close" style="position:static"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+      '</div>' +
+      '<div id="srv-gs-body" class="text-sm text-muted">Loading\u2026</div>' +
+      '<div class="flex justify-end gap-2 mt-4">' +
+      '<button class="srv-gs-cancel btn-secondary text-xs px-4 py-2">Cancel</button>' +
+      '<button class="srv-gs-save btn-primary text-xs px-4 py-2">Save</button>' +
+      '</div>';
+    modal.innerHTML = titleHtml;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    if (window.lucide) lucide.createIcons({ nodes: [modal] });
+
+    overlay.querySelector('.srv-modal-close').addEventListener('click', removeModal);
+    overlay.querySelector('.srv-gs-cancel').addEventListener('click', removeModal);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) removeModal();
+    });
+
+    var body = modal.querySelector('#srv-gs-body');
+
+    try {
+      var schemaResp = await apiFetch('/api/panel/settings-schema');
+      var schemaData = await schemaResp.json();
+      var settingsResp = await apiFetch('/api/panel/settings?server=' + encodeURIComponent(serverId));
+      var settingsData = await settingsResp.json();
+
+      var categories = (schemaData && schemaData.categories) || [];
+      var current = (settingsData && settingsData.settings) || {};
+
+      if (!categories.length) {
+        body.textContent = 'No settings categories available.';
+        return;
+      }
+
+      var html = '<div class="space-y-4 max-h-96 overflow-y-auto pr-1">';
+      for (var ci = 0; ci < categories.length; ci++) {
+        var cat = categories[ci];
+        html +=
+          '<div><div class="text-xs font-semibold text-accent mb-2">' +
+          esc(cat.label || cat.id) +
+          '</div><div class="space-y-2">';
+        var fields = cat.fields || [];
+        for (var fi = 0; fi < fields.length; fi++) {
+          var f = fields[fi];
+          var val = current[f.key] !== undefined ? current[f.key] : f.default !== undefined ? f.default : '';
+          html +=
+            '<div class="flex items-center gap-3">' +
+            '<label class="text-xs text-muted w-40 shrink-0">' +
+            esc(f.label || f.key) +
+            '</label>';
+          if (f.type === 'boolean') {
+            html +=
+              '<input type="checkbox" class="gs-field accent-accent w-4 h-4" data-key="' +
+              esc(f.key) +
+              '"' +
+              (val === 'true' || val === true ? ' checked' : '') +
+              '>';
+          } else {
+            html +=
+              '<input type="text" class="gs-field input-field flex-1 text-xs py-1" data-key="' +
+              esc(f.key) +
+              '" value="' +
+              esc(String(val)) +
+              '">';
+          }
+          html += '</div>';
+        }
+        html += '</div></div>';
+      }
+      html += '</div>';
+      body.innerHTML = html;
+    } catch (err) {
+      body.textContent = 'Failed to load settings: ' + err.message;
+      return;
+    }
+
+    overlay.querySelector('.srv-gs-save').addEventListener('click', async function () {
+      var inputs = modal.querySelectorAll('.gs-field');
+      var payload = {};
+      for (var i = 0; i < inputs.length; i++) {
+        var inp = inputs[i];
+        var key = inp.dataset.key;
+        payload[key] = inp.type === 'checkbox' ? String(inp.checked) : inp.value;
+      }
+      try {
+        var r = await apiFetch('/api/panel/settings?server=' + encodeURIComponent(serverId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ settings: payload }),
+        });
+        var d = await r.json();
+        if (d.ok) {
+          removeModal();
+          showToast('Game settings saved.');
+        } else {
+          showToast('Save failed: ' + (d.error || 'Unknown error'));
+        }
+      } catch (saveErr) {
+        showToast('Save failed: ' + saveErr.message);
+      }
+    });
+  }
+
+  // ── Welcome Message Modal ──────────────────────
+
+  async function openWelcome(serverId) {
+    removeModal();
+    var overlay = el('div', 'srv-modal-overlay');
+    var modal = el('div', 'srv-modal');
+    var titleHtml =
+      '<div class="flex items-center justify-between mb-4">' +
+      '<h3 class="text-base font-semibold text-text-bright flex items-center gap-2">' +
+      '<i data-lucide="message-square" class="w-4 h-4"></i> Welcome Message' +
+      '</h3>' +
+      '<button class="srv-modal-close modal-close" style="position:static"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+      '</div>' +
+      '<div id="srv-wm-body" class="text-sm text-muted">Loading\u2026</div>' +
+      '<div class="flex justify-end gap-2 mt-4">' +
+      '<button class="srv-wm-cancel btn-secondary text-xs px-4 py-2">Cancel</button>' +
+      '<button class="srv-wm-save btn-primary text-xs px-4 py-2">Save</button>' +
+      '</div>';
+    modal.innerHTML = titleHtml;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    if (window.lucide) lucide.createIcons({ nodes: [modal] });
+
+    overlay.querySelector('.srv-modal-close').addEventListener('click', removeModal);
+    overlay.querySelector('.srv-wm-cancel').addEventListener('click', removeModal);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) removeModal();
+    });
+
+    var body = modal.querySelector('#srv-wm-body');
+
+    try {
+      var r = await apiFetch('/api/panel/welcome-file?server=' + encodeURIComponent(serverId));
+      var d = await r.json();
+      var content = (d && d.content) || '';
+      var placeholders = (d && d.placeholders) || [];
+
+      var phText = placeholders.length ? 'Placeholders: ' + placeholders.join(' ') : '';
+
+      var wrapper = document.createElement('div');
+      if (phText) {
+        var phP = document.createElement('p');
+        phP.className = 'text-[10px] text-muted/70 mb-2 font-mono';
+        phP.textContent = phText;
+        wrapper.appendChild(phP);
+      }
+      var textarea = document.createElement('textarea');
+      textarea.id = 'srv-wm-textarea';
+      textarea.className = 'input-field w-full text-xs font-mono';
+      textarea.rows = 10;
+      textarea.maxLength = 4000;
+      textarea.style.resize = 'vertical';
+      textarea.value = content;
+      wrapper.appendChild(textarea);
+      var hint = document.createElement('p');
+      hint.className = 'text-[10px] text-muted/50 mt-1';
+      hint.textContent = 'Max 4000 characters';
+      wrapper.appendChild(hint);
+      body.textContent = '';
+      body.appendChild(wrapper);
+    } catch (err) {
+      body.textContent = 'Failed to load: ' + err.message;
+      return;
+    }
+
+    overlay.querySelector('.srv-wm-save').addEventListener('click', async function () {
+      var textarea = modal.querySelector('#srv-wm-textarea');
+      var content = textarea ? textarea.value : '';
+      if (content.length > 4000) {
+        showToast('Content too long (max 4000 characters).');
+        return;
+      }
+      try {
+        var r = await apiFetch('/api/panel/welcome-file?server=' + encodeURIComponent(serverId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: content }),
+        });
+        var d = await r.json();
+        if (d.ok) {
+          removeModal();
+          showToast('Welcome message saved.');
+        } else {
+          showToast('Save failed: ' + (d.error || 'Unknown error'));
+        }
+      } catch (saveErr) {
+        showToast('Save failed: ' + saveErr.message);
+      }
+    });
+  }
+
+  // ── Auto-Messages Modal ────────────────────────
+
+  async function openAutoMessages(serverId) {
+    removeModal();
+    var overlay = el('div', 'srv-modal-overlay');
+    var modal = el('div', 'srv-modal');
+    var titleHtml =
+      '<div class="flex items-center justify-between mb-4">' +
+      '<h3 class="text-base font-semibold text-text-bright flex items-center gap-2">' +
+      '<i data-lucide="megaphone" class="w-4 h-4"></i> Auto-Messages' +
+      '</h3>' +
+      '<button class="srv-modal-close modal-close" style="position:static"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+      '</div>' +
+      '<div id="srv-am-body" class="text-sm text-muted">Loading\u2026</div>' +
+      '<div class="flex items-center justify-between mt-4">' +
+      '<p class="text-[10px] text-amber-400 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Changes apply after restart</p>' +
+      '<div class="flex gap-2">' +
+      '<button class="srv-am-cancel btn-secondary text-xs px-4 py-2">Cancel</button>' +
+      '<button class="srv-am-save btn-primary text-xs px-4 py-2">Save</button>' +
+      '</div>' +
+      '</div>';
+    modal.innerHTML = titleHtml;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    if (window.lucide) lucide.createIcons({ nodes: [modal] });
+
+    overlay.querySelector('.srv-modal-close').addEventListener('click', removeModal);
+    overlay.querySelector('.srv-am-cancel').addEventListener('click', removeModal);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) removeModal();
+    });
+
+    var body = modal.querySelector('#srv-am-body');
+
+    function makeToggleRow(inputId, labelText, checked) {
+      var row = document.createElement('div');
+      row.className = 'flex items-center justify-between py-2 border-b border-border/30';
+      var span = document.createElement('span');
+      span.className = 'text-sm';
+      span.textContent = labelText;
+      var lbl = document.createElement('label');
+      lbl.className = 'relative inline-flex items-center cursor-pointer';
+      var inp = document.createElement('input');
+      inp.type = 'checkbox';
+      inp.id = inputId;
+      inp.className = 'sr-only peer';
+      if (checked) inp.checked = true;
+      var div = document.createElement('div');
+      div.className = 'w-9 h-5 bg-border rounded-full peer peer-checked:bg-accent relative';
+      div.style.cssText = 'transition:background 0.2s';
+      // simple pill visual — no pseudo-elements in JS; use accent color when checked via class toggling
+      inp.addEventListener('change', function () {
+        div.style.background = inp.checked ? 'var(--color-accent, #7c6af7)' : '';
+      });
+      if (checked) div.style.background = 'var(--color-accent, #7c6af7)';
+      lbl.appendChild(inp);
+      lbl.appendChild(div);
+      row.appendChild(span);
+      row.appendChild(lbl);
+      return row;
+    }
+
+    function makeTextRow(inputId, labelText, value) {
+      var row = document.createElement('div');
+      row.className = 'py-2 border-b border-border/30';
+      var lbl = document.createElement('label');
+      lbl.className = 'block text-xs text-muted mb-1';
+      lbl.textContent = labelText;
+      lbl.htmlFor = inputId;
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.id = inputId;
+      inp.className = 'input-field w-full text-xs';
+      inp.value = value || '';
+      row.appendChild(lbl);
+      row.appendChild(inp);
+      return row;
+    }
+
+    try {
+      var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/auto-messages');
+      var d = await r.json();
+      var cfg = (d && d.data) || d || {};
+
+      var container = document.createElement('div');
+      container.className = 'space-y-0';
+      container.appendChild(makeToggleRow('am-welcome-msg', 'Enable Welcome Message', !!cfg.enableWelcomeMsg));
+      container.appendChild(makeToggleRow('am-welcome-file', 'Enable Welcome File', !!cfg.enableWelcomeFile));
+      container.appendChild(makeToggleRow('am-link', 'Enable Auto-Message: Link', !!cfg.enableAutoMsgLink));
+      container.appendChild(makeToggleRow('am-promo', 'Enable Auto-Message: Promo', !!cfg.enableAutoMsgPromo));
+      container.appendChild(makeTextRow('am-link-text', 'Link Text', cfg.linkText));
+      container.appendChild(makeTextRow('am-promo-text', 'Promo Text', cfg.promoText));
+      container.appendChild(makeTextRow('am-discord-link', 'Discord Link', cfg.discordLink));
+      body.textContent = '';
+      body.appendChild(container);
+    } catch (err) {
+      body.textContent = 'Failed to load: ' + err.message;
+      return;
+    }
+
+    overlay.querySelector('.srv-am-save').addEventListener('click', async function () {
+      var payload = {
+        enableWelcomeMsg: !!modal.querySelector('#am-welcome-msg').checked,
+        enableWelcomeFile: !!modal.querySelector('#am-welcome-file').checked,
+        enableAutoMsgLink: !!modal.querySelector('#am-link').checked,
+        enableAutoMsgPromo: !!modal.querySelector('#am-promo').checked,
+        linkText: modal.querySelector('#am-link-text').value,
+        promoText: modal.querySelector('#am-promo-text').value,
+        discordLink: modal.querySelector('#am-discord-link').value,
+      };
+      try {
+        var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/auto-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var d = await r.json();
+        if (d.ok) {
+          removeModal();
+          showToast('Auto-messages saved. Restart required to apply changes.');
+        } else {
+          showToast('Save failed: ' + (d.error || 'Unknown error'));
+        }
+      } catch (saveErr) {
+        showToast('Save failed: ' + saveErr.message);
+      }
+    });
   }
 
   // ── Reset ──────────────────────────────────────

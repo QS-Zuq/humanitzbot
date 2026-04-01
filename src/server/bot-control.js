@@ -8,7 +8,7 @@
 
 'use strict';
 
-const { writeEnvValues } = require('../modules/panel-env');
+const { writeEnvValues } = require('../utils/env-writer');
 
 class BotControlService {
   /**
@@ -55,7 +55,7 @@ class BotControlService {
    * @returns {{ action: 'env_sync', needed: false } | { action: 'env_sync', needed: true, added: number, deprecated: number, currentVer: string, targetVer: string }}
    */
   envSync() {
-    // Lazy require — matches existing pattern in panel-channel.js
+    // Lazy require — avoids circular dependency at startup
     const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync');
     if (!needsSync()) {
       return { action: 'env_sync', needed: false };

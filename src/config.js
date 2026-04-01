@@ -125,7 +125,7 @@ const config = {
   adminChannelId: process.env.ADMIN_CHANNEL_ID,
   chatChannelId: process.env.CHAT_CHANNEL_ID || '', // defaults to adminChannelId if empty
   serverStatusChannelId: process.env.SERVER_STATUS_CHANNEL_ID,
-  panelChannelId: process.env.PANEL_CHANNEL_ID || '',
+
   adminUserIds: (process.env.ADMIN_USER_IDS || '')
     .split(',')
     .map((s) => s.trim())
@@ -216,7 +216,6 @@ const config = {
 
   // Enable the /panel slash command (power, console, backups, status)
   // Requires PANEL_SERVER_URL + PANEL_API_KEY to be set.
-  enablePanel: envBool('ENABLE_PANEL', true),
 
   // Game settings editor in panel channel (requires SFTP credentials)
   enableGameSettingsEditor: envBool('ENABLE_GAME_SETTINGS_EDITOR', true),
@@ -586,12 +585,6 @@ Object.defineProperty(config, 'needsSetup', {
   configurable: true,
   enumerable: true,
 });
-
-if (!config.panelChannelId) {
-  console.warn('[CONFIG] PANEL_CHANNEL_ID not set — panel channel will be disabled.');
-  console.warn("         The panel channel is the bot's admin dashboard. Set a channel ID in .env");
-  console.warn('         to enable the panel channel, server controls, and settings editor.');
-}
 
 // ── Timezone-aware date helpers ─────────────────────────────
 // All daily thread boundaries, summaries, and displayed times use BOT_TIMEZONE.
