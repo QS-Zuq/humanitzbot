@@ -33,27 +33,43 @@ describe('BotControlService', () => {
   let exitSpy;
   let svc;
 
-  // Save/restore env vars that writeEnvValues touches
+  // Save/restore env vars AND .env file that writeEnvValues touches
   const savedEnv = {};
+  const fs = require('fs');
+  const path = require('path');
+  const envPath = path.join(__dirname, '..', '.env');
+  let savedEnvFile;
 
   beforeEach(() => {
     savedEnv.NUKE_BOT = process.env.NUKE_BOT;
     savedEnv.FIRST_RUN = process.env.FIRST_RUN;
     delete process.env.NUKE_BOT;
     delete process.env.FIRST_RUN;
+    // Backup .env file — tests call writeEnvValues which modifies the real file
+    try {
+      savedEnvFile = fs.readFileSync(envPath, 'utf8');
+    } catch (_) {
+      savedEnvFile = null;
+    }
 
     exitSpy = spyExit();
     svc = new BotControlService({ exit: exitSpy });
   });
 
   afterEach(() => {
-    // Restore env
+    // Restore env vars
     for (const [k, v] of Object.entries(savedEnv)) {
       if (v !== undefined) {
         process.env[k] = v;
       } else {
         delete process.env[k];
       }
+    }
+    // Restore .env file to prevent NUKE_BOT=true from persisting
+    if (savedEnvFile !== null) {
+      try {
+        fs.writeFileSync(envPath, savedEnvFile, 'utf8');
+      } catch (_) {}
     }
   });
 
