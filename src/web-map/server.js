@@ -1163,7 +1163,7 @@ class WebMapServer {
     // ═══════════════════════════════════════════════════════
 
     // ── Status: Module status ──
-    app.get('/api/status/modules', requireTier('survivor'), (req, res) => {
+    app.get('/api/status/modules', requireTier('admin'), (req, res) => {
       res.json({ modules: this._moduleStatus || {} });
     });
 
@@ -4031,7 +4031,7 @@ class WebMapServer {
 
     // ── Panel: Settings Schema ──
     /** GET /api/panel/settings-schema — Return game settings category definitions */
-    app.get('/api/panel/settings-schema', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/settings-schema', requireTier('admin'), (req, res) => {
       res.json({ categories: GAME_SETTINGS_CATEGORIES });
     });
 
@@ -4049,8 +4049,11 @@ class WebMapServer {
           promoText: '',
           discordLink: '',
         };
+        if (!configRepo) {
+          return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+        }
         const scope = 'server:' + id;
-        const serverData = configRepo ? configRepo.get(scope) : null;
+        const serverData = configRepo.get(scope);
         const stored = serverData?.autoMessages || null;
         const data = Object.assign({}, defaults, stored || {});
         sendOk(res, data);
