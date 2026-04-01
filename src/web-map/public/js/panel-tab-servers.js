@@ -276,9 +276,19 @@ Panel.tabs = Panel.tabs || {};
 
   async function doServerAction(serverId, action) {
     try {
-      var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/actions/' + action, {
-        method: 'POST',
-      });
+      var r;
+      if (serverId === 'primary') {
+        // Primary server uses the power endpoint
+        r = await apiFetch('/api/panel/power', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: action }),
+        });
+      } else {
+        r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/actions/' + action, {
+          method: 'POST',
+        });
+      }
       var d = await r.json();
       if (d.ok) {
         showToast(t('toast_' + action + '_ok'));
