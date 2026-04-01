@@ -31,13 +31,14 @@ const { readPrivateKey } = require('../utils/security');
 
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
 const expressRateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = expressRateLimit;
 function rateLimit(windowMs, maxReqs) {
   return expressRateLimit({
     windowMs,
     max: maxReqs,
     standardHeaders: false,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip + ':' + req.path,
+    keyGenerator: (req) => ipKeyGenerator(req.ip) + ':' + req.path,
     handler: (_req, res) => sendError(res, API_ERRORS.RATE_LIMITED, 429),
   });
 }
@@ -3669,20 +3670,31 @@ class WebMapServer {
       let sftpCfg = (req.body || {}).sftp;
 
       // Allow using the server's existing SFTP config (for settings page discover button)
+      // Use sftpConnectConfig() to get fully resolved connect options
+      // (reads private key from disk, handles passphrase fallback).
       if (req.body?.useCurrentConfig) {
+        let connectOpts;
+        try {
+          const srvCfg = req.srv?.config || config;
+          connectOpts = srvCfg.sftpConnectConfig.call(srvCfg);
+        } catch (err) {
+          console.error('[DISCOVER] Failed to build SFTP config:', err.message);
+          return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+        }
         sftpCfg = {
-          host: config.sftpHost,
-          port: config.sftpPort || 22,
-          user: config.sftpUser,
-          password: config.sftpPassword,
-          privateKeyPath: config.sftpPrivateKeyPath,
+          host: connectOpts.host,
+          port: connectOpts.port || 22,
+          user: connectOpts.username,
+          password: connectOpts.password,
+          privateKey: connectOpts.privateKey,
+          passphrase: connectOpts.passphrase,
         };
       }
 
       if (!sftpCfg || !sftpCfg.host || !sftpCfg.user) {
         return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
       }
-      if (!sftpCfg.password && !sftpCfg.privateKeyPath) {
+      if (!sftpCfg.password && !sftpCfg.privateKeyPath && !sftpCfg.privateKey) {
         return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
       }
 
@@ -3722,7 +3734,9 @@ class WebMapServer {
           port: sftpCfg.port || 22,
           user: sftpCfg.user,
           password: sftpCfg.password,
+          privateKey: sftpCfg.privateKey,
           privateKeyPath: sftpCfg.privateKeyPath,
+          passphrase: sftpCfg.passphrase,
         },
         'WEB_DISCOVER',
       )

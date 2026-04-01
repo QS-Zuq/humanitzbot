@@ -31,6 +31,14 @@ function writeEnvValues(updates) {
     updates = Object.fromEntries(Object.entries(updates).filter(([k]) => BOOTSTRAP_KEYS.has(k)));
     if (Object.keys(updates).length === 0) return;
   }
+  // Track dangerous .env writes with stack trace — write to file since console may scroll
+  if (updates.NUKE_BOT || updates.FIRST_RUN) {
+    const msg = `[${new Date().toISOString()}] CRITICAL ENV WRITE: ${JSON.stringify(updates)}\nStack: ${new Error().stack}\n\n`;
+    console.warn('[PANEL-ENV] ⚠ Writing critical key:', JSON.stringify(updates));
+    try {
+      fs.appendFileSync(path.join(__dirname, '..', '..', 'data', 'nuke-audit.log'), msg);
+    } catch (_) {}
+  }
   if (_envWriteLock) throw new Error('.env write already in progress');
   _envWriteLock = true;
   try {

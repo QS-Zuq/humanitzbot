@@ -33,7 +33,7 @@
     "express-session": "^1.19.0",
     "i18next": "^25.8.18",
     "ssh2-sftp-client": "^12.1.0",
-    "tiny-csrf": "^1.1.6",
+    "csrf-csrf": "^4.0.3",
     "ws": "^8.19.0"
   },
   "engines": {

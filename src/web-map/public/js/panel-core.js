@@ -87,12 +87,7 @@ window.Panel = window.Panel || {};
     if (_csrfToken && opts.method && opts.method !== 'GET') {
       opts.headers = Object.assign({}, opts.headers, { 'X-CSRF-Token': _csrfToken });
     }
-    return fetch(apiUrl(url), opts).then(function (r) {
-      // tiny-csrf is one-time-use; server sends a fresh token after each request
-      var freshToken = r.headers.get('X-CSRF-Token');
-      if (freshToken) _csrfToken = freshToken;
-      return r;
-    });
+    return fetch(apiUrl(url), opts);
   }
 
   // ── HTML Escape ───────────────────────────────────

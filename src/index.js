@@ -17,9 +17,23 @@ const _origWarn = console.warn;
 function _ts() {
   return new Date().toLocaleTimeString('en-GB', { hour12: false });
 }
-console.log = (...args) => _origLog(`[${_ts()}]`, ...args);
-console.error = (...args) => _origError(`[${_ts()}]`, ...args);
-console.warn = (...args) => _origWarn(`[${_ts()}]`, ...args);
+// Prepend timestamp to console output. If the first arg is a format string
+// (contains %s/%d/%j/%o), merge the timestamp into it so util.format still works.
+console.log = (...args) => {
+  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
+  else args.unshift(`[${_ts()}]`);
+  _origLog(...args);
+};
+console.error = (...args) => {
+  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
+  else args.unshift(`[${_ts()}]`);
+  _origError(...args);
+};
+console.warn = (...args) => {
+  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
+  else args.unshift(`[${_ts()}]`);
+  _origWarn(...args);
+};
 
 const fs = require('fs');
 const path = require('path');
@@ -1255,34 +1269,7 @@ async function shutdown(reason = 'Manual shutdown') {
   shuttingDown = true;
   console.log('\n[BOT] Shutting down...');
 
-  // Post offline notification to panel channel (self-cleaning)
-  try {
-    const panelCh = panelChannel?.channel;
-    if (panelCh) {
-      const uptime = _formatUptime(Date.now() - startedAt.getTime());
-      const activeCount = Object.values(moduleStatus).filter((s) => s.startsWith('🟢')).length;
-      const totalCount = Object.keys(moduleStatus).length;
-
-      const embed = new EmbedBuilder()
-        .setTitle('🔴 Bot Offline')
-        .setDescription(reason)
-        .addFields(
-          { name: 'Uptime', value: uptime, inline: true },
-          { name: 'Modules', value: `${activeCount}/${totalCount} active`, inline: true },
-        )
-        .setColor(0xe74c3c)
-        .setTimestamp();
-
-      // Race the notification against a timeout so shutdown never hangs
-      await Promise.race([
-        panelCh.send({ embeds: [embed] }).catch(() => {}),
-        new Promise((resolve) => setTimeout(resolve, 5000)),
-      ]);
-    }
-  } catch (err) {
-    console.error('[BOT] Failed to post offline notification:', err.message);
-  }
-
+  // Stop all modules FIRST (some need DB for final persist)
   if (chatRelay) chatRelay.stop();
   if (statusChannels) statusChannels.stop();
   if (serverStatus) serverStatus.stop();
@@ -1307,15 +1294,48 @@ async function shutdown(reason = 'Manual shutdown') {
   if (playtimeFlushTimer) clearInterval(playtimeFlushTimer);
   playtime.stop();
 
-  // Remove running flag — signals clean shutdown (must happen before db.close())
+  // Close DB immediately after modules stop — before any async work.
+  // node --watch sends SIGTERM and may spawn a new process quickly;
+  // closing DB here ensures WAL is checkpointed before the new process opens it.
   if (db) {
     try {
       db.deleteState('bot_running');
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[BOT] Could not clear bot_running flag:', err.message);
+    }
+    db.close();
   }
-  if (db) db.close();
-  await rcon.disconnect();
 
+  // Post offline notification to panel channel (best-effort; DB is already closed above)
+  try {
+    const panelCh = panelChannel?.channel;
+    if (panelCh) {
+      const uptime = _formatUptime(Date.now() - startedAt.getTime());
+      const activeCount = Object.values(moduleStatus).filter((s) => s.startsWith('🟢')).length;
+      const totalCount = Object.keys(moduleStatus).length;
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔴 Bot Offline')
+        .setDescription(reason)
+        .addFields(
+          { name: 'Uptime', value: uptime, inline: true },
+          { name: 'Modules', value: `${activeCount}/${totalCount} active`, inline: true },
+        )
+        .setColor(0xe74c3c)
+        .setTimestamp();
+
+      await Promise.race([
+        panelCh
+          .send({ embeds: [embed] })
+          .catch((e) => console.warn('[BOT] Offline notification send failed:', e.message)),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
+    }
+  } catch (err) {
+    console.error('[BOT] Failed to post offline notification:', err.message);
+  }
+
+  await rcon.disconnect();
   client.destroy();
   process.exit(0);
 }
@@ -1429,6 +1449,17 @@ async function _nukeChannel(client, channelId, botId) {
 
 (async () => {
   // NUKE_BOT implies FIRST_RUN — wipe local data files first, then re-import
+  // Log raw .env value for debugging — track unexpected NUKE_BOT=true
+  const _nukeAuditMsg = `[${new Date().toISOString()}] STARTUP: NUKE_BOT=${process.env.NUKE_BOT}, config.nukeBot=${config.nukeBot}, NUKE_THREADS=${process.env.NUKE_THREADS}\n`;
+  console.log(
+    '[NUKE-AUDIT] process.env.NUKE_BOT=%s, config.nukeBot=%s, process.env.NUKE_THREADS=%s',
+    process.env.NUKE_BOT,
+    config.nukeBot,
+    process.env.NUKE_THREADS,
+  );
+  try {
+    fs.appendFileSync(path.join(__dirname, '..', 'data', 'nuke-audit.log'), _nukeAuditMsg);
+  } catch (_) {}
   if (config.nukeBot) {
     console.log('[NUKE] NUKE_BOT=true — factory reset starting...');
     const dataDir = path.join(__dirname, '..', 'data');

@@ -24,7 +24,7 @@
 
 const crypto = require('crypto');
 const expressSession = require('express-session');
-const csrf = require('tiny-csrf');
+const { doubleCsrf } = require('csrf-csrf');
 const cookieParser = require('cookie-parser');
 const config = require('../config');
 const { createSessionStore } = require('./session-store-factory');
@@ -272,35 +272,35 @@ function setupAuth(app, client, opts = {}) {
     next();
   });
 
-  // CSRF protection (tiny-csrf, session-backed synchronizer token)
-  const csrfSecret = (authCfg.sessionSecret || 'default-csrf-secret-replace-me').padEnd(32, '0').slice(0, 32);
+  // CSRF protection (csrf-csrf, double-submit cookie pattern)
+  // Origin/Referer check above (L255-273) is the PRIMARY CSRF defense;
+  // this double-submit cookie layer is defense-in-depth.
   app.use(cookieParser(authCfg.sessionSecret));
-  // Bridge X-CSRF-Token header → req.body._csrf for tiny-csrf compatibility.
-  // tiny-csrf only reads req.body._csrf, but our SPA sends the token via header.
-  app.use((req, _res, next) => {
-    const headerToken = req.headers['x-csrf-token'];
-    if (headerToken && !req.body?._csrf) {
-      req.body = req.body || {};
-      req.body._csrf = headerToken;
-    }
-    next();
+  // Derive a separate CSRF signing key from the session secret (key separation)
+  const csrfSigningSecret = crypto.createHmac('sha256', authCfg.sessionSecret).update('csrf-signing-key').digest('hex');
+  const { doubleCsrfProtection } = doubleCsrf({
+    getSecret: () => csrfSigningSecret,
+    getSessionIdentifier: (req) => req.session?.id || '',
+    cookieName: isSecure ? '__Host-hmz.csrf' : 'hmz.csrf',
+    cookieOptions: {
+      sameSite: 'strict',
+      path: '/',
+      secure: isSecure,
+      httpOnly: true,
+    },
+    size: 32,
+    ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+    getCsrfTokenFromRequest: (req) => req.headers['x-csrf-token'],
   });
-  app.use(csrf(csrfSecret, ['POST', 'PUT', 'PATCH', 'DELETE'], ['/auth/callback']));
-  // Regenerate CSRF token after every request so the SPA always has a valid
-  // token for the next mutation. tiny-csrf is one-time-use (form-oriented),
-  // but our SPA needs persistent tokens across multiple POST requests.
+  // Skip CSRF validation for OAuth callback (cross-origin redirect from Discord)
   app.use((req, res, next) => {
-    if (typeof req.csrfToken === 'function') {
-      res.setHeader('X-CSRF-Token', req.csrfToken());
-    }
-    next();
+    if (req.path === '/auth/callback') return next();
+    doubleCsrfProtection(req, res, next);
   });
-
   // CSRF validation error handler
-  // tiny-csrf throws plain Error (no err.code), so match on message pattern
   app.use((err, req, res, next) => {
-    if (err.code === 'EBADCSRFTOKEN' || /CSRF token/i.test(err.message)) {
-      console.warn(`[AUTH] CSRF rejected: ${req.method} ${req.originalUrl} — client should re-fetch token`);
+    if (err.code === 'EBADCSRFTOKEN') {
+      console.warn(`[AUTH] CSRF rejected: ${req.method} ${req.originalUrl}`);
       return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid or missing CSRF token' });
     }
     next(err);
