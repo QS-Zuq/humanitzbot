@@ -79,7 +79,7 @@ Panel.tabs = Panel.tabs || {};
 
   async function fetchServers() {
     try {
-      var r = await fetch('/api/panel/servers');
+      var r = await apiFetch('/api/panel/servers');
       if (!r.ok) {
         console.warn('[Servers] fetchServers HTTP', r.status);
         return;
@@ -276,7 +276,7 @@ Panel.tabs = Panel.tabs || {};
 
   async function doServerAction(serverId, action) {
     try {
-      var r = await fetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/actions/' + action, {
+      var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/actions/' + action, {
         method: 'POST',
       });
       var d = await r.json();
@@ -385,7 +385,7 @@ Panel.tabs = Panel.tabs || {};
       if (deleteBtn.disabled) return;
       removeModal();
       try {
-        var r = await fetch('/api/panel/servers/' + encodeURIComponent(serverId) + '?confirm=true', {
+        var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '?confirm=true', {
           method: 'DELETE',
         });
         var d = await r.json();
@@ -818,7 +818,7 @@ Panel.tabs = Panel.tabs || {};
     results.innerHTML = '';
 
     try {
-      var r = await fetch('/api/panel/servers/test-connection', {
+      var r = await apiFetch('/api/panel/servers/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1017,7 +1017,7 @@ Panel.tabs = Panel.tabs || {};
     payload.startImmediately = _wizardData.startImmediately;
 
     try {
-      var r = await fetch('/api/panel/servers', {
+      var r = await apiFetch('/api/panel/servers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
