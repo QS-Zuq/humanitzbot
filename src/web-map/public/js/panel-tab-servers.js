@@ -1078,15 +1078,17 @@ Panel.tabs = Panel.tabs || {};
 
     try {
       var schemaResp = await apiFetch('/api/panel/settings-schema');
+      if (!schemaResp.ok) throw new Error(t('gs_load_fail', { error: schemaResp.status }));
       var schemaData = await schemaResp.json();
       var settingsResp = await apiFetch('/api/panel/settings?server=' + encodeURIComponent(serverId));
+      if (!settingsResp.ok) throw new Error(t('gs_load_fail', { error: settingsResp.status }));
       var settingsData = await settingsResp.json();
 
       var categories = (schemaData && schemaData.categories) || [];
       var current = (settingsData && settingsData.settings) || {};
 
       if (!categories.length) {
-        body.textContent = 'No settings categories available.';
+        body.textContent = t('gs_no_categories');
         return;
       }
 
@@ -1095,40 +1097,30 @@ Panel.tabs = Panel.tabs || {};
         var cat = categories[ci];
         html +=
           '<div><div class="text-xs font-semibold text-accent mb-2">' +
-          esc(cat.label || cat.id) +
+          esc((cat.emoji || '') + ' ' + (cat.label || cat.id)) +
           '</div><div class="space-y-2">';
-        var fields = cat.fields || [];
+        var fields = cat.settings || [];
         for (var fi = 0; fi < fields.length; fi++) {
           var f = fields[fi];
-          var val = current[f.key] !== undefined ? current[f.key] : f.default !== undefined ? f.default : '';
+          var val = current[f.ini] !== undefined ? current[f.ini] : '';
           html +=
             '<div class="flex items-center gap-3">' +
             '<label class="text-xs text-muted w-40 shrink-0">' +
-            esc(f.label || f.key) +
-            '</label>';
-          if (f.type === 'boolean') {
-            html +=
-              '<input type="checkbox" class="gs-field accent-accent w-4 h-4" data-key="' +
-              esc(f.key) +
-              '"' +
-              (val === 'true' || val === true ? ' checked' : '') +
-              '>';
-          } else {
-            html +=
-              '<input type="text" class="gs-field input-field flex-1 text-xs py-1" data-key="' +
-              esc(f.key) +
-              '" value="' +
-              esc(String(val)) +
-              '">';
-          }
-          html += '</div>';
+            esc(f.label || f.ini) +
+            '</label>' +
+            '<input type="text" class="gs-field input-field flex-1 text-xs py-1" data-key="' +
+            esc(f.ini) +
+            '" value="' +
+            esc(String(val)) +
+            '">' +
+            '</div>';
         }
         html += '</div></div>';
       }
       html += '</div>';
       body.innerHTML = html;
     } catch (err) {
-      body.textContent = 'Failed to load settings: ' + err.message;
+      body.textContent = t('modal_load_fail', { error: err.message });
       return;
     }
 
@@ -1149,12 +1141,12 @@ Panel.tabs = Panel.tabs || {};
         var d = await r.json();
         if (d.ok) {
           removeModal();
-          showToast('Game settings saved.');
+          showToast(t('gs_toast_saved'));
         } else {
-          showToast('Save failed: ' + (d.error || 'Unknown error'));
+          showToast(t('modal_save_fail', { error: d.error || 'Unknown error' }));
         }
       } catch (saveErr) {
-        showToast('Save failed: ' + saveErr.message);
+        showToast(t('modal_save_fail', { error: saveErr.message }));
       }
     });
   }
@@ -1192,6 +1184,7 @@ Panel.tabs = Panel.tabs || {};
 
     try {
       var r = await apiFetch('/api/panel/welcome-file?server=' + encodeURIComponent(serverId));
+      if (!r.ok) throw new Error(t('modal_load_fail', { error: r.status }));
       var d = await r.json();
       var content = (d && d.content) || '';
       var placeholders = (d && d.placeholders) || [];
