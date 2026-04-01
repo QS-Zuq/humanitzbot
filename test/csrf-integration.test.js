@@ -37,7 +37,7 @@ function buildApp() {
       secret: testSecret,
       resave: false,
       saveUninitialized: true,
-      cookie: { secure: false },
+      cookie: { secure: false }, // lgtm[js/clear-text-cookie] -- test-only, no HTTPS in test env
     }),
   );
 
