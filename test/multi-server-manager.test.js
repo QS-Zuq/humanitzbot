@@ -515,18 +515,18 @@ describe('createServerConfig()', () => {
     const cfg = createServerConfig({
       sftp: { host: '10.0.0.5', port: 2222, user: 'admin', password: 'test-sftp-not-real' },
     });
-    assert.equal(cfg.ftpHost, '10.0.0.5');
-    assert.equal(cfg.ftpPort, 2222);
-    assert.equal(cfg.ftpUser, 'admin');
-    assert.equal(cfg.ftpPassword, 'test-sftp-not-real');
+    assert.equal(cfg.sftpHost, '10.0.0.5');
+    assert.equal(cfg.sftpPort, 2222);
+    assert.equal(cfg.sftpUser, 'admin');
+    assert.equal(cfg.sftpPassword, 'test-sftp-not-real');
   });
 
   it('creates config with path overrides', () => {
     const cfg = createServerConfig({
       paths: { logPath: '/custom/log.txt', savePath: '/custom/save.sav' },
     });
-    assert.equal(cfg.ftpLogPath, '/custom/log.txt');
-    assert.equal(cfg.ftpSavePath, '/custom/save.sav');
+    assert.equal(cfg.sftpLogPath, '/custom/log.txt');
+    assert.equal(cfg.sftpSavePath, '/custom/save.sav');
   });
 
   it('creates config with channel overrides', () => {

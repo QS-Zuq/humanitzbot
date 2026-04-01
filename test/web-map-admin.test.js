@@ -54,9 +54,9 @@ function mockSrv(overrides = {}) {
     }),
     rcon: { send: async () => '' },
     config: {
-      ftpHost: 'localhost',
-      ftpUser: 'user',
-      ftpSettingsPath: '/game/settings.ini',
+      sftpHost: 'localhost',
+      sftpUser: 'user',
+      sftpSettingsPath: '/game/settings.ini',
       sftpConnectConfig: () => ({}),
       dockerContainer: 'hzserver',
     },
@@ -706,8 +706,8 @@ describe('Web Map Admin — POST endpoints', () => {
 
     it('returns 400 when SFTP is not configured', async () => {
       const srv = mockSrv();
-      srv.config.ftpHost = '';
-      srv.config.ftpUser = '';
+      srv.config.sftpHost = '';
+      srv.config.sftpUser = '';
       const req = mockReq({ body: { settings: { ServerName: 'Valid' } }, srv });
       const res = mockRes();
       await handler(req, res);

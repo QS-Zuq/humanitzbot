@@ -93,7 +93,7 @@
 | **SFTP 自动发现** | 自动查找服务器上的游戏文件 — 无需手动配置路径                                                 |
 | **面板 API**      | 集成 Pterodactyl 面板（如 Bisect 等托管服务） — 提供电源控制、文件 API 及 WebSocket RCON 功能 |
 | **环境同步**      | 自动配置迁移 — 首次启动时将 `.env` 的值自动迁移至 SQLite 数据库，并创建备份                   |
-| **设置向导**      | Discord 上的交互式首次设置向导 — 包含 RCON/SFTP 测试、路径发现及频道分配功能                  |
+| **CLI 设置**      | 首次运行通过 `npm run setup` 进行设置 — SFTP 自动发现、数据导入与验证                         |
 | **存档解析器**    | 完整的二进制 `.sav` 文件解析器 — 提取玩家、建筑、载具、容器、同伴及世界状态                   |
 | **快照服务**      | 定期保存世界状态快照，用于时间轴回放与历史分析                                                |
 | **差异引擎**      | 跟踪各存档解析间的变化，用于检测活动及物品移动                                                |
@@ -125,16 +125,14 @@ cp .env.example .env
 
 填写必需的值：
 
-| 键                  | 描述                                  |
-| ------------------- | ------------------------------------- |
-| `DISCORD_TOKEN`     | 你的 Discord Bot Token                |
-| `DISCORD_CLIENT_ID` | Discord 应用程序 ID                   |
-| `DISCORD_GUILD_ID`  | 你的 Discord 服务器 ID                |
-| `PANEL_CHANNEL_ID`  | 用于放置机器人控制面板的 Discord 频道 |
+| 键                  | 描述                                          |
+| ------------------- | --------------------------------------------- |
+| `DISCORD_TOKEN`     | 你的 Discord Bot Token                        |
+| `DISCORD_CLIENT_ID` | Discord 应用程序 ID                           |
+| `DISCORD_GUILD_ID`  | 你的 Discord 服务器 ID                        |
+| `PANEL_CHANNEL_ID`  | （可选）用于放置机器人控制面板的 Discord 频道 |
 
-其余所有设置（RCON、SFTP、频道、开关等）均可通过首次运行时的 Discord Panel 向导，或通过 Web 仪表盘进行配置。设置存储在 SQLite 数据库中。
-
-> **注意：** 首次启动时，控制台频道中的设置向导将引导你交互式地完成 RCON、SFTP 与频道的配置。除上述 4 个必要键外，无需手动编辑 `.env`。
+其余所有设置（RCON、SFTP、频道、开关等）均可在 `.env` 中配置，或通过 Web 仪表盘进行配置。设置存储在 SQLite 数据库中。
 
 #### 语言 / 区域设置
 
@@ -164,8 +162,6 @@ npm start
 ```bash
 npm run dev
 ```
-
-> **提示：** 如果首次启动时缺少 RCON 凭据，机器人将以极简模式启动，并在你的控制台频道中发布一个交互式的设置向导。
 
 ---
 
@@ -320,7 +316,7 @@ npm run dev:css          # 监听模式 (Watch mode)
 ### 其他脚本
 
 ```bash
-npm run setup            # 首次运行的设置向导
+npm run setup            # 首次运行 CLI 设置 — SFTP 自动发现和数据导入
 npm run setup:local      # 使用本地文件进行设置（无需 SFTP）
 npm run setup:find       # 仅执行 SFTP 文件路径发现
 npm run setup:validate   # 验证配置

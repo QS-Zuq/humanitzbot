@@ -14,7 +14,8 @@
  * Auto-discovery: On first run, the bot connects via SFTP and searches for
  * HMZLog.log, PlayerConnectedLog.txt, PlayerIDMapped.txt, and the save file.
  * Discovered paths are written back to .env so manual path config is not needed.
- * Only FTP_HOST, FTP_PORT, FTP_USER, FTP_PASSWORD are required.
+ * DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID plus SFTP credentials
+ * (SFTP_HOST, SFTP_PORT, SFTP_USER, SFTP_PASSWORD) (unless --local) are required. RCON is optional (warning only).
  */
 
 require('dotenv').config();
@@ -33,7 +34,16 @@ console.warn = (...args) => _origWarn(`[${_ts()}]`, ...args);
 const fs = require('fs');
 const path = require('path');
 const SftpClient = require('ssh2-sftp-client');
-const config = require('./src/config');
+const { checkPrerequisites, testRconConnection } = require('./src/utils/setup-checks');
+
+/**
+ * Read an SFTP-related env var with FTP_* backward compatibility.
+ * @param {string} key - Suffix after SFTP_/FTP_ (e.g. 'HOST', 'PORT')
+ * @returns {string}
+ */
+function sftpEnv(key) {
+  return process.env[`SFTP_${key}`] || process.env[`FTP_${key}`] || '';
+}
 
 // ── Constants ─────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
@@ -44,40 +54,39 @@ const LOG_CACHE = path.join(LOG_DIR, 'HMZLog-downloaded.log');
 const CONNECTED_LOG_CACHE = path.join(LOG_DIR, 'PlayerConnectedLog.txt');
 const ID_MAP_CACHE = path.join(LOG_DIR, 'PlayerIDMapped.txt');
 
-const ftpConfig = {
-  host: process.env.FTP_HOST,
-  port: parseInt(process.env.FTP_PORT, 10) || 8821,
-  username: process.env.FTP_USER,
-  password: process.env.FTP_PASSWORD,
+const sftpConfig = {
+  host: sftpEnv('HOST') || undefined,
+  port: parseInt(sftpEnv('PORT'), 10) || 8821,
+  username: sftpEnv('USER') || undefined,
+  password: sftpEnv('PASSWORD') || undefined,
 };
 
 // Add SSH private key support if configured
-if (process.env.FTP_PRIVATE_KEY_PATH) {
+if (sftpEnv('PRIVATE_KEY_PATH')) {
   try {
-    ftpConfig.privateKey = require('fs').readFileSync(process.env.FTP_PRIVATE_KEY_PATH, 'utf8');
+    sftpConfig.privateKey = require('fs').readFileSync(sftpEnv('PRIVATE_KEY_PATH'), 'utf8');
   } catch (err) {
-    console.warn(`[SETUP] Could not read SSH private key at ${process.env.FTP_PRIVATE_KEY_PATH}:`, err.message);
+    console.warn(`[SETUP] Could not read SSH private key at ${sftpEnv('PRIVATE_KEY_PATH')}:`, err.message);
   }
 }
 
-const ftpBasePath = (process.env.FTP_BASE_PATH || '').replace(/\/+$/, ''); // strip trailing slash
-let ftpLogPath = process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log';
-let ftpConnectLogPath = process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt';
-let ftpIdMapPath = process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt';
-let ftpSavePath =
-  process.env.FTP_SAVE_PATH || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
-let ftpSettingsPath = process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini';
-let ftpWelcomePath = process.env.FTP_WELCOME_PATH || '/HumanitZServer/WelcomeMessage.txt';
+const sftpBasePath = sftpEnv('BASE_PATH').replace(/\/+$/, ''); // strip trailing slash
+let sftpLogPath = sftpEnv('LOG_PATH') || '/HumanitZServer/HMZLog.log';
+let sftpConnectLogPath = sftpEnv('CONNECT_LOG_PATH') || '/HumanitZServer/PlayerConnectedLog.txt';
+let sftpIdMapPath = sftpEnv('ID_MAP_PATH') || '/HumanitZServer/PlayerIDMapped.txt';
+let sftpSavePath = sftpEnv('SAVE_PATH') || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
+let sftpSettingsPath = sftpEnv('SETTINGS_PATH') || '/HumanitZServer/GameServerSettings.ini';
+let sftpWelcomePath = sftpEnv('WELCOME_PATH') || '/HumanitZServer/WelcomeMessage.txt';
 
 // Prepend base path if configured and paths are relative (don't start with /)
-if (ftpBasePath) {
-  if (ftpLogPath && !ftpLogPath.startsWith('/')) ftpLogPath = ftpBasePath + '/' + ftpLogPath;
-  if (ftpConnectLogPath && !ftpConnectLogPath.startsWith('/'))
-    ftpConnectLogPath = ftpBasePath + '/' + ftpConnectLogPath;
-  if (ftpIdMapPath && !ftpIdMapPath.startsWith('/')) ftpIdMapPath = ftpBasePath + '/' + ftpIdMapPath;
-  if (ftpSavePath && !ftpSavePath.startsWith('/')) ftpSavePath = ftpBasePath + '/' + ftpSavePath;
-  if (ftpSettingsPath && !ftpSettingsPath.startsWith('/')) ftpSettingsPath = ftpBasePath + '/' + ftpSettingsPath;
-  if (ftpWelcomePath && !ftpWelcomePath.startsWith('/')) ftpWelcomePath = ftpBasePath + '/' + ftpWelcomePath;
+if (sftpBasePath) {
+  if (sftpLogPath && !sftpLogPath.startsWith('/')) sftpLogPath = sftpBasePath + '/' + sftpLogPath;
+  if (sftpConnectLogPath && !sftpConnectLogPath.startsWith('/'))
+    sftpConnectLogPath = sftpBasePath + '/' + sftpConnectLogPath;
+  if (sftpIdMapPath && !sftpIdMapPath.startsWith('/')) sftpIdMapPath = sftpBasePath + '/' + sftpIdMapPath;
+  if (sftpSavePath && !sftpSavePath.startsWith('/')) sftpSavePath = sftpBasePath + '/' + sftpSavePath;
+  if (sftpSettingsPath && !sftpSettingsPath.startsWith('/')) sftpSettingsPath = sftpBasePath + '/' + sftpSettingsPath;
+  if (sftpWelcomePath && !sftpWelcomePath.startsWith('/')) sftpWelcomePath = sftpBasePath + '/' + sftpWelcomePath;
 }
 
 // ── CLI Args ──────────────────────────────────────────────────
@@ -94,6 +103,11 @@ function formatDuration(ms) {
   const mins = Math.floor((ms % 3600000) / 60000);
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+/** @returns {string} 'YYYY-MM-DD' */
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function cleanName(name) {
@@ -170,11 +184,11 @@ function backupAndSave(filePath, data, label) {
 
 // Target filenames to locate on the server
 const DISCOVERY_TARGETS = {
-  'HMZLog.log': 'FTP_LOG_PATH',
-  'PlayerConnectedLog.txt': 'FTP_CONNECT_LOG_PATH',
-  'PlayerIDMapped.txt': 'FTP_ID_MAP_PATH',
-  'GameServerSettings.ini': 'FTP_SETTINGS_PATH',
-  'WelcomeMessage.txt': 'FTP_WELCOME_PATH',
+  'HMZLog.log': 'SFTP_LOG_PATH',
+  'PlayerConnectedLog.txt': 'SFTP_CONNECT_LOG_PATH',
+  'PlayerIDMapped.txt': 'SFTP_ID_MAP_PATH',
+  'GameServerSettings.ini': 'SFTP_SETTINGS_PATH',
+  'WelcomeMessage.txt': 'SFTP_WELCOME_PATH',
 };
 
 /**
@@ -249,7 +263,7 @@ async function discoverFiles(sftp, dir, depth, maxDepth, found) {
 
 /**
  * Auto-discover file paths on the SFTP server and update .env accordingly.
- * Returns { ftpLogPath, ftpConnectLogPath, ftpIdMapPath, ftpSavePath }.
+ * Returns { sftpLogPath, sftpConnectLogPath, sftpIdMapPath, sftpSavePath, sftpSettingsPath, sftpWelcomePath, sftpBasePath }.
  */
 async function autoDiscoverPaths(sftp) {
   console.log('\n--- Auto-Discovering File Paths on Server ---\n');
@@ -257,12 +271,12 @@ async function autoDiscoverPaths(sftp) {
 
   // First: try the currently configured paths (fast check)
   const quickChecks = [
-    { name: 'HMZLog.log', path: ftpLogPath },
-    { name: 'PlayerConnectedLog.txt', path: ftpConnectLogPath },
-    { name: 'PlayerIDMapped.txt', path: ftpIdMapPath },
-    { name: '__save_file__', path: ftpSavePath },
-    { name: 'GameServerSettings.ini', path: ftpSettingsPath },
-    { name: 'WelcomeMessage.txt', path: ftpWelcomePath },
+    { name: 'HMZLog.log', path: sftpLogPath },
+    { name: 'PlayerConnectedLog.txt', path: sftpConnectLogPath },
+    { name: 'PlayerIDMapped.txt', path: sftpIdMapPath },
+    { name: '__save_file__', path: sftpSavePath },
+    { name: 'GameServerSettings.ini', path: sftpSettingsPath },
+    { name: 'WelcomeMessage.txt', path: sftpWelcomePath },
   ];
   for (const { name, path: p } of quickChecks) {
     try {
@@ -278,7 +292,7 @@ async function autoDiscoverPaths(sftp) {
 
   // Quick check for HZLogs directory (per-restart rotated logs)
   // HZLogs is at the HumanitZServer/ root, not inside Saved/Logs/
-  let serverRoot = ftpLogPath.substring(0, ftpLogPath.lastIndexOf('/')) || '/HumanitZServer';
+  let serverRoot = sftpLogPath.substring(0, sftpLogPath.lastIndexOf('/')) || '/HumanitZServer';
   if (serverRoot.endsWith('/Saved/Logs') || serverRoot.endsWith('/Saved/Logs/')) {
     serverRoot = serverRoot.replace(/\/Saved\/Logs\/?$/, '');
   }
@@ -331,12 +345,12 @@ async function autoDiscoverPaths(sftp) {
 
   // Report results
   const results = {
-    ftpLogPath: found.get('HMZLog.log') || ftpLogPath,
-    ftpConnectLogPath: found.get('PlayerConnectedLog.txt') || ftpConnectLogPath,
-    ftpIdMapPath: found.get('PlayerIDMapped.txt') || ftpIdMapPath,
-    ftpSavePath: found.get('__save_file__') || ftpSavePath,
-    ftpSettingsPath: found.get('GameServerSettings.ini') || ftpSettingsPath,
-    ftpWelcomePath: found.get('WelcomeMessage.txt') || ftpWelcomePath,
+    sftpLogPath: found.get('HMZLog.log') || sftpLogPath,
+    sftpConnectLogPath: found.get('PlayerConnectedLog.txt') || sftpConnectLogPath,
+    sftpIdMapPath: found.get('PlayerIDMapped.txt') || sftpIdMapPath,
+    sftpSavePath: found.get('__save_file__') || sftpSavePath,
+    sftpSettingsPath: found.get('GameServerSettings.ini') || sftpSettingsPath,
+    sftpWelcomePath: found.get('WelcomeMessage.txt') || sftpWelcomePath,
   };
 
   // Log the discovered save file name if it differs from default
@@ -348,11 +362,11 @@ async function autoDiscoverPaths(sftp) {
   }
 
   // If HZLogs found but no HMZLog.log (new server with only per-restart logs),
-  // set ftpLogPath to parent so LogWatcher can derive HZLogs/ from it
+  // set sftpLogPath to parent so LogWatcher can derive HZLogs/ from it
   if (found.has('HZLogs') && !found.has('HMZLog.log')) {
     const hzDir = found.get('HZLogs');
     const parent = hzDir.substring(0, hzDir.lastIndexOf('/'));
-    results.ftpLogPath = parent + '/HMZLog.log';
+    results.sftpLogPath = parent + '/HMZLog.log';
     console.log(`  ℹ No monolithic HMZLog.log — using HZLogs/ per-restart logs (LogWatcher auto-detects)`);
   }
   if (found.has('HZLogs')) {
@@ -375,13 +389,13 @@ async function autoDiscoverPaths(sftp) {
     console.log('\n  ✓ All files located!');
   }
 
-  // Auto-detect FTP_BASE_PATH from discovered paths (find common parent directory)
+  // Auto-detect SFTP_BASE_PATH from discovered paths (find common parent directory)
   if (found.size > 0) {
     const discoveredPaths = Array.from(found.values());
     const commonParent = findCommonParent(discoveredPaths);
     if (commonParent && commonParent !== '/') {
-      results.ftpBasePath = commonParent;
-      console.log(`\n  → Auto-detected FTP_BASE_PATH: ${commonParent}`);
+      results.sftpBasePath = commonParent;
+      console.log(`\n  → Auto-detected SFTP_BASE_PATH: ${commonParent}`);
     }
   }
 
@@ -389,12 +403,12 @@ async function autoDiscoverPaths(sftp) {
   updateEnvFile(results);
 
   // Apply to runtime variables
-  ftpLogPath = results.ftpLogPath;
-  ftpConnectLogPath = results.ftpConnectLogPath;
-  ftpIdMapPath = results.ftpIdMapPath;
-  ftpSavePath = results.ftpSavePath;
-  ftpSettingsPath = results.ftpSettingsPath;
-  ftpWelcomePath = results.ftpWelcomePath;
+  sftpLogPath = results.sftpLogPath;
+  sftpConnectLogPath = results.sftpConnectLogPath;
+  sftpIdMapPath = results.sftpIdMapPath;
+  sftpSavePath = results.sftpSavePath;
+  sftpSettingsPath = results.sftpSettingsPath;
+  sftpWelcomePath = results.sftpWelcomePath;
 
   return results;
 }
@@ -429,7 +443,7 @@ function findCommonParent(paths) {
 
 /**
  * Write discovered paths back to the .env file.
- * Only updates FTP_*_PATH keys that have changed.
+ * Only updates SFTP_*_PATH keys that have changed.
  */
 function updateEnvFile(paths) {
   const envPath = path.join(__dirname, '.env');
@@ -442,13 +456,13 @@ function updateEnvFile(paths) {
   let updated = 0;
 
   const mapping = {
-    FTP_BASE_PATH: paths.ftpBasePath,
-    FTP_LOG_PATH: paths.ftpLogPath,
-    FTP_CONNECT_LOG_PATH: paths.ftpConnectLogPath,
-    FTP_ID_MAP_PATH: paths.ftpIdMapPath,
-    FTP_SAVE_PATH: paths.ftpSavePath,
-    FTP_SETTINGS_PATH: paths.ftpSettingsPath,
-    FTP_WELCOME_PATH: paths.ftpWelcomePath,
+    SFTP_BASE_PATH: paths.sftpBasePath,
+    SFTP_LOG_PATH: paths.sftpLogPath,
+    SFTP_CONNECT_LOG_PATH: paths.sftpConnectLogPath,
+    SFTP_ID_MAP_PATH: paths.sftpIdMapPath,
+    SFTP_SAVE_PATH: paths.sftpSavePath,
+    SFTP_SETTINGS_PATH: paths.sftpSettingsPath,
+    SFTP_WELCOME_PATH: paths.sftpWelcomePath,
   };
 
   for (const [key, value] of Object.entries(mapping)) {
@@ -463,10 +477,10 @@ function updateEnvFile(paths) {
         updated++;
       }
     } else {
-      // Key doesn't exist — append it after FTP_PASSWORD
-      const ftpSection = /^#?\s*FTP_PASSWORD\s*=.*$/m;
-      if (ftpSection.test(envContent)) {
-        envContent = envContent.replace(ftpSection, `$&\n${key}=${value}`);
+      // Key doesn't exist — append it after SFTP_PASSWORD
+      const sftpSection = /^#?\s*(?:SFTP|FTP)_PASSWORD\s*=.*$/m;
+      if (sftpSection.test(envContent)) {
+        envContent = envContent.replace(sftpSection, `$&\n${key}=${value}`);
       } else {
         envContent += `\n${key}=${value}\n`;
       }
@@ -499,9 +513,8 @@ function updateEnvFile(paths) {
  * Returns { hmzLog, connectedLog, idMapRaw } as strings (null if not found).
  */
 async function downloadFiles() {
-  if (!ftpConfig.host || !ftpConfig.username) {
-    console.error('Missing FTP credentials in .env. Use --find to explore, or --local for cached files.');
-    process.exit(1);
+  if (!sftpConfig.host || !sftpConfig.username) {
+    throw new Error('Missing SFTP credentials in .env. Use --find to explore, or --local for cached files.');
   }
 
   const sftp = new SftpClient();
@@ -510,8 +523,8 @@ async function downloadFiles() {
     idMapRaw = null;
 
   try {
-    console.log(`Connecting to ${ftpConfig.host}:${ftpConfig.port}...`);
-    await sftp.connect(ftpConfig);
+    console.log(`Connecting to ${sftpConfig.host}:${sftpConfig.port}...`);
+    await sftp.connect(sftpConfig);
     console.log('Connected!\n');
 
     // Auto-discover correct paths (verifies defaults, searches if needed, updates .env)
@@ -521,32 +534,32 @@ async function downloadFiles() {
 
     // HMZLog.log
     try {
-      const buf = await sftp.get(ftpLogPath);
+      const buf = await sftp.get(sftpLogPath);
       hmzLog = buf.toString('utf8');
       fs.writeFileSync(LOG_CACHE, hmzLog, 'utf8');
       console.log(`  HMZLog.log — ${(hmzLog.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  HMZLog.log — not found at ${ftpLogPath}: ${err.message}`);
+      console.warn(`  HMZLog.log — not found at ${sftpLogPath}: ${err.message}`);
     }
 
     // PlayerConnectedLog.txt
     try {
-      const buf = await sftp.get(ftpConnectLogPath);
+      const buf = await sftp.get(sftpConnectLogPath);
       connectedLog = buf.toString('utf8');
       fs.writeFileSync(CONNECTED_LOG_CACHE, connectedLog, 'utf8');
       console.log(`  PlayerConnectedLog.txt — ${(connectedLog.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  PlayerConnectedLog.txt — not found at ${ftpConnectLogPath}: ${err.message}`);
+      console.warn(`  PlayerConnectedLog.txt — not found at ${sftpConnectLogPath}: ${err.message}`);
     }
 
     // PlayerIDMapped.txt
     try {
-      const buf = await sftp.get(ftpIdMapPath);
+      const buf = await sftp.get(sftpIdMapPath);
       idMapRaw = buf.toString('utf8');
       fs.writeFileSync(ID_MAP_CACHE, idMapRaw, 'utf8');
       console.log(`  PlayerIDMapped.txt — ${(idMapRaw.length / 1024).toFixed(1)} KB`);
     } catch (err) {
-      console.warn(`  PlayerIDMapped.txt — not found at ${ftpIdMapPath}: ${err.message}`);
+      console.warn(`  PlayerIDMapped.txt — not found at ${sftpIdMapPath}: ${err.message}`);
     }
 
     await sftp.end();
@@ -872,7 +885,7 @@ function parseConnectedLog(content) {
       allTimePeak: 0,
       allTimePeakDate: null,
       todayPeak: 0,
-      todayDate: config.getToday(),
+      todayDate: getToday(),
       uniqueToday: [],
     },
   };
@@ -974,7 +987,7 @@ function estimatePlaytimeFromLog(content) {
       allTimePeak: 0,
       allTimePeakDate: null,
       todayPeak: 0,
-      todayDate: config.getToday(),
+      todayDate: getToday(),
       uniqueToday: [],
     },
   };
@@ -1382,15 +1395,35 @@ async function main() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
+  // Prerequisite check: validate required env keys before doing any I/O
+  const issues = checkPrerequisites({ skipSftp: MODE_LOCAL });
+  const errors = issues.filter((i) => i.type === 'missing');
+  const warnings = issues.filter((i) => i.type === 'warning');
+  if (errors.length > 0) {
+    console.error('\n[SETUP] Missing required configuration:');
+    for (const { key, label } of errors) {
+      console.error(`  ✗ ${key} — ${label}`);
+    }
+    const msg = 'Missing required configuration — edit .env and re-run: npm run setup';
+    console.error(`\n${msg}\n`);
+    throw new Error(msg);
+  }
+  if (warnings.length > 0) {
+    console.warn('\n[SETUP] Optional configuration missing (bot will start with limited features):');
+    for (const { key } of warnings) {
+      console.warn(`  ⚠ ${key}`);
+    }
+    console.warn('');
+  }
+
   // --find mode: auto-discover paths and explore SFTP directories
   if (MODE_FIND) {
-    if (!ftpConfig.host || !ftpConfig.username) {
-      console.error('Missing FTP credentials in .env (FTP_HOST, FTP_USER, FTP_PASSWORD).');
-      process.exit(1);
+    if (!sftpConfig.host || !sftpConfig.username) {
+      throw new Error('Missing SFTP credentials in .env (SFTP_HOST, SFTP_USER, SFTP_PASSWORD).');
     }
     const sftp = new SftpClient();
     try {
-      await sftp.connect(ftpConfig);
+      await sftp.connect(sftpConfig);
       await autoDiscoverPaths(sftp);
       console.log('\n--- Full Directory Listing ---\n');
       // Still show the full explore for debugging
@@ -1419,8 +1452,7 @@ async function main() {
   }
 
   if (!hmzLog) {
-    console.error('\nNo log file available. Run with --find to locate files on the server.');
-    process.exit(1);
+    throw new Error('No log file available. Run with --find to locate files on the server.');
   }
 
   // Step 2: Parse ID map
@@ -1496,6 +1528,18 @@ async function main() {
 
   // --validate mode: compare only
   if (MODE_VALIDATE) {
+    // Phase 1: 環境驗證 (already checked above — reuse results)
+    console.log('\n── Environment Validation ──');
+    console.log('  ✓ All required keys present');
+    // Phase 2: RCON 連線測試
+    const rconResult = await testRconConnection();
+    if (rconResult.ok) {
+      console.log('  ✓ RCON reachable');
+    } else {
+      console.warn(`  ⚠ RCON not reachable: ${rconResult.message}`);
+    }
+    // Phase 3: 資料驗證（原有邏輯）
+    console.log('\n── Data Validation ──');
     validateData(parsed);
     return;
   }

@@ -203,8 +203,7 @@ function createBotStatusManager(client, opts = {}) {
   const staleInfoMs = Math.max(parseInt(opts.staleInfoMs, 10) || Math.max(refreshMs * 4, 90000), refreshMs);
   const rotationIntervalMs = Math.max(parseInt(opts.rotationIntervalMs, 10) || refreshMs, 5000);
   const getServerInfoFn = opts.getServerInfo || getServerInfo;
-  const isSetupMode = opts.isSetupMode || (() => false);
-  const getHasFtp = opts.getHasFtp || (() => false);
+  const getHasSftp = opts.getHasSftp || (() => false);
   const getPanelAvailable = opts.getPanelAvailable || (() => false);
   const getWebMapEnabled = opts.getWebMapEnabled || (() => false);
   const getModuleStatus = opts.getModuleStatus || (() => ({}));
@@ -221,14 +220,6 @@ function createBotStatusManager(client, opts = {}) {
   let inFlight = null;
 
   function _buildBasePresence(info, err, now, usedCachedInfo) {
-    if (isSetupMode()) {
-      return {
-        mode: 'setup',
-        status: 'idle',
-        activity: { type: ActivityType.Playing, name: 'Setup Wizard' },
-      };
-    }
-
     if (err && usedCachedInfo && lastInfo && now - lastInfoAt <= staleInfoMs) {
       return {
         mode: 'degraded',
@@ -314,7 +305,7 @@ function createBotStatusManager(client, opts = {}) {
     if (isOn('Anticheat', config.enableAnticheat)) {
       features.push({ type: ActivityType.Watching, name: 'Behavioral Anticheat' });
     }
-    if (isOn('Save Service', getHasFtp() || getPanelAvailable())) {
+    if (isOn('Save Service', getHasSftp() || getPanelAvailable())) {
       features.push({ type: ActivityType.Playing, name: 'Save Parser Sync' });
     }
     if (_isModuleActive(moduleStatus, 'Timeline')) {
@@ -373,16 +364,14 @@ function createBotStatusManager(client, opts = {}) {
     let info = null;
     let error = null;
 
-    if (!isSetupMode()) {
-      try {
-        info = await getServerInfoFn();
-        if (info && typeof info === 'object') {
-          lastInfo = info;
-          lastInfoAt = now;
-        }
-      } catch (err) {
-        error = err;
+    try {
+      info = await getServerInfoFn();
+      if (info && typeof info === 'object') {
+        lastInfo = info;
+        lastInfoAt = now;
       }
+    } catch (err) {
+      error = err;
     }
 
     const effectiveInfo = info || (now - lastInfoAt <= staleInfoMs ? lastInfo : null);

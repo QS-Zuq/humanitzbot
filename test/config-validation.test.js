@@ -296,8 +296,8 @@ describe('validateField', () => {
     assert.strictEqual(validateField('RCON_HOST', 'has space').valid, false);
   });
 
-  it('applies path validator for FTP_LOG_PATH', () => {
-    assert.strictEqual(validateField('FTP_LOG_PATH', '/HumanitZServer/HMZLog.log').valid, true);
+  it('applies path validator for SFTP_LOG_PATH', () => {
+    assert.strictEqual(validateField('SFTP_LOG_PATH', '/HumanitZServer/HMZLog.log').valid, true);
   });
 
   it('falls back to bool type validation from fieldDef', () => {
@@ -339,7 +339,7 @@ describe('validateField', () => {
 
 describe('ENV_KEY_VALIDATORS', () => {
   it('has validators for all port keys', () => {
-    for (const key of ['RCON_PORT', 'FTP_PORT', 'WEB_MAP_PORT', 'GAME_PORT', 'SSH_PORT']) {
+    for (const key of ['RCON_PORT', 'SFTP_PORT', 'WEB_MAP_PORT', 'GAME_PORT', 'SSH_PORT']) {
       assert.strictEqual(ENV_KEY_VALIDATORS[key].type, 'port', `${key} should be port`);
     }
   });

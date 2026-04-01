@@ -335,7 +335,7 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
   const cfg = configOverride || config;
   const channelId = cfg.logChannelId;
   if (!channelId) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'LOG_CHANNEL_ID is not set' };
-  if (!cfg.ftpHost || !cfg.ftpUser || (!cfg.ftpPassword && !cfg.ftpPrivateKeyPath))
+  if (!cfg.sftpHost || !cfg.sftpUser || (!cfg.sftpPassword && !cfg.sftpPrivateKeyPath))
     return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'SFTP credentials not configured' };
 
   const channel = await discordClient.channels.fetch(channelId).catch(() => null);
@@ -350,14 +350,14 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
     await sftp.connect(cfg.sftpConnectConfig());
 
     try {
-      const buf = await sftp.get(cfg.ftpLogPath);
+      const buf = await sftp.get(cfg.sftpLogPath);
       hmzText = buf.toString('utf8');
     } catch (err) {
       console.warn('[THREADS] HMZLog not found:', err.message);
     }
 
     try {
-      const buf = await sftp.get(cfg.ftpConnectLogPath);
+      const buf = await sftp.get(cfg.sftpConnectLogPath);
       connectText = buf.toString('utf8');
     } catch (err) {
       console.warn('[THREADS] ConnectLog not found:', err.message);

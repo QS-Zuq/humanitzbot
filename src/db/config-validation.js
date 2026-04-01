@@ -174,7 +174,7 @@ const FIELD_VALIDATORS = {
 const ENV_KEY_VALIDATORS = {
   // Ports
   RCON_PORT: { type: 'port' },
-  FTP_PORT: { type: 'port' },
+  SFTP_PORT: { type: 'port' },
   WEB_MAP_PORT: { type: 'port' },
   GAME_PORT: { type: 'port' },
   SSH_PORT: { type: 'port' },
@@ -211,7 +211,7 @@ const ENV_KEY_VALIDATORS = {
 
   // Hosts
   RCON_HOST: { type: 'host' },
-  FTP_HOST: { type: 'host' },
+  SFTP_HOST: { type: 'host' },
   PUBLIC_HOST: { type: 'host' },
 
   // URLs
@@ -219,15 +219,15 @@ const ENV_KEY_VALIDATORS = {
   DISCORD_INVITE_LINK: { type: 'url' },
 
   // Paths
-  FTP_BASE_PATH: { type: 'path' },
-  FTP_LOG_PATH: { type: 'path' },
-  FTP_CONNECT_LOG_PATH: { type: 'path' },
-  FTP_ID_MAP_PATH: { type: 'path' },
-  FTP_SAVE_PATH: { type: 'path' },
-  FTP_SETTINGS_PATH: { type: 'path' },
-  FTP_WELCOME_PATH: { type: 'path' },
+  SFTP_BASE_PATH: { type: 'path' },
+  SFTP_LOG_PATH: { type: 'path' },
+  SFTP_CONNECT_LOG_PATH: { type: 'path' },
+  SFTP_ID_MAP_PATH: { type: 'path' },
+  SFTP_SAVE_PATH: { type: 'path' },
+  SFTP_SETTINGS_PATH: { type: 'path' },
+  SFTP_WELCOME_PATH: { type: 'path' },
   AGENT_NODE_PATH: { type: 'path' },
-  FTP_PRIVATE_KEY_PATH: { type: 'path' },
+  SFTP_PRIVATE_KEY_PATH: { type: 'path' },
 
   // Intervals (with min values matching config.js Math.max() clamping)
   CHAT_POLL_INTERVAL: { type: 'interval', min: 5000 },

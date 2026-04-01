@@ -1091,24 +1091,25 @@ async function _handleEditSftpModal(interaction) {
 /** Get effective SFTP config for a managed server (own creds or inherited from primary). */
 function _getSrvSftpConfig(serverDef) {
   const srvConfig = createServerConfig(serverDef);
-  if (!srvConfig.ftpHost || !srvConfig.ftpUser || (!srvConfig.ftpPassword && !srvConfig.ftpPrivateKeyPath)) return null;
+  if (!srvConfig.sftpHost || !srvConfig.sftpUser || (!srvConfig.sftpPassword && !srvConfig.sftpPrivateKeyPath))
+    return null;
   const cfg = {
-    host: srvConfig.ftpHost,
-    port: srvConfig.ftpPort,
-    username: srvConfig.ftpUser,
-    settingsPath: srvConfig.ftpSettingsPath || config.ftpSettingsPath,
-    welcomePath: srvConfig.ftpWelcomePath || config.ftpWelcomePath,
+    host: srvConfig.sftpHost,
+    port: srvConfig.sftpPort,
+    username: srvConfig.sftpUser,
+    settingsPath: srvConfig.sftpSettingsPath || config.sftpSettingsPath,
+    welcomePath: srvConfig.sftpWelcomePath || config.sftpWelcomePath,
   };
-  if (srvConfig.ftpPrivateKeyPath) {
+  if (srvConfig.sftpPrivateKeyPath) {
     try {
-      cfg.privateKey = require('fs').readFileSync(srvConfig.ftpPrivateKeyPath);
-      if (srvConfig.ftpPassword) cfg.passphrase = srvConfig.ftpPassword;
+      cfg.privateKey = require('fs').readFileSync(srvConfig.sftpPrivateKeyPath);
+      if (srvConfig.sftpPassword) cfg.passphrase = srvConfig.sftpPassword;
     } catch (err) {
-      console.error(`[MULTI-SRV] Could not read SSH key at ${srvConfig.ftpPrivateKeyPath}:`, err.message);
-      cfg.password = srvConfig.ftpPassword;
+      console.error(`[MULTI-SRV] Could not read SSH key at ${srvConfig.sftpPrivateKeyPath}:`, err.message);
+      cfg.password = srvConfig.sftpPassword;
     }
   } else {
-    cfg.password = srvConfig.ftpPassword;
+    cfg.password = srvConfig.sftpPassword;
   }
   return cfg;
 }

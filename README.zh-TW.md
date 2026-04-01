@@ -93,7 +93,7 @@
 | **SFTP 自動探索** | 自動尋找伺服器上的遊戲檔案 — 無需手動設定路徑                                                  |
 | **面板 API**      | 整合 Pterodactyl 面板（適用於 Bisect 等託管伺服器） — 支援電源控制、檔案 API 與 WebSocket RCON |
 | **環境變數同步**  | 自動設定遷移 — 首次啟動時將 `.env` 數值自動遷移至 SQLite 資料庫，並建立備份                    |
-| **設定精靈**      | 首次設定專用的互動式 Discord 精靈 — 包含 RCON/SFTP 測試、路徑探索與頻道指派                    |
+| **CLI 設定**      | 首次執行透過 `npm run setup` 進行設定 — SFTP 自動探索、資料匯入與驗證                          |
 | **存檔解析器**    | 完整的二進位 `.sav` 檔案解析器 — 可提取玩家、建築、載具、容器、同伴與世界狀態                  |
 | **快照服務**      | 定期建立世界狀態快照，支援時間軸回放與歷史分析                                                 |
 | **差異比對引擎**  | 追蹤各次存檔解析之間的變更，用於活動偵測與物品移動紀錄                                         |
@@ -125,16 +125,14 @@ cp .env.example .env
 
 填寫以下必要數值：
 
-| 鍵值 (Key)          | 說明                               |
-| ------------------- | ---------------------------------- |
-| `DISCORD_TOKEN`     | 你的機器人 Token                   |
-| `DISCORD_CLIENT_ID` | Discord 應用程式 ID                |
-| `DISCORD_GUILD_ID`  | 你的 Discord 伺服器 ID             |
-| `PANEL_CHANNEL_ID`  | 用作機器人控制台的 Discord 頻道 ID |
+| 鍵值 (Key)          | 說明                                       |
+| ------------------- | ------------------------------------------ |
+| `DISCORD_TOKEN`     | 你的機器人 Token                           |
+| `DISCORD_CLIENT_ID` | Discord 應用程式 ID                        |
+| `DISCORD_GUILD_ID`  | 你的 Discord 伺服器 ID                     |
+| `PANEL_CHANNEL_ID`  | （選用）用作機器人控制台的 Discord 頻道 ID |
 
-所有其他設定（RCON、SFTP、頻道、開關等）均可透過首次執行時的 Discord Panel 精靈，或透過網頁儀表板進行設定。設定值儲存於 SQLite 資料庫中。
-
-> **提示：** 首次啟動時，控制台頻道中的設定精靈將引導你完成 RCON、SFTP 與頻道的互動式設定。除上述 4 個必要鍵值外，無需手動編輯 `.env`。
+所有其他設定（RCON、SFTP、頻道、開關等）均可在 `.env` 中設定，或透過網頁儀表板進行設定。設定値儲存於 SQLite 資料庫中。
 
 #### 語言 / 區域設定
 
@@ -164,8 +162,6 @@ npm start
 ```bash
 npm run dev
 ```
-
-> **提示：** 如果首次開機時缺乏 RCON 憑證，機器人將以最簡模式啟動，並在你的控制台頻道中提供互動式設定精靈。
 
 ---
 
@@ -320,7 +316,7 @@ npm run dev:css          # 監聽模式
 ### 其他腳本
 
 ```bash
-npm run setup            # 首次執行設定精靈
+npm run setup            # 首次執行 CLI 設定 — SFTP 自動探索與資料匯入
 npm run setup:local      # 使用本機檔案設定 (無需 SFTP)
 npm run setup:find       # 僅執行 SFTP 檔案路徑探索
 npm run setup:validate   # 驗證設定

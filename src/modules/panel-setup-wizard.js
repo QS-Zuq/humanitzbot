@@ -214,8 +214,8 @@ async function _handleSetupProfile(interaction, id) {
 
   // Set profile-appropriate defaults
   const defaults = {
-    vps: { rconHost: '127.0.0.1', rconPort: '8888', ftpHost: '127.0.0.1', ftpPort: '22' },
-    bisect: { rconHost: '', rconPort: '27015', ftpHost: '', ftpPort: '8821' },
+    vps: { rconHost: '127.0.0.1', rconPort: '8888', sftpHost: '127.0.0.1', sftpPort: '22' },
+    bisect: { rconHost: '', rconPort: '27015', sftpHost: '', sftpPort: '8821' },
     'rcon-only': { rconHost: '', rconPort: '27015' },
   };
   this._setupWizard.defaults = defaults[this._setupWizard.profile] || {};
@@ -737,8 +737,8 @@ async function _handleSetupSftpButton(interaction) {
         new TextInputBuilder()
           .setCustomId('host')
           .setLabel(t('discord:panel_setup_wizard.label_sftp_host', locale))
-          .setPlaceholder(d.ftpHost || t('discord:panel_setup_wizard.placeholder_sftp_host', locale))
-          .setValue(this._setupWizard.sftp?.host || d.ftpHost || this._setupWizard.rcon?.host || '')
+          .setPlaceholder(d.sftpHost || t('discord:panel_setup_wizard.placeholder_sftp_host', locale))
+          .setValue(this._setupWizard.sftp?.host || d.sftpHost || this._setupWizard.rcon?.host || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true),
       ),
@@ -746,8 +746,8 @@ async function _handleSetupSftpButton(interaction) {
         new TextInputBuilder()
           .setCustomId('port')
           .setLabel(t('discord:panel_setup_wizard.label_sftp_port', locale))
-          .setPlaceholder(d.ftpPort || t('discord:panel_setup_wizard.placeholder_sftp_port', locale))
-          .setValue(this._setupWizard.sftp?.port || d.ftpPort || '')
+          .setPlaceholder(d.sftpPort || t('discord:panel_setup_wizard.placeholder_sftp_port', locale))
+          .setValue(this._setupWizard.sftp?.port || d.sftpPort || '')
           .setStyle(TextInputStyle.Short)
           .setRequired(true),
       ),
@@ -1058,38 +1058,38 @@ async function _handleSetupApply(interaction) {
   if (wiz.sftp && wiz.sftp.panelFileAccess) {
     // Bisect Panel API file access — SFTP not needed for file reading
     // But we still set SFTP creds if available for PvP scheduler / settings writes
-    if (wiz.sftp.host) envUpdates.FTP_HOST = wiz.sftp.host;
-    if (wiz.sftp.port) envUpdates.FTP_PORT = wiz.sftp.port;
+    if (wiz.sftp.host) envUpdates.SFTP_HOST = wiz.sftp.host;
+    if (wiz.sftp.port) envUpdates.SFTP_PORT = wiz.sftp.port;
     // Note: user/password not auto-detected from Panel API — left empty
     // Panel API readFile/writeFile handles file access instead
   } else if (wiz.sftp && wiz.sftp.status === 'ok') {
-    envUpdates.FTP_HOST = wiz.sftp.host;
-    envUpdates.FTP_PORT = wiz.sftp.port;
-    envUpdates.FTP_USER = wiz.sftp.user;
-    if (wiz.sftp.password) envUpdates.FTP_PASSWORD = wiz.sftp.password;
-    if (wiz.sftp.privateKeyPath) envUpdates.FTP_PRIVATE_KEY_PATH = wiz.sftp.privateKeyPath;
+    envUpdates.SFTP_HOST = wiz.sftp.host;
+    envUpdates.SFTP_PORT = wiz.sftp.port;
+    envUpdates.SFTP_USER = wiz.sftp.user;
+    if (wiz.sftp.password) envUpdates.SFTP_PASSWORD = wiz.sftp.password;
+    if (wiz.sftp.privateKeyPath) envUpdates.SFTP_PRIVATE_KEY_PATH = wiz.sftp.privateKeyPath;
   }
 
   // Set discovered file paths (from either Panel API or SFTP)
   const paths = wiz.sftp?.paths || {};
-  if (paths['HMZLog.log']) envUpdates.FTP_LOG_PATH = paths['HMZLog.log'];
-  if (paths['PlayerConnectedLog.txt']) envUpdates.FTP_CONNECT_LOG_PATH = paths['PlayerConnectedLog.txt'];
-  if (paths['PlayerIDMapped.txt']) envUpdates.FTP_ID_MAP_PATH = paths['PlayerIDMapped.txt'];
-  if (paths['Save_DedicatedSaveMP.sav']) envUpdates.FTP_SAVE_PATH = paths['Save_DedicatedSaveMP.sav'];
-  if (paths['GameServerSettings.ini']) envUpdates.FTP_SETTINGS_PATH = paths['GameServerSettings.ini'];
-  if (paths['WelcomeMessage.txt']) envUpdates.FTP_WELCOME_PATH = paths['WelcomeMessage.txt'];
+  if (paths['HMZLog.log']) envUpdates.SFTP_LOG_PATH = paths['HMZLog.log'];
+  if (paths['PlayerConnectedLog.txt']) envUpdates.SFTP_CONNECT_LOG_PATH = paths['PlayerConnectedLog.txt'];
+  if (paths['PlayerIDMapped.txt']) envUpdates.SFTP_ID_MAP_PATH = paths['PlayerIDMapped.txt'];
+  if (paths['Save_DedicatedSaveMP.sav']) envUpdates.SFTP_SAVE_PATH = paths['Save_DedicatedSaveMP.sav'];
+  if (paths['GameServerSettings.ini']) envUpdates.SFTP_SETTINGS_PATH = paths['GameServerSettings.ini'];
+  if (paths['WelcomeMessage.txt']) envUpdates.SFTP_WELCOME_PATH = paths['WelcomeMessage.txt'];
 
   // VPS fallback: if SFTP file search found nothing but we detected a local server,
   // construct paths from the known server root (SFTP sees the same filesystem)
   if (Object.keys(paths).length === 0 && wiz.localDetected?.serverRoot) {
     const root = wiz.localDetected.serverRoot;
-    envUpdates.FTP_SETTINGS_PATH = `${root}/GameServerSettings.ini`;
-    envUpdates.FTP_ID_MAP_PATH = `${root}/PlayerIDMapped.txt`;
-    envUpdates.FTP_SAVE_PATH = `${root}/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav`;
-    envUpdates.FTP_WELCOME_PATH = `${root}/WelcomeMessage.txt`;
-    // Log path — LogWatcher derives HZLogs/ from ftpLogPath's parent directory
-    envUpdates.FTP_LOG_PATH = `${root}/HMZLog.log`;
-    envUpdates.FTP_CONNECT_LOG_PATH = `${root}/PlayerConnectedLog.txt`;
+    envUpdates.SFTP_SETTINGS_PATH = `${root}/GameServerSettings.ini`;
+    envUpdates.SFTP_ID_MAP_PATH = `${root}/PlayerIDMapped.txt`;
+    envUpdates.SFTP_SAVE_PATH = `${root}/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav`;
+    envUpdates.SFTP_WELCOME_PATH = `${root}/WelcomeMessage.txt`;
+    // Log path — LogWatcher derives HZLogs/ from sftpLogPath's parent directory
+    envUpdates.SFTP_LOG_PATH = `${root}/HMZLog.log`;
+    envUpdates.SFTP_CONNECT_LOG_PATH = `${root}/PlayerConnectedLog.txt`;
   }
 
   // Auto-detect base path from discovered files
@@ -1097,7 +1097,7 @@ async function _handleSetupApply(interaction) {
   if (allPaths.length > 0) {
     const common = _findCommonParent(allPaths);
     if (common && common !== '/') {
-      envUpdates.FTP_BASE_PATH = common;
+      envUpdates.SFTP_BASE_PATH = common;
     }
   }
 
@@ -1140,18 +1140,18 @@ async function _handleSetupApply(interaction) {
       if (envUpdates.RCON_PORT) serverPatch.rconPort = parseInt(envUpdates.RCON_PORT, 10) || envUpdates.RCON_PORT;
       if (envUpdates.RCON_PASSWORD) serverPatch.rconPassword = envUpdates.RCON_PASSWORD;
       if (envUpdates.GAME_PORT) serverPatch.gamePort = envUpdates.GAME_PORT;
-      if (envUpdates.FTP_HOST) serverPatch.ftpHost = envUpdates.FTP_HOST;
-      if (envUpdates.FTP_PORT) serverPatch.ftpPort = parseInt(envUpdates.FTP_PORT, 10) || envUpdates.FTP_PORT;
-      if (envUpdates.FTP_USER) serverPatch.ftpUser = envUpdates.FTP_USER;
-      if (envUpdates.FTP_PASSWORD) serverPatch.ftpPassword = envUpdates.FTP_PASSWORD;
-      if (envUpdates.FTP_PRIVATE_KEY_PATH) serverPatch.ftpPrivateKeyPath = envUpdates.FTP_PRIVATE_KEY_PATH;
-      if (envUpdates.FTP_BASE_PATH) serverPatch.ftpBasePath = envUpdates.FTP_BASE_PATH;
-      if (envUpdates.FTP_LOG_PATH) serverPatch.ftpLogPath = envUpdates.FTP_LOG_PATH;
-      if (envUpdates.FTP_CONNECT_LOG_PATH) serverPatch.ftpConnectLogPath = envUpdates.FTP_CONNECT_LOG_PATH;
-      if (envUpdates.FTP_ID_MAP_PATH) serverPatch.ftpIdMapPath = envUpdates.FTP_ID_MAP_PATH;
-      if (envUpdates.FTP_SAVE_PATH) serverPatch.ftpSavePath = envUpdates.FTP_SAVE_PATH;
-      if (envUpdates.FTP_SETTINGS_PATH) serverPatch.ftpSettingsPath = envUpdates.FTP_SETTINGS_PATH;
-      if (envUpdates.FTP_WELCOME_PATH) serverPatch.ftpWelcomePath = envUpdates.FTP_WELCOME_PATH;
+      if (envUpdates.SFTP_HOST) serverPatch.sftpHost = envUpdates.SFTP_HOST;
+      if (envUpdates.SFTP_PORT) serverPatch.sftpPort = parseInt(envUpdates.SFTP_PORT, 10) || envUpdates.SFTP_PORT;
+      if (envUpdates.SFTP_USER) serverPatch.sftpUser = envUpdates.SFTP_USER;
+      if (envUpdates.SFTP_PASSWORD) serverPatch.sftpPassword = envUpdates.SFTP_PASSWORD;
+      if (envUpdates.SFTP_PRIVATE_KEY_PATH) serverPatch.sftpPrivateKeyPath = envUpdates.SFTP_PRIVATE_KEY_PATH;
+      if (envUpdates.SFTP_BASE_PATH) serverPatch.sftpBasePath = envUpdates.SFTP_BASE_PATH;
+      if (envUpdates.SFTP_LOG_PATH) serverPatch.sftpLogPath = envUpdates.SFTP_LOG_PATH;
+      if (envUpdates.SFTP_CONNECT_LOG_PATH) serverPatch.sftpConnectLogPath = envUpdates.SFTP_CONNECT_LOG_PATH;
+      if (envUpdates.SFTP_ID_MAP_PATH) serverPatch.sftpIdMapPath = envUpdates.SFTP_ID_MAP_PATH;
+      if (envUpdates.SFTP_SAVE_PATH) serverPatch.sftpSavePath = envUpdates.SFTP_SAVE_PATH;
+      if (envUpdates.SFTP_SETTINGS_PATH) serverPatch.sftpSettingsPath = envUpdates.SFTP_SETTINGS_PATH;
+      if (envUpdates.SFTP_WELCOME_PATH) serverPatch.sftpWelcomePath = envUpdates.SFTP_WELCOME_PATH;
       if (envUpdates.PANEL_SERVER_URL) serverPatch.panelServerUrl = envUpdates.PANEL_SERVER_URL;
       if (envUpdates.PANEL_API_KEY) serverPatch.panelApiKey = envUpdates.PANEL_API_KEY;
       // Channel IDs are server-scoped (per _SERVER_CHANNEL_SUFFIXES)

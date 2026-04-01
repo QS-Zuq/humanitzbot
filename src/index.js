@@ -237,8 +237,8 @@ function setStatus(name, status) {
   if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
 }
 
-function hasFtp() {
-  return !!(config.ftpHost && config.ftpUser && (config.ftpPassword || config.ftpPrivateKeyPath));
+function hasSftp() {
+  return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
 /**
@@ -307,7 +307,6 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   console.log('[BOT] Ready!');
 
-  // ── Early DB init + config hydration (BEFORE any needsSetup check) ──
   // Initialize SQLite database + seed game reference data
   db = new HumanitZDB();
   db.init();
@@ -354,7 +353,6 @@ client.once(Events.ClientReady, async (readyClient) => {
     }
   }
 
-  // Hydrate config with DB-backed values (before any needsSetup check)
   config.hydrate(configRepo);
   config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
 
@@ -379,17 +377,15 @@ client.once(Events.ClientReady, async (readyClient) => {
     } catch (_) {}
   }, 60000);
 
-  // ── config is now fully hydrated — safe to check needsSetup ──
-
   // Connect to RCON (non-fatal — auto-reconnect handles recovery)
-  if (!config.needsSetup) {
+  if (config.rconHost && config.rconPassword && !config.rconPassword.startsWith('your_')) {
     try {
       await rcon.connect();
     } catch (err) {
       console.warn(`[BOT] Initial RCON connection failed: ${err.message} — will auto-reconnect`);
     }
   } else {
-    console.log('[BOT] RCON not configured — skipping initial connection (setup wizard will handle)');
+    console.log('[BOT] RCON not configured — skipping initial connection');
   }
 
   // ── RCON lifecycle events — log game server restarts ──
@@ -420,8 +416,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Bot profile status (presence/activity) — rotates live players + feature highlights
   botStatusManager = createBotStatusManager(readyClient, {
     refreshMs: parseInt(process.env.BOT_PROFILE_STATUS_INTERVAL, 10) || 30000,
-    isSetupMode: () => config.needsSetup,
-    getHasFtp: () => hasFtp(),
+    getHasSftp: () => hasSftp(),
     getPanelAvailable: () => panelApi.available,
     getWebMapEnabled: () => !!parseInt(process.env.WEB_MAP_PORT, 10),
     getModuleStatus: () => moduleStatus,
@@ -577,545 +572,526 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // ── Start modules with dependency checks ──────────────────
 
-  if (config.needsSetup) {
-    // Minimal boot — only Panel Channel starts so the setup wizard can run.
-    // All other modules are skipped until RCON/SFTP are configured.
-    console.log('[BOT] Setup wizard mode — RCON/SFTP not configured. Only the panel channel will start.');
-    setStatus('Setup Wizard', '🟡 Awaiting configuration via panel channel');
+  // Status Channels — voice channel dashboard
+  if (config.enableStatusChannels) {
+    const categoryHint = config.serverName || '';
+    statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
+    await statusChannels.start();
+    setStatus('Status Channels', '🟢 Active');
+  } else {
+    setStatus('Status Channels', '⚫ Disabled');
+    console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
+  }
 
+  // Server Status — live embed in a text channel
+  if (config.enableServerStatus) {
+    if (!config.serverStatusChannelId) {
+      setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
+      console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
+    } else {
+      serverStatus = new ServerStatus(readyClient, { db });
+      await serverStatus.start();
+      setStatus('Server Status', '🟢 Active');
+    }
+  } else {
+    setStatus('Server Status', '⚫ Disabled');
+    console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
+  }
+
+  // Log Watcher — SFTP log parsing + daily activity threads
+  // Started BEFORE Chat Relay so activity thread appears first in channel
+  if (config.enableLogWatcher) {
+    if (!hasSftp()) {
+      setStatus('Log Watcher', '🟡 Skipped (SFTP credentials not set)');
+      console.log('[BOT] Log watcher skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+    } else if (!config.logChannelId) {
+      setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
+      console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
+    } else {
+      logWatcher = new LogWatcher(readyClient, {
+        db,
+        dataDir: path.resolve(__dirname, '..'),
+        panelApi: panelApi.available ? panelApi : null,
+      });
+      await logWatcher.start();
+      setStatus('Log Watcher', '🟢 Active');
+    }
+  } else {
+    setStatus('Log Watcher', '⚫ Disabled');
+    console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
+  }
+
+  // Chat Relay — bidirectional chat bridge
+  if (config.enableChatRelay) {
+    if (!config.adminChannelId && !config.chatChannelId) {
+      setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
+      console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
+    } else {
+      chatRelay = new ChatRelay(readyClient, { db });
+      if (config.nukeBot) chatRelay._nukeActive = true;
+      // If LogWatcher handles activity threads, coordinate day-rollover ordering
+      if (logWatcher) {
+        chatRelay._awaitActivityThread = true;
+        logWatcher._dayRolloverCb = async () => {
+          try {
+            await chatRelay.createDailyThread();
+          } catch (e) {
+            console.warn('[BOT] Day-rollover chat thread error:', e.message);
+          }
+        };
+      }
+      await chatRelay.start();
+      setStatus('Chat Relay', '🟢 Active');
+    }
+  } else {
+    setStatus('Chat Relay', '⚫ Disabled');
+    console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
+  }
+
+  // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
+  presenceTracker = new PlayerPresenceTracker({
+    config,
+    playtime,
+    getPlayerList,
+    label: 'PRESENCE',
+  });
+  try {
+    await presenceTracker.start();
+  } catch (err) {
+    console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
+  }
+
+  // Auto-Messages — periodic broadcasts + join welcome
+  const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
+  if (hasAnyAutoMsg) {
+    autoMessages = new AutoMessages({
+      config,
+      presenceTracker,
+      playtime,
+      playerStats,
+      getServerInfo,
+      sendAdminMessage,
+      db,
+      label: 'AUTO MSG',
+    });
+    await autoMessages.start();
+    setStatus('Auto-Messages', '🟢 Active');
+  } else {
+    setStatus('Auto-Messages', '⚫ Disabled');
+    console.log('[AUTO MSG] All message features disabled — skipping');
+  }
+
+  // Kill Feed — sub-feature of Log Watcher
+  if (config.enableKillFeed) {
+    if (!logWatcher) {
+      setStatus('Kill Feed', '🟡 Skipped (requires Log Watcher)');
+    } else {
+      setStatus('Kill Feed', '🟢 Active');
+    }
+  } else {
+    setStatus('Kill Feed', '⚫ Disabled');
+  }
+
+  // PvP Kill Feed — sub-feature of Log Watcher
+  if (config.enablePvpKillFeed) {
+    if (!logWatcher) {
+      setStatus('PvP Kill Feed', '🟡 Skipped (requires Log Watcher)');
+    } else {
+      setStatus('PvP Kill Feed', '🟢 Active');
+    }
+  } else {
+    setStatus('PvP Kill Feed', '⚫ Disabled');
+  }
+
+  // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
+  if (hasSftp() || panelApi.available) {
+    saveService = new SaveService(db, {
+      sftpConfig: hasSftp() ? config.sftpConnectConfig() : null,
+      savePath: config.sftpSavePath,
+      clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
+      pollInterval: config.savePollInterval,
+      agentMode: config.agentMode,
+      agentNodePath: config.agentNodePath,
+      agentRemoteDir: config.agentRemoteDir,
+      agentCachePath: config.agentCachePath,
+      agentTimeout: config.agentTimeout,
+      agentTrigger: config.agentTrigger,
+      agentPanelCommand: config.agentPanelCommand,
+      agentPanelDelay: config.agentPanelDelay,
+      panelApi: panelApi.available ? panelApi : null,
+    });
+    saveService.on('sync', (result) => {
+      console.log(
+        `[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
+      );
+      // save-cache.json is now written inside SaveService._syncParsedData()
+    });
+    saveService.on('error', (err) => {
+      console.error('[BOT] Save service error:', err.message);
+    });
+    await saveService.start();
+    if (webMapServer) webMapServer.setSaveService(saveService);
+    const saveSource = hasSftp() ? '' : ' via Panel API';
+    setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode${saveSource})`);
+
+    // Wire LogWatcher → SaveService ID map sharing
+    if (logWatcher) {
+      logWatcher._onIdMapRefresh = (idMap) => saveService.setIdMap(idMap);
+    }
+
+    // ── Snapshot Service — timeline recording on every save sync ──
+    snapshotService = new SnapshotService(db, {
+      retentionDays: parseInt(process.env.TIMELINE_RETENTION_DAYS, 10) || 14,
+      trackStructures: process.env.TIMELINE_TRACK_STRUCTURES !== 'false',
+      trackHouses: process.env.TIMELINE_TRACK_HOUSES !== 'false',
+      trackBackpacks: process.env.TIMELINE_TRACK_BACKPACKS !== 'false',
+    });
+    saveService.on('sync', async (result) => {
+      if (!result.parsed) return;
+      try {
+        // Build online player set from RCON if available
+        const onlinePlayers = new Set();
+        try {
+          const { getPlayerList } = require('./rcon/server-info');
+          const list = await getPlayerList();
+          const arr = list?.players || (Array.isArray(list) ? list : []);
+          for (const p of arr) {
+            if (p.name) onlinePlayers.add(p.name.toLowerCase());
+          }
+        } catch {
+          /* RCON unavailable — online player set will be empty for this snapshot */
+        }
+
+        snapshotService.recordSnapshot(
+          {
+            players: result.parsed.players,
+            worldState: result.worldState,
+            vehicles: result.parsed.vehicles,
+            structures: result.parsed.structures,
+            containers: result.parsed.containers,
+            companions: result.parsed.companions,
+            horses: result.parsed.horses,
+          },
+          { onlinePlayers },
+        );
+      } catch (err) {
+        console.error('[BOT] Snapshot recording error:', err.message);
+      }
+    });
+    setStatus('Timeline', '🟢 Active');
+  } else {
+    setStatus('Save Service', '🟡 Skipped (no SFTP credentials or Panel API)');
+    setStatus('Timeline', '🟡 Skipped (requires Save Service)');
+  }
+
+  // Activity Log — save-file change tracking feed
+  if (config.enableActivityLog) {
+    if (!saveService) {
+      setStatus('Activity Log', '🟡 Skipped (requires Save Service)');
+    } else {
+      activityLog = new ActivityLog(readyClient, { db, saveService, logWatcher });
+      await activityLog.start();
+      setStatus('Activity Log', '🟢 Active');
+    }
+  } else {
+    setStatus('Activity Log', '⚫ Disabled');
+  }
+
+  // Milestone Tracker — player achievement announcements
+  if (config.enableMilestones) {
+    if (!db) {
+      setStatus('Milestones', '🟡 Skipped (no database)');
+    } else {
+      milestoneTracker = new MilestoneTracker(readyClient, { db, logWatcher, config });
+      // Check milestones on every save sync
+      if (saveService) {
+        saveService.on('sync', (result) => {
+          milestoneTracker.check(result).catch((err) => {
+            console.error('[BOT] Milestone check error:', err.message);
+          });
+        });
+      }
+      // Wire death events from LogWatcher to reset survival streaks
+      if (logWatcher) {
+        const origOnDeath = logWatcher._onDeath.bind(logWatcher);
+        logWatcher._onDeath = function (playerName, timestamp) {
+          origOnDeath(playerName, timestamp);
+          const steamId = playerStats.getSteamId(playerName);
+          if (steamId) milestoneTracker.onPlayerDeath(steamId);
+        };
+      }
+      setStatus('Milestones', '🟢 Active');
+    }
+  } else {
+    setStatus('Milestones', '⚫ Disabled');
+    console.log('[BOT] Milestones disabled via ENABLE_MILESTONES=false');
+  }
+
+  // Recap Service — daily/weekly summary embeds
+  if (config.enableRecaps) {
+    if (!db) {
+      setStatus('Recaps', '🟡 Skipped (no database)');
+    } else {
+      recapService = new RecapService(readyClient, { db, logWatcher, config, playtime });
+      // Chain into LogWatcher day-rollover callback
+      if (logWatcher) {
+        const prevCb = logWatcher._dayRolloverCb;
+        logWatcher._dayRolloverCb = async () => {
+          if (typeof prevCb === 'function') await prevCb();
+          const yesterday = recapService._getYesterday();
+          await recapService.onDayRollover(yesterday);
+        };
+      }
+      setStatus('Recaps', '🟢 Active');
+    }
+  } else {
+    setStatus('Recaps', '⚫ Disabled');
+    console.log('[BOT] Recaps disabled via ENABLE_RECAPS=false');
+  }
+
+  // Anticheat — observation-only anomaly detection (optional private package)
+  if (config.enableAnticheat && AnticheatIntegration) {
+    if (!db) {
+      setStatus('Anticheat', '🟡 Skipped (no database)');
+    } else {
+      anticheatIntegration = new AnticheatIntegration({ db, config, logWatcher });
+      await anticheatIntegration.start();
+      if (anticheatIntegration.available) {
+        // Wire into save sync for real-time analysis
+        if (saveService) {
+          saveService.on('sync', (result) => {
+            anticheatIntegration.onSaveSync(result).catch((err) => {
+              console.error('[BOT] Anticheat save sync error:', err.message);
+            });
+          });
+        }
+        setStatus('Anticheat', '🟢 Active');
+      } else {
+        setStatus('Anticheat', '🟡 Package not installed');
+      }
+    }
+  } else {
+    setStatus('Anticheat', '⚫ Disabled');
+  }
+
+  // HOWYAGARN MMO — faction PvP / territory control system
+  if (config.enableHowyagarn) {
+    if (!HowyagarnManager) {
+      setStatus('HOWYAGARN', '🟡 Skipped (module not installed)');
+    } else if (!db) {
+      setStatus('HOWYAGARN', '🟡 Skipped (no database)');
+    } else {
+      try {
+        // Create shared IPC client for engine communication
+        if (HzmodIpcClient && config.hzmodSocketPath) {
+          hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
+          hzmodIpc.on('connect', () => console.log('[BOT] hzmod IPC connected'));
+          hzmodIpc.on('disconnect', () => console.log('[BOT] hzmod IPC disconnected — will reconnect'));
+          hzmodIpc.on('error', (err) => console.error('[BOT] hzmod IPC error:', err.message));
+          hzmodIpc.connect();
+          console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
+        }
+
+        howyagarnManager = new HowyagarnManager({
+          db,
+          client: readyClient,
+          rcon,
+          chatRelay,
+          config,
+          ipc: hzmodIpc || null,
+        });
+        howyagarnManager.init();
+
+        // Expose on client so slash commands can access it via interaction.client._howyagarnManager
+        readyClient._howyagarnManager = howyagarnManager;
+
+        // Wire save-sync events
+        if (saveService) {
+          saveService.on('sync', (result) => {
+            try {
+              if (!result.parsed) return;
+              const players = [];
+              const playerMap =
+                result.parsed.players instanceof Map
+                  ? result.parsed.players
+                  : new Map(Object.entries(result.parsed.players || {}));
+              for (const [steamId, pData] of playerMap) {
+                players.push({
+                  steamId,
+                  name: pData.name || pData.playerName || '',
+                  x: pData.posX || pData.x || 0,
+                  y: pData.posY || pData.y || 0,
+                  deltaZeeksKilled: pData.deltaZeeksKilled || 0,
+                  deltaNpcKills: pData.deltaNpcKills || 0,
+                  deltaAnimalKills: pData.deltaAnimalKills || 0,
+                  deltaFishCaught: pData.deltaFishCaught || 0,
+                  deltaDaysSurvived: pData.deltaDaysSurvived || 0,
+                });
+              }
+              const structures = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
+              howyagarnManager.onSaveSync({ players, structures });
+            } catch (err) {
+              console.error('[BOT] HOWYAGARN save sync error:', err.message);
+            }
+          });
+        }
+
+        // Wire log events (PvP deaths, builds, looting)
+        if (logWatcher) {
+          const origLogEvent = logWatcher._logEvent?.bind(logWatcher);
+          if (origLogEvent) {
+            logWatcher._logEvent = function (type, data) {
+              origLogEvent(type, data);
+              try {
+                howyagarnManager.onLogEvent(type, data);
+              } catch (err) {
+                console.error('[BOT] howyagarnManager.onLogEvent error:', err.message);
+              }
+            };
+          }
+          // Wire connect events
+          const origOnConnect = logWatcher._onPlayerConnect?.bind(logWatcher);
+          if (origOnConnect) {
+            logWatcher._onPlayerConnect = function (playerName, steamId) {
+              origOnConnect(playerName, steamId);
+              try {
+                howyagarnManager.onPlayerConnect(steamId, playerName);
+              } catch (err) {
+                console.error('[BOT] howyagarnManager.onPlayerConnect error:', err.message);
+              }
+            };
+          }
+        }
+
+        setStatus('HOWYAGARN', '🟢 Active');
+        console.log('[BOT] HOWYAGARN MMO system active');
+      } catch (err) {
+        setStatus('HOWYAGARN', `⚠️ Failed: ${err.message}`);
+        console.error('[BOT] HOWYAGARN init failed:', err.message);
+      }
+    }
+  } else {
+    setStatus('HOWYAGARN', '⚫ Disabled');
+  }
+
+  // Player Stats — DB-first reads (SaveService populates DB, PSC reads it)
+  if (config.enablePlayerStats) {
+    if (!hasSftp() && !panelApi.available && !db) {
+      setStatus('Player Stats', '🟡 Skipped (no SFTP, Panel API, or database)');
+      console.log('[BOT] Player stats skipped — no SFTP, Panel API, or database available');
+    } else if (!config.playerStatsChannelId) {
+      setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
+      console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
+    } else {
+      playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
+        db,
+        panelApi: panelApi.available ? panelApi : null,
+      });
+      await playerStatsChannel.start();
+      const mode = db ? 'DB-first' : 'SFTP legacy';
+      setStatus('Player Stats', `🟢 Active (${mode})`);
+      if (!logWatcher) {
+        setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
+      }
+    }
+  } else {
+    setStatus('Player Stats', '⚫ Disabled');
+    console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
+  }
+
+  // PvP Scheduler — SFTP-based PvP toggling on a schedule
+  if (config.enablePvpScheduler) {
+    if (!hasSftp()) {
+      setStatus('PvP Scheduler', '🟡 Skipped (SFTP credentials not set)');
+      console.log('[BOT] PvP scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+    } else if (isNaN(config.pvpStartMinutes) || isNaN(config.pvpEndMinutes)) {
+      setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
+      console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
+    } else {
+      pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+      await pvpScheduler.start();
+      setStatus('PvP Scheduler', '🟢 Active');
+      if (!logWatcher) {
+        setStatus('PvP Scheduler', '🟢 Active (activity log announcements unavailable — Log Watcher off)');
+      }
+    }
+  } else {
+    setStatus('PvP Scheduler', '⚫ Disabled');
+    console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
+  }
+
+  // Server Scheduler — timed restarts with dynamic difficulty profiles
+  if (config.enableServerScheduler) {
+    if (!hasSftp()) {
+      setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
+      console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+    } else {
+      serverScheduler = new ServerScheduler(readyClient, logWatcher);
+      await serverScheduler.start();
+      if (webMapServer) webMapServer.setScheduler(serverScheduler);
+      const status = serverScheduler.getStatus();
+      const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
+      setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
+    }
+  } else {
+    setStatus('Server Scheduler', '⚫ Disabled');
+    console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
+  }
+
+  // ── Multi-server manager (independent of Panel) ──────────
+  multiServerManager = new MultiServerManager(readyClient, { configRepo });
+  await multiServerManager.startAll();
+  if (webMapServer) {
+    webMapServer.setMultiServerManager(multiServerManager);
+    // Register hzmod web plugin now that multiServerManager is available
+    if (hzmodWebPlugin) {
+      try {
+        hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc || null });
+        // Pass HowyagarnManager to web plugin for MMO API endpoints
+        if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
+      } catch (err) {
+        console.error('[BOT] hzmod plugin registration failed:', err.message);
+      }
+    }
+  }
+
+  // ── BotControlService (used by both Panel and Web) ───────
+  const BotControlService = require('./server/bot-control');
+  const botControl = new BotControlService({ exit: (code) => process.exit(code) });
+  if (webMapServer) webMapServer.setBotControl(botControl);
+
+  // ── Panel — admin dashboard channel ──────────────────────
+  if (config.enablePanel) {
     if (config.panelChannelId) {
       panelChannel = new PanelChannel(readyClient, {
         moduleStatus,
         startedAt,
-        multiServerManager: null,
+        multiServerManager,
         db,
-        saveService: null,
-        logWatcher: null,
+        saveService,
+        logWatcher,
         configRepo,
+        botControl,
       });
       await panelChannel.start();
+    }
+    if (config.needsSetup) {
+      setStatus('Panel', '🟡 Limited (RCON not configured — run: npm run setup)');
+    } else if (panelApi.available) {
+      const channelNote = config.panelChannelId ? 'channel + ' : '';
+      setStatus('Panel', `🟢 Active (${channelNote}/qspanel command)`);
+      console.log(`[BOT] Panel API available — ${channelNote}/qspanel command active`);
+    } else if (config.panelChannelId) {
+      setStatus('Panel', '🟢 Active (channel only)');
+      console.log('[BOT] Panel channel active (bot controls + env editor). Panel API not configured.');
     } else {
-      console.error('[BOT] Cannot start setup wizard — PANEL_CHANNEL_ID not set.');
-      console.error('      Set PANEL_CHANNEL_ID in .env to a text channel ID where the bot has');
-      console.error('      Send Messages + Manage Messages permissions, then restart the bot.');
-      console.error('      The setup wizard will guide you through configuring RCON and SFTP.');
+      setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY or PANEL_CHANNEL_ID)');
+      console.log('[BOT] Panel skipped — no API credentials or channel configured');
     }
   } else {
-    // Status Channels — voice channel dashboard
-    if (config.enableStatusChannels) {
-      const categoryHint = config.serverName || '';
-      statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
-      await statusChannels.start();
-      setStatus('Status Channels', '🟢 Active');
-    } else {
-      setStatus('Status Channels', '⚫ Disabled');
-      console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
-    }
-
-    // Server Status — live embed in a text channel
-    if (config.enableServerStatus) {
-      if (!config.serverStatusChannelId) {
-        setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
-        console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
-      } else {
-        serverStatus = new ServerStatus(readyClient, { db });
-        await serverStatus.start();
-        setStatus('Server Status', '🟢 Active');
-      }
-    } else {
-      setStatus('Server Status', '⚫ Disabled');
-      console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
-    }
-
-    // Log Watcher — SFTP log parsing + daily activity threads
-    // Started BEFORE Chat Relay so activity thread appears first in channel
-    if (config.enableLogWatcher) {
-      if (!hasFtp()) {
-        setStatus('Log Watcher', '🟡 Skipped (FTP credentials not set)');
-        console.log('[BOT] Log watcher skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
-      } else if (!config.logChannelId) {
-        setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
-        console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
-      } else {
-        logWatcher = new LogWatcher(readyClient, {
-          db,
-          dataDir: path.resolve(__dirname, '..'),
-          panelApi: panelApi.available ? panelApi : null,
-        });
-        await logWatcher.start();
-        setStatus('Log Watcher', '🟢 Active');
-      }
-    } else {
-      setStatus('Log Watcher', '⚫ Disabled');
-      console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
-    }
-
-    // Chat Relay — bidirectional chat bridge
-    if (config.enableChatRelay) {
-      if (!config.adminChannelId && !config.chatChannelId) {
-        setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
-        console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
-      } else {
-        chatRelay = new ChatRelay(readyClient, { db });
-        if (config.nukeBot) chatRelay._nukeActive = true;
-        // If LogWatcher handles activity threads, coordinate day-rollover ordering
-        if (logWatcher) {
-          chatRelay._awaitActivityThread = true;
-          logWatcher._dayRolloverCb = async () => {
-            try {
-              await chatRelay.createDailyThread();
-            } catch (e) {
-              console.warn('[BOT] Day-rollover chat thread error:', e.message);
-            }
-          };
-        }
-        await chatRelay.start();
-        setStatus('Chat Relay', '🟢 Active');
-      }
-    } else {
-      setStatus('Chat Relay', '⚫ Disabled');
-      console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
-    }
-
-    // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
-    presenceTracker = new PlayerPresenceTracker({
-      config,
-      playtime,
-      getPlayerList,
-      label: 'PRESENCE',
-    });
-    try {
-      await presenceTracker.start();
-    } catch (err) {
-      console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
-    }
-
-    // Auto-Messages — periodic broadcasts + join welcome
-    const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
-    if (hasAnyAutoMsg) {
-      autoMessages = new AutoMessages({
-        config,
-        presenceTracker,
-        playtime,
-        playerStats,
-        getServerInfo,
-        sendAdminMessage,
-        db,
-        label: 'AUTO MSG',
-      });
-      await autoMessages.start();
-      setStatus('Auto-Messages', '🟢 Active');
-    } else {
-      setStatus('Auto-Messages', '⚫ Disabled');
-      console.log('[AUTO MSG] All message features disabled — skipping');
-    }
-
-    // Kill Feed — sub-feature of Log Watcher
-    if (config.enableKillFeed) {
-      if (!logWatcher) {
-        setStatus('Kill Feed', '🟡 Skipped (requires Log Watcher)');
-      } else {
-        setStatus('Kill Feed', '🟢 Active');
-      }
-    } else {
-      setStatus('Kill Feed', '⚫ Disabled');
-    }
-
-    // PvP Kill Feed — sub-feature of Log Watcher
-    if (config.enablePvpKillFeed) {
-      if (!logWatcher) {
-        setStatus('PvP Kill Feed', '🟡 Skipped (requires Log Watcher)');
-      } else {
-        setStatus('PvP Kill Feed', '🟢 Active');
-      }
-    } else {
-      setStatus('PvP Kill Feed', '⚫ Disabled');
-    }
-
-    // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
-    if (hasFtp() || panelApi.available) {
-      saveService = new SaveService(db, {
-        sftpConfig: hasFtp() ? config.sftpConnectConfig() : null,
-        savePath: config.ftpSavePath,
-        clanSavePath: config.ftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
-        pollInterval: config.savePollInterval,
-        agentMode: config.agentMode,
-        agentNodePath: config.agentNodePath,
-        agentRemoteDir: config.agentRemoteDir,
-        agentCachePath: config.agentCachePath,
-        agentTimeout: config.agentTimeout,
-        agentTrigger: config.agentTrigger,
-        agentPanelCommand: config.agentPanelCommand,
-        agentPanelDelay: config.agentPanelDelay,
-        panelApi: panelApi.available ? panelApi : null,
-      });
-      saveService.on('sync', (result) => {
-        console.log(
-          `[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
-        );
-        // save-cache.json is now written inside SaveService._syncParsedData()
-      });
-      saveService.on('error', (err) => {
-        console.error('[BOT] Save service error:', err.message);
-      });
-      await saveService.start();
-      if (webMapServer) webMapServer.setSaveService(saveService);
-      const saveSource = hasFtp() ? '' : ' via Panel API';
-      setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode${saveSource})`);
-
-      // Wire LogWatcher → SaveService ID map sharing
-      if (logWatcher) {
-        logWatcher._onIdMapRefresh = (idMap) => saveService.setIdMap(idMap);
-      }
-
-      // ── Snapshot Service — timeline recording on every save sync ──
-      snapshotService = new SnapshotService(db, {
-        retentionDays: parseInt(process.env.TIMELINE_RETENTION_DAYS, 10) || 14,
-        trackStructures: process.env.TIMELINE_TRACK_STRUCTURES !== 'false',
-        trackHouses: process.env.TIMELINE_TRACK_HOUSES !== 'false',
-        trackBackpacks: process.env.TIMELINE_TRACK_BACKPACKS !== 'false',
-      });
-      saveService.on('sync', async (result) => {
-        if (!result.parsed) return;
-        try {
-          // Build online player set from RCON if available
-          const onlinePlayers = new Set();
-          try {
-            const { getPlayerList } = require('./rcon/server-info');
-            const list = await getPlayerList();
-            const arr = list?.players || (Array.isArray(list) ? list : []);
-            for (const p of arr) {
-              if (p.name) onlinePlayers.add(p.name.toLowerCase());
-            }
-          } catch {
-            /* RCON unavailable */
-          }
-
-          snapshotService.recordSnapshot(
-            {
-              players: result.parsed.players,
-              worldState: result.worldState,
-              vehicles: result.parsed.vehicles,
-              structures: result.parsed.structures,
-              containers: result.parsed.containers,
-              companions: result.parsed.companions,
-              horses: result.parsed.horses,
-            },
-            { onlinePlayers },
-          );
-        } catch (err) {
-          console.error('[BOT] Snapshot recording error:', err.message);
-        }
-      });
-      setStatus('Timeline', '🟢 Active');
-    } else {
-      setStatus('Save Service', '🟡 Skipped (no FTP credentials or Panel API)');
-      setStatus('Timeline', '🟡 Skipped (requires Save Service)');
-    }
-
-    // Activity Log — save-file change tracking feed
-    if (config.enableActivityLog) {
-      if (!saveService) {
-        setStatus('Activity Log', '🟡 Skipped (requires Save Service)');
-      } else {
-        activityLog = new ActivityLog(readyClient, { db, saveService, logWatcher });
-        await activityLog.start();
-        setStatus('Activity Log', '🟢 Active');
-      }
-    } else {
-      setStatus('Activity Log', '⚫ Disabled');
-    }
-
-    // Milestone Tracker — player achievement announcements
-    if (config.enableMilestones) {
-      if (!db) {
-        setStatus('Milestones', '🟡 Skipped (no database)');
-      } else {
-        milestoneTracker = new MilestoneTracker(readyClient, { db, logWatcher, config });
-        // Check milestones on every save sync
-        if (saveService) {
-          saveService.on('sync', (result) => {
-            milestoneTracker.check(result).catch((err) => {
-              console.error('[BOT] Milestone check error:', err.message);
-            });
-          });
-        }
-        // Wire death events from LogWatcher to reset survival streaks
-        if (logWatcher) {
-          const origOnDeath = logWatcher._onDeath.bind(logWatcher);
-          logWatcher._onDeath = function (playerName, timestamp) {
-            origOnDeath(playerName, timestamp);
-            const steamId = playerStats.getSteamId(playerName);
-            if (steamId) milestoneTracker.onPlayerDeath(steamId);
-          };
-        }
-        setStatus('Milestones', '🟢 Active');
-      }
-    } else {
-      setStatus('Milestones', '⚫ Disabled');
-      console.log('[BOT] Milestones disabled via ENABLE_MILESTONES=false');
-    }
-
-    // Recap Service — daily/weekly summary embeds
-    if (config.enableRecaps) {
-      if (!db) {
-        setStatus('Recaps', '🟡 Skipped (no database)');
-      } else {
-        recapService = new RecapService(readyClient, { db, logWatcher, config, playtime });
-        // Chain into LogWatcher day-rollover callback
-        if (logWatcher) {
-          const prevCb = logWatcher._dayRolloverCb;
-          logWatcher._dayRolloverCb = async () => {
-            if (typeof prevCb === 'function') await prevCb();
-            const yesterday = recapService._getYesterday();
-            await recapService.onDayRollover(yesterday);
-          };
-        }
-        setStatus('Recaps', '🟢 Active');
-      }
-    } else {
-      setStatus('Recaps', '⚫ Disabled');
-      console.log('[BOT] Recaps disabled via ENABLE_RECAPS=false');
-    }
-
-    // Anticheat — observation-only anomaly detection (optional private package)
-    if (config.enableAnticheat && AnticheatIntegration) {
-      if (!db) {
-        setStatus('Anticheat', '🟡 Skipped (no database)');
-      } else {
-        anticheatIntegration = new AnticheatIntegration({ db, config, logWatcher });
-        await anticheatIntegration.start();
-        if (anticheatIntegration.available) {
-          // Wire into save sync for real-time analysis
-          if (saveService) {
-            saveService.on('sync', (result) => {
-              anticheatIntegration.onSaveSync(result).catch((err) => {
-                console.error('[BOT] Anticheat save sync error:', err.message);
-              });
-            });
-          }
-          setStatus('Anticheat', '🟢 Active');
-        } else {
-          setStatus('Anticheat', '🟡 Package not installed');
-        }
-      }
-    } else {
-      setStatus('Anticheat', '⚫ Disabled');
-    }
-
-    // HOWYAGARN MMO — faction PvP / territory control system
-    if (config.enableHowyagarn) {
-      if (!HowyagarnManager) {
-        setStatus('HOWYAGARN', '🟡 Skipped (module not installed)');
-      } else if (!db) {
-        setStatus('HOWYAGARN', '🟡 Skipped (no database)');
-      } else {
-        try {
-          // Create shared IPC client for engine communication
-          if (HzmodIpcClient && config.hzmodSocketPath) {
-            hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
-            hzmodIpc.on('connect', () => console.log('[BOT] hzmod IPC connected'));
-            hzmodIpc.on('disconnect', () => console.log('[BOT] hzmod IPC disconnected — will reconnect'));
-            hzmodIpc.on('error', (err) => console.error('[BOT] hzmod IPC error:', err.message));
-            hzmodIpc.connect();
-            console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
-          }
-
-          howyagarnManager = new HowyagarnManager({
-            db,
-            client: readyClient,
-            rcon,
-            chatRelay,
-            config,
-            ipc: hzmodIpc || null,
-          });
-          howyagarnManager.init();
-
-          // Expose on client so slash commands can access it via interaction.client._howyagarnManager
-          readyClient._howyagarnManager = howyagarnManager;
-
-          // Wire save-sync events
-          if (saveService) {
-            saveService.on('sync', (result) => {
-              try {
-                if (!result.parsed) return;
-                const players = [];
-                const playerMap =
-                  result.parsed.players instanceof Map
-                    ? result.parsed.players
-                    : new Map(Object.entries(result.parsed.players || {}));
-                for (const [steamId, pData] of playerMap) {
-                  players.push({
-                    steamId,
-                    name: pData.name || pData.playerName || '',
-                    x: pData.posX || pData.x || 0,
-                    y: pData.posY || pData.y || 0,
-                    deltaZeeksKilled: pData.deltaZeeksKilled || 0,
-                    deltaNpcKills: pData.deltaNpcKills || 0,
-                    deltaAnimalKills: pData.deltaAnimalKills || 0,
-                    deltaFishCaught: pData.deltaFishCaught || 0,
-                    deltaDaysSurvived: pData.deltaDaysSurvived || 0,
-                  });
-                }
-                const structures = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
-                howyagarnManager.onSaveSync({ players, structures });
-              } catch (err) {
-                console.error('[BOT] HOWYAGARN save sync error:', err.message);
-              }
-            });
-          }
-
-          // Wire log events (PvP deaths, builds, looting)
-          if (logWatcher) {
-            const origLogEvent = logWatcher._logEvent?.bind(logWatcher);
-            if (origLogEvent) {
-              logWatcher._logEvent = function (type, data) {
-                origLogEvent(type, data);
-                try {
-                  howyagarnManager.onLogEvent(type, data);
-                } catch (_) {}
-              };
-            }
-            // Wire connect events
-            const origOnConnect = logWatcher._onPlayerConnect?.bind(logWatcher);
-            if (origOnConnect) {
-              logWatcher._onPlayerConnect = function (playerName, steamId) {
-                origOnConnect(playerName, steamId);
-                try {
-                  howyagarnManager.onPlayerConnect(steamId, playerName);
-                } catch (_) {}
-              };
-            }
-          }
-
-          setStatus('HOWYAGARN', '🟢 Active');
-          console.log('[BOT] HOWYAGARN MMO system active');
-        } catch (err) {
-          setStatus('HOWYAGARN', `⚠️ Failed: ${err.message}`);
-          console.error('[BOT] HOWYAGARN init failed:', err.message);
-        }
-      }
-    } else {
-      setStatus('HOWYAGARN', '⚫ Disabled');
-    }
-
-    // Player Stats — DB-first reads (SaveService populates DB, PSC reads it)
-    if (config.enablePlayerStats) {
-      if (!hasFtp() && !panelApi.available && !db) {
-        setStatus('Player Stats', '🟡 Skipped (no FTP, Panel API, or database)');
-        console.log('[BOT] Player stats skipped — no FTP, Panel API, or database available');
-      } else if (!config.playerStatsChannelId) {
-        setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
-        console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
-      } else {
-        playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
-          db,
-          panelApi: panelApi.available ? panelApi : null,
-        });
-        await playerStatsChannel.start();
-        const mode = db ? 'DB-first' : 'SFTP legacy';
-        setStatus('Player Stats', `🟢 Active (${mode})`);
-        if (!logWatcher) {
-          setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
-        }
-      }
-    } else {
-      setStatus('Player Stats', '⚫ Disabled');
-      console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
-    }
-
-    // PvP Scheduler — SFTP-based PvP toggling on a schedule
-    if (config.enablePvpScheduler) {
-      if (!hasFtp()) {
-        setStatus('PvP Scheduler', '🟡 Skipped (FTP credentials not set)');
-        console.log('[BOT] PvP scheduler skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
-      } else if (isNaN(config.pvpStartMinutes) || isNaN(config.pvpEndMinutes)) {
-        setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
-        console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
-      } else {
-        pvpScheduler = new PvpScheduler(readyClient, logWatcher);
-        await pvpScheduler.start();
-        setStatus('PvP Scheduler', '🟢 Active');
-        if (!logWatcher) {
-          setStatus('PvP Scheduler', '🟢 Active (activity log announcements unavailable — Log Watcher off)');
-        }
-      }
-    } else {
-      setStatus('PvP Scheduler', '⚫ Disabled');
-      console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
-    }
-
-    // Server Scheduler — timed restarts with dynamic difficulty profiles
-    if (config.enableServerScheduler) {
-      if (!hasFtp()) {
-        setStatus('Server Scheduler', '🟡 Skipped (FTP credentials not set)');
-        console.log('[BOT] Server scheduler skipped — FTP_HOST/FTP_USER/FTP_PASSWORD not configured');
-      } else {
-        serverScheduler = new ServerScheduler(readyClient, logWatcher);
-        await serverScheduler.start();
-        if (webMapServer) webMapServer.setScheduler(serverScheduler);
-        const status = serverScheduler.getStatus();
-        const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
-        setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
-      }
-    } else {
-      setStatus('Server Scheduler', '⚫ Disabled');
-      console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
-    }
-
-    // ── Multi-server manager (independent of Panel) ──────────
-    multiServerManager = new MultiServerManager(readyClient, { configRepo });
-    await multiServerManager.startAll();
-    if (webMapServer) {
-      webMapServer.setMultiServerManager(multiServerManager);
-      // Register hzmod web plugin now that multiServerManager is available
-      if (hzmodWebPlugin) {
-        try {
-          hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc || null });
-          // Pass HowyagarnManager to web plugin for MMO API endpoints
-          if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
-        } catch (err) {
-          console.error('[BOT] hzmod plugin registration failed:', err.message);
-        }
-      }
-    }
-
-    // ── BotControlService (used by both Panel and Web) ───────
-    const BotControlService = require('./server/bot-control');
-    const botControl = new BotControlService({ exit: (code) => process.exit(code) });
-    if (webMapServer) webMapServer.setBotControl(botControl);
-
-    // ── Panel — admin dashboard channel ──────────────────────
-    if (config.enablePanel) {
-      if (config.panelChannelId) {
-        panelChannel = new PanelChannel(readyClient, {
-          moduleStatus,
-          startedAt,
-          multiServerManager,
-          db,
-          saveService,
-          logWatcher,
-          configRepo,
-          botControl,
-        });
-        await panelChannel.start();
-      }
-      if (panelApi.available) {
-        const channelNote = config.panelChannelId ? 'channel + ' : '';
-        setStatus('Panel', `🟢 Active (${channelNote}/qspanel command)`);
-        console.log(`[BOT] Panel API available — ${channelNote}/qspanel command active`);
-      } else if (config.panelChannelId) {
-        setStatus('Panel', '🟢 Active (bot controls only — no panel API)');
-        console.log('[BOT] Panel channel active (bot controls + env editor). Panel API not configured.');
-      } else {
-        setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY or PANEL_CHANNEL_ID)');
-        console.log('[BOT] Panel skipped — no API credentials or channel configured');
-      }
-    } else {
-      setStatus('Panel', '⚫ Disabled');
-      console.log('[BOT] Panel disabled via ENABLE_PANEL=false');
-    }
-  } // end of !config.needsSetup block
+    setStatus('Panel', '⚫ Disabled');
+    console.log('[BOT] Panel disabled via ENABLE_PANEL=false');
+  }
 
   // ── Stdin console (for headless hosts like Bisect) ──────────
   if (config.enableStdinConsole) {

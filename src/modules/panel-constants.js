@@ -136,12 +136,12 @@ const ENV_CATEGORIES = [
     description: 'SFTP host, credentials, base path (restart)',
     restart: true,
     fields: [
-      { env: 'FTP_HOST', label: 'SFTP Host', cfg: 'ftpHost' },
-      { env: 'FTP_PORT', label: 'SFTP Port', cfg: 'ftpPort', type: 'int' },
-      { env: 'FTP_USER', label: 'SFTP Username', cfg: 'ftpUser' },
-      { env: 'FTP_PASSWORD', label: 'SFTP Password', cfg: 'ftpPassword', sensitive: true },
-      { env: 'FTP_PRIVATE_KEY_PATH', label: 'SSH Private Key Path', cfg: 'ftpPrivateKeyPath', sensitive: true },
-      { env: 'FTP_BASE_PATH', label: 'Base Path Prefix', cfg: 'ftpBasePath' },
+      { env: 'SFTP_HOST', label: 'SFTP Host', cfg: 'sftpHost' },
+      { env: 'SFTP_PORT', label: 'SFTP Port', cfg: 'sftpPort', type: 'int' },
+      { env: 'SFTP_USER', label: 'SFTP Username', cfg: 'sftpUser' },
+      { env: 'SFTP_PASSWORD', label: 'SFTP Password', cfg: 'sftpPassword', sensitive: true },
+      { env: 'SFTP_PRIVATE_KEY_PATH', label: 'SSH Private Key Path', cfg: 'sftpPrivateKeyPath', sensitive: true },
+      { env: 'SFTP_BASE_PATH', label: 'Base Path Prefix', cfg: 'sftpBasePath' },
     ],
   },
   {
@@ -152,11 +152,11 @@ const ENV_CATEGORIES = [
     description: 'Auto-discovered paths — override if needed (restart)',
     restart: true,
     fields: [
-      { env: 'FTP_LOG_PATH', label: 'Log File Path', cfg: 'ftpLogPath' },
-      { env: 'FTP_CONNECT_LOG_PATH', label: 'Player Connect Log', cfg: 'ftpConnectLogPath' },
-      { env: 'FTP_ID_MAP_PATH', label: 'Player ID Map', cfg: 'ftpIdMapPath' },
-      { env: 'FTP_SAVE_PATH', label: 'Save File Path', cfg: 'ftpSavePath' },
-      { env: 'FTP_SETTINGS_PATH', label: 'Settings INI Path', cfg: 'ftpSettingsPath' },
+      { env: 'SFTP_LOG_PATH', label: 'Log File Path', cfg: 'sftpLogPath' },
+      { env: 'SFTP_CONNECT_LOG_PATH', label: 'Player Connect Log', cfg: 'sftpConnectLogPath' },
+      { env: 'SFTP_ID_MAP_PATH', label: 'Player ID Map', cfg: 'sftpIdMapPath' },
+      { env: 'SFTP_SAVE_PATH', label: 'Save File Path', cfg: 'sftpSavePath' },
+      { env: 'SFTP_SETTINGS_PATH', label: 'Settings INI Path', cfg: 'sftpSettingsPath' },
     ],
   },
   {
@@ -228,7 +228,7 @@ const ENV_CATEGORIES = [
       { env: 'ENABLE_WELCOME_FILE', label: 'Welcome File SFTP (true/false)', cfg: 'enableWelcomeFile', type: 'bool' },
       { env: 'AUTO_MSG_LINK_TEXT', label: 'Custom Link Broadcast', cfg: 'autoMsgLinkText' },
       { env: 'AUTO_MSG_PROMO_TEXT', label: 'Custom Promo Broadcast', cfg: 'autoMsgPromoText' },
-      { env: 'FTP_WELCOME_PATH', label: 'Welcome File Path', cfg: 'ftpWelcomePath' },
+      { env: 'SFTP_WELCOME_PATH', label: 'Welcome File Path', cfg: 'sftpWelcomePath' },
     ],
   },
   {
@@ -560,7 +560,7 @@ const ENV_CATEGORIES = [
       { env: 'USE_ACTIVITY_THREADS', label: 'Activity Threads (true/false)', cfg: 'useActivityThreads', type: 'bool' },
       { env: 'SHOW_MOST_FISH', label: 'Most Fish Board (true/false)', cfg: 'showMostFish', type: 'bool' },
       { env: 'WEEKLY_RESET_DAY', label: 'Weekly Reset (0=Sun,1=Mon..6=Sat)', cfg: 'weeklyResetDay', type: 'int' },
-      { env: 'SSH_PORT', label: 'SSH Port (blank = FTP_PORT)', cfg: 'sshPort', type: 'int' },
+      { env: 'SSH_PORT', label: 'SSH Port (blank = SFTP_PORT)', cfg: 'sshPort', type: 'int' },
     ],
   },
   {

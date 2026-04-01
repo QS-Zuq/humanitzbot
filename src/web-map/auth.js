@@ -297,8 +297,10 @@ function setupAuth(app, client, opts = {}) {
   });
 
   // CSRF validation error handler
+  // tiny-csrf throws plain Error (no err.code), so match on message pattern
   app.use((err, req, res, next) => {
-    if (err.code === 'EBADCSRFTOKEN') {
+    if (err.code === 'EBADCSRFTOKEN' || /CSRF token/i.test(err.message)) {
+      console.warn(`[AUTH] CSRF rejected: ${req.method} ${req.originalUrl} — client should re-fetch token`);
       return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid or missing CSRF token' });
     }
     next(err);

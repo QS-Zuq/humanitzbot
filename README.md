@@ -93,7 +93,7 @@
 | **SFTP Auto-Discovery** | Automatically finds game files on your server — no manual path config needed                                 |
 | **Panel API**           | Pterodactyl panel integration for hosted servers (Bisect, etc.) — power controls, file API, WebSocket RCON   |
 | **Env Sync**            | Automatic config migration — `.env` values auto-migrate to SQLite DB on first boot, with backup              |
-| **Setup Wizard**        | Interactive Discord wizard for first-time setup — RCON/SFTP testing, path discovery, channel assignment      |
+| **CLI Setup**           | First-run setup via `npm run setup` — SFTP auto-discovery, data import, and validation                       |
 | **Save Parser**         | Full binary `.sav` file parser — extracts players, structures, vehicles, containers, companions, world state |
 | **Snapshot Service**    | Periodic world state snapshots for timeline playback and historical analysis                                 |
 | **Diff Engine**         | Tracks changes between save file parses for activity detection and item movement                             |
@@ -125,16 +125,14 @@ cp .env.example .env
 
 Fill in the required values:
 
-| Key                 | Description                               |
-| ------------------- | ----------------------------------------- |
-| `DISCORD_TOKEN`     | Your bot token                            |
-| `DISCORD_CLIENT_ID` | Discord application ID                    |
-| `DISCORD_GUILD_ID`  | Your Discord server ID                    |
-| `PANEL_CHANNEL_ID`  | Discord channel for the bot control panel |
+| Key                 | Description                                          |
+| ------------------- | ---------------------------------------------------- |
+| `DISCORD_TOKEN`     | Your bot token                                       |
+| `DISCORD_CLIENT_ID` | Discord application ID                               |
+| `DISCORD_GUILD_ID`  | Your Discord server ID                               |
+| `PANEL_CHANNEL_ID`  | (Optional) Discord channel for the bot control panel |
 
-All other settings (RCON, SFTP, channels, toggles, etc.) are configured through the Discord Panel wizard on first run, or via the Web Dashboard. Settings are stored in the SQLite database.
-
-> **Note:** On first boot, the setup wizard in your Panel channel will guide you through RCON, SFTP, and channel configuration interactively. No manual `.env` editing needed beyond the 4 required keys above.
+All other settings (RCON, SFTP, channels, toggles, etc.) can be configured in `.env` or via the Web Dashboard. Settings are stored in the SQLite database.
 
 #### Language / Locale
 
@@ -164,8 +162,6 @@ Development mode with auto-restart:
 ```bash
 npm run dev
 ```
-
-> **Tip:** If RCON credentials are missing on first boot, the bot starts in minimal mode and posts an interactive setup wizard in your panel channel.
 
 ---
 
@@ -320,7 +316,7 @@ npm run dev:css          # Watch mode
 ### Other Scripts
 
 ```bash
-npm run setup            # First-run setup wizard
+npm run setup            # First-run CLI setup — SFTP auto-discovery and data import
 npm run setup:local      # Setup with local files (no SFTP)
 npm run setup:find       # SFTP file path discovery only
 npm run setup:validate   # Validate configuration

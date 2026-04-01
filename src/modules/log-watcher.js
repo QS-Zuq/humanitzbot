@@ -283,9 +283,9 @@ class LogWatcher {
   }
 
   async start() {
-    // Validate required FTP config
-    if (!this._config.ftpHost || this._config.ftpHost.startsWith('PASTE_')) {
-      this._log.info('FTP not configured, skipping log watcher.');
+    // Validate required SFTP config
+    if (!this._config.sftpHost || this._config.sftpHost.startsWith('PASTE_')) {
+      this._log.info('SFTP not configured, skipping log watcher.');
       return;
     }
 
@@ -313,7 +313,7 @@ class LogWatcher {
       );
     }
 
-    this._log.info(`Connecting to ${this._config.ftpHost}:${this._config.ftpPort} for log watching...`);
+    this._log.info(`Connecting to ${this._config.sftpHost}:${this._config.sftpPort} for log watching...`);
 
     // First poll — detect HZLogs or legacy, get current file size
     await this._initSize();
@@ -321,7 +321,7 @@ class LogWatcher {
     if (this._useRotatedLogs) {
       this._log.info('Using rotated logs (HZLogs/ per-restart files)');
     } else {
-      this._log.info(`Using legacy monolithic logs: ${this._config.ftpLogPath}, ${this._config.ftpConnectLogPath}`);
+      this._log.info(`Using legacy monolithic logs: ${this._config.sftpLogPath}, ${this._config.sftpConnectLogPath}`);
     }
 
     // Initialise today's thread (skip during nuke — phase 2 rebuilds them)
@@ -461,7 +461,7 @@ class LogWatcher {
     // Old path: .../HumanitZServer/Saved/Logs/HMZLog.log  →  HZLogs is at .../HumanitZServer/HZLogs
     // New path: .../HumanitZServer/HMZLog.log              →  HZLogs is at .../HumanitZServer/HZLogs
     // We need the HumanitZServer/ root, so we walk up from the log file path.
-    const logPath = this._config.ftpLogPath || '/HumanitZServer/HMZLog.log';
+    const logPath = this._config.sftpLogPath || '/HumanitZServer/HMZLog.log';
     let serverRoot = logPath.substring(0, logPath.lastIndexOf('/')) || '/HumanitZServer';
     // If the log is under Saved/Logs/, walk up two levels to get to HumanitZServer/
     if (serverRoot.endsWith('/Saved/Logs') || serverRoot.endsWith('/Saved/Logs/')) {
@@ -547,7 +547,7 @@ class LogWatcher {
       } else {
         // ── Legacy monolithic log mode ──
         try {
-          const stat = await sftp.stat(this._config.ftpLogPath);
+          const stat = await sftp.stat(this._config.sftpLogPath);
           if (saved && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
             this.lastSize = saved.hmzLogSize;
             this.initialised = true;
@@ -566,7 +566,7 @@ class LogWatcher {
 
         // PlayerConnectedLog.txt
         try {
-          const stat2 = await sftp.stat(this._config.ftpConnectLogPath);
+          const stat2 = await sftp.stat(this._config.sftpConnectLogPath);
           if (saved && saved.connectLogSize > 0 && saved.connectLogSize <= stat2.size) {
             this._connectLastSize = saved.connectLogSize;
             this._connectInitialised = true;
@@ -674,8 +674,8 @@ class LogWatcher {
         hmzPath = this._hmzLogFile;
         connectPath = this._connectLogFile;
       } else {
-        hmzPath = this._config.ftpLogPath;
-        connectPath = this._config.ftpConnectLogPath;
+        hmzPath = this._config.sftpLogPath;
+        connectPath = this._config.sftpConnectLogPath;
       }
 
       // ── HMZLog ──────────────────────────────────────
@@ -1264,15 +1264,15 @@ class LogWatcher {
       let text;
       // Prefer Panel API (Pterodactyl file download) when available
       if (this._panelApi && this._panelApi.available) {
-        const buf = await this._panelApi.downloadFile(this._config.ftpIdMapPath);
+        const buf = await this._panelApi.downloadFile(this._config.sftpIdMapPath);
         if (buf.length === this._idMapLastSize) return;
         this._idMapLastSize = buf.length;
         text = buf.toString('utf8');
       } else {
         // Stat first to skip full download if file hasn't changed
-        const stat = await sftp.stat(this._config.ftpIdMapPath);
+        const stat = await sftp.stat(this._config.sftpIdMapPath);
         if (stat.size === this._idMapLastSize) return;
-        const buf = await sftp.get(this._config.ftpIdMapPath);
+        const buf = await sftp.get(this._config.sftpIdMapPath);
         this._idMapLastSize = stat.size;
         text = buf.toString('utf8');
       }

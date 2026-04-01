@@ -28,10 +28,10 @@ const CAL_FILE = path.join(DATA_DIR, 'map-calibration.json');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const SFTP_CONFIG = {
-  host: process.env.FTP_HOST,
-  port: parseInt(process.env.FTP_PORT, 10) || 2022,
-  username: process.env.FTP_USER,
-  password: process.env.FTP_PASSWORD,
+  host: process.env.SFTP_HOST || process.env.FTP_HOST,
+  port: parseInt(process.env.SFTP_PORT || process.env.FTP_PORT, 10) || 2022,
+  username: process.env.SFTP_USER || process.env.FTP_USER,
+  password: process.env.SFTP_PASSWORD || process.env.FTP_PASSWORD,
 };
 const REMOTE_SAVE = '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
 const REMOTE_IDMAP = '/HumanitZServer/PlayerIDMapped.txt';

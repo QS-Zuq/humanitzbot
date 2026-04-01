@@ -64,8 +64,8 @@ describe('config-migration', () => {
     // Server-scoped
     assert.equal(map['RCON_HOST'].scope, 'server:primary');
     assert.equal(map['RCON_PORT'].scope, 'server:primary');
-    assert.equal(map['FTP_HOST'].scope, 'server:primary');
-    assert.equal(map['FTP_PORT'].scope, 'server:primary');
+    assert.equal(map['SFTP_HOST'].scope, 'server:primary');
+    assert.equal(map['SFTP_PORT'].scope, 'server:primary');
     assert.equal(map['CHAT_CHANNEL_ID'].scope, 'server:primary');
     assert.equal(map['ADMIN_CHANNEL_ID'].scope, 'server:primary');
 

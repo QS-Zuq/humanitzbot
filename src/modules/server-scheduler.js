@@ -338,7 +338,7 @@ class ServerScheduler {
       const sftp = new SftpClient();
       try {
         await sftp.connect(this._config.sftpConnectConfig());
-        const settingsPath = this._config.ftpSettingsPath;
+        const settingsPath = this._config.sftpSettingsPath;
 
         // Make writable if needed
         let originalMode = null;

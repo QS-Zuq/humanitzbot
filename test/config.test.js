@@ -585,14 +585,6 @@ describe('config.needsSetup (getter)', () => {
             config.rconPassword.startsWith('your_')
           );
         },
-        set(val) {
-          Object.defineProperty(config, 'needsSetup', {
-            value: val,
-            writable: true,
-            configurable: true,
-            enumerable: true,
-          });
-        },
         configurable: true,
         enumerable: true,
       });
@@ -636,13 +628,23 @@ describe('config.needsSetup (getter)', () => {
     assert.equal(config.needsSetup, false);
   });
 
-  it('can be overridden by direct assignment (configurable)', () => {
+  it('needsSetup is read-only derived state', () => {
     config.rconHost = '';
-    assert.equal(config.needsSetup, true);
+    assert.strictEqual(config.needsSetup, true);
+    config.rconHost = '127.0.0.1';
+    config.rconPassword = 'secret';
+    assert.strictEqual(config.needsSetup, false);
+  });
 
-    // panel-setup-wizard.js does: config.needsSetup = false
+  it('needsSetup ignores direct assignment (setter removed)', () => {
+    // Ensure needsSetup is currently true (no RCON configured)
+    config.rconHost = '';
+    config.rconPassword = '';
+    assert.strictEqual(config.needsSetup, true);
+
+    // Direct assignment should have no effect (getter-only)
     config.needsSetup = false;
-    assert.equal(config.needsSetup, false);
+    assert.strictEqual(config.needsSetup, true, 'needsSetup should still be true \u2014 setter was removed');
   });
 });
 
@@ -740,5 +742,87 @@ describe('saveDisplaySetting / saveDisplaySettings', () => {
     config.showVitals = true;
     config.loadDisplayOverrides({ getStateJSON: () => ({ showVitals: false }) });
     assert.equal(config.showVitals, true); // Unchanged — no-op
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// FTP→SFTP backward compatibility — env fallback pattern
+// ══════════════════════════════════════════════════════════
+
+describe('FTP\u2192SFTP backward compatibility', () => {
+  const configPath = require.resolve('../src/config');
+  let savedModule;
+  const savedEnv = {};
+
+  // Env vars we manipulate \u2014 save and restore in each test
+  const MANAGED_KEYS = [
+    'SFTP_HOST',
+    'FTP_HOST',
+    'SFTP_PORT',
+    'FTP_PORT',
+    'SFTP_USER',
+    'FTP_USER',
+    'SFTP_PASSWORD',
+    'FTP_PASSWORD',
+  ];
+
+  beforeEach(() => {
+    savedModule = require.cache[configPath];
+    for (const key of MANAGED_KEYS) {
+      savedEnv[key] = process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of MANAGED_KEYS) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
+    // Restore original module so other tests use the original singleton
+    require.cache[configPath] = savedModule;
+  });
+
+  /** Delete config from require cache and re-require with current process.env */
+  function reloadConfig() {
+    delete require.cache[configPath];
+    return require(configPath);
+  }
+
+  it('falls back to FTP_HOST when SFTP_HOST is not set', () => {
+    process.env.SFTP_HOST = ''; // empty = falsy, but prevents dotenv overwrite
+    process.env.FTP_HOST = 'ftp-fallback-host';
+    const cfg = reloadConfig();
+    assert.equal(cfg.sftpHost, 'ftp-fallback-host');
+  });
+
+  it('prefers SFTP_HOST over FTP_HOST when both are set', () => {
+    process.env.SFTP_HOST = 'sftp-primary-host';
+    process.env.FTP_HOST = 'ftp-fallback-host';
+    const cfg = reloadConfig();
+    assert.equal(cfg.sftpHost, 'sftp-primary-host');
+  });
+
+  it('falls back to FTP_PORT when SFTP_PORT is not set', () => {
+    process.env.SFTP_PORT = '';
+    process.env.FTP_PORT = '9999';
+    const cfg = reloadConfig();
+    assert.equal(cfg.sftpPort, 9999);
+  });
+
+  it('falls back to FTP_USER when SFTP_USER is not set', () => {
+    process.env.SFTP_USER = '';
+    process.env.FTP_USER = 'ftp-user-fallback';
+    const cfg = reloadConfig();
+    assert.equal(cfg.sftpUser, 'ftp-user-fallback');
+  });
+
+  it('falls back to FTP_PASSWORD when SFTP_PASSWORD is not set', () => {
+    process.env.SFTP_PASSWORD = '';
+    process.env.FTP_PASSWORD = 'ftp-pass-fallback';
+    const cfg = reloadConfig();
+    assert.equal(cfg.sftpPassword, 'ftp-pass-fallback');
   });
 });

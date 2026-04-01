@@ -88,7 +88,7 @@ class PvpScheduler {
     const sftp = new SftpClient();
     try {
       await sftp.connect(this._config.sftpConnectConfig());
-      const content = (await sftp.get(this._config.ftpSettingsPath)).toString('utf8');
+      const content = (await sftp.get(this._config.sftpSettingsPath)).toString('utf8');
       const match = content.match(/^PVP\s*=\s*(\d)/m);
       this._currentPvp = match ? match[1] === '1' : false;
       this._log.info(`Current server PvP state: ${this._currentPvp ? 'ON' : 'OFF'}`);
@@ -333,7 +333,7 @@ class PvpScheduler {
       await sftp.connect(this._config.sftpConnectConfig());
 
       // Ensure the file is writable (Bisect hosting defaults to 444)
-      const settingsPath = this._config.ftpSettingsPath;
+      const settingsPath = this._config.sftpSettingsPath;
       let originalMode = null;
       try {
         const stat = await sftp.stat(settingsPath);

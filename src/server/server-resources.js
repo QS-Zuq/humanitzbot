@@ -3,7 +3,7 @@
  *
  * Supports two backends (configured via .env):
  *   1. Pterodactyl API  — PANEL_SERVER_URL + PANEL_API_KEY (via panel-api.js)
- *   2. SSH shell         — Reuses FTP_HOST/FTP_PORT/FTP_USER/FTP_PASSWORD
+ *   2. SSH shell         — Reuses SFTP_HOST/SFTP_PORT/SFTP_USER/SFTP_PASSWORD
  *
  * Exports a singleton with `getResources()` → { cpu, memUsed, memTotal, memPercent, diskUsed, diskTotal, diskPercent }
  * Values are null when unavailable. Cached for `RESOURCE_CACHE_TTL` ms (default 30 s).
@@ -111,7 +111,7 @@ function parseSshOutput(output) {
   // Filesystem  1K-blocks  Used  Available  Use%  Mounted
   const dfLines = output.split('\n').filter((l) => /^\S+\s+\d/.test(l));
   // Try to find the mount for the game server path, fall back to "/"
-  const gamePath = config.ftpBasePath || '/';
+  const gamePath = config.sftpBasePath || '/';
   let bestLine = null;
   let bestMountLen = 0;
   for (const line of dfLines) {
@@ -217,7 +217,7 @@ class ServerResources {
     if (panelApi.available) {
       return 'pterodactyl';
     }
-    if (config.enableSshResources && config.ftpHost && config.ftpUser) {
+    if (config.enableSshResources && config.sftpHost && config.sftpUser) {
       return 'ssh';
     }
     return null;

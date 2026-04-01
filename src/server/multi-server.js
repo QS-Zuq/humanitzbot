@@ -283,23 +283,23 @@ function createServerConfig(serverDef) {
 
   // SFTP overrides (falls back to primary if not set)
   if (serverDef.sftp) {
-    if (serverDef.sftp.host) merged.ftpHost = serverDef.sftp.host;
-    if (serverDef.sftp.port) merged.ftpPort = serverDef.sftp.port;
-    if (serverDef.sftp.user) merged.ftpUser = serverDef.sftp.user;
-    if (serverDef.sftp.password) merged.ftpPassword = serverDef.sftp.password;
+    if (serverDef.sftp.host) merged.sftpHost = serverDef.sftp.host;
+    if (serverDef.sftp.port) merged.sftpPort = serverDef.sftp.port;
+    if (serverDef.sftp.user) merged.sftpUser = serverDef.sftp.user;
+    if (serverDef.sftp.password) merged.sftpPassword = serverDef.sftp.password;
     // Explicitly set privateKeyPath — if not provided, clear it so the merged
     // config doesn't inherit the primary server's SSH key via prototype chain
-    merged.ftpPrivateKeyPath = serverDef.sftp.privateKeyPath || '';
+    merged.sftpPrivateKeyPath = serverDef.sftp.privateKeyPath || '';
   }
 
   // SFTP paths (falls back to primary defaults)
   if (serverDef.paths) {
-    if (serverDef.paths.logPath) merged.ftpLogPath = serverDef.paths.logPath;
-    if (serverDef.paths.connectLogPath) merged.ftpConnectLogPath = serverDef.paths.connectLogPath;
-    if (serverDef.paths.idMapPath) merged.ftpIdMapPath = serverDef.paths.idMapPath;
-    if (serverDef.paths.savePath) merged.ftpSavePath = serverDef.paths.savePath;
-    if (serverDef.paths.settingsPath) merged.ftpSettingsPath = serverDef.paths.settingsPath;
-    if (serverDef.paths.welcomePath) merged.ftpWelcomePath = serverDef.paths.welcomePath;
+    if (serverDef.paths.logPath) merged.sftpLogPath = serverDef.paths.logPath;
+    if (serverDef.paths.connectLogPath) merged.sftpConnectLogPath = serverDef.paths.connectLogPath;
+    if (serverDef.paths.idMapPath) merged.sftpIdMapPath = serverDef.paths.idMapPath;
+    if (serverDef.paths.savePath) merged.sftpSavePath = serverDef.paths.savePath;
+    if (serverDef.paths.settingsPath) merged.sftpSettingsPath = serverDef.paths.settingsPath;
+    if (serverDef.paths.welcomePath) merged.sftpWelcomePath = serverDef.paths.welcomePath;
   }
 
   // Channel overrides
@@ -475,7 +475,11 @@ class ServerInstance {
 
   /** Whether SFTP is configured for this server. */
   get hasSftp() {
-    return !!(this.config.ftpHost && this.config.ftpUser && (this.config.ftpPassword || this.config.ftpPrivateKeyPath));
+    return !!(
+      this.config.sftpHost &&
+      this.config.sftpUser &&
+      (this.config.sftpPassword || this.config.sftpPrivateKeyPath)
+    );
   }
 
   /** Common deps object for module constructors. */
@@ -505,19 +509,19 @@ class ServerInstance {
 
     // ── Auto-discover SFTP paths if needed ──
     // If this server has its own SFTP but no explicit paths, discover them automatically.
-    const hasOwnSftp = this.def.sftp?.host && this.def.sftp.host !== _defaultConfig.ftpHost;
+    const hasOwnSftp = this.def.sftp?.host && this.def.sftp.host !== _defaultConfig.sftpHost;
     const hasExplicitPaths = this.def.paths && Object.keys(this.def.paths).length > 0;
     if (hasOwnSftp && !hasExplicitPaths) {
       this._log.info('No file paths configured — running auto-discovery...');
       const discovered = await discoverPaths(this.def.sftp, this._log.label);
       if (discovered) {
         // Apply discovered paths to runtime config
-        if (discovered.logPath) this.config.ftpLogPath = discovered.logPath;
-        if (discovered.connectLogPath) this.config.ftpConnectLogPath = discovered.connectLogPath;
-        if (discovered.idMapPath) this.config.ftpIdMapPath = discovered.idMapPath;
-        if (discovered.savePath) this.config.ftpSavePath = discovered.savePath;
-        if (discovered.settingsPath) this.config.ftpSettingsPath = discovered.settingsPath;
-        if (discovered.welcomePath) this.config.ftpWelcomePath = discovered.welcomePath;
+        if (discovered.logPath) this.config.sftpLogPath = discovered.logPath;
+        if (discovered.connectLogPath) this.config.sftpConnectLogPath = discovered.connectLogPath;
+        if (discovered.idMapPath) this.config.sftpIdMapPath = discovered.idMapPath;
+        if (discovered.savePath) this.config.sftpSavePath = discovered.savePath;
+        if (discovered.settingsPath) this.config.sftpSettingsPath = discovered.settingsPath;
+        if (discovered.welcomePath) this.config.sftpWelcomePath = discovered.welcomePath;
 
         // Persist discovered paths so discovery only runs once
         try {
@@ -549,9 +553,9 @@ class ServerInstance {
         const sftpConfig = this.hasSftp ? this.config.sftpConnectConfig() : null;
         this.saveService = new SaveService(this.db, {
           sftpConfig,
-          savePath: this.config.ftpSavePath,
+          savePath: this.config.sftpSavePath,
           clanSavePath: (() => {
-            const sp = this.config.ftpSavePath;
+            const sp = this.config.sftpSavePath;
             if (!sp) return null;
             const idx = sp.indexOf('SaveList/');
             return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : null;

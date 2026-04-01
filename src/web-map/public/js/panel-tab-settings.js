@@ -544,11 +544,11 @@ Panel.tabs = Panel.tabs || {};
                   // Fill discovered paths into inputs
                   var paths = pd.result.paths || pd.result;
                   var pathMap = {
-                    FTP_LOG_PATH: paths.logPath,
-                    FTP_CONNECT_LOG_PATH: paths.connectLogPath,
-                    FTP_ID_MAP_PATH: paths.idMapPath,
-                    FTP_SAVE_PATH: paths.savePath,
-                    FTP_SETTINGS_PATH: paths.settingsPath,
+                    SFTP_LOG_PATH: paths.logPath,
+                    SFTP_CONNECT_LOG_PATH: paths.connectLogPath,
+                    SFTP_ID_MAP_PATH: paths.idMapPath,
+                    SFTP_SAVE_PATH: paths.savePath,
+                    SFTP_SETTINGS_PATH: paths.settingsPath,
                   };
                   for (var pk in pathMap) {
                     if (pathMap[pk]) {

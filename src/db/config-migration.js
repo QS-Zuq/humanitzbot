@@ -34,7 +34,7 @@ const BOOTSTRAP_KEYS = new Set([
 
 // ── Server-scoped env key prefixes/patterns ──────────────────
 // These go into 'server:primary' instead of 'app'.
-const _SERVER_PREFIXES = ['RCON_', 'FTP_', 'PANEL_SERVER_URL', 'PANEL_API_KEY'];
+const _SERVER_PREFIXES = ['RCON_', 'SFTP_', 'FTP_', 'PANEL_SERVER_URL', 'PANEL_API_KEY'];
 const _SERVER_CHANNEL_SUFFIXES = [
   'ADMIN_CHANNEL_ID',
   'CHAT_CHANNEL_ID',
@@ -80,7 +80,7 @@ for (const cat of ENV_CATEGORIES) {
 const FALLBACK_MIGRATION_ENTRIES = {
   // Server-scoped — host, SFTP key, channels, per-server paths
   PUBLIC_HOST: { cfgKey: 'publicHost', scope: 'server:primary', type: 'string' },
-  FTP_PRIVATE_KEY_PATH: { cfgKey: 'ftpPrivateKeyPath', scope: 'server:primary', type: 'string' },
+  SFTP_PRIVATE_KEY_PATH: { cfgKey: 'sftpPrivateKeyPath', scope: 'server:primary', type: 'string' },
   ACTIVITY_LOG_CHANNEL_ID: { cfgKey: 'activityLogChannelId', scope: 'server:primary', type: 'string' },
   HOWYAGARN_CHANNEL_ID: { cfgKey: 'howyagarnChannelId', scope: 'server:primary', type: 'string' },
   HZMOD_SERVER_ID: { cfgKey: 'hzmodServerId', scope: 'server:primary', type: 'string' },

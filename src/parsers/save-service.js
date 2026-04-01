@@ -369,7 +369,7 @@ class SaveService extends EventEmitter {
 
     const config = this._sshConfig || this._buildSshConfig();
     if (!config || !config.host) {
-      throw new Error('No SSH config available (need FTP_HOST + FTP_USER + FTP_PASSWORD)');
+      throw new Error('No SSH config available (need SFTP_HOST + SFTP_USER + SFTP_PASSWORD)');
     }
 
     return new Promise((resolve, reject) => {

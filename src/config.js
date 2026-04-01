@@ -187,18 +187,24 @@ const config = {
   autoMsgPromoText: process.env.AUTO_MSG_PROMO_TEXT || '', // custom promo broadcast (blank = default)
 
   // SFTP file paths
-  ftpHost: process.env.FTP_HOST || '',
-  ftpPort: parseInt(process.env.FTP_PORT, 10) || 2022,
-  ftpUser: process.env.FTP_USER || '',
-  ftpPassword: process.env.FTP_PASSWORD || '',
-  ftpPrivateKeyPath: process.env.FTP_PRIVATE_KEY_PATH || '', // path to SSH private key (optional, replaces password auth)
-  ftpBasePath: (process.env.FTP_BASE_PATH || '').replace(/\/+$/, ''), // strip trailing slash
-  ftpLogPath: process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log',
-  ftpConnectLogPath: process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt',
-  ftpIdMapPath: process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt',
-  ftpSavePath: process.env.FTP_SAVE_PATH || '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
-  ftpSettingsPath: process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
-  ftpWelcomePath: process.env.FTP_WELCOME_PATH || '/HumanitZServer/WelcomeMessage.txt',
+  sftpHost: process.env.SFTP_HOST || process.env.FTP_HOST || '',
+  sftpPort: parseInt(process.env.SFTP_PORT || process.env.FTP_PORT, 10) || 2022,
+  sftpUser: process.env.SFTP_USER || process.env.FTP_USER || '',
+  sftpPassword: process.env.SFTP_PASSWORD || process.env.FTP_PASSWORD || '',
+  sftpPrivateKeyPath: process.env.SFTP_PRIVATE_KEY_PATH || process.env.FTP_PRIVATE_KEY_PATH || '', // path to SSH private key (optional, replaces password auth)
+  sftpBasePath: (process.env.SFTP_BASE_PATH || process.env.FTP_BASE_PATH || '').replace(/\/+$/, ''), // strip trailing slash
+  sftpLogPath: process.env.SFTP_LOG_PATH || process.env.FTP_LOG_PATH || '/HumanitZServer/HMZLog.log',
+  sftpConnectLogPath:
+    process.env.SFTP_CONNECT_LOG_PATH || process.env.FTP_CONNECT_LOG_PATH || '/HumanitZServer/PlayerConnectedLog.txt',
+  sftpIdMapPath: process.env.SFTP_ID_MAP_PATH || process.env.FTP_ID_MAP_PATH || '/HumanitZServer/PlayerIDMapped.txt',
+  sftpSavePath:
+    process.env.SFTP_SAVE_PATH ||
+    process.env.FTP_SAVE_PATH ||
+    '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
+  sftpSettingsPath:
+    process.env.SFTP_SETTINGS_PATH || process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
+  sftpWelcomePath:
+    process.env.SFTP_WELCOME_PATH || process.env.FTP_WELCOME_PATH || '/HumanitZServer/WelcomeMessage.txt',
   logPollInterval: Math.max(parseInt(process.env.LOG_POLL_INTERVAL, 10) || 30000, 10000), // min 10 sec
   logChannelId: process.env.LOG_CHANNEL_ID || '',
 
@@ -215,9 +221,9 @@ const config = {
   // Game settings editor in panel channel (requires SFTP credentials)
   enableGameSettingsEditor: envBool('ENABLE_GAME_SETTINGS_EDITOR', true),
 
-  // SSH resource monitoring (reuses FTP_HOST/FTP_USER/FTP_PASSWORD)
+  // SSH resource monitoring (reuses SFTP_HOST/SFTP_USER/SFTP_PASSWORD)
   enableSshResources: envBool('ENABLE_SSH_RESOURCES', false),
-  sshPort: parseInt(process.env.SSH_PORT, 10) || 0, // 0 = use FTP_PORT
+  sshPort: parseInt(process.env.SSH_PORT, 10) || 0, // 0 = use SFTP_PORT
 
   // Trust proxy setting for the web panel Express app.
   // Default 'loopback' trusts Caddy/nginx on localhost.
@@ -535,29 +541,29 @@ const config = {
   })(), // day to reset weekly baseline (0=Sun … 6=Sat, default 1=Mon)
 };
 
-// Prepend FTP_BASE_PATH to all FTP file paths when set (only for relative paths)
-if (config.ftpBasePath) {
-  const prefix = config.ftpBasePath;
-  const ftpKeys = [
-    'ftpLogPath',
-    'ftpConnectLogPath',
-    'ftpIdMapPath',
-    'ftpSavePath',
-    'ftpSettingsPath',
-    'ftpWelcomePath',
+// Prepend SFTP_BASE_PATH to all SFTP file paths when set (only for relative paths)
+if (config.sftpBasePath) {
+  const prefix = config.sftpBasePath;
+  const sftpKeys = [
+    'sftpLogPath',
+    'sftpConnectLogPath',
+    'sftpIdMapPath',
+    'sftpSavePath',
+    'sftpSettingsPath',
+    'sftpWelcomePath',
   ];
-  for (const key of ftpKeys) {
+  for (const key of sftpKeys) {
     // Only prepend if path doesn't start with / (relative path indicator)
     if (config[key] && !config[key].startsWith('/')) {
       config[key] = prefix + '/' + config[key];
     }
   }
-  _cfgLog.info('FTP base path:', prefix);
+  _cfgLog.info('SFTP base path:', prefix);
 }
 
 // Validate required values — Discord credentials are always needed.
-// RCON is optional: if missing, the bot starts in setup wizard mode so the user
-// can configure everything through the panel channel's interactive wizard.
+// RCON is optional: if missing, the bot starts without server features. Configure
+// RCON credentials in .env or via the Web Dashboard after first run.
 const required = ['discordToken', 'clientId', 'guildId'];
 for (const key of required) {
   if (!config[key] || config[key].startsWith('your_')) {
@@ -567,7 +573,7 @@ for (const key of required) {
   }
 }
 
-// Flag so modules know whether RCON/SFTP are ready (lazy getter — re-evaluates after hydrate)
+// Whether RCON is configured — read-only derived state (re-evaluates on every access)
 Object.defineProperty(config, 'needsSetup', {
   get() {
     return (
@@ -577,15 +583,6 @@ Object.defineProperty(config, 'needsSetup', {
       config.rconPassword.startsWith('your_')
     );
   },
-  set(val) {
-    // Allow panel-setup-wizard.js to override with: config.needsSetup = false
-    Object.defineProperty(config, 'needsSetup', {
-      value: val,
-      writable: true,
-      configurable: true,
-      enumerable: true,
-    });
-  },
   configurable: true,
   enumerable: true,
 });
@@ -593,7 +590,7 @@ Object.defineProperty(config, 'needsSetup', {
 if (!config.panelChannelId) {
   console.warn('[CONFIG] PANEL_CHANNEL_ID not set — panel channel will be disabled.');
   console.warn("         The panel channel is the bot's admin dashboard. Set a channel ID in .env");
-  console.warn('         to enable the setup wizard, server controls, and settings editor.');
+  console.warn('         to enable the panel channel, server controls, and settings editor.');
 }
 
 // ── Timezone-aware date helpers ─────────────────────────────
@@ -710,25 +707,27 @@ console.log(`[CONFIG] Timezone: ${config.botTimezone}, Log timezone: ${config.lo
 // Used by: log-watcher, player-stats-channel, pvp-scheduler, multi-server
 
 config.sftpConnectConfig = function () {
-  // Use 'this' so multi-server merged configs resolve their own SFTP settings
-  const self = this && this.ftpHost ? this : config;
+  // In multi-server context, `this` is the per-server config from multi-server.js.
+  // Falls back to primary config singleton if called without context or if sftpHost is missing.
+  // Note: multi-server.js maps DB values to sftp* properties, so this.sftpHost should always be set.
+  const self = this && this.sftpHost ? this : config;
   const cfg = {
-    host: self.ftpHost,
-    port: self.ftpPort,
-    username: self.ftpUser,
+    host: self.sftpHost,
+    port: self.sftpPort,
+    username: self.sftpUser,
   };
-  if (self.ftpPrivateKeyPath) {
+  if (self.sftpPrivateKeyPath) {
     try {
-      cfg.privateKey = _cfgFs.readFileSync(self.ftpPrivateKeyPath);
+      cfg.privateKey = _cfgFs.readFileSync(self.sftpPrivateKeyPath);
       // If a password is also set, use it as the passphrase for the key
-      if (self.ftpPassword) cfg.passphrase = self.ftpPassword;
+      if (self.sftpPassword) cfg.passphrase = self.sftpPassword;
     } catch (err) {
-      _cfgLog.error('Could not read SSH private key at %s: %s', self.ftpPrivateKeyPath, err.message);
+      _cfgLog.error('Could not read SSH private key at %s: %s', self.sftpPrivateKeyPath, err.message);
       // Fall back to password auth
-      cfg.password = self.ftpPassword;
+      cfg.password = self.sftpPassword;
     }
   } else {
-    cfg.password = self.ftpPassword;
+    cfg.password = self.sftpPassword;
   }
   return cfg;
 };
@@ -840,6 +839,29 @@ config.saveDisplaySettings = function (db, settings) {
     }
   }
 };
+
+// ── FTP_* deprecation warnings ──────────────────────────────
+const _FTP_DEPRECATED_MAP = {
+  FTP_HOST: 'SFTP_HOST',
+  FTP_PORT: 'SFTP_PORT',
+  FTP_USER: 'SFTP_USER',
+  FTP_PASSWORD: 'SFTP_PASSWORD',
+  FTP_PRIVATE_KEY_PATH: 'SFTP_PRIVATE_KEY_PATH',
+  FTP_BASE_PATH: 'SFTP_BASE_PATH',
+  FTP_LOG_PATH: 'SFTP_LOG_PATH',
+  FTP_CONNECT_LOG_PATH: 'SFTP_CONNECT_LOG_PATH',
+  FTP_ID_MAP_PATH: 'SFTP_ID_MAP_PATH',
+  FTP_SAVE_PATH: 'SFTP_SAVE_PATH',
+  FTP_SETTINGS_PATH: 'SFTP_SETTINGS_PATH',
+  FTP_WELCOME_PATH: 'SFTP_WELCOME_PATH',
+};
+for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
+  if (process.env[oldKey] && !process.env[newKey]) {
+    console.warn(
+      `[CONFIG] ⚠ Deprecated: ${oldKey} → rename to ${newKey} in .env (FTP_* support will be removed in a future version)`,
+    );
+  }
+}
 
 module.exports = config;
 module.exports.canShow = canShow;

@@ -64,31 +64,33 @@ async function _probeSftp(hasSftp) {
   const start = Date.now();
   try {
     const connectOpts = {
-      host: config.ftpHost,
-      port: config.ftpPort || 2022,
-      username: config.ftpUser,
-      password: config.ftpPassword,
+      host: config.sftpHost,
+      port: config.sftpPort || 2022,
+      username: config.sftpUser,
+      password: config.sftpPassword,
       readyTimeout: 8000,
       retries: 0,
     };
-    if (config.ftpPrivateKeyPath) {
+    if (config.sftpPrivateKeyPath) {
       try {
-        connectOpts.privateKey = fs.readFileSync(config.ftpPrivateKeyPath);
-      } catch {
-        /* ignore */
+        connectOpts.privateKey = fs.readFileSync(config.sftpPrivateKeyPath);
+      } catch (err) {
+        console.warn(
+          `[DIAG] Could not read SSH key at ${config.sftpPrivateKeyPath}: ${err.message} — trying password auth`,
+        );
       }
     }
     await sftp.connect(connectOpts);
     let hasSave = false;
     let hasLog = false;
     try {
-      await sftp.stat(config.ftpSavePath);
+      await sftp.stat(config.sftpSavePath);
       hasSave = true;
     } catch {
       /* missing */
     }
     try {
-      await sftp.stat(config.ftpLogPath);
+      await sftp.stat(config.sftpLogPath);
       hasLog = true;
     } catch {
       /* missing */
@@ -96,7 +98,7 @@ async function _probeSftp(hasSftp) {
     // Also check HZLogs/ directory (per-restart rotated logs, game update March 2026)
     if (!hasLog) {
       try {
-        let serverRoot = (config.ftpLogPath || '').replace(/\/[^/]+$/, '') || '/HumanitZServer';
+        let serverRoot = (config.sftpLogPath || '').replace(/\/[^/]+$/, '') || '/HumanitZServer';
         if (serverRoot.endsWith('/Saved/Logs')) serverRoot = serverRoot.replace(/\/Saved\/Logs$/, '');
         await sftp.stat(serverRoot + '/HZLogs');
         hasLog = true;
@@ -342,24 +344,24 @@ function _buildSuggestions(results, moduleStatus, saveResult) {
       '🔴 **SFTP connection failed** — `' +
         results.sftp.error +
         '`. ' +
-        'Verify `FTP_HOST`, `FTP_PORT`, `FTP_USER`, `FTP_PASSWORD` are correct. ' +
+        'Verify `SFTP_HOST`, `SFTP_PORT`, `SFTP_USER`, `SFTP_PASSWORD` are correct. ' +
         'Common causes: wrong port (game SFTP is usually 2022), firewall blocking, incorrect credentials.',
     );
   } else if (results.sftp.status === 'ok' && !results.sftp.hasSave) {
     tips.push(
-      '📁 **Save file not found** — SFTP connected but `FTP_SAVE_PATH` does not exist on the server. ' +
-        'Check that `FTP_SAVE_PATH` points to the correct `.sav` file (default: `/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav`).',
+      '📁 **Save file not found** — SFTP connected but `SFTP_SAVE_PATH` does not exist on the server. ' +
+        'Check that `SFTP_SAVE_PATH` points to the correct `.sav` file (default: `/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav`).',
     );
   } else if (results.sftp.status === 'ok' && !results.sftp.hasLog) {
     tips.push(
-      '📁 **Log file not found** — `FTP_LOG_PATH` does not exist on the server. ' +
-        'Log Watcher needs this file. Set `FTP_LOG_PATH` in `.env` to the full path of `HMZLog.log` on your server ' +
+      '📁 **Log file not found** — `SFTP_LOG_PATH` does not exist on the server. ' +
+        'Log Watcher needs this file. Set `SFTP_LOG_PATH` in `.env` to the full path of `HMZLog.log` on your server ' +
         "(e.g. `/home/steam/hzserver/serverfiles/HumanitZServer/HMZLog.log`). If you're unsure, run `npm run setup` to auto-discover.",
     );
   } else if (results.sftp.status === 'unconfigured' && skippedModules.some(([n]) => /log|save|stats|pvp/i.test(n))) {
     tips.push(
       '📡 **No SFTP configured** — Several modules need SFTP to read server files. ' +
-        'Set `FTP_HOST`, `FTP_USER`, and `FTP_PASSWORD` to enable log watching, player stats, and save syncing. ' +
+        'Set `SFTP_HOST`, `SFTP_USER`, and `SFTP_PASSWORD` to enable log watching, player stats, and save syncing. ' +
         'The bot will work for chat relay and server status without SFTP, but advanced features require it.',
     );
   }

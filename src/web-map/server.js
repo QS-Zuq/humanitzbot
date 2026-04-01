@@ -2371,12 +2371,12 @@ class WebMapServer {
       }
 
       // Try reading via SFTP
-      if (srv.config.ftpHost && srv.config.ftpUser) {
+      if (srv.config.sftpHost && srv.config.sftpUser) {
         try {
           const SftpClient = require('ssh2-sftp-client');
           const sftp = new SftpClient();
           await sftp.connect(srv.config.sftpConnectConfig());
-          const content = await sftp.get(srv.config.ftpSettingsPath);
+          const content = await sftp.get(srv.config.sftpSettingsPath);
           await sftp.end();
 
           const settings = {};
@@ -2420,7 +2420,7 @@ class WebMapServer {
         }
       }
 
-      if (!req.srv.config.ftpHost || !req.srv.config.ftpUser) {
+      if (!req.srv.config.sftpHost || !req.srv.config.sftpUser) {
         return sendError(res, API_ERRORS.SFTP_NOT_CONFIGURED, 400);
       }
 
@@ -2430,7 +2430,7 @@ class WebMapServer {
         await sftp.connect(req.srv.config.sftpConnectConfig());
 
         // Read current file
-        const content = (await sftp.get(req.srv.config.ftpSettingsPath)).toString();
+        const content = (await sftp.get(req.srv.config.sftpSettingsPath)).toString();
         const lines = content.split('\n');
 
         // Update values in-place
@@ -2449,7 +2449,7 @@ class WebMapServer {
         });
 
         // Write back
-        await sftp.put(Buffer.from(newLines.join('\n')), req.srv.config.ftpSettingsPath);
+        await sftp.put(Buffer.from(newLines.join('\n')), req.srv.config.sftpSettingsPath);
         await sftp.end();
 
         // Update local cache
@@ -2630,8 +2630,8 @@ class WebMapServer {
       'DISCORD_TOKEN',
       'DISCORD_OAUTH_SECRET',
       'RCON_PASSWORD',
-      'FTP_PASSWORD',
-      'FTP_PRIVATE_KEY_PATH',
+      'SFTP_PASSWORD',
+      'SFTP_PRIVATE_KEY_PATH',
       'PANEL_API_KEY',
     ]);
 
@@ -2655,11 +2655,11 @@ class WebMapServer {
       RCON_PORT: { jsonPath: 'rcon.port' },
       RCON_PASSWORD: { jsonPath: 'rcon.password', sensitive: true },
       // SFTP
-      FTP_HOST: { jsonPath: 'sftp.host' },
-      FTP_PORT: { jsonPath: 'sftp.port' },
-      FTP_USER: { jsonPath: 'sftp.user' },
-      FTP_PASSWORD: { jsonPath: 'sftp.password', sensitive: true },
-      FTP_PRIVATE_KEY_PATH: { jsonPath: 'sftp.privateKeyPath', sensitive: true },
+      SFTP_HOST: { jsonPath: 'sftp.host' },
+      SFTP_PORT: { jsonPath: 'sftp.port' },
+      SFTP_USER: { jsonPath: 'sftp.user' },
+      SFTP_PASSWORD: { jsonPath: 'sftp.password', sensitive: true },
+      SFTP_PRIVATE_KEY_PATH: { jsonPath: 'sftp.privateKeyPath', sensitive: true },
       // Channels
       PANEL_CHANNEL_ID: { jsonPath: 'channels.panel' },
       SERVER_STATUS_CHANNEL_ID: { jsonPath: 'channels.serverStatus' },
@@ -2668,12 +2668,12 @@ class WebMapServer {
       LOG_CHANNEL_ID: { jsonPath: 'channels.log' },
       ADMIN_CHANNEL_ID: { jsonPath: 'channels.admin' },
       // SFTP paths
-      FTP_LOG_PATH: { jsonPath: 'paths.logPath' },
-      FTP_CONNECT_LOG_PATH: { jsonPath: 'paths.connectLogPath' },
-      FTP_ID_MAP_PATH: { jsonPath: 'paths.idMapPath' },
-      FTP_SAVE_PATH: { jsonPath: 'paths.savePath' },
-      FTP_SETTINGS_PATH: { jsonPath: 'paths.settingsPath' },
-      FTP_WELCOME_PATH: { jsonPath: 'paths.welcomePath' },
+      SFTP_LOG_PATH: { jsonPath: 'paths.logPath' },
+      SFTP_CONNECT_LOG_PATH: { jsonPath: 'paths.connectLogPath' },
+      SFTP_ID_MAP_PATH: { jsonPath: 'paths.idMapPath' },
+      SFTP_SAVE_PATH: { jsonPath: 'paths.savePath' },
+      SFTP_SETTINGS_PATH: { jsonPath: 'paths.settingsPath' },
+      SFTP_WELCOME_PATH: { jsonPath: 'paths.welcomePath' },
       // Timezones
       BOT_TIMEZONE: { jsonPath: 'botTimezone' },
       LOG_TIMEZONE: { jsonPath: 'logTimezone' },
@@ -2733,7 +2733,7 @@ class WebMapServer {
       const categories = [
         { label: 'Server Identity', keys: ['SERVER_NAME', 'PUBLIC_HOST', 'GAME_PORT', 'ENABLED'] },
         { label: 'RCON', keys: ['RCON_HOST', 'RCON_PORT', 'RCON_PASSWORD'] },
-        { label: 'SFTP', keys: ['FTP_HOST', 'FTP_PORT', 'FTP_USER', 'FTP_PASSWORD', 'FTP_PRIVATE_KEY_PATH'] },
+        { label: 'SFTP', keys: ['SFTP_HOST', 'SFTP_PORT', 'SFTP_USER', 'SFTP_PASSWORD', 'SFTP_PRIVATE_KEY_PATH'] },
         {
           label: 'Channel IDs',
           keys: [
@@ -2748,12 +2748,12 @@ class WebMapServer {
         {
           label: 'SFTP File Paths',
           keys: [
-            'FTP_LOG_PATH',
-            'FTP_CONNECT_LOG_PATH',
-            'FTP_ID_MAP_PATH',
-            'FTP_SAVE_PATH',
-            'FTP_SETTINGS_PATH',
-            'FTP_WELCOME_PATH',
+            'SFTP_LOG_PATH',
+            'SFTP_CONNECT_LOG_PATH',
+            'SFTP_ID_MAP_PATH',
+            'SFTP_SAVE_PATH',
+            'SFTP_SETTINGS_PATH',
+            'SFTP_WELCOME_PATH',
           ],
         },
         { label: 'Timezones', keys: ['BOT_TIMEZONE', 'LOG_TIMEZONE'] },
@@ -3224,7 +3224,7 @@ class WebMapServer {
       ];
       try {
         // Try reading the actual file from the game server via SFTP
-        const welcomePath = req.srv.config.ftpWelcomePath;
+        const welcomePath = req.srv.config.sftpWelcomePath;
         if (welcomePath) {
           const SftpClient = require('ssh2-sftp-client');
           const sftp = new SftpClient();
@@ -3286,7 +3286,7 @@ class WebMapServer {
         }
 
         // Upload directly via SFTP
-        const welcomePath = config.ftpWelcomePath;
+        const welcomePath = config.sftpWelcomePath;
         if (welcomePath) {
           try {
             const SftpClient = require('ssh2-sftp-client');
@@ -3540,7 +3540,7 @@ class WebMapServer {
           status: rcon.connected ? 'running' : 'offline',
           players: { current: 0, max: null },
           rcon: { host: config.rconHost || null, port: config.rconPort || null, connected: !!rcon.connected },
-          sftp: { host: config.ftpHost || null, configured: !!(config.ftpHost && config.ftpUser) },
+          sftp: { host: config.sftpHost || null, configured: !!(config.sftpHost && config.sftpUser) },
           lastSync: (() => {
             const ss = this._saveService;
             if (!ss) return null;
@@ -3671,11 +3671,11 @@ class WebMapServer {
       // Allow using the server's existing SFTP config (for settings page discover button)
       if (req.body?.useCurrentConfig) {
         sftpCfg = {
-          host: config.ftpHost,
-          port: config.ftpPort || 22,
-          user: config.ftpUser,
-          password: config.ftpPassword,
-          privateKeyPath: config.ftpPrivateKeyPath,
+          host: config.sftpHost,
+          port: config.sftpPort || 22,
+          user: config.sftpUser,
+          password: config.sftpPassword,
+          privateKeyPath: config.sftpPrivateKeyPath,
         };
       }
 
@@ -3810,19 +3810,19 @@ class WebMapServer {
               password: { hasValue: !!config.rconPassword },
             },
             sftp: {
-              host: config.ftpHost || '',
-              port: config.ftpPort || 22,
-              user: config.ftpUser || '',
-              password: { hasValue: !!config.ftpPassword },
-              privateKeyPath: { hasValue: !!config.ftpPrivateKeyPath },
+              host: config.sftpHost || '',
+              port: config.sftpPort || 22,
+              user: config.sftpUser || '',
+              password: { hasValue: !!config.sftpPassword },
+              privateKeyPath: { hasValue: !!config.sftpPrivateKeyPath },
             },
             paths: {
-              logPath: config.ftpLogPath || '',
-              connectLogPath: config.ftpConnectLogPath || '',
-              idMapPath: config.ftpIdMapPath || '',
-              savePath: config.ftpSavePath || '',
-              settingsPath: config.ftpSettingsPath || '',
-              welcomePath: config.ftpWelcomePath || '',
+              logPath: config.sftpLogPath || '',
+              connectLogPath: config.sftpConnectLogPath || '',
+              idMapPath: config.sftpIdMapPath || '',
+              savePath: config.sftpSavePath || '',
+              settingsPath: config.sftpSettingsPath || '',
+              welcomePath: config.sftpWelcomePath || '',
             },
             botTimezone: config.botTimezone || 'UTC',
             logTimezone: config.logTimezone || 'UTC',

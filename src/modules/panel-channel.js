@@ -217,8 +217,8 @@ class PanelChannel {
     this._configRepo = configRepo || config._configRepo || null;
     this._botControl = botControl;
     this._pendingServers = new Map(); // userId  { ...partial server config, _createdAt }
-    // Setup wizard state (when config.needsSetup is true)
-    this._setupWizard = null; // { profile, rcon: {host,port,password}, sftp: {host,port,user,password}, channels: {...}, step }
+    // TODO: remove setup wizard mixin — requires extracting _detectSshKey to shared utility first
+    this._setupWizard = null;
     // Clean up stale pending entries every 5 minutes
     this._pendingCleanupTimer = setInterval(
       () => {
@@ -233,7 +233,7 @@ class PanelChannel {
 
   /** Whether SFTP credentials are configured (needed for game settings editor). */
   get _hasSftp() {
-    return !!(config.ftpHost && config.ftpUser && (config.ftpPassword || config.ftpPrivateKeyPath));
+    return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
   }
 
   /**
@@ -295,11 +295,10 @@ class PanelChannel {
         return;
       }
 
-      //  Setup wizard mode
+      // RCON not configured — panel runs in limited mode until RCON is set up
       if (config.needsSetup) {
-        console.log('[PANEL CH] RCON not configured - launching setup wizard');
-        await this._cleanOwnMessages();
-        await this._startSetupWizard();
+        console.warn('[PANEL] RCON not configured — panel running in limited mode. Use: npm run setup');
+        this._limitedMode = true;
         return;
       }
 
@@ -362,7 +361,7 @@ class PanelChannel {
   //
 
   async handleInteraction(interaction) {
-    //  Setup wizard interactions
+    // TODO: remove setup wizard interaction handling — requires removing panel-setup-wizard.js mixin first
     if (this._setupWizard !== null) {
       return this._handleSetupInteraction(interaction);
     }
@@ -990,14 +989,9 @@ class PanelChannel {
 
     try {
       // Read fresh INI content via SFTP (panel file API is blocked on some hosts)
-      const settingsPath = config.ftpSettingsPath;
+      const settingsPath = config.sftpSettingsPath;
       const sftp = new SftpClient();
-      await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
-      });
+      await sftp.connect(config.sftpConnectConfig());
 
       let content;
       try {
@@ -1127,13 +1121,8 @@ class PanelChannel {
     let currentContent;
     try {
       const sftp = new SftpClient();
-      await sftp.connect({
-        host: config.ftpHost,
-        port: config.ftpPort,
-        username: config.ftpUser,
-        password: config.ftpPassword,
-      });
-      currentContent = (await sftp.get(config.ftpWelcomePath)).toString('utf8');
+      await sftp.connect(config.sftpConnectConfig());
+      currentContent = (await sftp.get(config.sftpWelcomePath)).toString('utf8');
       await sftp.end().catch(() => {});
     } catch {
       // File may not exist yet  that's fine, start with empty
@@ -1223,13 +1212,8 @@ class PanelChannel {
       if (newContent.trim()) {
         // Write custom content directly via SFTP
         const sftp = new SftpClient();
-        await sftp.connect({
-          host: config.ftpHost,
-          port: config.ftpPort,
-          username: config.ftpUser,
-          password: config.ftpPassword,
-        });
-        await sftp.put(Buffer.from(newContent, 'utf8'), config.ftpWelcomePath);
+        await sftp.connect(config.sftpConnectConfig());
+        await sftp.put(Buffer.from(newContent, 'utf8'), config.sftpWelcomePath);
         await sftp.end().catch(() => {});
 
         // Persist welcome lines to DB so it survives restarts
@@ -1265,13 +1249,8 @@ class PanelChannel {
         const autoContent = await buildWelcomeContent();
 
         const sftp = new SftpClient();
-        await sftp.connect({
-          host: config.ftpHost,
-          port: config.ftpPort,
-          username: config.ftpUser,
-          password: config.ftpPassword,
-        });
-        await sftp.put(Buffer.from(autoContent, 'utf8'), config.ftpWelcomePath);
+        await sftp.connect(config.sftpConnectConfig());
+        await sftp.put(Buffer.from(autoContent, 'utf8'), config.sftpWelcomePath);
         await sftp.end().catch(() => {});
 
         await interaction.editReply(this._ti(interaction, 'ok_welcome_reset'));
@@ -1958,7 +1937,7 @@ class PanelChannel {
 
     // Game settings dropdown (row 3)  uses server's SFTP
     const serverDef = this.multiServerManager?.getAllServers().find((s) => s.id === serverId);
-    const hasSftp = !!(serverDef?.sftp?.host || config.ftpHost);
+    const hasSftp = !!(serverDef?.sftp?.host || config.sftpHost);
     const rows = [new ActionRowBuilder().addComponents(actionSelect)];
     if (hasSftp) {
       const settingsSelect = new StringSelectMenuBuilder()
@@ -2400,7 +2379,7 @@ class PanelChannel {
   }
 }
 
-//  Setup wizard (extracted to panel-setup-wizard.js)
+// TODO: remove setup wizard mixin — _detectSshKey must be extracted to a shared utility first
 Object.assign(PanelChannel.prototype, require('./panel-setup-wizard'));
 
 //  Multi-server handlers (extracted to panel-multi-server.js)

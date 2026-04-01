@@ -283,7 +283,7 @@ class PlayerStatsChannel {
     if (!dbLoaded) {
       // DB has no player data yet (SaveService hasn't run, or DB not available).
       // Fall back to legacy SFTP download if credentials exist.
-      if (this._config.ftpHost && !this._config.ftpHost.startsWith('PASTE_')) {
+      if (this._config.sftpHost && !this._config.sftpHost.startsWith('PASTE_')) {
         await this._pollSaveLegacy();
         return;
       }
@@ -295,7 +295,7 @@ class PlayerStatsChannel {
     // These are lightweight operations that don't download the 60MB save.
     // Prefer Panel API when available; fall back to SFTP.
     const hasPanelApi = this._panelApi && this._panelApi.available;
-    const hasSftp = this._config.ftpHost && !this._config.ftpHost.startsWith('PASTE_');
+    const hasSftp = this._config.sftpHost && !this._config.sftpHost.startsWith('PASTE_');
     if (hasPanelApi || hasSftp) {
       const sftp = hasSftp ? new SftpClient() : null;
       try {
@@ -425,7 +425,7 @@ class PlayerStatsChannel {
    */
   async _fetchServerSettings(sftp) {
     try {
-      const settingsPath = this._config.ftpSettingsPath || '/HumanitZServer/GameServerSettings.ini';
+      const settingsPath = this._config.sftpSettingsPath || '/HumanitZServer/GameServerSettings.ini';
       const settingsBuf =
         this._panelApi && this._panelApi.available
           ? await this._panelApi.downloadFile(settingsPath)
@@ -519,7 +519,7 @@ class PlayerStatsChannel {
 
       // Clan data
       try {
-        const _savePath = this._config.ftpSavePath;
+        const _savePath = this._config.sftpSavePath;
         const _slIdx = _savePath.indexOf('SaveList/');
         const clanPath = _slIdx !== -1 ? _savePath.slice(0, _slIdx) + 'Save_ClanData.sav' : _savePath;
         const clanBuf = await sftp.get(clanPath);
@@ -554,7 +554,7 @@ class PlayerStatsChannel {
    * Validates file size against remote to detect truncated downloads.
    */
   async _downloadSave(sftp) {
-    const remotePath = this._config.ftpSavePath;
+    const remotePath = this._config.sftpSavePath;
     const tmpFile = path.join(os.tmpdir(), `humanitzbot-save-${process.pid}.sav`);
 
     try {
@@ -743,7 +743,7 @@ class PlayerStatsChannel {
    */
   async _refreshIdMap(sftp) {
     try {
-      const idMapPath = this._config.ftpIdMapPath;
+      const idMapPath = this._config.sftpIdMapPath;
       if (!idMapPath) return;
       const buf =
         this._panelApi && this._panelApi.available
