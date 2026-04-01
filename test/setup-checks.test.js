@@ -1,10 +1,10 @@
 /**
- * Tests for src/utils/setup-checks.js — checkPrerequisites + testRconConnection
+ * Tests for src/utils/setup-checks.js — checkPrerequisites + testRconReachability
  * Run: npm test
  */
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { checkPrerequisites, testRconConnection } = require('../src/utils/setup-checks');
+const { checkPrerequisites, testRconReachability } = require('../src/utils/setup-checks');
 
 describe('setup-checks', () => {
   describe('checkPrerequisites', () => {
@@ -188,7 +188,7 @@ describe('setup-checks', () => {
     });
   });
 
-  describe('testRconConnection', () => {
+  describe('testRconReachability', () => {
     const originalEnv = {};
     const KEYS = ['RCON_HOST', 'RCON_PORT', 'RCON_PASSWORD'];
 
@@ -209,7 +209,7 @@ describe('setup-checks', () => {
     it('returns { ok: false } when RCON_HOST is missing', async () => {
       delete process.env.RCON_HOST;
       delete process.env.RCON_PASSWORD;
-      const result = await testRconConnection();
+      const result = await testRconReachability();
       assert.strictEqual(result.ok, false);
       assert.strictEqual(result.error, 'NOT_CONFIGURED');
     });
@@ -217,7 +217,7 @@ describe('setup-checks', () => {
     it('returns { ok: false } when RCON_PASSWORD is missing', async () => {
       process.env.RCON_HOST = '127.0.0.1';
       delete process.env.RCON_PASSWORD;
-      const result = await testRconConnection();
+      const result = await testRconReachability();
       assert.strictEqual(result.ok, false);
       assert.strictEqual(result.error, 'NOT_CONFIGURED');
     });
@@ -225,7 +225,7 @@ describe('setup-checks', () => {
     it('returns { ok: false } when credentials are placeholders', async () => {
       process.env.RCON_HOST = 'your_server_ip';
       process.env.RCON_PASSWORD = 'your_password';
-      const result = await testRconConnection();
+      const result = await testRconReachability();
       assert.strictEqual(result.ok, false);
       assert.strictEqual(result.error, 'NOT_CONFIGURED');
     });
@@ -234,7 +234,7 @@ describe('setup-checks', () => {
       process.env.RCON_HOST = '127.0.0.1';
       process.env.RCON_PORT = '19999'; // unlikely to be open
       process.env.RCON_PASSWORD = 'test';
-      const result = await testRconConnection();
+      const result = await testRconReachability();
       assert.strictEqual(result.ok, false);
       assert.ok(result.error, 'Should have error code');
       assert.ok(result.message, 'Should have error message');

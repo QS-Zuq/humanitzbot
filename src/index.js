@@ -378,7 +378,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }, 60000);
 
   // Connect to RCON (non-fatal — auto-reconnect handles recovery)
-  if (config.rconHost && config.rconPassword && !config.rconPassword.startsWith('your_')) {
+  if (!config.needsSetup) {
     try {
       await rcon.connect();
     } catch (err) {

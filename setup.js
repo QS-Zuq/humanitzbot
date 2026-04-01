@@ -34,7 +34,7 @@ console.warn = (...args) => _origWarn(`[${_ts()}]`, ...args);
 const fs = require('fs');
 const path = require('path');
 const SftpClient = require('ssh2-sftp-client');
-const { checkPrerequisites, testRconConnection } = require('./src/utils/setup-checks');
+const { checkPrerequisites, testRconReachability } = require('./src/utils/setup-checks');
 
 /**
  * Read an SFTP-related env var with FTP_* backward compatibility.
@@ -1532,7 +1532,7 @@ async function main() {
     console.log('\n── Environment Validation ──');
     console.log('  ✓ All required keys present');
     // Phase 2: RCON 連線測試
-    const rconResult = await testRconConnection();
+    const rconResult = await testRconReachability();
     if (rconResult.ok) {
       console.log('  ✓ RCON reachable');
     } else {

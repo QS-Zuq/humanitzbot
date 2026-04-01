@@ -36,7 +36,11 @@ function checkPrerequisites(opts = {}) {
       const ftpVal = process.env[`FTP_${suffix}`];
       const val = sftpVal || ftpVal;
       if (!val || val.startsWith('your_')) {
-        issues.push({ key: `SFTP_${suffix}`, label: `SFTP_${suffix}`, type: 'missing' });
+        issues.push({
+          key: `SFTP_${suffix}`,
+          label: suffix === 'HOST' ? 'SFTP Host' : 'SFTP Username',
+          type: 'missing',
+        });
       } else if (!sftpVal && ftpVal) {
         issues.push({ key: `FTP_${suffix}`, label: `FTP_${suffix} → rename to SFTP_${suffix}`, type: 'warning' });
       }
@@ -77,7 +81,7 @@ function checkPrerequisites(opts = {}) {
  *
  * @returns {Promise<{ ok: boolean, error?: string, message?: string }>}
  */
-async function testRconConnection() {
+async function testRconReachability() {
   const host = process.env.RCON_HOST;
   const port = parseInt(process.env.RCON_PORT, 10) || 27015;
   const password = process.env.RCON_PASSWORD;
@@ -116,4 +120,4 @@ async function testRconConnection() {
   });
 }
 
-module.exports = { checkPrerequisites, testRconConnection };
+module.exports = { checkPrerequisites, testRconReachability };
