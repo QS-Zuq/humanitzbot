@@ -129,7 +129,7 @@ Panel.tabs = Panel.tabs || {};
   }
 
   function renderCard(srv) {
-    var isOnline = srv.status === 'online';
+    var isOnline = srv.status === 'running' || srv.status === 'online';
     var dotCls = statusDotClass(srv.status);
     var label = statusLabel(srv.status);
     var borderCls =
