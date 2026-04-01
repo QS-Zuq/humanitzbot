@@ -16,7 +16,7 @@ const csrfSigningSecret = crypto.createHmac('sha256', testSecret).update('csrf-s
 
 const { doubleCsrfProtection } = doubleCsrf({
   getSecret: () => csrfSigningSecret,
-  getSessionIdentifier: (req) => req.session?.id || '',
+  getSessionIdentifier: (req) => req.sessionID || req.session?.id || '',
   cookieName: 'hmz.csrf', // no __Host- prefix in test (not HTTPS)
   cookieOptions: {
     sameSite: 'strict',

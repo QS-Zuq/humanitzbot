@@ -280,7 +280,7 @@ function setupAuth(app, client, opts = {}) {
   const csrfSigningSecret = crypto.createHmac('sha256', authCfg.sessionSecret).update('csrf-signing-key').digest('hex');
   const { doubleCsrfProtection } = doubleCsrf({
     getSecret: () => csrfSigningSecret,
-    getSessionIdentifier: (req) => req.session?.id || '',
+    getSessionIdentifier: (req) => req.sessionID || req.session?.id || '',
     cookieName: isSecure ? '__Host-hmz.csrf' : 'hmz.csrf',
     cookieOptions: {
       sameSite: 'strict',
