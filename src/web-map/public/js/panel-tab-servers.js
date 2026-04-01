@@ -1298,13 +1298,20 @@ Panel.tabs = Panel.tabs || {};
       inp.className = 'sr-only peer';
       if (checked) inp.checked = true;
       var div = document.createElement('div');
-      div.className = 'w-9 h-5 bg-border rounded-full peer peer-checked:bg-accent relative';
+      div.className = 'w-9 h-5 bg-border rounded-full relative';
       div.style.cssText = 'transition:background 0.2s';
-      // simple pill visual — no pseudo-elements in JS; use accent color when checked via class toggling
+      var knob = document.createElement('div');
+      knob.className = 'absolute top-[2px] left-[2px] bg-white w-4 h-4 rounded-full';
+      knob.style.cssText = 'transition:transform 0.2s';
+      if (checked) {
+        div.style.background = 'var(--color-accent, #7c6af7)';
+        knob.style.transform = 'translateX(16px)';
+      }
       inp.addEventListener('change', function () {
         div.style.background = inp.checked ? 'var(--color-accent, #7c6af7)' : '';
+        knob.style.transform = inp.checked ? 'translateX(16px)' : 'translateX(0)';
       });
-      if (checked) div.style.background = 'var(--color-accent, #7c6af7)';
+      div.appendChild(knob);
       lbl.appendChild(inp);
       lbl.appendChild(div);
       row.appendChild(span);

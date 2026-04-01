@@ -687,7 +687,8 @@ Panel.tabs = Panel.tabs || {};
     var result = desc;
     for (var en in map) {
       if (map[en] && !map[en].startsWith('web:dashboard.')) {
-        result = result.replace(en, map[en]);
+        var regex = new RegExp('\\b' + en + '\\b', 'g');
+        result = result.replace(regex, map[en]);
       }
     }
     return result;

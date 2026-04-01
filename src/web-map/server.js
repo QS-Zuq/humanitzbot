@@ -4049,8 +4049,9 @@ class WebMapServer {
           promoText: '',
           discordLink: '',
         };
-        const key = `server:${id}.autoMessages`;
-        const stored = configRepo ? configRepo.get(key) : null;
+        const scope = 'server:' + id;
+        const serverData = configRepo ? configRepo.get(scope) : null;
+        const stored = serverData?.autoMessages || null;
         const data = Object.assign({}, defaults, stored || {});
         sendOk(res, data);
       } catch (err) {
@@ -4085,8 +4086,8 @@ class WebMapServer {
         if (!configRepo) {
           return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
         }
-        const key = `server:${id}.autoMessages`;
-        configRepo.set(key, data);
+        const scope = 'server:' + id;
+        configRepo.update(scope, { autoMessages: data });
         sendOk(res, { saved: true, requiresRestart: true });
       } catch (err) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));

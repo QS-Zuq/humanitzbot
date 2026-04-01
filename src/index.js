@@ -1076,12 +1076,40 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[BOT] Stdin console active${config.stdinConsoleWritable ? ' (writable)' : ' (read-only)'}`);
   }
 
-  // ── Write running flag + post online notification ──
+  // ── Write running flag + clean old lifecycle embeds + post online notification ──
   try {
     if (db) {
       try {
         db.setStateJSON('bot_running', { startedAt: startedAt.toISOString() });
       } catch (_) {}
+    }
+
+    // Clean previous lifecycle embeds from admin alert channels
+    const alertIds = config.adminAlertChannelIds?.length > 0 ? config.adminAlertChannelIds : [];
+    for (const chId of alertIds) {
+      try {
+        const ch = await readyClient.channels.fetch(chId);
+        if (!ch) continue;
+        const messages = await ch.messages.fetch({ limit: 30 });
+        const botId = readyClient.user?.id;
+        const toDelete = messages.filter(
+          (m) =>
+            m.author.id === botId &&
+            m.embeds.length > 0 &&
+            m.embeds.some((e) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online'),
+        );
+        if (toDelete.size > 0) {
+          try {
+            await ch.bulkDelete(toDelete, true);
+          } catch {
+            for (const msg of toDelete.values()) {
+              await msg.delete().catch(() => {});
+            }
+          }
+        }
+      } catch (cleanErr) {
+        console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, cleanErr.message);
+      }
     }
 
     const onlineEmbed = new EmbedBuilder()
