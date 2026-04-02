@@ -21,28 +21,52 @@
  * @module item-fingerprint
  */
 
-const crypto = require('crypto');
+import crypto from 'crypto';
+
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-assertion */
+
+interface ItemInput {
+  item: string;
+  durability?: number;
+  ammo?: number;
+  attachments?: string[];
+  cap?: number;
+  maxDur?: number;
+  amount?: number;
+  weight?: number;
+  wetness?: number;
+}
+
+interface NormalizedItem {
+  item: string;
+  amount: number;
+  durability: number;
+  ammo: number;
+  attachments: string[];
+  cap: number;
+  maxDur: number;
+  weight: number;
+  wetness: number;
+  fingerprint: string;
+}
+
+interface RawSlotProperty {
+  name: string;
+  value?: unknown;
+  children?: RawSlotProperty[];
+}
 
 /**
  * Generate a fingerprint hash for an item instance.
- *
- * @param {object} item - Item data from save parser
- * @param {string} item.item - Item name (RowName)
- * @param {number} [item.durability=0] - Current durability
- * @param {number} [item.ammo=0] - Loaded ammo
- * @param {Array}  [item.attachments=[]] - Attached mods
- * @param {number} [item.cap=0] - Container capacity
- * @param {number} [item.maxDur=0] - Max durability
- * @returns {string} 12-character hex fingerprint
  */
-function generateFingerprint(item) {
+function generateFingerprint(item: ItemInput): string {
   if (!item || !item.item) return '';
 
   // Build deterministic string from all distinguishing properties
   const parts = [
     item.item,
     _normFloat(item.durability),
-    String(item.ammo || 0),
+    String(item.ammo ?? 0),
     _normAttachments(item.attachments),
     _normFloat(item.cap),
     _normFloat(item.maxDur),
@@ -56,15 +80,15 @@ function generateFingerprint(item) {
  * Normalize a float to a consistent string representation.
  * Rounds to 6 decimal places to avoid floating point drift between parses.
  */
-function _normFloat(val) {
+function _normFloat(val: number | null | undefined): string {
   if (!val && val !== 0) return '0';
-  return Number(val).toFixed(6);
+  return val.toFixed(6);
 }
 
 /**
  * Normalize attachments array to a consistent sorted string.
  */
-function _normAttachments(attachments) {
+function _normAttachments(attachments: string[] | null | undefined): string {
   if (!attachments || !Array.isArray(attachments) || attachments.length === 0) return '';
   return attachments.slice().sort().join(',');
 }
@@ -73,33 +97,31 @@ function _normAttachments(attachments) {
  * Extract fingerprint-relevant fields from a raw inventory slot.
  * Works with both agent output ({item, durability, ammo, ...}) and
  * raw save-parser output (array of property objects).
- *
- * @param {object|Array} slot - Inventory slot data
- * @returns {object} Normalized item data with fingerprint
  */
-function normalizeSlot(slot) {
+function normalizeSlot(slot: ItemInput | RawSlotProperty[] | null | undefined): NormalizedItem | null {
   if (!slot) return null;
 
   // Already in clean format (from agent or post-processing)
-  if (typeof slot.item === 'string') {
-    if (!slot.item || slot.item === 'None' || slot.item === 'Empty') return null;
+  if (!Array.isArray(slot) && typeof (slot as ItemInput).item === 'string') {
+    const s = slot as ItemInput;
+    if (!s.item || s.item === 'None' || s.item === 'Empty') return null;
     return {
-      item: slot.item,
-      amount: slot.amount || 1,
-      durability: slot.durability || 0,
-      ammo: slot.ammo || 0,
-      attachments: slot.attachments || [],
-      cap: slot.cap || 0,
-      maxDur: slot.maxDur || 0,
-      weight: slot.weight || 0,
-      wetness: slot.wetness || 0,
-      fingerprint: generateFingerprint(slot),
+      item: s.item,
+      amount: s.amount ?? 1,
+      durability: s.durability ?? 0,
+      ammo: s.ammo ?? 0,
+      attachments: s.attachments ?? [],
+      cap: s.cap ?? 0,
+      maxDur: s.maxDur ?? 0,
+      weight: s.weight ?? 0,
+      wetness: s.wetness ?? 0,
+      fingerprint: generateFingerprint(s),
     };
   }
 
   // Raw save-parser format: array of property objects [{name, value}, ...]
   if (Array.isArray(slot)) {
-    const parsed = {
+    const parsed: NormalizedItem = {
       item: '',
       amount: 0,
       durability: 0,
@@ -109,21 +131,22 @@ function normalizeSlot(slot) {
       maxDur: 0,
       weight: 0,
       wetness: 0,
+      fingerprint: '',
     };
     for (const prop of slot) {
       if (prop.name === 'Item' && prop.children) {
         for (const c of prop.children) {
-          if (c.name === 'RowName') parsed.item = c.value || '';
+          if (c.name === 'RowName') parsed.item = (c.value as string) ?? '';
         }
       }
-      if (prop.name === 'Amount') parsed.amount = prop.value || 0;
-      if (prop.name === 'Durability') parsed.durability = prop.value || 0;
-      if (prop.name === 'Ammo') parsed.ammo = prop.value || 0;
-      if (prop.name === 'Attachments' && Array.isArray(prop.value)) parsed.attachments = prop.value;
-      if (prop.name === 'Cap') parsed.cap = prop.value || 0;
-      if (prop.name === 'MaxDur') parsed.maxDur = prop.value || 0;
-      if (prop.name === 'Weight') parsed.weight = prop.value || 0;
-      if (prop.name === 'Wetness') parsed.wetness = prop.value || 0;
+      if (prop.name === 'Amount') parsed.amount = (prop.value as number) ?? 0;
+      if (prop.name === 'Durability') parsed.durability = (prop.value as number) ?? 0;
+      if (prop.name === 'Ammo') parsed.ammo = (prop.value as number) ?? 0;
+      if (prop.name === 'Attachments' && Array.isArray(prop.value)) parsed.attachments = prop.value as string[];
+      if (prop.name === 'Cap') parsed.cap = (prop.value as number) ?? 0;
+      if (prop.name === 'MaxDur') parsed.maxDur = (prop.value as number) ?? 0;
+      if (prop.name === 'Weight') parsed.weight = (prop.value as number) ?? 0;
+      if (prop.name === 'Wetness') parsed.wetness = (prop.value as number) ?? 0;
     }
     if (!parsed.item || parsed.item === 'None' || parsed.item === 'Empty') return null;
     parsed.fingerprint = generateFingerprint(parsed);
@@ -135,37 +158,40 @@ function normalizeSlot(slot) {
 
 /**
  * Normalize a full inventory array (from any source) into clean fingerprinted items.
- *
- * @param {Array} items - Array of inventory slots (agent or raw format)
- * @returns {Array<object>} Array of normalized items with fingerprints
  */
-function normalizeInventory(items) {
+function normalizeInventory(items: unknown[] | null | undefined): NormalizedItem[] {
   if (!items || !Array.isArray(items)) return [];
-  const result = [];
+  const result: NormalizedItem[] = [];
   for (const slot of items) {
-    const normalized = normalizeSlot(slot);
+    const normalized = normalizeSlot(slot as ItemInput | RawSlotProperty[]);
     if (normalized) result.push(normalized);
   }
   return result;
 }
 
 /**
- * Build a fingerprint → item map for fast lookup during reconciliation.
- *
- * @param {Array<object>} items - Normalized items with fingerprints
- * @returns {Map<string, Array<object>>} fingerprint → [items]
+ * Build a fingerprint -> item map for fast lookup during reconciliation.
  */
-function buildFingerprintMap(items) {
-  const map = new Map();
+function buildFingerprintMap(items: NormalizedItem[]): Map<string, NormalizedItem[]> {
+  const map = new Map<string, NormalizedItem[]>();
   for (const item of items) {
     if (!item.fingerprint) continue;
-    if (!map.has(item.fingerprint)) map.set(item.fingerprint, []);
-    map.get(item.fingerprint).push(item);
+    const arr = map.get(item.fingerprint);
+    if (arr) {
+      arr.push(item);
+    } else {
+      map.set(item.fingerprint, [item]);
+    }
   }
   return map;
 }
 
-module.exports = {
+export { generateFingerprint, normalizeSlot, normalizeInventory, buildFingerprintMap };
+export type { NormalizedItem, ItemInput, RawSlotProperty };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = {
   generateFingerprint,
   normalizeSlot,
   normalizeInventory,

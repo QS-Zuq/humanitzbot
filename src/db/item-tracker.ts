@@ -15,25 +15,131 @@
  * decreases at location A and increases at location B for the same fingerprint,
  * we detect a group transfer and record it.
  *
- * When an item leaves a group, it gets its own instance if it moves to a
- * location where no matching group exists. When it arrives at a location that
- * already has a matching group, it assimilates (group quantity increases).
- *
  * @module item-tracker
  */
 
-const { normalizeInventory } = require('./item-fingerprint');
+import { normalizeInventory } from './item-fingerprint.js';
 
-/**
- * Full reconciliation pass — compares current save state against DB.
- *
- * @param {import('./database')} db - Database instance
- * @param {object} snapshot - Parsed save data
- * @param {Function} [nameResolver] - (steamId) => playerName
- * @returns {{ matched: number, created: number, moved: number, lost: number, groups: { matched: number, created: number, adjusted: number, transferred: number, lost: number } }}
- */
-function reconcileItems(db, snapshot, nameResolver) {
-  const stats = {
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-non-null-assertion,
+   @typescript-eslint/no-unnecessary-condition */
+
+// ── Types ──────────────────────────────────────────────────────
+
+interface ReconcileStats {
+  matched: number;
+  created: number;
+  moved: number;
+  lost: number;
+  groups: {
+    matched: number;
+    created: number;
+    adjusted: number;
+    transferred: number;
+    lost: number;
+  };
+}
+
+interface LocationItem {
+  item: string;
+  amount: number;
+  durability: number;
+  ammo: number;
+  attachments: string[];
+  cap: number;
+  maxDur: number;
+  weight: number;
+  wetness: number;
+  fingerprint: string;
+  locationType: string;
+  locationId: string;
+  locationSlot: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  _matchedInstanceId?: number;
+  _matchType?: string;
+}
+
+interface ItemInstance {
+  id: number;
+  fingerprint: string;
+  item: string;
+  location_type: string;
+  location_id: string;
+  location_slot: string;
+  amount: number;
+  group_id?: number | null;
+  _matched?: boolean;
+}
+
+interface ItemGroup {
+  id: number;
+  fingerprint: string;
+  item: string;
+  quantity: number;
+  location_type: string;
+  location_id: string;
+  location_slot: string;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  pos_z?: number | null;
+  _matched?: boolean;
+}
+
+interface FungibleGroup {
+  fingerprint: string;
+  items: LocationItem[];
+  locationType: string;
+  locationId: string;
+  locationSlot: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  quantity: number;
+  representative: LocationItem;
+  _matchedGroupId?: number;
+}
+
+interface DeltaEntry {
+  groupId: number;
+  amount: number;
+  locationType: string;
+  locationId: string;
+  locationSlot: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+}
+
+interface Attribution {
+  steamId: string;
+  name: string;
+}
+
+interface SnapshotData {
+  players?: Map<string, Record<string, unknown>>;
+  containers?: Array<Record<string, unknown>>;
+  vehicles?: Array<Record<string, unknown>>;
+  horses?: Array<Record<string, unknown>>;
+  structures?: Array<Record<string, unknown>>;
+  worldState?: Record<string, unknown>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface HumanitZDBLike {
+  [key: string]: any;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Main entry
+// ═══════════════════════════════════════════════════════════════════════════
+
+function reconcileItems(
+  db: HumanitZDBLike,
+  snapshot: SnapshotData,
+  nameResolver?: (steamId: string) => string,
+): ReconcileStats {
+  const stats: ReconcileStats = {
     matched: 0,
     created: 0,
     moved: 0,
@@ -41,21 +147,20 @@ function reconcileItems(db, snapshot, nameResolver) {
     groups: { matched: 0, created: 0, adjusted: 0, transferred: 0, lost: 0 },
   };
 
-  // ── Collect all items from the current snapshot ──
-  const currentItems = [];
+  const currentItems: LocationItem[] = [];
 
   // Players
   if (snapshot.players) {
     for (const [steamId, data] of snapshot.players) {
-      const slots = [
-        ['inventory', data.inventory],
-        ['equipment', data.equipment],
-        ['quick_slots', data.quickSlots],
-        ['backpack', data.backpackItems],
+      const slots: [string, unknown][] = [
+        ['inventory', data['inventory']],
+        ['equipment', data['equipment']],
+        ['quick_slots', data['quickSlots']],
+        ['backpack', data['backpackItems']],
       ];
       for (const [slotName, items] of slots) {
-        if (!items || items.length === 0) continue;
-        _addLocationItems(currentItems, normalizeInventory(items), 'player', steamId, slotName, data);
+        if (!items || (items as unknown[]).length === 0) continue;
+        _addLocationItems(currentItems, normalizeInventory(items as unknown[]), 'player', steamId, slotName, data);
       }
     }
   }
@@ -63,12 +168,12 @@ function reconcileItems(db, snapshot, nameResolver) {
   // Containers
   if (snapshot.containers) {
     for (const c of snapshot.containers) {
-      if (c.items?.length) {
+      if ((c['items'] as unknown[] | undefined)?.length) {
         _addLocationItems(
           currentItems,
-          normalizeInventory(c.items),
+          normalizeInventory(c['items'] as unknown[]),
           'container',
-          c.actorName || c.name || '',
+          (c['actorName'] as string) ?? (c['name'] as string) ?? '',
           'items',
           c,
         );
@@ -79,13 +184,20 @@ function reconcileItems(db, snapshot, nameResolver) {
   // Vehicles
   if (snapshot.vehicles) {
     for (const v of snapshot.vehicles) {
-      const slots = [
-        ['inventory', v.inventory],
-        ['trunk', v.trunkItems],
+      const slots: [string, unknown][] = [
+        ['inventory', v['inventory']],
+        ['trunk', v['trunkItems']],
       ];
       for (const [slotName, items] of slots) {
-        if (!items || items.length === 0) continue;
-        _addLocationItems(currentItems, normalizeInventory(items), 'vehicle', v.actorName || v.name || '', slotName, v);
+        if (!items || (items as unknown[]).length === 0) continue;
+        _addLocationItems(
+          currentItems,
+          normalizeInventory(items as unknown[]),
+          'vehicle',
+          (v['actorName'] as string) ?? (v['name'] as string) ?? '',
+          slotName,
+          v,
+        );
       }
     }
   }
@@ -93,12 +205,12 @@ function reconcileItems(db, snapshot, nameResolver) {
   // Horses
   if (snapshot.horses) {
     for (const h of snapshot.horses) {
-      if (h.saddleItems?.length) {
+      if ((h['saddleItems'] as unknown[] | undefined)?.length) {
         _addLocationItems(
           currentItems,
-          normalizeInventory(h.saddleItems),
+          normalizeInventory(h['saddleItems'] as unknown[]),
           'horse',
-          h.actorName || h.name || '',
+          (h['actorName'] as string) ?? (h['name'] as string) ?? '',
           'saddle',
           h,
         );
@@ -106,15 +218,15 @@ function reconcileItems(db, snapshot, nameResolver) {
     }
   }
 
-  // Structures (storage boxes, etc.)
+  // Structures
   if (snapshot.structures) {
     for (const s of snapshot.structures) {
-      if (s.inventory?.length) {
+      if ((s['inventory'] as unknown[] | undefined)?.length) {
         _addLocationItems(
           currentItems,
-          normalizeInventory(s.inventory),
+          normalizeInventory(s['inventory'] as unknown[]),
           'structure',
-          s.actorName || s.name || '',
+          (s['actorName'] as string) ?? (s['name'] as string) ?? '',
           'items',
           s,
         );
@@ -122,31 +234,31 @@ function reconcileItems(db, snapshot, nameResolver) {
     }
   }
 
-  // World drops (LOD pickups, backpacks, global containers)
-  const ws = snapshot.worldState || {};
-  if (ws.lodPickups) {
-    for (const p of ws.lodPickups) {
-      if (!p.item || p.item === 'None') continue;
-      const posId = `pickup_${Math.round(p.x)}_${Math.round(p.y)}_${Math.round(p.z)}`;
+  // World drops
+  const ws = snapshot.worldState ?? {};
+  if (ws['lodPickups']) {
+    for (const p of ws['lodPickups'] as Array<Record<string, unknown>>) {
+      if (!p['item'] || p['item'] === 'None') continue;
+      const posId = `pickup_${String(Math.round(p['x'] as number))}_${String(Math.round(p['y'] as number))}_${String(Math.round(p['z'] as number))}`;
       const normalized = normalizeInventory([p]);
       _addLocationItems(currentItems, normalized, 'world_drop', posId, 'ground', p);
     }
   }
-  if (ws.droppedBackpacks) {
-    for (const bp of ws.droppedBackpacks) {
-      if (!bp.items?.length) continue;
-      const posId = `backpack_${Math.round(bp.x)}_${Math.round(bp.y)}_${Math.round(bp.z)}`;
-      _addLocationItems(currentItems, normalizeInventory(bp.items), 'backpack', posId, 'items', bp);
+  if (ws['droppedBackpacks']) {
+    for (const bp of ws['droppedBackpacks'] as Array<Record<string, unknown>>) {
+      if (!(bp['items'] as unknown[] | undefined)?.length) continue;
+      const posId = `backpack_${String(Math.round(bp['x'] as number))}_${String(Math.round(bp['y'] as number))}_${String(Math.round(bp['z'] as number))}`;
+      _addLocationItems(currentItems, normalizeInventory(bp['items'] as unknown[]), 'backpack', posId, 'items', bp);
     }
   }
-  if (ws.globalContainers) {
-    for (const gc of ws.globalContainers) {
-      if (!gc.items?.length) continue;
+  if (ws['globalContainers']) {
+    for (const gc of ws['globalContainers'] as Array<Record<string, unknown>>) {
+      if (!(gc['items'] as unknown[] | undefined)?.length) continue;
       _addLocationItems(
         currentItems,
-        normalizeInventory(gc.items),
+        normalizeInventory(gc['items'] as unknown[]),
         'global_container',
-        gc.actorName || '',
+        (gc['actorName'] as string) ?? '',
         'items',
         gc,
       );
@@ -154,71 +266,64 @@ function reconcileItems(db, snapshot, nameResolver) {
   }
 
   // ── Classify items: unique vs fungible ──
-  // Build location-keyed groups: { locationKey → { fingerprint → [items] } }
-  const locationGroups = new Map();
+  const locationGroups = new Map<string, Map<string, LocationItem[]>>();
   for (const item of currentItems) {
     const locKey = `${item.locationType}|${item.locationId}|${item.locationSlot}`;
     if (!locationGroups.has(locKey)) locationGroups.set(locKey, new Map());
-    const fpMap = locationGroups.get(locKey);
+    const fpMap = locationGroups.get(locKey)!;
     if (!fpMap.has(item.fingerprint)) fpMap.set(item.fingerprint, []);
-    fpMap.get(item.fingerprint).push(item);
+    fpMap.get(item.fingerprint)!.push(item);
   }
 
-  // Separate into unique items (1 per fingerprint per location) and fungible groups (>1)
-  const uniqueItems = [];
-  const fungibleGroups = [];
+  const uniqueItems: LocationItem[] = [];
+  const fungibleGroups: FungibleGroup[] = [];
 
   for (const [, fpMap] of locationGroups) {
     for (const [fingerprint, items] of fpMap) {
       if (items.length === 1) {
-        uniqueItems.push(items[0]);
+        uniqueItems.push(items[0]!);
       } else {
-        // Multiple identical items at same location = fungible group
         fungibleGroups.push({
           fingerprint,
           items,
-          locationType: items[0].locationType,
-          locationId: items[0].locationId,
-          locationSlot: items[0].locationSlot,
-          x: items[0].x,
-          y: items[0].y,
-          z: items[0].z,
+          locationType: items[0]!.locationType,
+          locationId: items[0]!.locationId,
+          locationSlot: items[0]!.locationSlot,
+          x: items[0]!.x,
+          y: items[0]!.y,
+          z: items[0]!.z,
           quantity: items.length,
-          representative: items[0],
+          representative: items[0]!,
         });
       }
     }
   }
 
-  // ── Phase 1: Reconcile unique items (individual instance tracking) ──
   _reconcileUniqueItems(db, uniqueItems, snapshot, nameResolver, stats);
-
-  // ── Phase 2: Reconcile fungible groups ──
   _reconcileFungibleGroups(db, fungibleGroups, snapshot, nameResolver, stats);
 
   return stats;
 }
 
-/**
- * Reconcile unique items (items that have a unique fingerprint at their location).
- * Uses the classic 4-pass approach: exact match → fingerprint match → create → mark lost.
- */
-function _reconcileUniqueItems(db, currentItems, snapshot, nameResolver, stats) {
-  // Load all active (non-lost) instances from DB, indexed by fingerprint
-  const existing = db.getActiveItemInstances();
-  const existingByFP = new Map();
+function _reconcileUniqueItems(
+  db: HumanitZDBLike,
+  currentItems: LocationItem[],
+  snapshot: SnapshotData,
+  nameResolver: ((steamId: string) => string) | undefined,
+  stats: ReconcileStats,
+): void {
+  const existing = db.getActiveItemInstances() as ItemInstance[];
+  const existingByFP = new Map<string, ItemInstance[]>();
   for (const inst of existing) {
-    // Skip instances that belong to a group (managed by group reconciliation)
     if (inst.group_id) continue;
     if (!existingByFP.has(inst.fingerprint)) existingByFP.set(inst.fingerprint, []);
-    existingByFP.get(inst.fingerprint).push(inst);
+    existingByFP.get(inst.fingerprint)!.push(inst);
   }
 
-  // Pass 1: exact location + fingerprint match (item is still where it was)
+  // Pass 1: exact match
   for (const ci of currentItems) {
     const candidates = existingByFP.get(ci.fingerprint);
     if (!candidates) continue;
-
     const exact = candidates.find(
       (c) =>
         !c._matched &&
@@ -235,19 +340,16 @@ function _reconcileUniqueItems(db, currentItems, snapshot, nameResolver, stats) 
     }
   }
 
-  // Pass 2: fingerprint match (item moved)
+  // Pass 2: fingerprint match (moved)
   for (const ci of currentItems) {
     if (ci._matchedInstanceId) continue;
-
     const candidates = existingByFP.get(ci.fingerprint);
     if (!candidates) continue;
-
     const moved = candidates.find((c) => !c._matched);
     if (moved) {
       moved._matched = true;
       ci._matchedInstanceId = moved.id;
       ci._matchType = 'moved';
-
       const attribution = _attributeMovement(ci, moved, snapshot, nameResolver);
       db.moveItemInstance(
         moved.id,
@@ -264,15 +366,13 @@ function _reconcileUniqueItems(db, currentItems, snapshot, nameResolver, stats) 
         attribution,
         'move',
       );
-
       stats.moved++;
     }
   }
 
-  // Pass 3: create new instances for unmatched items
+  // Pass 3: create new
   for (const ci of currentItems) {
     if (ci._matchedInstanceId) continue;
-
     const id = db.createItemInstance({
       fingerprint: ci.fingerprint,
       item: ci.item,
@@ -289,12 +389,12 @@ function _reconcileUniqueItems(db, currentItems, snapshot, nameResolver, stats) 
       z: ci.z,
       amount: ci.amount,
       groupId: null,
-    });
+    }) as number;
     ci._matchedInstanceId = id;
     stats.created++;
   }
 
-  // Pass 4: mark unmatched existing instances as lost
+  // Pass 4: mark lost
   for (const candidates of existingByFP.values()) {
     for (const inst of candidates) {
       if (!inst._matched) {
@@ -305,33 +405,26 @@ function _reconcileUniqueItems(db, currentItems, snapshot, nameResolver, stats) 
   }
 }
 
-/**
- * Reconcile fungible groups — items with duplicate fingerprints at the same location.
- *
- * Strategy:
- *   1. For each current group, find/create a DB group at the same location
- *   2. Compare quantities: stable, increased (merge), decreased (split)
- *   3. Cross-reference decreases at one location with increases at another
- *      for the same fingerprint → transfer event
- */
-function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, stats) {
-  // Load all active groups, indexed by fingerprint
-  const existingGroups = db.getActiveItemGroups();
-  const existingByFP = new Map();
+function _reconcileFungibleGroups(
+  db: HumanitZDBLike,
+  currentGroups: FungibleGroup[],
+  snapshot: SnapshotData,
+  nameResolver: ((steamId: string) => string) | undefined,
+  stats: ReconcileStats,
+): void {
+  const existingGroups = db.getActiveItemGroups() as ItemGroup[];
+  const existingByFP = new Map<string, ItemGroup[]>();
   for (const g of existingGroups) {
     if (!existingByFP.has(g.fingerprint)) existingByFP.set(g.fingerprint, []);
-    existingByFP.get(g.fingerprint).push(g);
+    existingByFP.get(g.fingerprint)!.push(g);
   }
 
-  // Track delta changes per fingerprint for cross-referencing transfers
-  const deltas = new Map();
+  const deltas = new Map<string, { increases: DeltaEntry[]; decreases: DeltaEntry[] }>();
 
-  // ── Match current groups to existing groups ──
   for (const cg of currentGroups) {
     const rep = cg.representative;
-    const existingList = existingByFP.get(cg.fingerprint) || [];
+    const existingList = existingByFP.get(cg.fingerprint) ?? [];
 
-    // Find exact location match
     const exact = existingList.find(
       (g) =>
         !g._matched &&
@@ -343,21 +436,18 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
     if (exact) {
       exact._matched = true;
       cg._matchedGroupId = exact.id;
-
       const oldQty = exact.quantity;
       const newQty = cg.quantity;
 
       if (oldQty === newQty) {
-        // Stable — just touch
         db.touchItemGroup(exact.id);
         stats.groups.matched++;
       } else {
-        // Quantity changed — update and track delta
         db.updateItemGroupQuantity(exact.id, newQty);
         stats.groups.adjusted++;
 
         if (!deltas.has(cg.fingerprint)) deltas.set(cg.fingerprint, { increases: [], decreases: [] });
-        const delta = deltas.get(cg.fingerprint);
+        const delta = deltas.get(cg.fingerprint)!;
         if (newQty > oldQty) {
           delta.increases.push({
             groupId: exact.id,
@@ -383,7 +473,6 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
         }
       }
     } else {
-      // New group at this location
       const { id } = db.upsertItemGroup({
         fingerprint: cg.fingerprint,
         item: rep.item,
@@ -400,13 +489,12 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
         z: cg.z,
         quantity: cg.quantity,
         stackSize: rep.amount || 1,
-      });
+      }) as { id: number };
       cg._matchedGroupId = id;
       stats.groups.created++;
 
-      // Track as increase for transfer cross-referencing
       if (!deltas.has(cg.fingerprint)) deltas.set(cg.fingerprint, { increases: [], decreases: [] });
-      deltas.get(cg.fingerprint).increases.push({
+      deltas.get(cg.fingerprint)!.increases.push({
         groupId: id,
         amount: cg.quantity,
         locationType: cg.locationType,
@@ -419,7 +507,7 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
     }
   }
 
-  // ── Mark unmatched existing groups as lost and track as decrease ──
+  // Mark lost
   for (const [fp, groups] of existingByFP) {
     for (const g of groups) {
       if (!g._matched) {
@@ -427,25 +515,24 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
         stats.groups.lost++;
 
         if (!deltas.has(fp)) deltas.set(fp, { increases: [], decreases: [] });
-        deltas.get(fp).decreases.push({
+        deltas.get(fp)!.decreases.push({
           groupId: g.id,
           amount: g.quantity,
           locationType: g.location_type,
           locationId: g.location_id,
           locationSlot: g.location_slot,
-          x: g.pos_x,
-          y: g.pos_y,
-          z: g.pos_z,
+          x: g.pos_x ?? null,
+          y: g.pos_y ?? null,
+          z: g.pos_z ?? null,
         });
       }
     }
   }
 
-  // ── Cross-reference deltas to detect transfers ──
+  // Cross-reference deltas
   for (const [fingerprint, delta] of deltas) {
     if (delta.decreases.length === 0 || delta.increases.length === 0) continue;
 
-    // Match decreases to increases (greedy: largest transfers first)
     const decreases = delta.decreases.slice().sort((a, b) => b.amount - a.amount);
     const increases = delta.increases.slice().sort((a, b) => b.amount - a.amount);
 
@@ -459,7 +546,6 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
         remaining -= transferred;
         inc.amount -= transferred;
 
-        // Determine who moved it
         const fakeCurrentItem = {
           locationType: inc.locationType,
           locationId: inc.locationId,
@@ -468,11 +554,15 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
           z: inc.z,
         };
         const fakeOldInstance = { location_type: dec.locationType, location_id: dec.locationId };
-        const attribution = _attributeMovement(fakeCurrentItem, fakeOldInstance, snapshot, nameResolver);
+        const attribution = _attributeMovement(
+          fakeCurrentItem as LocationItem,
+          fakeOldInstance as ItemInstance,
+          snapshot,
+          nameResolver,
+        );
 
-        // Resolve item name from existing group or fingerprint
-        const srcGroup = db.getItemGroup(dec.groupId);
-        const itemName = srcGroup?.item || fingerprint;
+        const srcGroup = db.getItemGroup(dec.groupId) as { item?: string } | undefined;
+        const itemName = srcGroup?.item ?? fingerprint;
 
         db.recordGroupMovement({
           groupId: inc.groupId,
@@ -490,55 +580,63 @@ function _reconcileFungibleGroups(db, currentGroups, snapshot, nameResolver, sta
   }
 }
 
-/**
- * Add items from a normalised inventory to the current items list,
- * tagging each with its location metadata.
- */
-function _addLocationItems(currentItems, items, locationType, locationId, locationSlot, entity) {
+function _addLocationItems(
+  currentItems: LocationItem[],
+  items: Array<{
+    item: string;
+    amount: number;
+    durability: number;
+    ammo: number;
+    attachments: string[];
+    cap: number;
+    maxDur: number;
+    weight: number;
+    wetness: number;
+    fingerprint: string;
+  }>,
+  locationType: string,
+  locationId: string,
+  locationSlot: string,
+  entity: Record<string, unknown>,
+): void {
   for (const item of items) {
     currentItems.push({
       ...item,
       locationType,
       locationId,
       locationSlot,
-      x: entity.x ?? entity.pos_x ?? null,
-      y: entity.y ?? entity.pos_y ?? null,
-      z: entity.z ?? entity.pos_z ?? null,
+      x: (entity['x'] ?? entity['pos_x'] ?? null) as number | null,
+      y: (entity['y'] ?? entity['pos_y'] ?? null) as number | null,
+      z: (entity['z'] ?? entity['pos_z'] ?? null) as number | null,
     });
   }
 }
 
-/**
- * Try to attribute a detected movement to a specific player.
- *
- * Heuristics:
- *   - If the item moved TO a player, that player took/picked it up
- *   - If the item moved FROM a player, that player dropped/deposited it
- *   - If between two non-player locations, check for nearby players
- */
-function _attributeMovement(currentItem, oldInstance, snapshot, nameResolver) {
-  // Moving TO a player
+function _attributeMovement(
+  currentItem: { locationType: string; locationId: string; x?: number | null; y?: number | null; z?: number | null },
+  oldInstance: { location_type: string; location_id: string },
+  snapshot: SnapshotData,
+  nameResolver?: (steamId: string) => string,
+): Attribution | null {
   if (currentItem.locationType === 'player') {
     const name = nameResolver ? nameResolver(currentItem.locationId) : currentItem.locationId;
     return { steamId: currentItem.locationId, name };
   }
 
-  // Moving FROM a player
   if (oldInstance.location_type === 'player') {
     const name = nameResolver ? nameResolver(oldInstance.location_id) : oldInstance.location_id;
     return { steamId: oldInstance.location_id, name };
   }
 
-  // Between non-player locations — try proximity matching
   if (snapshot.players && currentItem.x != null) {
-    const MAX_DIST_SQ = 5000 * 5000; // ~50m
-    let bestPlayer = null;
+    const MAX_DIST_SQ = 5000 * 5000;
+    let bestPlayer: string | null = null;
     let bestDistSq = MAX_DIST_SQ;
 
     for (const [steamId, data] of snapshot.players) {
-      if (data.x == null) continue;
-      const dx = currentItem.x - (data.x || 0);
-      const dy = currentItem.y - (data.y || 0);
+      if (data['x'] == null) continue;
+      const dx = currentItem.x - ((data['x'] as number) || 0);
+      const dy = (currentItem.y ?? 0) - ((data['y'] as number) || 0);
       const distSq = dx * dx + dy * dy;
       if (distSq < bestDistSq) {
         bestDistSq = distSq;
@@ -555,4 +653,8 @@ function _attributeMovement(currentItem, oldInstance, snapshot, nameResolver) {
   return null;
 }
 
-module.exports = { reconcileItems };
+export { reconcileItems };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = { reconcileItems };

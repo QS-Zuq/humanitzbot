@@ -325,10 +325,10 @@ function buildAgentScript(): string {
         )
         // Remove return type annotations: `): Type {` or `): Type =>`
         .replace(/\):\s*(?:[\w.]+(?:<[^>]*>)?(?:\[\])*(?:\s*\|\s*[\w.]+(?:<[^>]*>)?(?:\[\])*)*)\s*(?=[{=])/g, ') ')
-        // Remove `as Type` assertions (handles nested braces, generics, unions)
+        // Remove `as Type` assertions (handles nested braces, generics, unions, multiline)
         // Match `as` + type expression up to `;` or `)` or `,` boundary
         .replace(
-          /\s+as\s+(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*/g,
+          /\s+as\s*\n?\s*(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*/g,
           '',
         )
         // Remove generic type parameters on functions: `function foo<T>(` → `function foo(`

@@ -4,18 +4,44 @@
  * Provides:
  *   - BOOTSTRAP_KEYS  — env keys that must stay in .env (Discord tokens, ports, etc.)
  *   - SERVER_SCOPED_KEYS — env keys that belong to per-server config (RCON, SFTP, channels)
- *   - buildMigrationMap() — maps envKey → { cfgKey, scope, type, sensitive }
- *   - migrateEnvToDb() — one-time migration of .env values → config_documents
+ *   - buildMigrationMap() — maps envKey -> { cfgKey, scope, type, sensitive }
+ *   - migrateEnvToDb() — one-time migration of .env values -> config_documents
  *   - migrateServersJsonToDb() — stores managed server definitions as NESTED objects
  *   - migrateDisplaySettings() — merges bot_state.display_settings into app document
  */
 
-'use strict';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const panelConstants = require('../modules/panel-constants') as {
+  ENV_CATEGORIES: Array<{
+    fields: Array<{
+      env: string;
+      type?: string;
+      sensitive?: boolean;
+      cfg?: string;
+    }>;
+  }>;
+};
+const { ENV_CATEGORIES } = panelConstants;
 
-const { ENV_CATEGORIES } = require('../modules/panel-constants');
+// ── Types ──────────────────────────────────────────────────────
+
+interface MigrationEntry {
+  cfgKey: string;
+  scope: string;
+  type: string;
+  sensitive?: boolean;
+}
+
+interface ConfigRepo {
+  update(scope: string, patch: Record<string, unknown>): Record<string, unknown>;
+  set(scope: string, data: Record<string, unknown>): void;
+}
+
+interface HumanitZDBLike {
+  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
+}
 
 // ── Bootstrap keys that MUST stay in .env ────────────────────
-// These are needed before DB is available or are security-critical.
 const BOOTSTRAP_KEYS = new Set([
   'DISCORD_TOKEN',
   'DISCORD_CLIENT_ID',
@@ -32,7 +58,6 @@ const BOOTSTRAP_KEYS = new Set([
 ]);
 
 // ── Server-scoped env key prefixes/patterns ──────────────────
-// These go into 'server:primary' instead of 'app'.
 const _SERVER_PREFIXES = ['RCON_', 'SFTP_', 'FTP_', 'PANEL_SERVER_URL', 'PANEL_API_KEY'];
 const _SERVER_CHANNEL_SUFFIXES = [
   'ADMIN_CHANNEL_ID',
@@ -44,27 +69,17 @@ const _SERVER_CHANNEL_SUFFIXES = [
   'HOWYAGARN_CHANNEL_ID',
 ];
 
-/**
- * Convert ENV_KEY_NAME to camelCase cfgKey (e.g. RCON_PASSWORD → rconPassword).
- * @param {string} envKey
- * @returns {string}
- */
-function _envKeyToCfgKey(envKey) {
-  return envKey.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+function _envKeyToCfgKey(envKey: string): string {
+  return envKey.toLowerCase().replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-/**
- * Check if an env key is server-scoped.
- * @param {string} envKey
- * @returns {boolean}
- */
-function _isServerScoped(envKey) {
+function _isServerScoped(envKey: string): boolean {
   if (_SERVER_CHANNEL_SUFFIXES.includes(envKey)) return true;
   return _SERVER_PREFIXES.some((prefix) => envKey.startsWith(prefix));
 }
 
 // Precompute the set of server-scoped keys from ENV_CATEGORIES
-const SERVER_SCOPED_KEYS = new Set();
+const SERVER_SCOPED_KEYS = new Set<string>();
 for (const cat of ENV_CATEGORIES) {
   for (const field of cat.fields) {
     if (_isServerScoped(field.env)) {
@@ -74,10 +89,7 @@ for (const cat of ENV_CATEGORIES) {
 }
 
 // ── Fallback migration entries ────────────────────────────────
-// Keys in config.js that are NOT covered by ENV_CATEGORIES.
-// Each specifies { cfgKey, scope, type, sensitive? } explicitly.
-const FALLBACK_MIGRATION_ENTRIES = {
-  // Server-scoped — host, SFTP key, channels, per-server paths
+const FALLBACK_MIGRATION_ENTRIES: Record<string, MigrationEntry> = {
   PUBLIC_HOST: { cfgKey: 'publicHost', scope: 'server:primary', type: 'string' },
   SFTP_PRIVATE_KEY_PATH: { cfgKey: 'sftpPrivateKeyPath', scope: 'server:primary', type: 'string' },
   ACTIVITY_LOG_CHANNEL_ID: { cfgKey: 'activityLogChannelId', scope: 'server:primary', type: 'string' },
@@ -91,8 +103,6 @@ const FALLBACK_MIGRATION_ENTRIES = {
   RESTART_DELAY: { cfgKey: 'restartDelay', scope: 'server:primary', type: 'int' },
   RESTART_ROTATE_DAILY: { cfgKey: 'restartRotateDaily', scope: 'server:primary', type: 'bool' },
   SERVER_NAME_TEMPLATE: { cfgKey: 'serverNameTemplate', scope: 'server:primary', type: 'string' },
-
-  // App-scoped — bot locale, stdin, feature toggles, display settings
   BOT_LOCALE: { cfgKey: 'botLocale', scope: 'app', type: 'string' },
   ENABLE_STDIN_CONSOLE: { cfgKey: 'enableStdinConsole', scope: 'app', type: 'bool' },
   STDIN_CONSOLE_WRITABLE: { cfgKey: 'stdinConsoleWritable', scope: 'app', type: 'bool' },
@@ -113,24 +123,18 @@ const FALLBACK_MIGRATION_ENTRIES = {
   SHOW_HORSES_ADMIN_ONLY: { cfgKey: 'showHorsesAdminOnly', scope: 'app', type: 'bool' },
   SHOW_SKILLS_ADMIN_ONLY: { cfgKey: 'showSkillsAdminOnly', scope: 'app', type: 'bool' },
   SHOW_WORLD_STATS: { cfgKey: 'showWorldStats', scope: 'app', type: 'bool' },
-
-  // App-scoped — GitHub tracker
   GITHUB_TOKEN: { cfgKey: 'githubToken', scope: 'app', type: 'string', sensitive: true },
   GITHUB_REPOS: { cfgKey: 'githubRepos', scope: 'app', type: 'string' },
   GITHUB_CHANNEL_ID: { cfgKey: 'githubChannelId', scope: 'app', type: 'string' },
   GITHUB_POLL_INTERVAL: { cfgKey: 'githubPollInterval', scope: 'app', type: 'int' },
-
-  // App-scoped — anticheat intervals
   ANTICHEAT_ANALYZE_INTERVAL: { cfgKey: 'anticheatAnalyzeInterval', scope: 'app', type: 'int' },
   ANTICHEAT_BASELINE_INTERVAL: { cfgKey: 'anticheatBaselineInterval', scope: 'app', type: 'int' },
-
-  // App-scoped — agent extras (matches existing AGENT_ scope in ENV_CATEGORIES)
   AGENT_REMOTE_DIR: { cfgKey: 'agentRemoteDir', scope: 'app', type: 'string' },
   AGENT_CACHE_PATH: { cfgKey: 'agentCachePath', scope: 'app', type: 'string' },
   AGENT_PANEL_COMMAND: { cfgKey: 'agentPanelCommand', scope: 'app', type: 'string' },
   AGENT_PANEL_DELAY: { cfgKey: 'agentPanelDelay', scope: 'app', type: 'int' },
 };
-// Also include server-scoped keys from FALLBACK_MIGRATION_ENTRIES
+
 for (const [envKey, entry] of Object.entries(FALLBACK_MIGRATION_ENTRIES)) {
   if (entry.scope === 'server:primary') {
     SERVER_SCOPED_KEYS.add(envKey);
@@ -139,35 +143,25 @@ for (const [envKey, entry] of Object.entries(FALLBACK_MIGRATION_ENTRIES)) {
 
 // ── Migration map builder ────────────────────────────────────
 
-/**
- * Build the migration map from ENV_CATEGORIES + FALLBACK_MIGRATION_ENTRIES.
- * @returns {Object<string, { cfgKey: string|null, scope: string, type: string, sensitive: boolean }>}
- */
-function buildMigrationMap() {
-  const map = {};
+function buildMigrationMap(): Record<string, MigrationEntry> {
+  const map: Record<string, MigrationEntry> = {};
 
-  // 1. Map ENV_CATEGORIES fields (panel-constants.js)
   for (const cat of ENV_CATEGORIES) {
     for (const field of cat.fields) {
       const envKey = field.env;
-
-      // Skip bootstrap keys — they stay in .env
       if (BOOTSTRAP_KEYS.has(envKey)) continue;
-
       const scope = _isServerScoped(envKey) ? 'server:primary' : 'app';
-      const type = field.type || 'string';
-      const sensitive = field.sensitive || false;
-      const cfgKey = field.cfg || _envKeyToCfgKey(envKey);
-
+      const type = field.type ?? 'string';
+      const sensitive = field.sensitive ?? false;
+      const cfgKey = field.cfg ?? _envKeyToCfgKey(envKey);
       map[envKey] = { cfgKey, scope, type, sensitive };
     }
   }
 
-  // 2. Merge FALLBACK entries for keys not in ENV_CATEGORIES
   for (const [envKey, entry] of Object.entries(FALLBACK_MIGRATION_ENTRIES)) {
     if (BOOTSTRAP_KEYS.has(envKey)) continue;
     if (!map[envKey]) {
-      map[envKey] = { cfgKey: entry.cfgKey, scope: entry.scope, type: entry.type, sensitive: entry.sensitive || false };
+      map[envKey] = { cfgKey: entry.cfgKey, scope: entry.scope, type: entry.type, sensitive: entry.sensitive ?? false };
     }
   }
 
@@ -176,13 +170,7 @@ function buildMigrationMap() {
 
 // ── Type coercion helper ─────────────────────────────────────
 
-/**
- * Coerce a string value based on its type annotation.
- * @param {string} value - Raw string from .env
- * @param {string} type - 'bool', 'int', or 'string'
- * @returns {boolean|number|string}
- */
-function _coerce(value, type) {
+function _coerce(value: string, type: string): boolean | number | string {
   if (type === 'bool') {
     return value === 'true';
   }
@@ -195,23 +183,17 @@ function _coerce(value, type) {
 
 // ── Migration functions ──────────────────────────────────────
 
-/**
- * Migrate env key-values into config_documents.
- * Reads from a flat envValues object (e.g. from dotenv.parse()),
- * maps to app + server:primary documents.
- *
- * @param {Object<string, string>} envValues - Key-value pairs from .env
- * @param {import('./config-repository')} configRepo
- * @returns {{ appKeys: number, serverKeys: number, skipped: number }}
- */
-function migrateEnvToDb(envValues, configRepo) {
+function migrateEnvToDb(
+  envValues: Record<string, string>,
+  configRepo: ConfigRepo,
+): { appKeys: number; serverKeys: number; skipped: number } {
   const migrationMap = buildMigrationMap();
-  const appPatch = {};
-  const serverPatch = {};
+  const appPatch: Record<string, unknown> = {};
+  const serverPatch: Record<string, unknown> = {};
   let skipped = 0;
 
   for (const [envKey, rawValue] of Object.entries(envValues)) {
-    // Skip empty values
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (rawValue === '' || rawValue == null) {
       skipped++;
       continue;
@@ -234,7 +216,6 @@ function migrateEnvToDb(envValues, configRepo) {
     }
   }
 
-  // Write to DB using merge-patch (preserves existing data)
   if (Object.keys(appPatch).length > 0) {
     configRepo.update('app', appPatch);
   }
@@ -249,36 +230,21 @@ function migrateEnvToDb(envValues, configRepo) {
   };
 }
 
-/**
- * Migrate servers.json definitions into config_documents.
- * Stores each server definition as-is (NESTED shape) under 'server:<id>'.
- *
- * @param {Array<object>} serverDefs - Array of serverDef objects from servers.json
- * @param {import('./config-repository')} configRepo
- * @returns {number} Number of servers migrated
- */
-function migrateServersJsonToDb(serverDefs, configRepo) {
+function migrateServersJsonToDb(serverDefs: Array<Record<string, unknown>>, configRepo: ConfigRepo): number {
   let count = 0;
   for (const def of serverDefs) {
-    if (!def || !def.id) continue;
-    const scope = `server:${def.id}`;
-    // Store NESTED as-is — this matches what createServerConfig() expects
+    if (!def['id']) continue;
+    const defId = typeof def['id'] === 'string' ? def['id'] : JSON.stringify(def['id']);
+    const scope = `server:${defId}`;
     configRepo.set(scope, def);
     count++;
   }
   return count;
 }
 
-/**
- * Migrate display_settings from bot_state into the 'app' config document.
- * Merges existing display overrides into the app scope.
- *
- * @param {import('./database')} db - HumanitZDB instance
- * @param {import('./config-repository')} configRepo
- * @returns {number} Number of display settings migrated
- */
-function migrateDisplaySettings(db, configRepo) {
+function migrateDisplaySettings(db: HumanitZDBLike, configRepo: ConfigRepo): number {
   const overrides = db.getStateJSON('display_settings', null);
+
   if (!overrides || typeof overrides !== 'object') return 0;
 
   const keys = Object.keys(overrides);
@@ -288,14 +254,27 @@ function migrateDisplaySettings(db, configRepo) {
   return keys.length;
 }
 
-module.exports = {
+export {
   BOOTSTRAP_KEYS,
   SERVER_SCOPED_KEYS,
   buildMigrationMap,
   migrateEnvToDb,
   migrateServersJsonToDb,
   migrateDisplaySettings,
-  // Exported for testing
+  FALLBACK_MIGRATION_ENTRIES,
+  _coerce,
+  _isServerScoped,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = {
+  BOOTSTRAP_KEYS,
+  SERVER_SCOPED_KEYS,
+  buildMigrationMap,
+  migrateEnvToDb,
+  migrateServersJsonToDb,
+  migrateDisplaySettings,
   FALLBACK_MIGRATION_ENTRIES,
   _coerce,
   _isServerScoped,

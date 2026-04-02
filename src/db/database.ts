@@ -15,35 +15,44 @@
  *   db.close();                          // on shutdown
  */
 
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
-const { SCHEMA_VERSION, ALL_TABLES } = require('./schema');
-const { createLogger } = require('../utils/log');
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import { SCHEMA_VERSION, ALL_TABLES } from './schema.js';
+import { createLogger } from '../utils/log.js';
+
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/no-confusing-void-expression */
+
+type Logger = ReturnType<typeof createLogger>;
 
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
 
 class HumanitZDB {
-  /**
-   * @param {object} [options]
-   * @param {string} [options.dbPath]   - Path to the SQLite file (default: data/humanitz.db)
-   * @param {boolean} [options.memory]  - Use in-memory DB (for testing)
-   * @param {string} [options.label]    - Log prefix
-   */
-  constructor(options = {}) {
-    this._dbPath = options.dbPath || DEFAULT_DB_PATH;
-    this._memory = options.memory || false;
+  _dbPath: string;
+  _memory: boolean;
+  _log: Logger;
+  _db!: Database.Database;
+  _stmts: Record<string, any>;
+  private _dbRaw: Database.Database | null;
+
+  constructor(options: { dbPath?: string; memory?: boolean; label?: string } = {}) {
+    this._dbPath = options.dbPath ?? DEFAULT_DB_PATH;
+    this._memory = options.memory ?? false;
     this._log = createLogger(options.label, 'DB');
-    this._db = null;
-    this._stmts = {}; // cached prepared statements
+    this._dbRaw = null;
+    this._stmts = {};
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Lifecycle
   // ═══════════════════════════════════════════════════════════════════════════
 
-  init() {
-    if (this._db) return;
+  init(): void {
+    if (this._dbRaw) return;
 
     // Ensure data directory exists
     if (!this._memory) {
@@ -60,7 +69,8 @@ class HumanitZDB {
       }
     }
 
-    this._db = new Database(this._memory ? ':memory:' : this._dbPath);
+    this._dbRaw = new Database(this._memory ? ':memory:' : this._dbPath);
+    this._db = this._dbRaw;
     this._db.pragma('journal_mode = WAL');
     this._db.pragma('foreign_keys = ON');
     this._db.pragma('busy_timeout = 5000');
@@ -72,15 +82,15 @@ class HumanitZDB {
     this._log.info(`Database ready (v${version}, ${this._memory ? 'in-memory' : this._dbPath})`);
   }
 
-  close() {
-    if (this._db) {
-      this._db.close();
-      this._db = null;
+  close(): void {
+    if (this._dbRaw) {
+      this._dbRaw.close();
+      this._dbRaw = null;
       this._stmts = {};
     }
   }
 
-  get db() {
+  get db(): Database.Database | null {
     return this._db;
   }
 
@@ -121,7 +131,9 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_aliases_steam ON player_aliases(steam_id);
         `);
         // Seed aliases from existing players table
-        const players = this._db.prepare("SELECT steam_id, name, name_history FROM players WHERE name != ''").all();
+        const players = this._db
+          .prepare("SELECT steam_id, name, name_history FROM players WHERE name != ''")
+          .all() as Array<{ steam_id: string; name: string; name_history: string }>;
         const insertAlias = this._db.prepare(`
           INSERT OR IGNORE INTO player_aliases (steam_id, name, name_lower, source, first_seen, last_seen, is_current)
           VALUES (?, ?, ?, 'save', datetime('now'), datetime('now'), ?)
@@ -130,7 +142,7 @@ class HumanitZDB {
           if (p.name) insertAlias.run(p.steam_id, p.name, p.name.toLowerCase(), 1);
           // Also import name history
           try {
-            const history = JSON.parse(p.name_history || '[]');
+            const history = JSON.parse(p.name_history || '[]') as Array<{ name?: string }>;
             for (const h of history) {
               if (h.name) insertAlias.run(p.steam_id, h.name, h.name.toLowerCase(), 0);
             }
@@ -994,32 +1006,32 @@ class HumanitZDB {
     }
   }
 
-  _getMetaRaw(key) {
+  _getMetaRaw(key: string) {
     try {
       // meta table may not exist yet on very first run
-      const row = this._db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
+      const row = this._db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
       return row ? row.value : null;
     } catch {
       return null;
     }
   }
 
-  _getMeta(key) {
-    const row = this._db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
+  _getMeta(key: string) {
+    const row = this._db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
     return row ? row.value : null;
   }
 
   /** Public meta getter. */
-  getMeta(key) {
+  getMeta(key: string) {
     return this._getMeta(key);
   }
 
   /** Public meta setter. */
-  setMeta(key, value) {
+  setMeta(key: string, value: string | null) {
     return this._setMeta(key, value);
   }
 
-  _setMeta(key, value) {
+  _setMeta(key: string, value: string | null) {
     this._db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value);
   }
 
@@ -1028,20 +1040,20 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /** Get a bot_state value by key. Returns null if not found. */
-  getState(key) {
-    const row = this._db.prepare('SELECT value FROM bot_state WHERE key = ?').get(key);
+  getState(key: string) {
+    const row = this._db.prepare('SELECT value FROM bot_state WHERE key = ?').get(key) as { value: string } | undefined;
     return row ? row.value : null;
   }
 
   /** Set a bot_state value. Creates or replaces. */
-  setState(key, value) {
+  setState(key: string, value: unknown): void {
     this._db
       .prepare("INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))")
       .run(key, value != null ? String(value) : null);
   }
 
   /** Get a bot_state value parsed as JSON. Returns defaultVal if not found or parse fails. */
-  getStateJSON(key, defaultVal = null) {
+  getStateJSON(key: string, defaultVal = null) {
     const raw = this.getState(key);
     if (raw == null) return defaultVal;
     try {
@@ -1052,12 +1064,12 @@ class HumanitZDB {
   }
 
   /** Set a bot_state value as JSON. */
-  setStateJSON(key, value) {
+  setStateJSON(key: string, value: string | null) {
     this.setState(key, JSON.stringify(value));
   }
 
   /** Delete a bot_state key. */
-  deleteState(key) {
+  deleteState(key: string) {
     this._db.prepare('DELETE FROM bot_state WHERE key = ?').run(key);
   }
 
@@ -1882,7 +1894,7 @@ class HumanitZDB {
    * @param {string} steamId
    * @param {object} data - Flat object matching column names (from save parser)
    */
-  upsertPlayer(steamId, data) {
+  upsertPlayer(steamId: string, data: Record<string, unknown>) {
     const params = {
       steam_id: steamId,
       name: data.name || '',
@@ -1994,11 +2006,11 @@ class HumanitZDB {
 
     // Auto-register alias when a name is available
     if (data.name && /^\d{17}$/.test(steamId)) {
-      this.registerAlias(steamId, data.name, 'save');
+      this.registerAlias(steamId, data.name as string, 'save');
     }
   }
 
-  getPlayer(steamId) {
+  getPlayer(steamId: string) {
     const row = this._stmts.getPlayer.get(steamId);
     return row ? _parsePlayerRow(row) : null;
   }
@@ -2020,7 +2032,7 @@ class HumanitZDB {
     return this._stmts.getOnlinePlayersForDiff.all().map(_parsePlayerRowForDiff);
   }
 
-  setPlayerOnline(steamId, online) {
+  setPlayerOnline(steamId: string, online: boolean) {
     this._stmts.setPlayerOnline.run(online ? 1 : 0, steamId);
   }
 
@@ -2029,14 +2041,14 @@ class HumanitZDB {
   }
 
   /** Update kill tracker JSON for a player. */
-  updateKillTracker(steamId, killData) {
+  updateKillTracker(steamId: string, killData: Record<string, unknown>) {
     this._db
       .prepare("UPDATE players SET kill_tracker = ?, updated_at = datetime('now') WHERE steam_id = ?")
       .run(JSON.stringify(killData), steamId);
   }
 
   /** Update name and name history. */
-  updatePlayerName(steamId, name, nameHistory) {
+  updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._db
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
       .run(name, JSON.stringify(nameHistory || []), steamId);
@@ -2046,7 +2058,7 @@ class HumanitZDB {
    * Upsert full player log stats (DB-first — called by player-stats.js on every record call).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullLogStats(steamId, data) {
+  upsertFullLogStats(steamId: string, data: Record<string, unknown>) {
     this._stmts.upsertPlayerLogStats.run({
       steam_id: steamId,
       name: data.name || '',
@@ -2083,11 +2095,11 @@ class HumanitZDB {
    * Upsert full playtime data (DB-first — called by playtime-tracker.js).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullPlaytime(steamId, data) {
+  upsertFullPlaytime(steamId: string, data: Record<string, unknown>) {
     this._stmts.upsertPlayerPlaytime.run({
       steam_id: steamId,
       name: data.name || '',
-      playtime_seconds: Math.floor((data.totalMs || 0) / 1000),
+      playtime_seconds: Math.floor((Number(data.totalMs) || 0) / 1000),
       session_count: data.sessions || 0,
       playtime_first_seen: data.firstSeen || null,
       playtime_last_login: data.lastLogin || null,
@@ -2105,7 +2117,7 @@ class HumanitZDB {
   /**
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
-  setServerPeak(key, value) {
+  setServerPeak(key: string, value: unknown): void {
     const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
     this._stmts.setServerPeak.run(key, stored);
   }
@@ -2113,7 +2125,7 @@ class HumanitZDB {
   /**
    * Get a server peak value.
    */
-  getServerPeak(key) {
+  getServerPeak(key: string) {
     const r = this._stmts.getServerPeak.get(key);
     return r ? r.value : null;
   }
@@ -2123,8 +2135,8 @@ class HumanitZDB {
    */
   getAllServerPeaks() {
     const rows = this._stmts.getAllServerPeaks.all();
-    const result = {};
-    for (const r of rows) result[r.key] = r.value;
+    const result: Record<string, unknown> = {};
+    for (const r of rows) result[r.key as string] = r.value;
     return result;
   }
 
@@ -2140,7 +2152,7 @@ class HumanitZDB {
    * @param {string} name    - Player display name
    * @param {string} source  - Origin: 'idmap', 'save', 'connect_log', 'log', 'playtime', 'manual'
    */
-  registerAlias(steamId, name, source = '') {
+  registerAlias(steamId: string, name: string, source: string = '') {
     if (!steamId || !name || !/^\d{17}$/.test(steamId)) return;
     const nameLower = name.toLowerCase().trim();
     if (!nameLower) return;
@@ -2155,7 +2167,7 @@ class HumanitZDB {
    * Bulk-register aliases from a parsed PlayerIDMapped.txt.
    * @param {Array<{steamId: string, name: string}>} entries
    */
-  importIdMap(entries) {
+  importIdMap(entries: Array<Record<string, any>>) {
     const tx = this._db.transaction((list) => {
       for (const { steamId, name } of list) {
         this.registerAlias(steamId, name, 'idmap');
@@ -2168,7 +2180,7 @@ class HumanitZDB {
    * Bulk-register aliases from parsed PlayerConnectedLog.txt.
    * @param {Array<{steamId: string, name: string}>} entries
    */
-  importConnectLog(entries) {
+  importConnectLog(entries: Array<Record<string, any>>) {
     const tx = this._db.transaction((list) => {
       for (const { steamId, name } of list) {
         this.registerAlias(steamId, name, 'connect_log');
@@ -2181,7 +2193,7 @@ class HumanitZDB {
    * Register aliases from save parser output (keyed by SteamID, name from idMap).
    * @param {Map<string, object>} players - steamId → playerData (with .name if injected)
    */
-  importFromSave(players) {
+  importFromSave(players: Map<string, Record<string, any>>) {
     const tx = this._db.transaction(() => {
       for (const [steamId, data] of players) {
         if (data.name) this.registerAlias(steamId, data.name, 'save');
@@ -2197,7 +2209,7 @@ class HumanitZDB {
    * @param {string} name - Player name (case-insensitive)
    * @returns {{ steamId: string, name: string, source: string, isCurrent: boolean } | null}
    */
-  resolveNameToSteamId(name) {
+  resolveNameToSteamId(name: string) {
     if (!name) return null;
     const nameLower = name.toLowerCase().trim();
 
@@ -2224,19 +2236,19 @@ class HumanitZDB {
    * @param {string} steamId
    * @returns {string} Display name, or the steamId itself as fallback
    */
-  resolveSteamIdToName(steamId) {
+  resolveSteamIdToName(steamId: string) {
     if (!steamId) return steamId;
 
     const rows = this._stmts.lookupBySteamId.all(steamId);
     if (rows.length === 0) return steamId;
 
     // Source priority for "best name"
-    const priority = { idmap: 5, connect_log: 4, save: 3, playtime: 2, log: 1, manual: 0 };
+    const priority: Record<string, number> = { idmap: 5, connect_log: 4, save: 3, playtime: 2, log: 1, manual: 0 };
 
     // Among is_current=1 entries, pick the highest-priority source
-    const current = rows.filter((r) => r.is_current);
+    const current = rows.filter((r: Record<string, unknown>) => r.is_current);
     if (current.length > 0) {
-      current.sort((a, b) => (priority[b.source] || 0) - (priority[a.source] || 0));
+      current.sort((a: any, b: any) => (priority[b.source as string] ?? 0) - (priority[a.source as string] ?? 0));
       return current[0].name;
     }
 
@@ -2249,8 +2261,8 @@ class HumanitZDB {
    * @param {string} steamId
    * @returns {Array<{ name: string, source: string, firstSeen: string, lastSeen: string, isCurrent: boolean }>}
    */
-  getPlayerAliases(steamId) {
-    return this._stmts.lookupBySteamId.all(steamId).map((r) => ({
+  getPlayerAliases(steamId: string) {
+    return this._stmts.lookupBySteamId.all(steamId).map((r: Record<string, unknown>) => ({
       name: r.name,
       source: r.source,
       firstSeen: r.first_seen,
@@ -2264,7 +2276,7 @@ class HumanitZDB {
    * @param {string} query - Partial name (case-insensitive)
    * @returns {Array<{ steamId: string, name: string, source: string }>}
    */
-  searchPlayersByName(query) {
+  searchPlayersByName(query: string) {
     if (!query) return [];
     const rows = this._stmts.lookupByNameLike.all(`%${query.toLowerCase().trim()}%`);
     // Deduplicate by steamId, keeping the best for each
@@ -2345,7 +2357,7 @@ class HumanitZDB {
   //  Clans
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertClan(name, members) {
+  upsertClan(name: string, members: Array<Record<string, unknown>>) {
     this._stmts.upsertClan.run(name);
     this._stmts.deleteClanMembers.run(name);
     for (const m of members) {
@@ -2355,9 +2367,9 @@ class HumanitZDB {
 
   getAllClans() {
     const clans = this._stmts.getAllClans.all();
-    return clans.map((c) => ({
+    return clans.map((c: Record<string, unknown>) => ({
       ...c,
-      members: this._stmts.getClanMembers.all(c.name).map((m) => ({
+      members: this._stmts.getClanMembers.all(c.name).map((m: Record<string, unknown>) => ({
         steamId: m.steam_id,
         name: m.name,
         rank: m.rank,
@@ -2377,7 +2389,7 @@ class HumanitZDB {
    * @param {string} steamId2
    * @returns {boolean}
    */
-  areClanmates(steamId1, steamId2) {
+  areClanmates(steamId1: string, steamId2: string) {
     if (!steamId1 || !steamId2 || steamId1 === steamId2) return false;
     return !!this._stmts.areClanmates.get(steamId1, steamId2);
   }
@@ -2387,7 +2399,7 @@ class HumanitZDB {
    * @param {string} steamId
    * @returns {string|null}
    */
-  getClanForSteamId(steamId) {
+  getClanForSteamId(steamId: string) {
     if (!steamId) return null;
     const row = this._stmts.getClanForSteamId.get(steamId);
     return row ? row.clan_name : null;
@@ -2397,18 +2409,18 @@ class HumanitZDB {
   //  World state
   // ═══════════════════════════════════════════════════════════════════════════
 
-  setWorldState(key, value) {
+  setWorldState(key: string, value: unknown): void {
     const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
     this._stmts.setWorldState.run(key, stored);
   }
-  getWorldState(key) {
+  getWorldState(key: string) {
     const r = this._stmts.getWorldState.get(key);
     return r ? r.value : null;
   }
   getAllWorldState() {
     const rows = this._stmts.getAllWorldState.all();
-    const result = {};
-    for (const r of rows) result[r.key] = r.value;
+    const result: Record<string, unknown> = {};
+    for (const r of rows) result[r.key as string] = r.value;
     return result;
   }
 
@@ -2416,7 +2428,7 @@ class HumanitZDB {
   //  Structures
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceStructures(structures) {
+  replaceStructures(structures: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => {
       this._stmts.clearStructures.run();
       for (const s of items) {
@@ -2443,7 +2455,7 @@ class HumanitZDB {
   getStructures() {
     return this._stmts.getStructures.all();
   }
-  getStructuresByOwner(steamId) {
+  getStructuresByOwner(steamId: string) {
     return this._stmts.getStructuresByOwner.all(steamId);
   }
   getStructureCounts() {
@@ -2454,7 +2466,7 @@ class HumanitZDB {
   //  Vehicles
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceVehicles(vehicles) {
+  replaceVehicles(vehicles: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => {
       this._stmts.clearVehicles.run();
       for (const v of items) {
@@ -2484,7 +2496,7 @@ class HumanitZDB {
   //  Companions
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceCompanions(companions) {
+  replaceCompanions(companions: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => {
       this._stmts.clearCompanions.run();
       for (const c of items) {
@@ -2511,12 +2523,12 @@ class HumanitZDB {
   //  World horses
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceWorldHorses(horses) {
+  replaceWorldHorses(horses: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => this._replaceWorldHorsesInner(items));
     insert(horses);
   }
 
-  _replaceWorldHorsesInner(horses) {
+  _replaceWorldHorsesInner(horses: Array<Record<string, any>>) {
     this._stmts.clearWorldHorses.run();
     for (const h of horses) {
       this._stmts.insertWorldHorse.run(
@@ -2547,12 +2559,12 @@ class HumanitZDB {
   //  Dead bodies
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceDeadBodies(bodies) {
+  replaceDeadBodies(bodies: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => this._replaceDeadBodiesInner(items));
     insert(bodies);
   }
 
-  _replaceDeadBodiesInner(bodies) {
+  _replaceDeadBodiesInner(bodies: Array<Record<string, any>>) {
     this._stmts.clearDeadBodies.run();
     for (const b of bodies) {
       this._stmts.insertDeadBody.run(b.actorName, b.x ?? null, b.y ?? null, b.z ?? null);
@@ -2563,19 +2575,19 @@ class HumanitZDB {
   //  Containers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceContainers(containers) {
+  replaceContainers(containers: Array<Record<string, unknown>>) {
     const insert = this._db.transaction((items) => this._replaceContainersInner(items));
     insert(containers);
   }
 
-  _replaceContainersInner(containers) {
+  _replaceContainersInner(containers: Array<Record<string, any>>): void {
     this._stmts.clearContainers.run();
     for (const c of containers) {
-      const extra = {};
-      if (c.hackCoolDown != null) extra.hackCoolDown = c.hackCoolDown;
-      if (c.destroyTime != null) extra.destroyTime = c.destroyTime;
-      if (c.extraFloats) extra.extraFloats = c.extraFloats;
-      if (c.extraBools) extra.extraBools = c.extraBools;
+      const extra: Record<string, unknown> = {};
+      if (c.hackCoolDown != null) extra['hackCoolDown'] = c.hackCoolDown;
+      if (c.destroyTime != null) extra['destroyTime'] = c.destroyTime;
+      if (c.extraFloats) extra['extraFloats'] = c.extraFloats;
+      if (c.extraBools) extra['extraBools'] = c.extraBools;
       this._stmts.insertContainer.run(
         c.actorName,
         JSON.stringify(c.items || []),
@@ -2603,12 +2615,12 @@ class HumanitZDB {
   //  Loot actors
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceLootActors(lootActors) {
+  replaceLootActors(lootActors: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => this._replaceLootActorsInner(items));
     insert(lootActors);
   }
 
-  _replaceLootActorsInner(lootActors) {
+  _replaceLootActorsInner(lootActors: Array<Record<string, any>>) {
     this._stmts.clearLootActors.run();
     for (const la of lootActors) {
       this._stmts.insertLootActor.run(
@@ -2636,7 +2648,7 @@ class HumanitZDB {
    * @param {object} item - { fingerprint, item, durability, ammo, attachments, cap, maxDur, locationType, locationId, locationSlot, x, y, z, amount, groupId }
    * @returns {number} The auto-incremented ID of the new instance
    */
-  createItemInstance(item) {
+  createItemInstance(item: Record<string, any>) {
     const result = this._stmts.insertItemInstance.run(
       item.fingerprint,
       item.item,
@@ -2664,7 +2676,12 @@ class HumanitZDB {
    * @param {object} [attribution] - { steamId, name } of the player who caused the move
    * @param {string} [moveType='move'] - movement type
    */
-  moveItemInstance(instanceId, to, attribution, moveType = 'move') {
+  moveItemInstance(
+    instanceId: number,
+    to: Record<string, any>,
+    attribution: Record<string, any> | null,
+    moveType: string = 'move',
+  ) {
     const old = this._stmts.findItemInstanceById.get(instanceId);
     if (!old) return;
 
@@ -2705,7 +2722,7 @@ class HumanitZDB {
   /**
    * Mark an item instance as lost (no longer found in save data).
    */
-  markItemLost(instanceId) {
+  markItemLost(instanceId: number) {
     this._stmts.markItemInstanceLost.run(instanceId);
   }
 
@@ -2719,19 +2736,19 @@ class HumanitZDB {
   /**
    * Touch an instance (update last_seen, clear lost flag).
    */
-  touchItemInstance(instanceId) {
+  touchItemInstance(instanceId: number) {
     this._stmts.touchItemInstance.run(instanceId);
   }
 
-  findItemByFingerprint(fingerprint) {
+  findItemByFingerprint(fingerprint: string) {
     return this._stmts.findItemInstanceByFingerprint.get(fingerprint);
   }
 
-  findItemsByFingerprint(fingerprint) {
+  findItemsByFingerprint(fingerprint: string) {
     return this._stmts.findItemInstancesByFingerprint.all(fingerprint);
   }
 
-  getItemInstance(id) {
+  getItemInstance(id: number) {
     return this._stmts.findItemInstanceById.get(id);
   }
 
@@ -2739,11 +2756,11 @@ class HumanitZDB {
     return this._stmts.getActiveItemInstances.all();
   }
 
-  getItemInstancesByItem(item) {
+  getItemInstancesByItem(item: Record<string, unknown>) {
     return this._stmts.getItemInstancesByItem.all(item);
   }
 
-  getItemInstancesByLocation(locationType, locationId) {
+  getItemInstancesByLocation(locationType: string, locationId: string) {
     return this._stmts.getItemInstancesByLocation.all(locationType, locationId);
   }
 
@@ -2751,7 +2768,7 @@ class HumanitZDB {
     return this._stmts.getItemInstanceCount.get().count;
   }
 
-  searchItemInstances(query, limit = 50) {
+  searchItemInstances(query: string, limit = 50) {
     const like = `%${query}%`;
     return this._stmts.searchItemInstances.all(like, like, limit);
   }
@@ -2760,7 +2777,7 @@ class HumanitZDB {
     return this._stmts.purgeOldLostItems.run(age);
   }
 
-  getItemInstancesByGroup(groupId) {
+  getItemInstancesByGroup(groupId: number) {
     return this._stmts.getItemInstancesByGroup.all(groupId);
   }
 
@@ -2774,7 +2791,7 @@ class HumanitZDB {
    * Otherwise create a new group.
    * @returns {{ id: number, created: boolean }}
    */
-  upsertItemGroup(group) {
+  upsertItemGroup(group: Record<string, any>) {
     const existing = this._stmts.findActiveGroupByLocation.get(
       group.fingerprint,
       group.locationType,
@@ -2805,11 +2822,11 @@ class HumanitZDB {
     return { id: Number(result.lastInsertRowid), created: true };
   }
 
-  updateItemGroupQuantity(groupId, quantity) {
+  updateItemGroupQuantity(groupId: number, quantity: number) {
     this._stmts.updateItemGroupQuantity.run(quantity, groupId);
   }
 
-  updateItemGroupLocation(groupId, to) {
+  updateItemGroupLocation(groupId: number, to: Record<string, any>) {
     this._stmts.updateItemGroupLocation.run(
       to.locationType,
       to.locationId || '',
@@ -2822,7 +2839,7 @@ class HumanitZDB {
     );
   }
 
-  markItemGroupLost(groupId) {
+  markItemGroupLost(groupId: number) {
     this._stmts.markItemGroupLost.run(groupId);
   }
 
@@ -2830,19 +2847,19 @@ class HumanitZDB {
     this._stmts.markAllItemGroupsLost.run();
   }
 
-  touchItemGroup(groupId) {
+  touchItemGroup(groupId: number) {
     this._stmts.touchItemGroup.run(groupId);
   }
 
-  findActiveGroupByLocation(fingerprint, locationType, locationId, locationSlot) {
+  findActiveGroupByLocation(fingerprint: string, locationType: string, locationId: string, locationSlot: string) {
     return this._stmts.findActiveGroupByLocation.get(fingerprint, locationType, locationId || '', locationSlot || '');
   }
 
-  findActiveGroupsByFingerprint(fingerprint) {
+  findActiveGroupsByFingerprint(fingerprint: string) {
     return this._stmts.findActiveGroupsByFingerprint.all(fingerprint);
   }
 
-  getItemGroup(id) {
+  getItemGroup(id: number) {
     return this._stmts.findItemGroupById.get(id);
   }
 
@@ -2850,11 +2867,11 @@ class HumanitZDB {
     return this._stmts.getActiveItemGroups.all();
   }
 
-  getItemGroupsByItem(item) {
+  getItemGroupsByItem(item: Record<string, unknown>) {
     return this._stmts.getItemGroupsByItem.all(item);
   }
 
-  getItemGroupsByLocation(locationType, locationId) {
+  getItemGroupsByLocation(locationType: string, locationId: string) {
     return this._stmts.getItemGroupsByLocation.all(locationType, locationId);
   }
 
@@ -2862,7 +2879,7 @@ class HumanitZDB {
     return this._stmts.getItemGroupCount.get().count;
   }
 
-  searchItemGroups(query, limit = 50) {
+  searchItemGroups(query: string, limit = 50) {
     const like = `%${query}%`;
     return this._stmts.searchItemGroups.all(like, like, limit);
   }
@@ -2884,7 +2901,7 @@ class HumanitZDB {
    * @param {object} [opts.attribution] - { steamId, name }
    * @param {{ x?: number, y?: number, z?: number }} [opts.pos] - position
    */
-  recordGroupMovement(opts) {
+  recordGroupMovement(opts: Record<string, any>): void {
     this._stmts.insertItemMovement.run(
       opts.instanceId ?? null,
       opts.groupId ?? null,
@@ -2909,11 +2926,11 @@ class HumanitZDB {
   //  Item movements (chain-of-custody)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  getItemMovements(instanceId) {
+  getItemMovements(instanceId: number) {
     return this._stmts.getItemMovements.all(instanceId);
   }
 
-  getItemMovementsByGroup(groupId) {
+  getItemMovementsByGroup(groupId: number) {
     return this._stmts.getItemMovementsByGroup.all(groupId);
   }
 
@@ -2921,11 +2938,11 @@ class HumanitZDB {
     return this._stmts.getRecentItemMovements.all(limit);
   }
 
-  getItemMovementsByPlayer(steamId, limit = 50) {
+  getItemMovementsByPlayer(steamId: string, limit = 50) {
     return this._stmts.getItemMovementsByPlayer.all(steamId, limit);
   }
 
-  getItemMovementsByLocation(locationType, locationId, limit = 50) {
+  getItemMovementsByLocation(locationType: string, locationId: string, limit = 50) {
     return this._stmts.getItemMovementsByLocation.all(locationType, locationId, locationType, locationId, limit);
   }
 
@@ -2937,12 +2954,12 @@ class HumanitZDB {
   //  World drops (LODPickups, dropped backpacks, global containers)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceWorldDrops(drops) {
+  replaceWorldDrops(drops: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => this._replaceWorldDropsInner(items));
     insert(drops);
   }
 
-  _replaceWorldDropsInner(drops) {
+  _replaceWorldDropsInner(drops: Array<Record<string, any>>) {
     this._stmts.clearWorldDrops.run();
     for (const d of drops) {
       this._stmts.insertWorldDrop.run(
@@ -2967,7 +2984,7 @@ class HumanitZDB {
   getAllWorldDrops() {
     return this._stmts.getAllWorldDrops.all();
   }
-  getWorldDropsByType(type) {
+  getWorldDropsByType(type: string) {
     return this._stmts.getWorldDropsByType.all(type);
   }
   getWorldDropsWithItems() {
@@ -2978,12 +2995,12 @@ class HumanitZDB {
   //  Quests
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceQuests(quests) {
+  replaceQuests(quests: Array<Record<string, any>>) {
     const insert = this._db.transaction((items) => this._replaceQuestsInner(items));
     insert(quests);
   }
 
-  _replaceQuestsInner(quests) {
+  _replaceQuestsInner(quests: Array<Record<string, any>>) {
     this._stmts.clearQuests.run();
     for (const q of quests) {
       this._stmts.insertQuest.run(q.id, q.type, q.state, JSON.stringify(q.data));
@@ -2994,7 +3011,7 @@ class HumanitZDB {
   //  Server settings
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertSettings(settings) {
+  upsertSettings(settings: Record<string, string>) {
     const upsert = this._db.transaction((obj) => {
       for (const [key, value] of Object.entries(obj)) {
         this._stmts.upsertSetting.run(key, String(value));
@@ -3003,14 +3020,14 @@ class HumanitZDB {
     upsert(settings);
   }
 
-  getSetting(key) {
+  getSetting(key: string) {
     const r = this._stmts.getSetting.get(key);
     return r ? r.value : null;
   }
   getAllSettings() {
     const rows = this._stmts.getAllSettings.all();
-    const result = {};
-    for (const r of rows) result[r.key] = r.value;
+    const result: Record<string, unknown> = {};
+    for (const r of rows) result[r.key as string] = r.value;
     return result;
   }
 
@@ -3018,16 +3035,16 @@ class HumanitZDB {
   //  Snapshots (for weekly/daily deltas)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  createSnapshot(type, steamId, data) {
+  createSnapshot(type: string, steamId: string, data: Record<string, any>) {
     this._stmts.insertSnapshot.run(type, steamId, JSON.stringify(data));
   }
 
-  getLatestSnapshot(type, steamId) {
+  getLatestSnapshot(type: string, steamId: string) {
     const row = this._stmts.getLatestSnapshot.get(type, steamId);
     return row ? { ...row, data: JSON.parse(row.data || '{}') } : null;
   }
 
-  purgeSnapshots(olderThan) {
+  purgeSnapshots(olderThan: string) {
     this._stmts.purgeOldSnapshots.run(olderThan);
   }
 
@@ -3039,7 +3056,7 @@ class HumanitZDB {
    * Insert a single activity log entry.
    * @param {object} entry - { type, category, actor, actorName, item, amount, details, x, y, z, steamId, source, targetName, targetSteamId }
    */
-  insertActivity(entry) {
+  insertActivity(entry: Record<string, any>) {
     this._stmts.insertActivity.run(
       entry.type,
       entry.category || '',
@@ -3062,7 +3079,7 @@ class HumanitZDB {
    * Insert multiple activity entries in a single transaction.
    * @param {Array<object>} entries
    */
-  insertActivities(entries) {
+  insertActivities(entries: Array<Record<string, any>>) {
     if (!entries || entries.length === 0) return;
     const tx = this._db.transaction((list) => {
       for (const entry of list) {
@@ -3092,7 +3109,7 @@ class HumanitZDB {
    * Each entry must have a `createdAt` ISO string.
    * @param {Array<object>} entries
    */
-  insertActivitiesAt(entries) {
+  insertActivitiesAt(entries: Array<Record<string, any>>) {
     if (!entries || entries.length === 0) return;
     const tx = this._db.transaction((list) => {
       for (const entry of list) {
@@ -3130,24 +3147,24 @@ class HumanitZDB {
   }
 
   /** Get recent activity for a specific category. */
-  getActivityByCategory(category, limit = 50, offset = 0) {
+  getActivityByCategory(category: string, limit = 50, offset = 0) {
     if (offset > 0) return this._stmts.getActivityByCategoryPaged.all(category, limit, offset).map(_parseActivityRow);
     return this._stmts.getActivityByCategory.all(category, limit).map(_parseActivityRow);
   }
 
   /** Get recent activity for a specific actor (container name, steam ID, etc.). */
-  getActivityByActor(actor, limit = 50, offset = 0) {
+  getActivityByActor(actor: string, limit = 50, offset = 0) {
     if (offset > 0) return this._stmts.getActivityByActorPaged.all(actor, limit, offset).map(_parseActivityRow);
     return this._stmts.getActivityByActor.all(actor, limit).map(_parseActivityRow);
   }
 
   /** Get all activity since a given ISO timestamp. */
-  getActivitySince(isoTimestamp) {
+  getActivitySince(isoTimestamp: string) {
     return this._stmts.getActivitySince.all(isoTimestamp).map(_parseActivityRow);
   }
 
   /** Purge old activity entries (e.g. '-30 days'). */
-  purgeOldActivity(olderThan) {
+  purgeOldActivity(olderThan: string) {
     this._stmts.purgeOldActivity.run(olderThan);
   }
 
@@ -3163,7 +3180,7 @@ class HumanitZDB {
   }
 
   /** Get all activity since a given ISO timestamp, filtered by source. */
-  getActivitySinceBySource(isoTimestamp, source) {
+  getActivitySinceBySource(isoTimestamp: string, source: string) {
     return this._stmts.getActivitySinceBySource.all(isoTimestamp, source).map(_parseActivityRow);
   }
 
@@ -3175,7 +3192,7 @@ class HumanitZDB {
    * Insert a single chat log entry.
    * @param {object} entry - { type, playerName, steamId, message, direction, discordUser, isAdmin }
    */
-  insertChat(entry) {
+  insertChat(entry: Record<string, any>) {
     this._stmts.insertChat.run(
       entry.type,
       entry.playerName || '',
@@ -3191,7 +3208,7 @@ class HumanitZDB {
    * Insert a chat entry with explicit timestamp (for backfill).
    * @param {object} entry - includes createdAt ISO string
    */
-  insertChatAt(entry) {
+  insertChatAt(entry: Record<string, any>) {
     this._stmts.insertChatAt.run(
       entry.type,
       entry.playerName || '',
@@ -3210,13 +3227,13 @@ class HumanitZDB {
   }
 
   /** Search chat messages by text or player name. */
-  searchChat(query, limit = 200) {
+  searchChat(query: string, limit = 200) {
     const pattern = '%' + query + '%';
     return this._stmts.searchChat.all(pattern, pattern, limit);
   }
 
   /** Get all chat since a given ISO timestamp. */
-  getChatSince(isoTimestamp) {
+  getChatSince(isoTimestamp: string) {
     return this._stmts.getChatSince.all(isoTimestamp);
   }
 
@@ -3226,7 +3243,7 @@ class HumanitZDB {
   }
 
   /** Purge old chat entries (e.g. '-30 days'). */
-  purgeOldChat(olderThan) {
+  purgeOldChat(olderThan: string) {
     this._stmts.purgeOldChat.run(olderThan);
   }
 
@@ -3245,7 +3262,7 @@ class HumanitZDB {
    * Runs in a single transaction for performance (~1ms for 50 players).
    * @param {Map<string, object>} players - steamId → parsed player data
    */
-  bulkUpsertPlayers(players) {
+  bulkUpsertPlayers(players: Map<string, Record<string, any>>) {
     const tx = this._db.transaction((entries) => {
       for (const [steamId, data] of entries) {
         this.upsertPlayer(steamId, data);
@@ -3262,7 +3279,7 @@ class HumanitZDB {
    * @param {object} data - { players, worldState, structures, vehicles, companions, clans,
    *                          deadBodies, containers, lootActors, quests, horses, worldDrops }
    */
-  syncAllFromSave(data) {
+  syncAllFromSave(data: Record<string, any>): void {
     const tx = this._db.transaction(() => {
       // Core entity sync (players, world state, structures, vehicles, companions, clans)
       this._syncFromSaveInner(data);
@@ -3295,13 +3312,13 @@ class HumanitZDB {
    * Wraps in its own transaction when called standalone (backward compat).
    * When called from syncAllFromSave(), use _syncFromSaveInner() directly.
    */
-  syncFromSave(parsed) {
+  syncFromSave(parsed: Record<string, any>) {
     const tx = this._db.transaction(() => this._syncFromSaveInner(parsed));
     tx();
   }
 
   /** Inner sync logic — no transaction wrapper, safe to call inside an outer transaction. */
-  _syncFromSaveInner(parsed) {
+  _syncFromSaveInner(parsed: Record<string, any>): void {
     // Players
     if (parsed.players) {
       for (const [steamId, data] of parsed.players) {
@@ -3406,7 +3423,7 @@ class HumanitZDB {
   //  Game reference data seeding
   // ═══════════════════════════════════════════════════════════════════════════
 
-  seedGameItems(items) {
+  seedGameItems(items: Array<Record<string, any>>): void {
     const tx = this._db.transaction((list) => {
       for (const item of list) {
         this._stmts.upsertGameItem.run(
@@ -3457,15 +3474,15 @@ class HumanitZDB {
     tx(items);
   }
 
-  getGameItem(id) {
+  getGameItem(id: number) {
     return this._stmts.getGameItem.get(id);
   }
-  searchGameItems(query) {
+  searchGameItems(query: string) {
     const q = `%${query}%`;
     return this._stmts.searchGameItems.all(q, q);
   }
 
-  seedGameProfessions(professions) {
+  seedGameProfessions(professions: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_professions (id, enum_value, enum_index, perk, description, affliction, skills) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
@@ -3485,7 +3502,7 @@ class HumanitZDB {
     tx(professions);
   }
 
-  seedGameAfflictions(afflictions) {
+  seedGameAfflictions(afflictions: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_afflictions (idx, name, description, icon) VALUES (?, ?, ?, ?)',
     );
@@ -3497,7 +3514,7 @@ class HumanitZDB {
     tx(afflictions);
   }
 
-  seedGameSkills(skills) {
+  seedGameSkills(skills: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_skills (id, name, description, effect, category, icon) VALUES (?, ?, ?, ?, ?, ?)',
     );
@@ -3509,7 +3526,7 @@ class HumanitZDB {
     tx(skills);
   }
 
-  seedGameChallenges(challenges) {
+  seedGameChallenges(challenges: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_challenges (id, name, description, save_field, target) VALUES (?, ?, ?, ?, ?)',
     );
@@ -3521,7 +3538,7 @@ class HumanitZDB {
     tx(challenges);
   }
 
-  seedLoadingTips(tips) {
+  seedLoadingTips(tips: Array<Record<string, any> | string>) {
     const stmt = this._db.prepare('INSERT OR REPLACE INTO game_loading_tips (id, text, category) VALUES (?, ?, ?)');
     const tx = this._db.transaction((list) => {
       for (let i = 0; i < list.length; i++) {
@@ -3537,7 +3554,7 @@ class HumanitZDB {
 
   // ─── New game reference seed methods (schema v11) ─────────────────────────
 
-  seedGameBuildings(buildings) {
+  seedGameBuildings(buildings: Array<Record<string, any>>) {
     const stmt = this._db.prepare(`INSERT OR REPLACE INTO game_buildings (
       id, name, description, category, category_raw, health,
       show_in_build_menu, requires_build_tool, moveable, learned_building,
@@ -3571,15 +3588,16 @@ class HumanitZDB {
     tx(buildings);
   }
 
-  seedGameLootPools(lootTables) {
+  seedGameLootPools(lootTables: Record<string, Record<string, any>>) {
     const poolStmt = this._db.prepare('INSERT OR REPLACE INTO game_loot_pools (id, name, item_count) VALUES (?, ?, ?)');
     const itemStmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_loot_pool_items (pool_id, item_id, name, chance_to_spawn, type, max_stack_size) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._db.transaction((tables) => {
+    const tx = this._db.transaction((tables: Record<string, any>) => {
       for (const [poolId, pool] of Object.entries(tables)) {
         poolStmt.run(poolId, pool.name || poolId, pool.itemCount || 0);
-        for (const [itemId, item] of Object.entries(pool.items || {})) {
+        for (const [itemId, itemRaw] of Object.entries(pool.items || {})) {
+          const item = itemRaw as Record<string, any>;
           itemStmt.run(
             poolId,
             itemId,
@@ -3594,7 +3612,7 @@ class HumanitZDB {
     tx(lootTables);
   }
 
-  seedGameVehiclesRef(vehicles) {
+  seedGameVehiclesRef(vehicles: Array<Record<string, any>>) {
     const stmt = this._db.prepare('INSERT OR REPLACE INTO game_vehicles_ref (id, name) VALUES (?, ?)');
     const tx = this._db.transaction((list) => {
       for (const v of list) {
@@ -3604,7 +3622,7 @@ class HumanitZDB {
     tx(vehicles);
   }
 
-  seedGameAnimals(animals) {
+  seedGameAnimals(animals: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_animals (id, name, type, hide_item_id) VALUES (?, ?, ?, ?)',
     );
@@ -3616,7 +3634,7 @@ class HumanitZDB {
     tx(animals);
   }
 
-  seedGameCrops(crops) {
+  seedGameCrops(crops: Array<Record<string, any>>) {
     const stmt = this._db.prepare(`INSERT OR REPLACE INTO game_crops (
       id, crop_id, growth_time_days, grid_columns, grid_rows, harvest_result, harvest_count, grow_seasons
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -3637,7 +3655,7 @@ class HumanitZDB {
     tx(crops);
   }
 
-  seedGameCarUpgrades(upgrades) {
+  seedGameCarUpgrades(upgrades: Array<Record<string, any>>) {
     const stmt = this._db.prepare(`INSERT OR REPLACE INTO game_car_upgrades (
       id, type, type_raw, level, socket, tool_durability_lost, craft_time_minutes, health, craft_cost
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -3659,7 +3677,7 @@ class HumanitZDB {
     tx(upgrades);
   }
 
-  seedGameAmmoTypes(ammo) {
+  seedGameAmmoTypes(ammo: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_ammo_types (id, damage, headshot_multiplier, range, penetration) VALUES (?, ?, ?, ?, ?)',
     );
@@ -3671,7 +3689,7 @@ class HumanitZDB {
     tx(ammo);
   }
 
-  seedGameRepairData(repairs) {
+  seedGameRepairData(repairs: Array<Record<string, any>>) {
     const stmt = this._db.prepare(`INSERT OR REPLACE INTO game_repair_data (
       id, resource_type, resource_type_raw, amount, health_to_add, is_repairable, extra_resources
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`);
@@ -3691,7 +3709,7 @@ class HumanitZDB {
     tx(repairs);
   }
 
-  seedGameFurniture(furniture) {
+  seedGameFurniture(furniture: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_furniture (id, name, mesh_count, drop_resources) VALUES (?, ?, ?, ?)',
     );
@@ -3703,7 +3721,7 @@ class HumanitZDB {
     tx(furniture);
   }
 
-  seedGameTraps(traps) {
+  seedGameTraps(traps: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_traps (id, item_id, requires_weapon, requires_ammo, requires_items, required_ammo_id) VALUES (?, ?, ?, ?, ?, ?)',
     );
@@ -3722,7 +3740,7 @@ class HumanitZDB {
     tx(traps);
   }
 
-  seedGameSprays(sprays) {
+  seedGameSprays(sprays: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_sprays (id, name, description, color) VALUES (?, ?, ?, ?)',
     );
@@ -3734,7 +3752,7 @@ class HumanitZDB {
     tx(sprays);
   }
 
-  seedGameRecipes(recipes) {
+  seedGameRecipes(recipes: Array<Record<string, any>>) {
     const stmt = this._db.prepare(`INSERT OR REPLACE INTO game_recipes (
       id, name, description, station, station_raw, recipe_type, craft_time,
       profession, profession_raw, requires_recipe, hidden, inventory_search_only,
@@ -3774,7 +3792,7 @@ class HumanitZDB {
     tx(recipes);
   }
 
-  seedGameLore(lore) {
+  seedGameLore(lore: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_lore (id, title, text, category, sort_order) VALUES (?, ?, ?, ?, ?)',
     );
@@ -3786,7 +3804,7 @@ class HumanitZDB {
     tx(lore);
   }
 
-  seedGameQuests(quests) {
+  seedGameQuests(quests: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_quests (id, name, description, xp_reward, requirements, rewards) VALUES (?, ?, ?, ?, ?, ?)',
     );
@@ -3798,7 +3816,7 @@ class HumanitZDB {
     tx(quests);
   }
 
-  seedGameSpawnLocations(spawns) {
+  seedGameSpawnLocations(spawns: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_spawn_locations (id, name, description, map) VALUES (?, ?, ?, ?)',
     );
@@ -3810,7 +3828,7 @@ class HumanitZDB {
     tx(spawns);
   }
 
-  seedGameServerSettingDefs(settings) {
+  seedGameServerSettingDefs(settings: Array<Record<string, any>>) {
     const stmt = this._db.prepare(
       'INSERT OR REPLACE INTO game_server_setting_defs (key, label, description, type, default_val, options) VALUES (?, ?, ?, ?, ?, ?)',
     );
@@ -3841,7 +3859,7 @@ class HumanitZDB {
    * @param {Array}  data.backpacks - [{ class, x, y, z, itemCount, items }]
    * @returns {number} The snapshot ID
    */
-  insertTimelineSnapshot(data) {
+  insertTimelineSnapshot(data: Record<string, any>): number {
     const s = data.snapshot || {};
     const result = this._stmts.insertTimelineSnapshot.run(
       s.gameDay || 0,
@@ -4003,10 +4021,10 @@ class HumanitZDB {
 
   /** Get recent timeline snapshots (metadata only). */
   getTimelineSnapshots(limit = 50) {
-    return this._stmts.getTimelineSnapshots.all(limit).map((r) => {
+    return this._stmts.getTimelineSnapshots.all(limit).map((r: any) => {
       if (r.summary)
         try {
-          r.summary = JSON.parse(r.summary);
+          r.summary = JSON.parse(r.summary as string);
         } catch {
           /* */
         }
@@ -4015,11 +4033,11 @@ class HumanitZDB {
   }
 
   /** Get timeline snapshots in a date range. */
-  getTimelineSnapshotRange(from, to) {
-    return this._stmts.getTimelineSnapshotRange.all(from, to).map((r) => {
+  getTimelineSnapshotRange(from: string, to: string) {
+    return this._stmts.getTimelineSnapshotRange.all(from, to).map((r: any) => {
       if (r.summary)
         try {
-          r.summary = JSON.parse(r.summary);
+          r.summary = JSON.parse(r.summary as string);
         } catch {
           /* */
         }
@@ -4028,7 +4046,7 @@ class HumanitZDB {
   }
 
   /** Get full snapshot data by ID (all entities). */
-  getTimelineSnapshotFull(snapshotId) {
+  getTimelineSnapshotFull(snapshotId: number) {
     const snap = this._stmts.getTimelineSnapshotById.get(snapshotId);
     if (!snap) return null;
     if (snap.summary)
@@ -4045,10 +4063,11 @@ class HumanitZDB {
       structures: this._stmts.getTimelineStructures.all(snapshotId),
       houses: this._stmts.getTimelineHouses.all(snapshotId),
       companions: this._stmts.getTimelineCompanions.all(snapshotId),
-      backpacks: this._stmts.getTimelineBackpacks.all(snapshotId).map((b) => {
+
+      backpacks: this._stmts.getTimelineBackpacks.all(snapshotId).map((b: any) => {
         if (b.items_summary)
           try {
-            b.items_summary = JSON.parse(b.items_summary);
+            b.items_summary = JSON.parse(b.items_summary as string);
           } catch {
             /* */
           }
@@ -4063,17 +4082,17 @@ class HumanitZDB {
   }
 
   /** Get player position history for trails. */
-  getPlayerPositionHistory(steamId, from, to) {
+  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, unknown>) {
     return this._stmts.getPlayerPositionHistory.all(steamId, from, to);
   }
 
   /** Get AI population history for charts. */
-  getAIPopulationHistory(from, to) {
+  getAIPopulationHistory(from: string, to: Record<string, unknown>) {
     return this._stmts.getAIPopulationHistory.all(from, to);
   }
 
   /** Purge old timeline data (default: keep 7 days). */
-  purgeOldTimeline(olderThan = '-7 days') {
+  purgeOldTimeline(olderThan: string = '-7 days') {
     return this._stmts.purgeOldTimeline.run(olderThan);
   }
 
@@ -4094,7 +4113,7 @@ class HumanitZDB {
    * @param {number} [data.y]
    * @param {number} [data.z]
    */
-  insertDeathCause(data) {
+  insertDeathCause(data: Record<string, any>): void {
     this._stmts.insertDeathCause.run(
       data.victimName,
       data.victimSteamId || '',
@@ -4114,7 +4133,7 @@ class HumanitZDB {
   }
 
   /** Get death causes for a specific player. */
-  getDeathCausesByPlayer(nameOrSteamId, limit = 50) {
+  getDeathCausesByPlayer(nameOrSteamId: string, limit = 50) {
     return this._stmts.getDeathCausesByPlayer.all(nameOrSteamId, nameOrSteamId, limit);
   }
 
@@ -4124,7 +4143,7 @@ class HumanitZDB {
   }
 
   /** Get death causes since a timestamp. */
-  getDeathCausesSince(since) {
+  getDeathCausesSince(since: string) {
     return this._stmts.getDeathCausesSince.all(since);
   }
 
@@ -4137,7 +4156,7 @@ class HumanitZDB {
    * @param {object} flag - { steam_id, player_name, detector, severity, score, details, evidence, auto_escalated }
    * @returns {number} The inserted flag ID
    */
-  insertAcFlag(flag) {
+  insertAcFlag(flag: Record<string, any>): number | bigint {
     const info = this._stmts.insertAcFlag.run({
       steam_id: flag.steam_id,
       player_name: flag.player_name || '',
@@ -4152,37 +4171,37 @@ class HumanitZDB {
   }
 
   /** Get flags by status ('open', 'confirmed', 'dismissed', 'whitelisted'). */
-  getAcFlags(status = 'open', limit = 100) {
+  getAcFlags(status: string = 'open', limit = 100) {
     return this._stmts.getAcFlags.all(status, limit).map(_parseAcFlagRow);
   }
 
   /** Get all flags for a specific player. */
-  getAcFlagsBySteam(steamId, limit = 100) {
+  getAcFlagsBySteam(steamId: string, limit = 100) {
     return this._stmts.getAcFlagsBySteam.all(steamId, limit).map(_parseAcFlagRow);
   }
 
   /** Get flags by detector type and status. */
-  getAcFlagsByDetector(detector, status = 'open', limit = 100) {
+  getAcFlagsByDetector(detector: string, status: string = 'open', limit = 100) {
     return this._stmts.getAcFlagsByDetector.all(detector, status, limit).map(_parseAcFlagRow);
   }
 
   /** Get flags for a player since a timestamp. */
-  getAcFlagsSince(steamId, since) {
+  getAcFlagsSince(steamId: string, since: string) {
     return this._stmts.getAcFlagsSince.all(steamId, since).map(_parseAcFlagRow);
   }
 
   /** Count flags for a player matching severities and status since a timestamp. */
-  getAcFlagCount(steamId, sev1, sev2, status, since) {
+  getAcFlagCount(steamId: string, sev1: string, sev2: string, status: string, since: string) {
     return this._stmts.getAcFlagCount.get(steamId, sev1, sev2, status, since).count;
   }
 
   /** Update a flag's review status. */
-  updateAcFlagStatus(flagId, status, reviewedBy = null, notes = null) {
+  updateAcFlagStatus(flagId: number, status: string, reviewedBy: string | null = null, notes: string | null = null) {
     this._stmts.updateAcFlagStatus.run(status, reviewedBy, notes, flagId);
   }
 
   /** Auto-escalate a flag's severity. */
-  escalateAcFlag(flagId, newSeverity) {
+  escalateAcFlag(flagId: number, newSeverity: string) {
     this._stmts.escalateAcFlag.run(newSeverity, flagId);
   }
 
@@ -4190,7 +4209,7 @@ class HumanitZDB {
    * Upsert a player risk score.
    * @param {object} data - { steam_id, risk_score, open_flags, confirmed_flags, dismissed_flags, last_flag_at, baseline_data }
    */
-  upsertRiskScore(data) {
+  upsertRiskScore(data: Record<string, any>): void {
     this._stmts.upsertRiskScore.run({
       steam_id: data.steam_id,
       risk_score: data.risk_score || 0,
@@ -4204,7 +4223,7 @@ class HumanitZDB {
   }
 
   /** Get a player's risk score record. */
-  getRiskScore(steamId) {
+  getRiskScore(steamId: string) {
     const row = this._stmts.getRiskScore.get(steamId);
     return row ? _parseRiskRow(row) : null;
   }
@@ -4218,7 +4237,7 @@ class HumanitZDB {
    * Upsert an entity fingerprint.
    * @param {object} fp - { entity_type, entity_id, fingerprint, parent_id, creator_steam_id, tamper_score, metadata }
    */
-  upsertFingerprint(fp) {
+  upsertFingerprint(fp: Record<string, any>): void {
     this._stmts.upsertFingerprint.run({
       entity_type: fp.entity_type,
       entity_id: fp.entity_id,
@@ -4231,13 +4250,13 @@ class HumanitZDB {
   }
 
   /** Get a fingerprint by entity type + id. */
-  getFingerprint(entityType, entityId) {
+  getFingerprint(entityType: string, entityId: string) {
     const row = this._stmts.getFingerprint.get(entityType, entityId);
     return row ? _parseFingerprintRow(row) : null;
   }
 
   /** Get all fingerprints for an entity type. */
-  getFingerprintsByType(entityType) {
+  getFingerprintsByType(entityType: string) {
     return this._stmts.getFingerprintsByType.all(entityType).map(_parseFingerprintRow);
   }
 
@@ -4246,7 +4265,7 @@ class HumanitZDB {
    * @param {object} evt - { fingerprint_id, event_type, old_state, new_state, attributed_to, source, confidence }
    * @returns {number} The inserted event ID
    */
-  insertFingerprintEvent(evt) {
+  insertFingerprintEvent(evt: Record<string, any>): number | bigint {
     const info = this._stmts.insertFingerprintEvent.run({
       fingerprint_id: evt.fingerprint_id,
       event_type: evt.event_type,
@@ -4260,20 +4279,20 @@ class HumanitZDB {
   }
 
   /** Get events for a fingerprint. */
-  getFingerprintEvents(fingerprintId, limit = 50) {
+  getFingerprintEvents(fingerprintId: number, limit = 50) {
     return this._stmts.getFingerprintEvents.all(fingerprintId, limit).map(_parseFingerprintEventRow);
   }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function _json(value) {
+function _json(value: unknown): string {
   if (value === undefined || value === null) return '[]';
   if (typeof value === 'string') return value;
   return JSON.stringify(value);
 }
 
-function _parsePlayerRow(row) {
+function _parsePlayerRow(row: any): any {
   if (!row) return null;
   // Parse JSON columns back to objects
   const jsonCols = [
@@ -4327,9 +4346,10 @@ function _parsePlayerRow(row) {
  * Only parses the 4 inventory JSON columns needed by diffPlayerInventories().
  * Avoids the { ...row } spread + 27-column JSON.parse of _parsePlayerRow().
  */
-function _parsePlayerRowForDiff(row) {
+
+function _parsePlayerRowForDiff(row: any): any {
   if (!row) return null;
-  const parsed = {
+  const parsed: Record<string, unknown> = {
     steam_id: row.steam_id,
     name: row.name,
     online: !!row.online,
@@ -4341,7 +4361,7 @@ function _parsePlayerRowForDiff(row) {
     quick_slots: null,
     backpack_items: null,
   };
-  for (const col of ['inventory', 'equipment', 'quick_slots', 'backpack_items']) {
+  for (const col of ['inventory', 'equipment', 'quick_slots', 'backpack_items'] as const) {
     if (row[col] && typeof row[col] === 'string') {
       try {
         parsed[col] = JSON.parse(row[col]);
@@ -4353,7 +4373,7 @@ function _parsePlayerRowForDiff(row) {
   return parsed;
 }
 
-function _parseActivityRow(row) {
+function _parseActivityRow(row: any): any {
   if (!row) return null;
   const parsed = { ...row };
   if (parsed.details && typeof parsed.details === 'string') {
@@ -4366,7 +4386,7 @@ function _parseActivityRow(row) {
   return parsed;
 }
 
-function _parseAcFlagRow(row) {
+function _parseAcFlagRow(row: any): any {
   if (!row) return null;
   const parsed = { ...row };
   for (const col of ['details', 'evidence']) {
@@ -4382,7 +4402,7 @@ function _parseAcFlagRow(row) {
   return parsed;
 }
 
-function _parseRiskRow(row) {
+function _parseRiskRow(row: any): any {
   if (!row) return null;
   const parsed = { ...row };
   if (parsed.baseline_data && typeof parsed.baseline_data === 'string') {
@@ -4395,7 +4415,7 @@ function _parseRiskRow(row) {
   return parsed;
 }
 
-function _parseFingerprintRow(row) {
+function _parseFingerprintRow(row: any): any {
   if (!row) return null;
   const parsed = { ...row };
   if (parsed.metadata && typeof parsed.metadata === 'string') {
@@ -4408,7 +4428,7 @@ function _parseFingerprintRow(row) {
   return parsed;
 }
 
-function _parseFingerprintEventRow(row) {
+function _parseFingerprintEventRow(row: any): any {
   if (!row) return null;
   const parsed = { ...row };
   for (const col of ['old_state', 'new_state']) {
@@ -4423,4 +4443,7 @@ function _parseFingerprintEventRow(row) {
   return parsed;
 }
 
-module.exports = HumanitZDB;
+export default HumanitZDB;
+
+const _mod = module as { exports: any };
+_mod.exports = HumanitZDB;

@@ -10,57 +10,130 @@
  * @module diff-engine
  */
 
+/* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/no-unnecessary-type-assertion */
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface DiffItem {
+  item: string;
+  amount: number;
+  durability?: number;
+  ammo?: number;
+}
+
+interface ActivityEvent {
+  type: string;
+  category: string;
+  actor: string;
+  actorName: string;
+  steam_id?: string;
+  item: string;
+  amount: number;
+  details: Record<string, unknown>;
+  x?: number | null;
+  y?: number | null;
+  z?: number | null;
+  attributedPlayer?: string;
+  attributedSteamId?: string;
+}
+
+interface EntityRecord {
+  actor_name?: string;
+  actorName?: string;
+  items?: unknown;
+  locked?: number | boolean;
+  x?: number;
+  y?: number;
+  z?: number;
+  pos_x?: number;
+  pos_y?: number;
+  pos_z?: number;
+  class?: string;
+  display_name?: string;
+  displayName?: string;
+  owner_steam_id?: string;
+  ownerSteamId?: string;
+  horse_name?: string;
+  name?: string;
+  health?: number;
+  max_health?: number;
+  maxHealth?: number;
+  fuel?: number;
+  current_health?: number;
+  currentHealth?: number;
+  upgrade_level?: number | string;
+  upgradeLevel?: number | string;
+  actor_class?: string;
+  actorClass?: string;
+  inventory?: unknown;
+  [key: string]: unknown;
+}
+
+interface SlotDef {
+  field: string;
+  dbField?: string;
+  parseField?: string;
+  label: string;
+}
+
+interface PlayerChanges {
+  name: string;
+  x: number | null | undefined;
+  y: number | null | undefined;
+  z: number | null | undefined;
+  gained: Map<string, number>;
+  lost: Map<string, number>;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  Main entry point
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Compare old and new save state, returning all detected changes.
- *
- * @param {object} oldState - Previous state from DB
- * @param {object} oldState.containers - Array of container rows (actor_name, items JSON)
- * @param {object} oldState.horses - Array of world_horses rows
- * @param {object} oldState.players - Map or object of steamId → { inventory, equipment, quick_slots, backpack_items }
- * @param {object} oldState.worldState - { key → value } object
- * @param {object} oldState.vehicles - Array of vehicle rows (items JSON)
- * @param {object} newState - Freshly parsed save data
- * @param {object} newState.containers - Array of parsed containers
- * @param {object} newState.horses - Array of parsed horses
- * @param {object} newState.players - Map of steamId → player data
- * @param {object} newState.worldState - { key → value } object
- * @param {object} newState.vehicles - Array of parsed vehicles
- * @param {object} [nameResolver] - Optional function(steamId) → displayName
- * @returns {Array<object>} Activity log entries
  */
-function diffSaveState(oldState, newState, nameResolver) {
-  const events = [];
+function diffSaveState(
+  oldState: Record<string, unknown>,
+  newState: Record<string, unknown>,
+  nameResolver?: (steamId: string) => string,
+): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
 
   if (oldState.containers && newState.containers) {
-    events.push(...diffContainers(oldState.containers, newState.containers));
+    events.push(...diffContainers(oldState.containers as EntityRecord[], newState.containers as EntityRecord[]));
   }
 
   if (oldState.horses && newState.horses) {
-    events.push(...diffHorses(oldState.horses, newState.horses));
+    events.push(...diffHorses(oldState.horses as EntityRecord[], newState.horses as EntityRecord[]));
   }
 
   if (oldState.players && newState.players) {
-    events.push(...diffPlayerInventories(oldState.players, newState.players, nameResolver));
+    events.push(
+      ...diffPlayerInventories(
+        oldState.players as Map<string, EntityRecord> | EntityRecord[] | Record<string, EntityRecord>,
+        newState.players as Map<string, EntityRecord> | EntityRecord[] | Record<string, EntityRecord>,
+        nameResolver,
+      ),
+    );
   }
 
   if (oldState.worldState && newState.worldState) {
-    events.push(...diffWorldState(oldState.worldState, newState.worldState));
+    events.push(
+      ...diffWorldState(oldState.worldState as Record<string, string>, newState.worldState as Record<string, string>),
+    );
   }
 
   if (oldState.vehicles && newState.vehicles) {
-    events.push(...diffVehicleInventories(oldState.vehicles, newState.vehicles));
-    events.push(...diffVehicleState(oldState.vehicles, newState.vehicles));
+    events.push(...diffVehicleInventories(oldState.vehicles as EntityRecord[], newState.vehicles as EntityRecord[]));
+    events.push(...diffVehicleState(oldState.vehicles as EntityRecord[], newState.vehicles as EntityRecord[]));
   }
 
   if (oldState.structures && newState.structures) {
-    events.push(...diffStructures(oldState.structures, newState.structures));
+    events.push(...diffStructures(oldState.structures as EntityRecord[], newState.structures as EntityRecord[]));
   }
 
-  // Cross-reference container ↔ player inventory changes for attribution
+  // Cross-reference container <-> player inventory changes for attribution
   _crossReferenceContainerAccess(events);
 
   return events;
@@ -70,25 +143,16 @@ function diffSaveState(oldState, newState, nameResolver) {
 //  Container diffs
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare container inventories between two snapshots.
- * Detects items added/removed and lock state changes.
- *
- * @param {Array} oldContainers - DB rows with actor_name, items (JSON string or array)
- * @param {Array} newContainers - Parsed containers with actorName, items (array)
- * @returns {Array<object>} Activity log entries
- */
-function diffContainers(oldContainers, newContainers) {
-  const events = [];
-  const oldMap = _indexBy(oldContainers, (c) => c.actor_name || c.actorName);
-  const newMap = _indexBy(newContainers, (c) => c.actor_name || c.actorName);
+function diffContainers(oldContainers: EntityRecord[], newContainers: EntityRecord[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
+  const oldMap = _indexBy(oldContainers, (c) => c.actor_name ?? c.actorName ?? '');
+  const newMap = _indexBy(newContainers, (c) => c.actor_name ?? c.actorName ?? '');
 
   for (const [name, newC] of newMap) {
     const oldC = oldMap.get(name);
     const newItems = _normalizeItems(newC.items);
     const oldItems = oldC ? _normalizeItems(oldC.items) : [];
 
-    // Item diff
     const { added, removed } = _diffItemLists(oldItems, newItems);
 
     for (const item of added) {
@@ -152,7 +216,7 @@ function diffContainers(oldContainers, newContainers) {
           actorName: name,
           item: '',
           amount: items.length,
-          details: { items: items.map((i) => `${i.item} x${i.amount}`).slice(0, 10) },
+          details: { items: items.map((i) => `${i.item} x${String(i.amount)}`).slice(0, 10) },
           x: oldC.x ?? oldC.pos_x,
           y: oldC.y ?? oldC.pos_y,
           z: oldC.z ?? oldC.pos_z,
@@ -168,27 +232,17 @@ function diffContainers(oldContainers, newContainers) {
 //  Horse diffs
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare horse state between snapshots.
- * Detects horses appearing, disappearing, health changes, ownership changes.
- *
- * @param {Array} oldHorses - DB rows or parsed horse arrays
- * @param {Array} newHorses - Parsed horse arrays from save
- * @returns {Array<object>} Activity log entries
- */
-function diffHorses(oldHorses, newHorses) {
-  const events = [];
+function diffHorses(oldHorses: EntityRecord[], newHorses: EntityRecord[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
 
-  // Key horses by class+owner (since they may not have unique actor names)
   const oldMap = _indexHorses(oldHorses);
   const newMap = _indexHorses(newHorses);
 
   for (const [key, newH] of newMap) {
     const oldH = oldMap.get(key);
-    const hName = newH.display_name || newH.displayName || newH.horse_name || newH.name || key;
+    const hName = newH.display_name ?? newH.displayName ?? newH.horse_name ?? newH.name ?? key;
 
     if (!oldH) {
-      // New horse appeared
       events.push({
         type: 'horse_appeared',
         category: 'horse',
@@ -198,7 +252,7 @@ function diffHorses(oldHorses, newHorses) {
         amount: 0,
         details: {
           class: newH.class,
-          owner: newH.owner_steam_id || newH.ownerSteamId,
+          owner: newH.owner_steam_id ?? newH.ownerSteamId,
           health: newH.health,
         },
         x: newH.x ?? newH.pos_x,
@@ -206,9 +260,8 @@ function diffHorses(oldHorses, newHorses) {
         z: newH.z ?? newH.pos_z,
       });
     } else {
-      // Check health change (significant)
-      const oldHealth = oldH.health || 0;
-      const newHealth = newH.health || 0;
+      const oldHealth = oldH.health ?? 0;
+      const newHealth = newH.health ?? 0;
       if (Math.abs(newHealth - oldHealth) >= 5) {
         events.push({
           type: 'horse_health_changed',
@@ -224,9 +277,8 @@ function diffHorses(oldHorses, newHorses) {
         });
       }
 
-      // Check owner change
-      const oldOwner = oldH.owner_steam_id || oldH.ownerSteamId || '';
-      const newOwner = newH.owner_steam_id || newH.ownerSteamId || '';
+      const oldOwner = oldH.owner_steam_id ?? oldH.ownerSteamId ?? '';
+      const newOwner = newH.owner_steam_id ?? newH.ownerSteamId ?? '';
       if (oldOwner !== newOwner && (oldOwner || newOwner)) {
         events.push({
           type: 'horse_owner_changed',
@@ -244,10 +296,9 @@ function diffHorses(oldHorses, newHorses) {
     }
   }
 
-  // Horses that disappeared
   for (const [key, oldH] of oldMap) {
     if (!newMap.has(key)) {
-      const hName = oldH.display_name || oldH.displayName || oldH.horse_name || oldH.name || key;
+      const hName = oldH.display_name ?? oldH.displayName ?? oldH.horse_name ?? oldH.name ?? key;
       events.push({
         type: 'horse_disappeared',
         category: 'horse',
@@ -257,7 +308,7 @@ function diffHorses(oldHorses, newHorses) {
         amount: 0,
         details: {
           class: oldH.class,
-          owner: oldH.owner_steam_id || oldH.ownerSteamId,
+          owner: oldH.owner_steam_id ?? oldH.ownerSteamId,
           lastHealth: oldH.health,
         },
         x: oldH.x ?? oldH.pos_x,
@@ -274,21 +325,16 @@ function diffHorses(oldHorses, newHorses) {
 //  Player inventory diffs
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare player inventories between snapshots.
- * Detects items added/removed from inventory, equipment, quick slots, backpack.
- *
- * @param {Map|Object} oldPlayers - steamId → player data (DB rows or parsed)
- * @param {Map|Object} newPlayers - steamId → player data (parsed)
- * @param {Function} [nameResolver] - Optional (steamId) → displayName
- * @returns {Array<object>}
- */
-function diffPlayerInventories(oldPlayers, newPlayers, nameResolver) {
-  const events = [];
+function diffPlayerInventories(
+  oldPlayers: Map<string, EntityRecord> | EntityRecord[] | Record<string, EntityRecord>,
+  newPlayers: Map<string, EntityRecord> | EntityRecord[] | Record<string, EntityRecord>,
+  nameResolver?: (steamId: string) => string,
+): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
   const oldMap = _toMap(oldPlayers);
   const newMap = _toMap(newPlayers);
 
-  const slots = [
+  const slots: SlotDef[] = [
     { field: 'inventory', label: 'inventory' },
     { field: 'equipment', label: 'equipment' },
     { field: 'quick_slots', dbField: 'quick_slots', parseField: 'quickSlots', label: 'quick_slots' },
@@ -297,9 +343,9 @@ function diffPlayerInventories(oldPlayers, newPlayers, nameResolver) {
 
   for (const [steamId, newP] of newMap) {
     const oldP = oldMap.get(steamId);
-    if (!oldP) continue; // New players — don't log their initial inventory as "added"
+    if (!oldP) continue;
 
-    const playerName = nameResolver ? nameResolver(steamId) : newP.name || steamId;
+    const playerName = nameResolver ? nameResolver(steamId) : ((newP.name as string) ?? steamId);
 
     for (const slot of slots) {
       const oldItems = _normalizeItems(_getField(oldP, slot));
@@ -346,20 +392,11 @@ function diffPlayerInventories(oldPlayers, newPlayers, nameResolver) {
 //  World state diffs
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare world state key-value pairs.
- * Detects day changes, season changes, airdrop spawns/despawns.
- *
- * @param {object} oldState - { key → value }
- * @param {object} newState - { key → value }
- * @returns {Array<object>}
- */
-function diffWorldState(oldState, newState) {
-  const events = [];
+function diffWorldState(oldState: Record<string, string>, newState: Record<string, string>): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
 
-  // Day advance
-  const oldDay = parseInt(oldState.dedi_days_passed || '0', 10);
-  const newDay = parseInt(newState.dedi_days_passed || '0', 10);
+  const oldDay = parseInt(oldState['dedi_days_passed'] ?? '0', 10);
+  const newDay = parseInt(newState['dedi_days_passed'] ?? '0', 10);
   if (newDay > oldDay) {
     events.push({
       type: 'world_day_advanced',
@@ -372,9 +409,8 @@ function diffWorldState(oldState, newState) {
     });
   }
 
-  // Season change
-  const oldSeason = oldState.current_season || '';
-  const newSeason = newState.current_season || '';
+  const oldSeason = oldState['current_season'] ?? '';
+  const newSeason = newState['current_season'] ?? '';
   if (newSeason && oldSeason !== newSeason) {
     events.push({
       type: 'world_season_changed',
@@ -387,9 +423,8 @@ function diffWorldState(oldState, newState) {
     });
   }
 
-  // Airdrop state
-  const rawOldAirdrop = oldState.airdrop || '';
-  const rawNewAirdrop = newState.airdrop || '';
+  const rawOldAirdrop = oldState['airdrop'] ?? '';
+  const rawNewAirdrop = newState['airdrop'] ?? '';
   const oldAirdrop = rawOldAirdrop === 'None' ? '' : rawOldAirdrop;
   const newAirdrop = rawNewAirdrop === 'None' ? '' : rawNewAirdrop;
   if (!oldAirdrop && newAirdrop) {
@@ -421,26 +456,17 @@ function diffWorldState(oldState, newState) {
 //  Vehicle inventory diffs
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare vehicle trunk inventories between snapshots.
- *
- * @param {Array} oldVehicles - DB vehicle rows
- * @param {Array} newVehicles - Parsed vehicles
- * @returns {Array<object>}
- */
-function diffVehicleInventories(oldVehicles, newVehicles) {
-  const events = [];
+function diffVehicleInventories(oldVehicles: EntityRecord[], newVehicles: EntityRecord[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
 
-  // Vehicles don't have stable actor names, so match by class + position proximity
-  // For simplicity, index by class+index (relies on deterministic order from save parser)
   const oldByKey = _indexVehicles(oldVehicles);
   const newByKey = _indexVehicles(newVehicles);
 
   for (const [key, newV] of newByKey) {
     const oldV = oldByKey.get(key);
-    if (!oldV) continue; // New vehicle — skip initial items
+    if (!oldV) continue;
 
-    const vName = newV.display_name || newV.displayName || newV.class || key;
+    const vName = newV.display_name ?? newV.displayName ?? newV.class ?? key;
     const oldItems = _normalizeItems(oldV.inventory);
     const newItems = _normalizeItems(newV.inventory);
 
@@ -484,24 +510,15 @@ function diffVehicleInventories(oldVehicles, newVehicles) {
 //  Vehicle state diffs (health, fuel)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare vehicle health and fuel between snapshots.
- * Detects damage, repair, refueling, and fuel consumption.
- *
- * @param {Array} oldVehicles - DB vehicle rows
- * @param {Array} newVehicles - Parsed vehicles
- * @returns {Array<object>}
- */
-function diffVehicleState(oldVehicles, newVehicles) {
-  const events = [];
+function diffVehicleState(oldVehicles: EntityRecord[], newVehicles: EntityRecord[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
   const oldByKey = _indexVehicles(oldVehicles);
   const newByKey = _indexVehicles(newVehicles);
 
   for (const [key, newV] of newByKey) {
     const oldV = oldByKey.get(key);
     if (!oldV) {
-      // New vehicle appeared
-      const vName = newV.display_name || newV.displayName || newV.class || key;
+      const vName = newV.display_name ?? newV.displayName ?? newV.class ?? key;
       events.push({
         type: 'vehicle_appeared',
         category: 'vehicle',
@@ -517,12 +534,11 @@ function diffVehicleState(oldVehicles, newVehicles) {
       continue;
     }
 
-    const vName = newV.display_name || newV.displayName || newV.class || key;
+    const vName = newV.display_name ?? newV.displayName ?? newV.class ?? key;
 
-    // Health change (threshold: 5 HP)
-    const oldHealth = parseFloat(oldV.health) || 0;
-    const newHealth = parseFloat(newV.health) || 0;
-    const maxHealth = parseFloat(newV.max_health || newV.maxHealth) || 100;
+    const oldHealth = parseFloat(String(oldV.health ?? 0));
+    const newHealth = parseFloat(String(newV.health ?? 0));
+    const maxHealth = parseFloat(String(newV.max_health ?? newV.maxHealth ?? 100));
     if (Math.abs(newHealth - oldHealth) >= 5) {
       events.push({
         type: 'vehicle_health_changed',
@@ -538,9 +554,8 @@ function diffVehicleState(oldVehicles, newVehicles) {
       });
     }
 
-    // Fuel change (threshold: 2 units)
-    const oldFuel = parseFloat(oldV.fuel) || 0;
-    const newFuel = parseFloat(newV.fuel) || 0;
+    const oldFuel = parseFloat(String(oldV.fuel ?? 0));
+    const newFuel = parseFloat(String(newV.fuel ?? 0));
     if (Math.abs(newFuel - oldFuel) >= 2) {
       events.push({
         type: 'vehicle_fuel_changed',
@@ -557,10 +572,9 @@ function diffVehicleState(oldVehicles, newVehicles) {
     }
   }
 
-  // Vehicles that disappeared
   for (const [key, oldV] of oldByKey) {
     if (!newByKey.has(key)) {
-      const vName = oldV.display_name || oldV.displayName || oldV.class || key;
+      const vName = oldV.display_name ?? oldV.displayName ?? oldV.class ?? key;
       events.push({
         type: 'vehicle_destroyed',
         category: 'vehicle',
@@ -583,43 +597,31 @@ function diffVehicleState(oldVehicles, newVehicles) {
 //  Structure diffs (health, upgrades, destruction)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compare structures between snapshots.
- * Detects damage, destruction, and upgrades.
- *
- * Structures are identified by actor_class + owner_steam_id + position (approximate).
- *
- * @param {Array} oldStructures - DB structure rows
- * @param {Array} newStructures - Parsed structures
- * @returns {Array<object>}
- */
-function diffStructures(oldStructures, newStructures) {
-  const events = [];
+function diffStructures(oldStructures: EntityRecord[], newStructures: EntityRecord[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
   const oldByKey = _indexStructures(oldStructures);
   const newByKey = _indexStructures(newStructures);
 
   for (const [key, newS] of newByKey) {
     const oldS = oldByKey.get(key);
-    if (!oldS) continue; // New structure — skip (too noisy on first load)
+    if (!oldS) continue;
 
-    const sName = newS.display_name || newS.displayName || newS.actor_class || newS.actorClass || key;
+    const sName = newS.display_name ?? newS.displayName ?? newS.actor_class ?? newS.actorClass ?? key;
 
-    // Health change (threshold: 10 HP — raids cause significant damage)
-    const oldHealth = parseFloat(oldS.current_health || oldS.currentHealth) || 0;
-    const newHealth = parseFloat(newS.current_health || newS.currentHealth) || 0;
-    const maxHealth = parseFloat(newS.max_health || newS.maxHealth) || 100;
+    const oldHealth = parseFloat(String(oldS.current_health ?? oldS.currentHealth ?? 0));
+    const newHealth = parseFloat(String(newS.current_health ?? newS.currentHealth ?? 0));
+    const maxHealth = parseFloat(String(newS.max_health ?? newS.maxHealth ?? 100));
     if (Math.abs(newHealth - oldHealth) >= 10) {
       if (newHealth <= 0 && oldHealth > 0) {
-        // Structure destroyed
         events.push({
           type: 'structure_destroyed',
           category: 'structure',
           actor: key,
           actorName: sName,
-          steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+          steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
           item: '',
           amount: 0,
-          details: { owner: newS.owner_steam_id || newS.ownerSteamId, oldHealth },
+          details: { owner: newS.owner_steam_id ?? newS.ownerSteamId, oldHealth },
           x: newS.x ?? newS.pos_x,
           y: newS.y ?? newS.pos_y,
           z: newS.z ?? newS.pos_z,
@@ -630,14 +632,14 @@ function diffStructures(oldStructures, newStructures) {
           category: 'structure',
           actor: key,
           actorName: sName,
-          steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+          steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
           item: '',
           amount: Math.round(newHealth - oldHealth),
           details: {
             oldHealth,
             newHealth,
             healthPercent: (newHealth / maxHealth) * 100,
-            owner: newS.owner_steam_id || newS.ownerSteamId,
+            owner: newS.owner_steam_id ?? newS.ownerSteamId,
           },
           x: newS.x ?? newS.pos_x,
           y: newS.y ?? newS.pos_y,
@@ -646,19 +648,18 @@ function diffStructures(oldStructures, newStructures) {
       }
     }
 
-    // Upgrade level change
-    const oldLevel = parseInt(oldS.upgrade_level || oldS.upgradeLevel) || 0;
-    const newLevel = parseInt(newS.upgrade_level || newS.upgradeLevel) || 0;
+    const oldLevel = parseInt(String(oldS.upgrade_level ?? oldS.upgradeLevel ?? 0), 10);
+    const newLevel = parseInt(String(newS.upgrade_level ?? newS.upgradeLevel ?? 0), 10);
     if (newLevel > oldLevel) {
       events.push({
         type: 'structure_upgraded',
         category: 'structure',
         actor: key,
         actorName: sName,
-        steam_id: newS.owner_steam_id || newS.ownerSteamId || '',
+        steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
         item: '',
         amount: newLevel - oldLevel,
-        details: { oldLevel, newLevel, owner: newS.owner_steam_id || newS.ownerSteamId },
+        details: { oldLevel, newLevel, owner: newS.owner_steam_id ?? newS.ownerSteamId },
         x: newS.x ?? newS.pos_x,
         y: newS.y ?? newS.pos_y,
         z: newS.z ?? newS.pos_z,
@@ -666,13 +667,11 @@ function diffStructures(oldStructures, newStructures) {
     }
   }
 
-  // Structures that disappeared (destruction detected by count drop + health)
-  // Only report significant disappearances (player-owned structures)
   for (const [key, oldS] of oldByKey) {
     if (!newByKey.has(key)) {
-      const owner = oldS.owner_steam_id || oldS.ownerSteamId || '';
-      if (!owner) continue; // Skip unowned structures (world props)
-      const sName = oldS.display_name || oldS.displayName || oldS.actor_class || oldS.actorClass || key;
+      const owner = (oldS.owner_steam_id ?? oldS.ownerSteamId ?? '') as string;
+      if (!owner) continue;
+      const sName = oldS.display_name ?? oldS.displayName ?? oldS.actor_class ?? oldS.actorClass ?? key;
       events.push({
         type: 'structure_destroyed',
         category: 'structure',
@@ -681,7 +680,7 @@ function diffStructures(oldStructures, newStructures) {
         steam_id: owner,
         item: '',
         amount: 0,
-        details: { owner, lastHealth: oldS.current_health || oldS.currentHealth },
+        details: { owner, lastHealth: oldS.current_health ?? oldS.currentHealth },
         x: oldS.x ?? oldS.pos_x,
         y: oldS.y ?? oldS.pos_y,
         z: oldS.z ?? oldS.pos_z,
@@ -696,44 +695,32 @@ function diffStructures(oldStructures, newStructures) {
 //  Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Normalize items to a consistent format.
- * Handles JSON strings (from DB) and arrays (from parser).
- */
-function _normalizeItems(items) {
+function _normalizeItems(items: unknown): DiffItem[] {
   if (!items) return [];
-  if (typeof items === 'string') {
+  let parsed: unknown = items;
+  if (typeof parsed === 'string') {
     try {
-      items = JSON.parse(items);
+      parsed = JSON.parse(parsed);
     } catch {
       return [];
     }
   }
-  if (!Array.isArray(items)) return [];
-  return items.filter((i) => i && i.item && i.item !== 'None' && i.item !== 'Empty');
+  if (!Array.isArray(parsed)) return [];
+  return (parsed as DiffItem[]).filter((i) => i && i.item && i.item !== 'None' && i.item !== 'Empty');
 }
 
-/**
- * Diff two item arrays.
- * Returns { added: [...], removed: [...] } — items that appeared or disappeared.
- *
- * Uses item name + amount as key. Tracks quantity changes — if a stack went from
- * 5 to 3, reports removal of 2. If duplicates exist, handles per-slot.
- */
-function _diffItemLists(oldItems, newItems) {
-  // Build a multimap: item → [amounts] for old and new
+function _diffItemLists(oldItems: DiffItem[], newItems: DiffItem[]): { added: DiffItem[]; removed: DiffItem[] } {
   const oldBag = _buildItemBag(oldItems);
   const newBag = _buildItemBag(newItems);
 
-  const added = [];
-  const removed = [];
+  const added: DiffItem[] = [];
+  const removed: DiffItem[] = [];
 
-  // All item names across both bags
   const allItems = new Set([...oldBag.keys(), ...newBag.keys()]);
 
   for (const itemName of allItems) {
-    const oldCount = _sumAmounts(oldBag.get(itemName) || []);
-    const newCount = _sumAmounts(newBag.get(itemName) || []);
+    const oldCount = _sumAmounts(oldBag.get(itemName) ?? []);
+    const newCount = _sumAmounts(newBag.get(itemName) ?? []);
 
     if (newCount > oldCount) {
       added.push({ item: itemName, amount: newCount - oldCount });
@@ -745,28 +732,22 @@ function _diffItemLists(oldItems, newItems) {
   return { added, removed };
 }
 
-/**
- * Build item name → [{ amount, durability, ammo }] bag.
- */
-function _buildItemBag(items) {
-  const bag = new Map();
+function _buildItemBag(items: DiffItem[]): Map<string, DiffItem[]> {
+  const bag = new Map<string, DiffItem[]>();
   for (const item of items) {
     const name = item.item;
     if (!bag.has(name)) bag.set(name, []);
-    bag.get(name).push(item);
+    bag.get(name)!.push(item);
   }
   return bag;
 }
 
-function _sumAmounts(entries) {
+function _sumAmounts(entries: DiffItem[]): number {
   return entries.reduce((sum, e) => sum + (e.amount || 1), 0);
 }
 
-/**
- * Index an array by a key function into a Map.
- */
-function _indexBy(arr, keyFn) {
-  const map = new Map();
+function _indexBy(arr: EntityRecord[], keyFn: (item: EntityRecord) => string): Map<string, EntityRecord> {
+  const map = new Map<string, EntityRecord>();
   for (const item of arr) {
     const key = keyFn(item);
     if (key) map.set(key, item);
@@ -774,69 +755,56 @@ function _indexBy(arr, keyFn) {
   return map;
 }
 
-/**
- * Index horses by a stable composite key: class + owner (since individual actors
- * may not have a unique name).
- */
-function _indexHorses(horses) {
-  const map = new Map();
-  const counters = new Map();
+function _indexHorses(horses: EntityRecord[]): Map<string, EntityRecord> {
+  const map = new Map<string, EntityRecord>();
+  const counters = new Map<string, number>();
   for (const h of horses) {
-    const cls = h.class || '';
-    const owner = h.owner_steam_id || h.ownerSteamId || '';
+    const cls = h.class ?? '';
+    const owner = (h.owner_steam_id ?? h.ownerSteamId ?? '') as string;
     const base = `${cls}::${owner}`;
-    const n = (counters.get(base) || 0) + 1;
+    const n = (counters.get(base) ?? 0) + 1;
     counters.set(base, n);
-    map.set(n > 1 ? `${base}::${n}` : base, h);
+    map.set(n > 1 ? `${base}::${String(n)}` : base, h);
   }
   return map;
 }
 
-/**
- * Index vehicles by class + index (relies on deterministic save parser ordering).
- */
-function _indexVehicles(vehicles) {
-  const map = new Map();
-  const counters = new Map();
+function _indexVehicles(vehicles: EntityRecord[]): Map<string, EntityRecord> {
+  const map = new Map<string, EntityRecord>();
+  const counters = new Map<string, number>();
   for (const v of vehicles) {
-    const cls = v.class || v.display_name || v.displayName || '';
-    const n = (counters.get(cls) || 0) + 1;
+    const cls = (v.class ?? v.display_name ?? v.displayName ?? '') as string;
+    const n = (counters.get(cls) ?? 0) + 1;
     counters.set(cls, n);
-    map.set(`${cls}::${n}`, v);
+    map.set(`${cls}::${String(n)}`, v);
   }
   return map;
 }
 
-/**
- * Index structures by actor_class + owner + approximate position.
- * Position is rounded to the nearest 100 UE4 units to handle minor save-to-save drift.
- */
-function _indexStructures(structures) {
-  const map = new Map();
-  const counters = new Map();
+function _indexStructures(structures: EntityRecord[]): Map<string, EntityRecord> {
+  const map = new Map<string, EntityRecord>();
+  const counters = new Map<string, number>();
   for (const s of structures) {
-    const cls = s.actor_class || s.actorClass || '';
-    const owner = s.owner_steam_id || s.ownerSteamId || '';
-    // Round position to nearest 100 for matching stability
+    const cls = (s.actor_class ?? s.actorClass ?? '') as string;
+    const owner = (s.owner_steam_id ?? s.ownerSteamId ?? '') as string;
     const px = Math.round((s.x ?? s.pos_x ?? 0) / 100);
     const py = Math.round((s.y ?? s.pos_y ?? 0) / 100);
-    const base = `${cls}::${owner}::${px},${py}`;
-    const n = (counters.get(base) || 0) + 1;
+    const base = `${cls}::${owner}::${String(px)},${String(py)}`;
+    const n = (counters.get(base) ?? 0) + 1;
     counters.set(base, n);
-    map.set(n > 1 ? `${base}::${n}` : base, s);
+    map.set(n > 1 ? `${base}::${String(n)}` : base, s);
   }
   return map;
 }
 
-/**
- * Convert players (Map or object or DB array) to a Map<steamId, data>.
- */
-function _toMap(players) {
+function _toMap(
+  players: Map<string, EntityRecord> | EntityRecord[] | Record<string, EntityRecord>,
+): Map<string, EntityRecord> {
   if (players instanceof Map) return players;
   if (Array.isArray(players)) {
-    const map = new Map();
+    const map = new Map<string, EntityRecord>();
     for (const p of players) {
-      const id = p.steam_id || p.steamId;
+      const id = (p.steam_id ?? p['steamId']) as string | undefined;
       if (id) map.set(id, p);
     }
     return map;
@@ -847,42 +815,23 @@ function _toMap(players) {
   return new Map();
 }
 
-/**
- * Get inventory field from a player row, handling both DB column names and parser field names.
- */
-function _getField(player, slot) {
-  // Parser uses camelCase, DB uses snake_case
-  return player[slot.parseField] || player[slot.dbField] || player[slot.field] || [];
+function _getField(player: EntityRecord, slot: SlotDef): unknown {
+  if (slot.parseField && player[slot.parseField] !== undefined) return player[slot.parseField];
+  if (slot.dbField && player[slot.dbField] !== undefined) return player[slot.dbField];
+  return player[slot.field] ?? [];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Container ↔ Inventory cross-referencing
+//  Container <-> Inventory cross-referencing
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Cross-reference container item changes with player inventory changes from
- * the same diff cycle to attribute container access to specific players.
- *
- * Logic:
- * - Container lost item X + player gained item X → player took from container
- * - Container gained item X + player lost item X → player deposited to container
- * - Position proximity validates the attribution (player must be near container)
- *
- * Mutates container events in-place, adding:
- *   attributedPlayer   — display name of the matched player
- *   attributedSteamId  — steam ID of the matched player
- *
- * @param {Array<object>} events - All events from a single diff cycle
- */
-function _crossReferenceContainerAccess(events) {
-  // Separate container and inventory events
+function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
   const containerEvents = events.filter((e) => e.category === 'container' && e.item);
   const inventoryEvents = events.filter((e) => e.category === 'inventory' && e.item);
 
   if (containerEvents.length === 0 || inventoryEvents.length === 0) return;
 
-  // Build per-player item maps: steamId → { gained: {item→amount}, lost: {item→amount}, name, x, y, z }
-  const playerChanges = new Map();
+  const playerChanges = new Map<string, PlayerChanges>();
   for (const e of inventoryEvents) {
     const steamId = e.actor;
     if (!playerChanges.has(steamId)) {
@@ -895,44 +844,37 @@ function _crossReferenceContainerAccess(events) {
         lost: new Map(),
       });
     }
-    const pc = playerChanges.get(steamId);
+    const pc = playerChanges.get(steamId)!;
     if (e.type === 'inventory_item_added') {
-      pc.gained.set(e.item, (pc.gained.get(e.item) || 0) + e.amount);
+      pc.gained.set(e.item, (pc.gained.get(e.item) ?? 0) + e.amount);
     } else if (e.type === 'inventory_item_removed') {
-      pc.lost.set(e.item, (pc.lost.get(e.item) || 0) + e.amount);
+      pc.lost.set(e.item, (pc.lost.get(e.item) ?? 0) + e.amount);
     }
   }
 
-  // Maximum world-unit distance for a player to be "near" a container
-  // UE4 units — ~5000 units ≈ 50 metres, generous to account for save timing
   const MAX_DISTANCE_SQ = 5000 * 5000;
 
-  // For each container event, find the best player match
   for (const ce of containerEvents) {
     if (ce.type !== 'container_item_added' && ce.type !== 'container_item_removed') continue;
 
-    let bestPlayer = null;
+    let bestPlayer: { name: string; steamId: string } | null = null;
     let bestScore = 0;
 
     for (const [steamId, pc] of playerChanges) {
-      // Check position proximity (if both have coordinates)
       if (ce.x != null && pc.x != null) {
         const dx = ce.x - pc.x;
-        const dy = ce.y - pc.y;
+        const dy = (ce.y ?? 0) - (pc.y ?? 0);
         const distSq = dx * dx + dy * dy;
-        if (distSq > MAX_DISTANCE_SQ) continue; // too far away
+        if (distSq > MAX_DISTANCE_SQ) continue;
       }
 
-      // Match: container lost item → player gained same item (player took it)
-      // Match: container gained item → player lost same item (player deposited)
       let matchAmount = 0;
       if (ce.type === 'container_item_removed') {
-        matchAmount = pc.gained.get(ce.item) || 0;
+        matchAmount = pc.gained.get(ce.item) ?? 0;
       } else if (ce.type === 'container_item_added') {
-        matchAmount = pc.lost.get(ce.item) || 0;
+        matchAmount = pc.lost.get(ce.item) ?? 0;
       }
 
-      // Score by how much overlaps (min of container change and player change)
       const score = Math.min(matchAmount, ce.amount);
       if (score > 0 && score > bestScore) {
         bestScore = score;
@@ -947,7 +889,7 @@ function _crossReferenceContainerAccess(events) {
   }
 }
 
-module.exports = {
+export {
   diffSaveState,
   diffContainers,
   diffHorses,
@@ -957,7 +899,23 @@ module.exports = {
   diffVehicleState,
   diffStructures,
   _crossReferenceContainerAccess,
-  // Exported for testing
+  _diffItemLists,
+  _normalizeItems,
+  _buildItemBag,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = {
+  diffSaveState,
+  diffContainers,
+  diffHorses,
+  diffPlayerInventories,
+  diffWorldState,
+  diffVehicleInventories,
+  diffVehicleState,
+  diffStructures,
+  _crossReferenceContainerAccess,
   _diffItemLists,
   _normalizeItems,
   _buildItemBag,
