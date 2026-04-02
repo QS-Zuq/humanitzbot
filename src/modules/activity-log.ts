@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method, @typescript-eslint/no-unnecessary-boolean-literal-compare */
+
 /**
  * Activity Log — save-file change tracking, posted to the daily thread.
  *
@@ -20,13 +25,13 @@
  * @module activity-log
  */
 
-const { EmbedBuilder } = require('discord.js');
-const config = require('../config');
-const { createLogger } = require('../utils/log');
-const { cleanName, cleanItemName } = require('../parsers/ue4-names');
-const { t, getLocale, fmtNumber } = require('../i18n');
+import { EmbedBuilder } from 'discord.js';
+import config from '../config/index.js';
+import { createLogger } from '../utils/log.js';
+import { cleanName, cleanItemName } from '../parsers/ue4-names.js';
+import { t, getLocale, fmtNumber } from '../i18n/index.js';
 
-function _activityLocale(cfg) {
+function _activityLocale(cfg?: any) {
   return getLocale({ serverConfig: cfg || config });
 }
 
@@ -74,6 +79,7 @@ const EVENT_EMOJI = {
 };
 
 class ActivityLog {
+  [key: string]: any;
   /**
    * @param {import('discord.js').Client} client
    * @param {object} options
@@ -82,7 +88,7 @@ class ActivityLog {
    * @param {import('./log-watcher')} [options.logWatcher]  Route embeds to daily thread
    * @param {string} [options.label]
    */
-  constructor(client, options = {}) {
+  constructor(client: any, options: any = {}) {
     this._client = client;
     this._db = options.db;
     this._saveService = options.saveService;
@@ -109,7 +115,7 @@ class ActivityLog {
           this._log.warn(`Channel ${channelId} not found`);
           return;
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn(`Failed to fetch channel ${channelId}:`, err.message);
         return;
       }
@@ -117,7 +123,7 @@ class ActivityLog {
 
     // Listen for save sync events
     if (this._saveService) {
-      this._syncHandler = (result) => this._onSync(result);
+      this._syncHandler = (result: any) => this._onSync(result);
       this._saveService.on('sync', this._syncHandler);
     }
 
@@ -137,7 +143,7 @@ class ActivityLog {
   //  Event handling
   // ═══════════════════════════════════════════════════════════════════════════
 
-  async _onSync(result) {
+  async _onSync(result: any) {
     if (!result.diffEvents || result.diffEvents.length === 0) return;
     if (!this._logWatcher && !this._channel) return;
 
@@ -158,7 +164,7 @@ class ActivityLog {
           } else {
             await this._channel.send({ embeds: [embed] });
           }
-        } catch (sendErr) {
+        } catch (sendErr: any) {
           // Log individual embed failures but continue sending the rest
           this._log.warn('Embed send failed (continuing):', sendErr.message);
         }
@@ -171,7 +177,7 @@ class ActivityLog {
       if (result.diffEvents.length > maxEvents) {
         this._log.info(`Capped activity batch: ${result.diffEvents.length} events \u2192 ${maxEvents} posted`);
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Failed to post activity:', err.message);
     }
   }
@@ -185,8 +191,8 @@ class ActivityLog {
    * Groups events by category and builds one embed per category.
    * Filters out events based on config toggles.
    */
-  _buildEmbeds(events, syncTime) {
-    const embeds = [];
+  _buildEmbeds(events: any, syncTime: any) {
+    const embeds: any[] = [];
     const filtered = this._filterEvents(events);
     if (filtered.length === 0) return embeds;
 
@@ -212,14 +218,14 @@ class ActivityLog {
   /**
    * Filter events based on config toggles.
    */
-  _filterEvents(events) {
-    return events.filter((e) => {
+  _filterEvents(events: any) {
+    return events.filter((e: any) => {
       if (e.category === 'inventory') return config.showInventoryLog;
       if (e.category === 'container') return config.enableContainerLog !== false;
       if (e.category === 'horse') return config.enableHorseLog !== false;
       if (e.category === 'vehicle') return config.enableVehicleLog !== false;
       if (e.category === 'world') return config.enableWorldEventFeed !== false;
-      if (e.category === 'structure') return config.enableStructureLog !== false;
+      if (e.category === 'structure') return (config as any).enableStructureLog !== false;
       return true;
     });
   }
@@ -228,8 +234,8 @@ class ActivityLog {
    * Build one embed for a category of events.
    * Events are batched by actor and formatted with clean names.
    */
-  _buildCategoryEmbed(category, events, timeStr) {
-    const clr = CATEGORY_COLORS[category] || 0x95a5a6;
+  _buildCategoryEmbed(category: any, events: any, timeStr: any) {
+    const clr = (CATEGORY_COLORS as Record<string, number>)[category] || 0x95a5a6;
     const title = _categoryTitle(category);
 
     const lines = [];
@@ -275,9 +281,9 @@ class ActivityLog {
     for (const [, batch] of batchedItems) {
       if (batch.isCollapsed) continue; // already formatted above
       const e = batch.event;
-      const emoji = EVENT_EMOJI[e.type] || '•';
+      const emoji = (EVENT_EMOJI as Record<string, string>)[e.type] || '•';
       const itemList = batch.items
-        .map((i) => {
+        .map((i: any) => {
           const cleaned = cleanItemName(i.item);
           let label = i.amount > 1 ? `${cleaned} x${i.amount}` : cleaned;
           if (i.durability != null && i.durability < 100) label += ` (${Math.round(i.durability)}%)`;
@@ -291,7 +297,7 @@ class ActivityLog {
       // Player attribution: prefer cross-referenced data from diff-engine,
       // fall back to log-based container access tracking
       let playerTag = '';
-      const crossRefPlayer = e.attributedPlayer || batch.items.find((i) => i.attributedPlayer)?.attributedPlayer;
+      const crossRefPlayer = e.attributedPlayer || batch.items.find((i: any) => i.attributedPlayer)?.attributedPlayer;
       if (crossRefPlayer) {
         playerTag = ` — **${crossRefPlayer}**`;
       } else if (category === 'container' && this._logWatcher) {
@@ -348,7 +354,7 @@ class ActivityLog {
  * Clean raw UE4 actor names into human-readable labels.
  * Delegates to the shared cleanName() utility.
  */
-function _cleanActorName(raw) {
+function _cleanActorName(raw: any) {
   return cleanName(raw);
 }
 
@@ -356,7 +362,7 @@ function _cleanActorName(raw) {
  * Format a Date or ISO string into a short HH:MM timestamp string.
  * Uses the bot's configured timezone.
  */
-function _formatTime(dateOrIso) {
+function _formatTime(dateOrIso: any) {
   if (!dateOrIso) return '';
   const d = dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
   if (isNaN(d.getTime())) return '';
@@ -371,7 +377,7 @@ function _formatTime(dateOrIso) {
   }
 }
 
-function _categoryTitle(category) {
+function _categoryTitle(category: any) {
   switch (category) {
     case 'container':
       return t('discord:activity_log.container_activity', _activityLocale());
@@ -390,8 +396,8 @@ function _categoryTitle(category) {
   }
 }
 
-function _formatEvent(event, timeStr) {
-  const emoji = EVENT_EMOJI[event.type] || '•';
+function _formatEvent(event: any, timeStr: any) {
+  const emoji = (EVENT_EMOJI as Record<string, string>)[event.type] || '•';
   const name = _cleanActorName(event.actorName || event.actor || '');
   const ts = timeStr ? `\`${timeStr}\` ` : '';
   const loc = _formatLocation(event);
@@ -408,7 +414,7 @@ function _formatEvent(event, timeStr) {
       if (Array.isArray(items) && items.length > 0) {
         const cleaned = items
           .slice(0, 5)
-          .map((i) => cleanItemName(typeof i === 'string' ? i.replace(/ x\d+$/, '') : i));
+          .map((i: any) => cleanItemName(typeof i === 'string' ? i.replace(/ x\d+$/, '') : i));
         lostList = `: ${cleaned.join(', ')}`;
         if (items.length > 5) lostList += ` +${items.length - 5} more`;
       }
@@ -469,7 +475,7 @@ function _formatEvent(event, timeStr) {
  * Grid: 8x8 (A-H columns, 1-8 rows) mapped to UE4 world bounds.
  * World bounds: Width 395900, Offset X=201200 Y=-200600 (developer-provided)
  */
-function _formatLocation(event) {
+function _formatLocation(event: any) {
   const x = event.x ?? event.pos_x;
   const y = event.y ?? event.pos_y;
   if (x == null || y == null) return '';
@@ -489,13 +495,22 @@ function _formatLocation(event) {
   return ` \`[${col}${row}]\``;
 }
 
-module.exports = ActivityLog;
-module.exports._cleanActorName = _cleanActorName;
-module.exports._formatLocation = _formatLocation;
-
 // ── Test escape hatch ────────────────────────────────────────────────────────
-module.exports._test = {
+
+export default ActivityLog;
+
+const _test = {
   _filterEvents: ActivityLog.prototype._filterEvents,
   _formatTime,
   _categoryTitle,
 };
+
+export { _cleanActorName, _formatLocation, _test };
+
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = ActivityLog;
+_mod.exports._cleanActorName = _cleanActorName;
+_mod.exports._formatLocation = _formatLocation;
+_mod.exports._test = _test;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

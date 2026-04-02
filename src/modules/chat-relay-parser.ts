@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-non-null-assertion */
+
 /**
  * Chat relay data-layer: line parsing, diffing, and sanitisation.
  *
@@ -22,12 +27,12 @@ const TIMESTAMP_RE = /^\[\d{1,2}\/\d{1,2}\/[\d,]+ ?- ?\d{1,2}\s*:\s*\d{1,2}\]\s*
 const RICH_TEXT_RE = /<\/?(?:SP|FO|PR|CL)>/g;
 
 /** Strip timestamp prefix from fetchchat lines (game update March 2026). */
-function stripTimestamp(line) {
+function stripTimestamp(line: any) {
   return line.replace(TIMESTAMP_RE, '');
 }
 
 /** Strip rich text tags (except <PN>...</>) from a line for Discord display. */
-function stripRichText(text) {
+function stripRichText(text: any) {
   return text.replace(RICH_TEXT_RE, '').replace(/<\/>/g, '').trim();
 }
 
@@ -48,7 +53,7 @@ const BOT_ADMIN_RE = /^<SP>Admin:\s*<\/>/;
 const PLAIN_CHAT_RE = /^([^[:<>\n][^:<>\n]{0,31}):\s*(.+)$/;
 
 /** Strip [Admin] prefix from admin player lines so the other regexes can match. */
-function stripAdminPrefix(line) {
+function stripAdminPrefix(this: any, line: any) {
   return line.startsWith('[Admin]') ? line.replace(/^\[Admin\]\s*/, '') : line;
 }
 
@@ -59,7 +64,7 @@ function stripAdminPrefix(line) {
  * and a formatted Discord message string.
  * Returns { formatted, entry } or null if the line should be skipped.
  */
-function _parseLine(line) {
+function _parseLine(this: any, line: any) {
   // Strip timestamp prefix added by game update (March 2026)
   const stripped = stripTimestamp(line);
 
@@ -88,8 +93,8 @@ function _parseLine(line) {
   let m = CHAT_RE.exec(cleaned);
   if (!m) m = PLAIN_CHAT_RE.exec(cleaned); // admin players may lack <PN> tags
   if (m) {
-    const name = m[1].trim();
-    const rawText = m[2].trim();
+    const name = m[1]!.trim();
+    const rawText = m[2]!.trim();
     const text = this._sanitize(stripRichText(rawText));
     const badge = isAdmin ? ' 🛡️' : '';
     return {
@@ -127,7 +132,7 @@ function _parseLine(line) {
 }
 
 /** Legacy wrapper — returns only the formatted string. */
-function _formatLine(line) {
+function _formatLine(this: any, line: any) {
   const parsed = this._parseLine(line);
   return parsed ? parsed.formatted : null;
 }
@@ -136,7 +141,7 @@ function _formatLine(line) {
  * Compute new lines since last snapshot.
  * Returns an array of lines that were not present in the previous poll.
  */
-function _diff(currentLines) {
+function _diff(this: any, currentLines: any) {
   if (this._lastLines.length === 0) {
     // First poll — don't replay the whole buffer
     return [];
@@ -174,7 +179,7 @@ function _diff(currentLines) {
 }
 
 /** Sanitize text from in-game chat for safe Discord display. */
-function _sanitize(text) {
+function _sanitize(text: any) {
   return (
     text
       .replace(/@everyone/g, '@\u200beveryone')
@@ -188,15 +193,14 @@ function _sanitize(text) {
 }
 
 /** Sanitize text for use in RCON commands — strip control characters and null bytes. */
-function _sanitizeRcon(text) {
+function _sanitizeRcon(text: any) {
   // eslint-disable-next-line no-control-regex -- intentional: strip control chars from RCON input
   return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').replace(/[\r\n]+/g, ' ');
 }
 
 // ── Exports ──────────────────────────────────────────────────
 
-module.exports = {
-  // Regexes & helpers (available to external consumers like tests/web panel)
+export {
   CHAT_RE,
   JOIN_RE,
   LEFT_RE,
@@ -208,11 +212,31 @@ module.exports = {
   stripAdminPrefix,
   stripTimestamp,
   stripRichText,
-
-  // Prototype methods (mixed into ChatRelay)
   _parseLine,
   _formatLine,
   _diff,
   _sanitize,
   _sanitizeRcon,
 };
+
+const _mod = module as { exports: any };
+
+_mod.exports = {
+  CHAT_RE,
+  JOIN_RE,
+  LEFT_RE,
+  DIED_RE,
+  BOT_ADMIN_RE,
+  PLAIN_CHAT_RE,
+  TIMESTAMP_RE,
+  RICH_TEXT_RE,
+  stripAdminPrefix,
+  stripTimestamp,
+  stripRichText,
+  _parseLine,
+  _formatLine,
+  _diff,
+  _sanitize,
+  _sanitizeRcon,
+};
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

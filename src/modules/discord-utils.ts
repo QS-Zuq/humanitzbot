@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions */
+
 /**
  * Shared Discord utilities for all modules.
  *
@@ -6,7 +11,7 @@
  *   - embedContentKey()    — content hash for skip-if-unchanged logic
  *   - safeEditMessage()    — resilient message edit with re-create fallback
  */
-const { createLogger } = require('../utils/log');
+import { createLogger } from '../utils/log.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Clean own messages
@@ -27,7 +32,7 @@ const { createLogger } = require('../utils/log');
  * @param {number}          [options.limit=20]  - Bulk fetch limit for sweep
  * @param {string}          [options.label='']  - Log prefix
  */
-async function cleanOwnMessages(channel, client, options = {}) {
+async function cleanOwnMessages(channel: any, client: any, options: any = {}) {
   const { savedIds: rawIds, limit = 20, label = 'UTIL' } = options;
   const log = createLogger(label, 'UTIL');
   const savedIds = rawIds ? (Array.isArray(rawIds) ? rawIds : [rawIds]).filter(Boolean) : [];
@@ -42,7 +47,7 @@ async function cleanOwnMessages(channel, client, options = {}) {
           await msg.delete();
           log.info(`Cleaned previous message ${savedId}`);
         }
-      } catch (err) {
+      } catch (err: any) {
         if (err.code === 10008) {
           allFound = false; // message gone — need bulk sweep
         } else {
@@ -57,16 +62,16 @@ async function cleanOwnMessages(channel, client, options = {}) {
   // No saved IDs, or some were stale — sweep ALL old bot messages
   try {
     const messages = await channel.messages.fetch({ limit });
-    const botMessages = messages.filter((m) => m.author.id === client.user.id);
+    const botMessages = messages.filter((m: any) => m.author.id === client.user.id);
     if (botMessages.size > 0) {
       log.info(`Cleaning ${botMessages.size} old bot message(s)`);
       for (const [, msg] of botMessages) {
         try {
           await msg.delete();
-        } catch (_) {}
+        } catch (_: any) {}
       }
     }
-  } catch (err) {
+  } catch (err: any) {
     log.info('Could not clean old messages:', err.message);
   }
 }
@@ -83,11 +88,11 @@ async function cleanOwnMessages(channel, client, options = {}) {
  * @param {import('discord.js').ActionRowBuilder[]} [components]
  * @returns {string}
  */
-function embedContentKey(embeds, components) {
+function embedContentKey(embeds: any, components?: any) {
   const embedArr = Array.isArray(embeds) ? embeds : [embeds];
-  let key = JSON.stringify(embedArr.map((e) => e.data));
+  let key = JSON.stringify(embedArr.map((e: any) => e.data));
   if (components && components.length > 0) {
-    key += JSON.stringify(components.map((c) => c.toJSON()));
+    key += JSON.stringify(components.map((c: any) => c.toJSON()));
   }
   return key;
 }
@@ -104,23 +109,23 @@ function embedContentKey(embeds, components) {
  * @param {object} payload - { embeds, components, content }
  * @param {object} [options]
  * @param {string} [options.label='']
- * @param {function} [options.onRecreate] - Called with new message after re-create: (newMsg) => {}
+ * @param {function} [options.onRecreate] - Called with new message after re-create: (newMsg: any) => {}
  * @returns {Promise<import('discord.js').Message>} The (possibly new) message
  */
-async function safeEditMessage(message, channel, payload, options = {}) {
+async function safeEditMessage(message: any, channel: any, payload: any, options: any = {}) {
   const { label = 'UTIL', onRecreate } = options;
   const log = createLogger(label, 'UTIL');
   try {
     await message.edit(payload);
     return message;
-  } catch (err) {
+  } catch (err: any) {
     if (err.code === 10008) {
       log.info('Message was deleted, re-creating...');
       try {
         const newMsg = await channel.send(payload);
         if (typeof onRecreate === 'function') onRecreate(newMsg);
         return newMsg;
-      } catch (createErr) {
+      } catch (createErr: any) {
         log.error('Failed to re-create message:', createErr.message);
         throw createErr;
       }
@@ -138,7 +143,7 @@ async function safeEditMessage(message, channel, payload, options = {}) {
  * @param {string} suffix
  * @returns {string}
  */
-function modalTitle(prefix, name, suffix) {
+function modalTitle(prefix: any, name: any, suffix: any) {
   const maxName = 45 - prefix.length - suffix.length;
   if (maxName <= 0) return `${prefix}${suffix}`.slice(0, 45);
   const chars = Array.from(name);
@@ -146,4 +151,9 @@ function modalTitle(prefix, name, suffix) {
   return `${prefix}${truncated}${suffix}`;
 }
 
-module.exports = { cleanOwnMessages, embedContentKey, safeEditMessage, modalTitle };
+export { cleanOwnMessages, embedContentKey, safeEditMessage, modalTitle };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { cleanOwnMessages, embedContentKey, safeEditMessage, modalTitle };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

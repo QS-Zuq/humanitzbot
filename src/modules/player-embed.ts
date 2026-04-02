@@ -1,3 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands */
+
 /**
  * player-embed.js — Log-based player stats embed (for /playerstats command).
  *
@@ -12,18 +18,17 @@
  *   5. Connections + AC flags (admin-gated)
  */
 
-'use strict';
+import { EmbedBuilder } from 'discord.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultConfig from '../config/index.js';
+import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
 
-const { EmbedBuilder } = require('discord.js');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultConfig = require('../config');
-const { t, getLocale, fmtDate, fmtTime, fmtNumber } = require('../i18n');
-
-function _pe(locale, key, vars = {}) {
+function _pe(locale: any, key: any, vars: any = {}) {
   return t(`discord:player_embed.${key}`, locale, vars);
 }
 
-function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
+function buildPlayerEmbed(stats: any, opts: any = {}) {
+  const { isAdmin = false, playtime, config } = opts;
   const pt_inst = playtime || _defaultPlaytime;
   const cfg = config || _defaultConfig;
   const locale = getLocale({ serverConfig: cfg });
@@ -53,7 +58,7 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
     );
   }
   if (stats.nameHistory?.length > 0) {
-    desc.push(_pe(locale, 'aka_names', { names: stats.nameHistory.map((h) => h.name).join(', ') }));
+    desc.push(_pe(locale, 'aka_names', { names: stats.nameHistory.map((h: any) => h.name).join(', ') }));
   }
   if (desc.length > 0) embed.setDescription(desc.join('\n'));
 
@@ -65,16 +70,16 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   combatLines.push(_pe(locale, 'deaths_line', { count: fmtNumber(stats.deaths, locale) }));
 
   if (dmgEntries.length > 0) {
-    const total = dmgEntries.reduce((s, [, c]) => s + c, 0);
-    const sorted = dmgEntries.sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+    const total = dmgEntries.reduce((s: any, [, c]: any) => s + c, 0);
+    const sorted = dmgEntries.sort((a: any, b: any) => b[1] - a[1]);
+    const top = sorted.slice(0, 4).map(([src, c]: [any, any]) => `${src}: **${fmtNumber(c, locale)}**`);
     if (sorted.length > 4) top.push(_pe(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
     combatLines.push(`\n${_pe(locale, 'damage_taken_title', { total: fmtNumber(total, locale) })}\n${top.join('\n')}`);
   }
 
   if (killEntries.length > 0) {
-    const sorted = killEntries.sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+    const sorted = killEntries.sort((a: any, b: any) => b[1] - a[1]);
+    const top = sorted.slice(0, 4).map(([src, c]: [any, any]) => `${src}: **${fmtNumber(c, locale)}**`);
     if (sorted.length > 4) top.push(_pe(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
     combatLines.push(`\n${_pe(locale, 'killed_by_title')}\n${top.join('\n')}`);
   }
@@ -97,11 +102,11 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   if (stats.builds > 0) {
     const buildEntries = Object.entries(stats.buildItems || {});
     if (buildEntries.length > 0) {
-      const top3 = buildEntries.sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const top3 = buildEntries.sort((a: any, b: any) => b[1] - a[1]).slice(0, 3);
       baseParts.push(
         _pe(locale, 'base_built_with_items', {
           count: fmtNumber(stats.builds, locale),
-          items: top3.map(([item, c]) => `${item} \xD7${fmtNumber(c, locale)}`).join(', '),
+          items: top3.map(([item, c]: [any, any]) => `${item} \xD7${fmtNumber(c, locale)}`).join(', '),
         }),
       );
     } else {
@@ -135,7 +140,7 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   // ── AC Flags (admin only) ──
   if (isAdmin && stats.cheatFlags?.length > 0) {
     const flags = stats.cheatFlags.slice(-3);
-    const lines = flags.map((f) => {
+    const lines = flags.map((f: any) => {
       const d = new Date(f.timestamp);
       return `${fmtDate(d, locale, cfg.botTimezone)} \u2014 \`${f.type}\``;
     });
@@ -148,4 +153,9 @@ function buildPlayerEmbed(stats, { isAdmin = false, playtime, config } = {}) {
   return embed;
 }
 
-module.exports = { buildPlayerEmbed };
+export { buildPlayerEmbed };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { buildPlayerEmbed };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

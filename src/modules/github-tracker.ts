@@ -1,4 +1,8 @@
-'use strict';
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/use-unknown-in-catch-callback-variable */
 
 /**
  * GitHub Tracker — polls GitHub API for repository changes (PRs, pushes) and
@@ -19,9 +23,9 @@
  * @module github-tracker
  */
 
-const { EmbedBuilder } = require('discord.js');
-const { t, getLocale } = require('../i18n');
-const { createLogger } = require('../utils/log');
+import { EmbedBuilder } from 'discord.js';
+import { t, getLocale } from '../i18n/index.js';
+import { createLogger } from '../utils/log.js';
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
@@ -33,14 +37,16 @@ const COLOR_PUSH = 0x3498db; // blue
 // ── GitHubTracker ─────────────────────────────────────────────────────────────
 
 class GitHubTracker {
+  [key: string]: any;
   /**
    * @param {import('discord.js').Client} client
    * @param {object} deps
    * @param {object} [deps.config]   — config module (defaults to ../config)
    * @param {object} [deps.db]       — HumanitZDB instance
    */
-  constructor(client, deps = {}) {
+  constructor(client: any, deps: any = {}) {
     this.client = client;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._config = deps.config || require('../config');
     this._db = deps.db || null;
     this._log = createLogger(null, 'GITHUB');
@@ -73,7 +79,7 @@ class GitHubTracker {
 
     try {
       this._channel = await this.client.channels.fetch(channelId);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error(`Could not fetch channel ${channelId}:`, err.message);
       return;
     }
@@ -94,8 +100,11 @@ class GitHubTracker {
 
     // Start polling — run an initial poll immediately, then on each interval
     const interval = this._config.githubPollInterval;
-    this._poll().catch((e) => this._log.error('Initial poll error:', e.message));
-    this._pollTimer = setInterval(() => this._poll().catch((e) => this._log.error('Poll error:', e.message)), interval);
+    this._poll().catch((e: any) => this._log.error('Initial poll error:', e.message));
+    this._pollTimer = setInterval(
+      () => this._poll().catch((e: any) => this._log.error('Poll error:', e.message)),
+      interval,
+    );
     this._log.info(`Tracking ${repos.length} repo(s) — polling every ${interval / 1000}s`);
   }
 
@@ -115,9 +124,12 @@ class GitHubTracker {
    * @param {string} path  — e.g. "/repos/owner/repo/pulls"
    * @returns {Promise<Response>}
    */
-  async _ghFetch(path) {
+  async _ghFetch(path: any) {
     const token = this._config.githubToken;
-    const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return fetch(`https://api.github.com${path}`, { headers });
   }
@@ -128,19 +140,19 @@ class GitHubTracker {
     for (const repo of this._config.githubRepos) {
       try {
         await this._pollRepo(repo);
-      } catch (err) {
+      } catch (err: any) {
         this._log.error(`Error polling ${repo}:`, err.message);
       }
     }
   }
 
-  async _pollRepo(repo) {
+  async _pollRepo(repo: any) {
     await Promise.all([this._pollPRs(repo), this._pollPushes(repo)]);
   }
 
   // ── Pull-request polling ───────────────────────────────────────────────────
 
-  async _pollPRs(repo) {
+  async _pollPRs(repo: any) {
     const res = await this._ghFetch(`/repos/${repo}/pulls?state=all&sort=updated&per_page=25`);
     if (!res.ok) {
       if (res.status !== 404) this._log.warn(`PR fetch for ${repo} returned ${res.status}`);
@@ -153,7 +165,7 @@ class GitHubTracker {
     const seenIds = new Set(repoState.seenPrIds || []);
 
     // Process in ascending ID order so the oldest new PR is posted first
-    const newPrs = prs.filter((pr) => !seenIds.has(pr.number)).sort((a, b) => a.number - b.number);
+    const newPrs = prs.filter((pr: any) => !seenIds.has(pr.number)).sort((a: any, b: any) => a.number - b.number);
 
     for (const pr of newPrs) {
       const embed = this._buildPrEmbed(repo, pr);
@@ -179,7 +191,7 @@ class GitHubTracker {
 
   // ── Push / commit polling ─────────────────────────────────────────────────
 
-  async _pollPushes(repo) {
+  async _pollPushes(repo: any) {
     const res = await this._ghFetch(`/repos/${repo}/commits?per_page=10`);
     if (!res.ok) {
       if (res.status !== 404) this._log.warn(`Commit fetch for ${repo} returned ${res.status}`);
@@ -192,7 +204,7 @@ class GitHubTracker {
     const seenShas = new Set(repoState.seenCommitShas || []);
 
     // Process oldest-first
-    const newCommits = commits.filter((c) => !seenShas.has(c.sha)).reverse();
+    const newCommits = commits.filter((c: any) => !seenShas.has(c.sha)).reverse();
 
     for (const commit of newCommits) {
       const embed = this._buildCommitEmbed(repo, commit);
@@ -212,7 +224,7 @@ class GitHubTracker {
    * of open PRs and recent commits so we only post genuinely new events going
    * forward.
    */
-  async _bootstrapRepo(repo) {
+  async _bootstrapRepo(repo: any) {
     const repoState = this._repoState(repo);
     if (repoState.bootstrapped) return;
 
@@ -222,11 +234,11 @@ class GitHubTracker {
       if (res.ok) {
         const prs = await res.json();
         if (Array.isArray(prs)) {
-          repoState.seenPrIds = prs.map((pr) => pr.number);
-          repoState.closedPrIds = prs.filter((pr) => pr.state === 'closed').map((pr) => pr.number);
+          repoState.seenPrIds = prs.map((pr: any) => pr.number);
+          repoState.closedPrIds = prs.filter((pr: any) => pr.state === 'closed').map((pr: any) => pr.number);
         }
       }
-    } catch (_) {}
+    } catch (_: any) {}
 
     // Seed commit SHAs
     try {
@@ -234,10 +246,10 @@ class GitHubTracker {
       if (res.ok) {
         const commits = await res.json();
         if (Array.isArray(commits)) {
-          repoState.seenCommitShas = commits.map((c) => c.sha);
+          repoState.seenCommitShas = commits.map((c: any) => c.sha);
         }
       }
-    } catch (_) {}
+    } catch (_: any) {}
 
     repoState.bootstrapped = true;
     this._saveState();
@@ -248,7 +260,7 @@ class GitHubTracker {
 
   // ── Thread management ─────────────────────────────────────────────────────
 
-  async _ensureThread(repo) {
+  async _ensureThread(repo: any) {
     if (this._threads.has(repo)) return this._threads.get(repo);
 
     const threadName = this._threadName(repo);
@@ -256,27 +268,27 @@ class GitHubTracker {
     // Search active threads
     try {
       const active = await this._channel.threads.fetchActive();
-      const found = active.threads.find((th) => th.name === threadName);
+      const found = active.threads.find((th: any) => th.name === threadName);
       if (found) {
         this._threads.set(repo, found);
         this._log.info(`Using existing thread for ${repo}: ${threadName}`);
         return found;
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not list active threads:', err.message);
     }
 
     // Search archived threads
     try {
       const archived = await this._channel.threads.fetchArchived({ limit: 25 });
-      const found = archived.threads.find((th) => th.name === threadName);
+      const found = archived.threads.find((th: any) => th.name === threadName);
       if (found) {
         await found.setArchived(false).catch(() => {});
         this._threads.set(repo, found);
         this._log.info(`Unarchived thread for ${repo}: ${threadName}`);
         return found;
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not search archived threads:', err.message);
     }
 
@@ -297,7 +309,7 @@ class GitHubTracker {
       this._threads.set(repo, thread);
       this._log.info(`Created thread for ${repo}: ${threadName}`);
       return thread;
-    } catch (err) {
+    } catch (err: any) {
       this._log.error(`Failed to create thread for ${repo}:`, err.message);
       // Fallback to main channel
       this._threads.set(repo, this._channel);
@@ -305,17 +317,18 @@ class GitHubTracker {
     }
   }
 
-  async _sendToThread(repo, embed) {
+  async _sendToThread(repo: any, embed: any) {
     const thread = await this._ensureThread(repo);
     if (!thread) return;
     try {
       await thread.send({ embeds: [embed] });
-    } catch (err) {
+    } catch (err: any) {
       // Thread may have been deleted — clear cache and retry once
       if (err.code === 10003 || err.message?.includes('Unknown Channel')) {
         this._threads.delete(repo);
         const fresh = await this._ensureThread(repo);
-        if (fresh) await fresh.send({ embeds: [embed] }).catch((e) => this._log.error('Retry send failed:', e.message));
+        if (fresh)
+          await fresh.send({ embeds: [embed] }).catch((e: any) => this._log.error('Retry send failed:', e.message));
       } else {
         this._log.error(`Failed to send embed for ${repo}:`, err.message);
       }
@@ -324,7 +337,7 @@ class GitHubTracker {
 
   // ── Embed builders ────────────────────────────────────────────────────────
 
-  _buildPrEmbed(repo, pr) {
+  _buildPrEmbed(repo: any, pr: any) {
     const isMerged = pr.pull_request?.merged_at != null || pr.merged_at != null || pr.merged;
     const isClosed = pr.state === 'closed';
     const color = isMerged ? COLOR_PR_MERGED : isClosed ? COLOR_PR_CLOSED : COLOR_PR_OPEN;
@@ -357,14 +370,14 @@ class GitHubTracker {
       { name: t('discord:github_tracker.branch', this._locale), value: pr.head?.ref || '—', inline: true },
     );
 
-    const labels = (pr.labels || []).map((l) => l.name).join(', ');
+    const labels = (pr.labels || []).map((l: any) => l.name).join(', ');
     if (labels)
       embed.addFields({ name: t('discord:github_tracker.labels', this._locale), value: labels, inline: true });
 
     return embed;
   }
 
-  _buildCommitEmbed(repo, commit) {
+  _buildCommitEmbed(repo: any, commit: any) {
     const message = commit.commit?.message || '';
     const title = message.split('\n')[0].slice(0, 100);
     const body = message.split('\n').slice(1).join('\n').trim().slice(0, 300);
@@ -392,7 +405,7 @@ class GitHubTracker {
 
   // ── State helpers ─────────────────────────────────────────────────────────
 
-  _repoState(repo) {
+  _repoState(repo: any) {
     if (!this._state[repo]) this._state[repo] = {};
     return this._state[repo];
   }
@@ -410,17 +423,22 @@ class GitHubTracker {
     if (!this._db) return;
     try {
       this._db.setStateJSON('github_tracker', this._state);
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not save state:', err.message);
     }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  _threadName(repo) {
+  _threadName(repo: any) {
     // Normalize repo to something Discord allows: max 100 chars, readable
     return `gh: ${repo}`.slice(0, 100);
   }
 }
 
-module.exports = GitHubTracker;
+export default GitHubTracker;
+
+const _mod = module as { exports: any };
+
+_mod.exports = GitHubTracker;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

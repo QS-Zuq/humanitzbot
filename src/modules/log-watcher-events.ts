@@ -1,3 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands */
+
 /**
  * log-watcher-events.js — Event handler and batch-flush methods for LogWatcher.
  *
@@ -6,17 +12,17 @@
  * in via Object.assign so `this` is the LogWatcher instance.
  */
 
-const { EmbedBuilder } = require('discord.js');
-const { t, getLocale, fmtNumber } = require('../i18n');
+import { EmbedBuilder } from 'discord.js';
+import { t, getLocale, fmtNumber } from '../i18n/index.js';
 
-function _te(locale, key, vars = {}) {
+function _te(this: any, locale: any, key: any, vars: any = {}) {
   return t(`discord:events.${key}`, locale, vars);
 }
 
 // ═════════════════════════════════════════════════════════════════════
 //  _onBuild — Build event handler (batched)
 // ═════════════════════════════════════════════════════════════════════
-function _onBuild(playerName, steamId, itemName, timestamp) {
+function _onBuild(this: any, playerName: any, steamId: any, itemName: any, timestamp: any) {
   // Clean up item name — remove BP_ prefix and trailing IDs
   const cleanItem = this._simplifyBlueprintName(itemName);
 
@@ -55,7 +61,7 @@ function _onBuild(playerName, steamId, itemName, timestamp) {
 // ═════════════════════════════════════════════════════════════════════
 //  _onDeath — Death event handler (PvP, PvE, death-loop detection)
 // ═════════════════════════════════════════════════════════════════════
-function _onDeath(playerName, timestamp) {
+function _onDeath(this: any, playerName: any, timestamp: any) {
   const locale = getLocale({ serverConfig: this._config });
   // ALWAYS record stats — every death counts, no suppression
   this._playerStats.recordDeath(playerName, timestamp);
@@ -78,7 +84,7 @@ function _onDeath(playerName, timestamp) {
         causeRaw: deathCause.raw,
         damageTotal: deathCause.totalDamage,
       });
-    } catch (err) {
+    } catch (err: any) {
       if (!this._deathCauseWarnShown) {
         this._log.warn('Failed to log death cause:', err.message);
         this._deathCauseWarnShown = true;
@@ -222,7 +228,7 @@ function _onDeath(playerName, timestamp) {
 }
 
 /** Post a single summary embed for a death loop, then clear the tracker entry. */
-function _flushDeathLoop(key, playerName) {
+function _flushDeathLoop(this: any, key: any, playerName: any) {
   const locale = getLocale({ serverConfig: this._config });
   const entry = this._deathLoopTracker.get(key);
   if (!entry || entry.count < this._config.deathLoopThreshold) return;
@@ -252,7 +258,15 @@ function _flushDeathLoop(key, playerName) {
 // ═════════════════════════════════════════════════════════════════════
 //  _onRaid — Raid event handler (batched)
 // ═════════════════════════════════════════════════════════════════════
-function _onRaid(attackerName, attackerSteamId, ownerSteamId, buildingType, destroyed, timestamp) {
+function _onRaid(
+  this: any,
+  attackerName: any,
+  attackerSteamId: any,
+  ownerSteamId: any,
+  buildingType: any,
+  destroyed: any,
+  timestamp: any,
+) {
   // Clean up attacker name
   const attacker = attackerName.replace(/\s*$/, '');
   const cleanBuilding = this._simplifyBlueprintName(buildingType);
@@ -303,7 +317,7 @@ function _onRaid(attackerName, attackerSteamId, ownerSteamId, buildingType, dest
 // ═════════════════════════════════════════════════════════════════════
 //  Batch helpers — Loot, Build, Raid flush
 // ═════════════════════════════════════════════════════════════════════
-function _batchLoot(playerName, steamId, containerType, ownerSteamId, timestamp) {
+function _batchLoot(this: any, playerName: any, steamId: any, containerType: any, ownerSteamId: any, timestamp: any) {
   // Don't report self-looting
   if (steamId === ownerSteamId) return;
   // Don't spam Discord with clan members accessing shared containers
@@ -331,13 +345,13 @@ function _batchLoot(playerName, steamId, containerType, ownerSteamId, timestamp)
   }
 }
 
-function _flushLootBatch() {
+function _flushLootBatch(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._lootBatch);
   if (entries.length === 0) return;
   this._lootBatch = {};
 
-  const lines = entries.map((entry) => {
+  const lines = entries.map((entry: any) => {
     const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
     const ownerName = ownerData
       ? ownerData.name
@@ -360,15 +374,15 @@ function _flushLootBatch() {
   this._sendToThread(embed);
 }
 
-function _flushBuildBatch() {
+function _flushBuildBatch(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._buildBatch);
   if (entries.length === 0) return;
   this._buildBatch = {};
 
-  const lines = entries.map((entry) => {
+  const lines = entries.map((entry: any) => {
     const itemList = Object.entries(entry.items)
-      .map(([item, count]) => (count > 1 ? `${item} ×${count}` : item))
+      .map(([item, count]: [any, any]) => (count > 1 ? `${item} ×${count}` : item))
       .join(', ');
     return _te(locale, 'build_activity_line', {
       player: entry.playerName,
@@ -385,19 +399,19 @@ function _flushBuildBatch() {
   this._sendToThread(embed);
 }
 
-function _flushRaidBatch() {
+function _flushRaidBatch(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   const entries = Object.values(this._raidBatch);
   if (entries.length === 0) return;
   this._raidBatch = {};
 
-  const lines = entries.map((entry) => {
+  const lines = entries.map((entry: any) => {
     const ownerData = this._playtime.getPlaytime(entry.ownerSteamId);
     const ownerName = ownerData
       ? ownerData.name
       : _te(locale, 'unknown_owner', { owner_id: entry.ownerSteamId.slice(0, 8) });
     const buildingList = Object.entries(entry.buildings)
-      .map(([b, count]) => (count > 1 ? `${b} ×${count}` : b))
+      .map(([b, count]: [any, any]) => (count > 1 ? `${b} ×${count}` : b))
       .join(', ');
     const summary = [];
     if (entry.destroyedCount > 0) {
@@ -414,7 +428,7 @@ function _flushRaidBatch() {
     });
   });
 
-  const hasDestruction = entries.some((e) => e.destroyedCount > 0);
+  const hasDestruction = entries.some((e: any) => e.destroyedCount > 0);
   const embed = new EmbedBuilder()
     .setAuthor({ name: hasDestruction ? _te(locale, 'raid_alert') : _te(locale, 'raid_activity') })
     .setDescription(lines.join('\n\n'))
@@ -425,7 +439,12 @@ function _flushRaidBatch() {
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────
-module.exports = {
+
+export { _onBuild, _onDeath, _flushDeathLoop, _onRaid, _batchLoot, _flushLootBatch, _flushBuildBatch, _flushRaidBatch };
+
+const _mod = module as { exports: any };
+
+_mod.exports = {
   _onBuild,
   _onDeath,
   _flushDeathLoop,
@@ -435,3 +454,4 @@ module.exports = {
   _flushBuildBatch,
   _flushRaidBatch,
 };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

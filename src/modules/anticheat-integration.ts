@@ -1,4 +1,6 @@
-'use strict';
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
 
 /**
  * Anticheat Integration Shim
@@ -11,10 +13,11 @@
  * This file provides the DB handle, config, and event hooks.
  */
 
-let AnticheatEngine = null;
+let AnticheatEngine: any = null;
 let _available = false;
 
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   AnticheatEngine = require('@humanitzbot/qs-anticheat');
   _available = true;
 } catch {
@@ -22,13 +25,14 @@ try {
 }
 
 class AnticheatIntegration {
+  [key: string]: any;
   /**
    * @param {object} opts
    * @param {object} opts.db        - HumanitZDB instance
    * @param {object} opts.config    - Bot config object
    * @param {object} [opts.logWatcher]  - LogWatcher instance (optional, for event hooks)
    */
-  constructor(opts = {}) {
+  constructor(opts: any = {}) {
     this._db = opts.db;
     this._config = opts.config;
     this._logWatcher = opts.logWatcher || null;
@@ -88,7 +92,7 @@ class AnticheatIntegration {
         analyzeInterval / 1000,
         baselineInterval / 1000,
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ANTICHEAT] Failed to start engine:', err.message);
       _available = false;
     }
@@ -104,7 +108,7 @@ class AnticheatIntegration {
       if (flags && flags.length > 0) {
         this._processFlags(flags);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ANTICHEAT] Analysis error:', err.message);
     }
   }
@@ -112,7 +116,7 @@ class AnticheatIntegration {
   /**
    * Trigger analysis immediately (called by SaveService on sync).
    */
-  async onSaveSync(result) {
+  async onSaveSync(result: any) {
     if (!this._engine) return;
     try {
       if (typeof this._engine.onSaveSync === 'function') {
@@ -121,7 +125,7 @@ class AnticheatIntegration {
           this._processFlags(flags);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ANTICHEAT] Save sync analysis error:', err.message);
     }
   }
@@ -130,7 +134,7 @@ class AnticheatIntegration {
    * Process flags returned by the engine — write to DB.
    * @param {Array<object>} flags
    */
-  _processFlags(flags) {
+  _processFlags(flags: any) {
     if (!this._db) return;
     for (const flag of flags) {
       try {
@@ -139,7 +143,7 @@ class AnticheatIntegration {
 
         // Update risk score for the player
         this._updateRiskScore(flag.steam_id);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[ANTICHEAT] Failed to insert flag:', err.message);
       }
     }
@@ -148,7 +152,7 @@ class AnticheatIntegration {
   /**
    * Recalculate risk score for a player based on their flags.
    */
-  _updateRiskScore(steamId) {
+  _updateRiskScore(steamId: any) {
     if (!this._db) return;
     try {
       const flags = this._db.getAcFlagsBySteam(steamId, 500);
@@ -169,7 +173,7 @@ class AnticheatIntegration {
       let rawScore = 0;
       for (const f of flags) {
         if (f.status === 'dismissed' || f.status === 'whitelisted') continue;
-        const w = SEVERITY_WEIGHT[f.severity] || 0.05;
+        const w = (SEVERITY_WEIGHT as Record<string, number>)[f.severity] || 0.05;
         const statusMult = f.status === 'confirmed' ? 1.5 : 1.0;
         rawScore += w * statusMult * (f.score || 0.5);
       }
@@ -185,7 +189,7 @@ class AnticheatIntegration {
         last_flag_at: lastFlagAt,
         baseline_data: {},
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ANTICHEAT] Risk score update error:', err.message);
     }
   }
@@ -199,7 +203,7 @@ class AnticheatIntegration {
       if (typeof this._engine.recalibrateBaseline === 'function') {
         await this._engine.recalibrateBaseline();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ANTICHEAT] Baseline recalibration error:', err.message);
     }
   }
@@ -211,7 +215,7 @@ class AnticheatIntegration {
    * @param {string} [reviewedBy] - Discord user ID
    * @param {string} [notes]
    */
-  reviewFlag(flagId, status, reviewedBy = null, notes = null) {
+  reviewFlag(flagId: any, status: any, reviewedBy: any = null, notes: any = null) {
     if (!this._db) return;
     this._db.updateAcFlagStatus(flagId, status, reviewedBy, notes);
 
@@ -266,4 +270,9 @@ class AnticheatIntegration {
   }
 }
 
-module.exports = AnticheatIntegration;
+export default AnticheatIntegration;
+
+const _mod = module as { exports: any };
+
+_mod.exports = AnticheatIntegration;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

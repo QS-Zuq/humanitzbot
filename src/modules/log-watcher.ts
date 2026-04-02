@@ -1,15 +1,24 @@
-const { EmbedBuilder } = require('discord.js');
-const SftpClient = require('ssh2-sftp-client');
-const path = require('path');
-const _defaultConfig = require('../config');
-const { cleanName } = require('../parsers/ue4-names');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultPlayerStats = require('../tracking/player-stats');
-const { classifyDamageSource, isNpcDamageSource } = require('../tracking/damage-classifier');
-const { createLogger } = require('../utils/log');
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/no-confusing-void-expression */
+
+import { EmbedBuilder } from 'discord.js';
+// @ts-expect-error — no type declarations for ssh2-sftp-client
+import SftpClient from 'ssh2-sftp-client';
+import path from 'path';
+import _defaultConfig from '../config/index.js';
+import { cleanName } from '../parsers/ue4-names.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import { classifyDamageSource, isNpcDamageSource } from '../tracking/damage-classifier.js';
+import { createLogger } from '../utils/log.js';
 
 class LogWatcher {
-  constructor(client, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
@@ -105,7 +114,7 @@ class LogWatcher {
 
   // ── Damage source classification (delegated to shared damage-classifier.js) ──
 
-  _classifyDamageSource(source) {
+  _classifyDamageSource(source: any) {
     return classifyDamageSource(source);
   }
 
@@ -119,7 +128,7 @@ class LogWatcher {
         this._dayCounts = { ...this._dayCounts, ...raw.counts };
         this._log.info(`Restored day counts for ${raw.date} (DB)`);
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not load day counts:', err.message);
     }
   }
@@ -131,12 +140,12 @@ class LogWatcher {
       const data = { date: this._dailyDate || this._config.getToday(), counts: this._dayCounts };
       this._db.setStateJSON('day_counts', data);
       this._dayCountsDirty = false;
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not save day counts:', err.message);
     }
   }
 
-  _incDayCount(key) {
+  _incDayCount(key: any) {
     this._dayCounts[key]++;
     this._dayCountsDirty = true;
   }
@@ -151,7 +160,7 @@ class LogWatcher {
         this._pvpKills = raw;
         this._log.info(`PVP: Loaded ${raw.length} PvP kill(s) from DB`);
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('PVP: Could not load pvp kills:', err.message);
       this._pvpKills = [];
     }
@@ -163,12 +172,12 @@ class LogWatcher {
       if (!this._db) return;
       this._db.setStateJSON('pvp_kills', this._pvpKills);
       this._pvpKillsDirty = false;
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('PVP: Could not save pvp kills:', err.message);
     }
   }
 
-  _recordPvpDamage(victim, attacker, damage, timestamp) {
+  _recordPvpDamage(victim: any, attacker: any, damage: any, timestamp: any) {
     const key = victim.toLowerCase();
     const existing = this._pvpDamageTracker.get(key);
     const ts = timestamp.getTime();
@@ -189,7 +198,7 @@ class LogWatcher {
     }
   }
 
-  _checkPvpKill(victim, deathTimestamp) {
+  _checkPvpKill(victim: any, deathTimestamp: any) {
     const key = victim.toLowerCase();
     const entry = this._pvpDamageTracker.get(key);
     if (!entry) return null;
@@ -210,7 +219,7 @@ class LogWatcher {
     return null;
   }
 
-  _isNpcDamageSource(source) {
+  _isNpcDamageSource(source: any) {
     return isNpcDamageSource(source);
   }
 
@@ -233,7 +242,7 @@ class LogWatcher {
    * Record damage from ANY source for death cause attribution.
    * Last-hit attribution: the most recent damage source before death is the cause.
    */
-  _recordDeathCauseDamage(victim, source, damage, timestamp) {
+  _recordDeathCauseDamage(victim: any, source: any, damage: any, timestamp: any) {
     const key = victim.toLowerCase();
     const ts = timestamp.getTime();
     const existing = this._deathCauseTracker.get(key);
@@ -256,7 +265,7 @@ class LogWatcher {
    * Check death cause: look up the most recent damage source for a victim.
    * Returns classified cause or null.
    */
-  _checkDeathCause(victim, deathTimestamp) {
+  _checkDeathCause(victim: any, deathTimestamp: any) {
     const key = victim.toLowerCase();
     const entry = this._deathCauseTracker.get(key);
     if (!entry) return null;
@@ -278,7 +287,7 @@ class LogWatcher {
     return null;
   }
 
-  getPvpKills(count = 10) {
+  getPvpKills(count: any = 10) {
     return this._pvpKills.slice(-count);
   }
 
@@ -304,7 +313,7 @@ class LogWatcher {
           this._log.error('Log channel not found! Check LOG_CHANNEL_ID.');
           return;
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Failed to fetch log channel:', err.message);
         return;
       }
@@ -392,7 +401,7 @@ class LogWatcher {
           };
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not load saved offsets:', err.message);
     }
     return null;
@@ -411,7 +420,7 @@ class LogWatcher {
       if (this._db) {
         this._db.setStateJSON('log_offsets', data);
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Could not save offsets:', err.message);
     }
   }
@@ -422,14 +431,14 @@ class LogWatcher {
    * We parse the timestamp from the filename to sort. Falls back to alphabetical.
    * @returns {string|null} Full remote path of the newest file, or null if none found.
    */
-  async _findLatestFile(sftp, dir, suffix) {
+  async _findLatestFile(sftp: any, dir: any, suffix: any) {
     try {
       const items = await sftp.list(dir);
-      const matching = items.filter((i) => i.type !== 'd' && i.name.endsWith(suffix));
+      const matching = items.filter((i: any) => i.type !== 'd' && i.name.endsWith(suffix));
       if (matching.length === 0) return null;
 
       // Parse timestamp from filename: D-M_H-m_suffix → sortable date
-      const parsed = matching.map((i) => {
+      const parsed = matching.map((i: any) => {
         const m = i.name.match(/^(\d{1,2})-(\d{1,2})_(\d{1,2})-(\d{1,2})_/);
         let sortKey = 0;
         if (m) {
@@ -441,7 +450,7 @@ class LogWatcher {
       });
 
       // Sort by parsed timestamp descending; fall back to modifyTime
-      parsed.sort((a, b) => {
+      parsed.sort((a: any, b: any) => {
         if (a.sortKey !== b.sortKey) return b.sortKey - a.sortKey;
         return (b.modifyTime || 0) - (a.modifyTime || 0);
       });
@@ -558,7 +567,7 @@ class LogWatcher {
             this.initialised = true;
             this._log.info(`HMZLog size: ${this.lastSize} bytes — tailing from here`);
           }
-        } catch (err) {
+        } catch (err: any) {
           this._log.warn('HMZLog.log not found, will retry:', err.message);
           this.lastSize = 0;
           this.initialised = false;
@@ -579,13 +588,13 @@ class LogWatcher {
             this._connectInitialised = true;
             this._log.info(`ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
           }
-        } catch (err) {
+        } catch (err: any) {
           this._log.warn('PlayerConnectedLog.txt not found, will retry:', err.message);
           this._connectLastSize = 0;
           this._connectInitialised = false;
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('SFTP init failed:', err.message);
       this.lastSize = 0;
       this.initialised = false;
@@ -624,18 +633,18 @@ class LogWatcher {
               path: this._hmzLogFile,
               label: 'HMZLog(old)',
               getSize: () => this.lastSize,
-              setSize: (s) => {
+              setSize: (s: any) => {
                 this.lastSize = s;
               },
               getInit: () => this.initialised,
-              setInit: (v) => {
+              setInit: (v: any) => {
                 this.initialised = v;
               },
               getPartial: () => this.partialLine,
-              setPartial: (p) => {
+              setPartial: (p: any) => {
                 this.partialLine = p;
               },
-              processLine: (line) => this._processLine(line),
+              processLine: (line: any) => this._processLine(line),
             });
           }
           this._hmzLogFile = latestHmz;
@@ -651,18 +660,18 @@ class LogWatcher {
               path: this._connectLogFile,
               label: 'ConnectLog(old)',
               getSize: () => this._connectLastSize,
-              setSize: (s) => {
+              setSize: (s: any) => {
                 this._connectLastSize = s;
               },
               getInit: () => this._connectInitialised,
-              setInit: (v) => {
+              setInit: (v: any) => {
                 this._connectInitialised = v;
               },
               getPartial: () => this._connectPartialLine,
-              setPartial: (p) => {
+              setPartial: (p: any) => {
                 this._connectPartialLine = p;
               },
-              processLine: (line) => this._processConnectLine(line),
+              processLine: (line: any) => this._processConnectLine(line),
             });
           }
           this._connectLogFile = latestConnect;
@@ -684,18 +693,18 @@ class LogWatcher {
           path: hmzPath,
           label: 'HMZLog',
           getSize: () => this.lastSize,
-          setSize: (s) => {
+          setSize: (s: any) => {
             this.lastSize = s;
           },
           getInit: () => this.initialised,
-          setInit: (v) => {
+          setInit: (v: any) => {
             this.initialised = v;
           },
           getPartial: () => this.partialLine,
-          setPartial: (p) => {
+          setPartial: (p: any) => {
             this.partialLine = p;
           },
-          processLine: (line) => this._processLine(line),
+          processLine: (line: any) => this._processLine(line),
         });
       }
 
@@ -705,18 +714,18 @@ class LogWatcher {
           path: connectPath,
           label: 'ConnectLog',
           getSize: () => this._connectLastSize,
-          setSize: (s) => {
+          setSize: (s: any) => {
             this._connectLastSize = s;
           },
           getInit: () => this._connectInitialised,
-          setInit: (v) => {
+          setInit: (v: any) => {
             this._connectInitialised = v;
           },
           getPartial: () => this._connectPartialLine,
-          setPartial: (p) => {
+          setPartial: (p: any) => {
             this._connectPartialLine = p;
           },
-          processLine: (line) => this._processConnectLine(line),
+          processLine: (line: any) => this._processConnectLine(line),
         });
       }
 
@@ -732,14 +741,14 @@ class LogWatcher {
 
       // Persist day counts
       this._saveDayCounts();
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Poll error:', err.message);
     } finally {
       await sftp.end().catch(() => {});
     }
   }
 
-  async _pollFile(sftp, opts) {
+  async _pollFile(sftp: any, opts: any) {
     try {
       const stat = await sftp.stat(opts.path);
       const currentSize = stat.size;
@@ -768,7 +777,7 @@ class LogWatcher {
       const newBytes = await this._downloadFrom(sftp, opts.path, opts.getSize(), currentSize);
       opts.setSize(currentSize);
 
-      if (newBytes && newBytes.length > 0) {
+      if (newBytes && (newBytes as string).length > 0) {
         const text = opts.getPartial() + newBytes;
         const lines = text.split('\n');
         opts.setPartial(lines.pop() || '');
@@ -783,7 +792,7 @@ class LogWatcher {
         }
         this._log.info(`${opts.label}: ${totalLines} lines (${eventLines} events)`);
       }
-    } catch (err) {
+    } catch (err: any) {
       // File may not exist yet — that's OK
       if (err.code === 2 || err.message.includes('No such file')) {
         return; // silently skip missing files
@@ -792,7 +801,7 @@ class LogWatcher {
     }
   }
 
-  async _downloadFrom(sftpClient, remotePath, startAt, endAt) {
+  async _downloadFrom(sftpClient: any, remotePath: any, startAt: any, endAt: any) {
     const bytesToRead = endAt - startAt;
     if (bytesToRead <= 0) return '';
 
@@ -810,21 +819,21 @@ class LogWatcher {
         encoding: 'utf8',
       });
 
-      const chunks = [];
-      readStream.on('data', (chunk) => chunks.push(chunk));
+      const chunks: string[] = [];
+      readStream.on('data', (chunk: any) => chunks.push(chunk));
       readStream.on('end', () => resolve(chunks.join('')));
-      readStream.on('error', (err) => {
+      readStream.on('error', (err: any) => {
         this._log.warn('Stream read failed, trying full download:', err.message);
         // Fallback: download full file and slice
         sftpClient
           .get(remotePath)
-          .then((buf) => resolve(buf.slice(startAt, endAt).toString('utf8')))
+          .then((buf: any) => resolve(buf.slice(startAt, endAt).toString('utf8')))
           .catch(reject);
       });
     });
   }
 
-  _processLine(line) {
+  _processLine(line: any) {
     // Extract timestamp and message body
     // Format: (13/2/2026 12:35) message here  — also handles :SS seconds, - . separators, and comma in year (2,026)
     const lineMatch = line.match(
@@ -1157,7 +1166,7 @@ class LogWatcher {
     return false;
   }
 
-  _processConnectLine(line) {
+  _processConnectLine(line: any) {
     // Flexible: handles optional seconds, - . separators, and comma in year (2,026)
     const connectMatch = line.match(
       /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/,
@@ -1216,7 +1225,7 @@ class LogWatcher {
    * Silently no-ops if no DB is available.
    * @param {object} entry - { type, category, actorName, steamId, item, amount, details, targetName, targetSteamId, timestamp }
    */
-  _logEvent(entry) {
+  _logEvent(entry: any) {
     if (!this._db) return;
     try {
       if (entry.timestamp) {
@@ -1251,7 +1260,7 @@ class LogWatcher {
           targetSteamId: entry.targetSteamId || '',
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       // DB errors should never disrupt event processing
       this._log.warn(`Failed to log event ${entry.type}:`, err.message);
     }
@@ -1259,7 +1268,7 @@ class LogWatcher {
 
   // ─── ID MAP ───────────────────────────────────────────────
 
-  async _refreshIdMap(sftp) {
+  async _refreshIdMap(sftp: any) {
     try {
       let text;
       // Prefer Panel API (Pterodactyl file download) when available
@@ -1293,24 +1302,25 @@ class LogWatcher {
         if (this._dataDir) {
           try {
             const logsDir = path.join(this._dataDir, 'logs');
-            const fs = require('fs');
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const fs = require('fs') as typeof import('fs');
             if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
             fs.writeFileSync(path.join(logsDir, 'PlayerIDMapped.txt'), text, 'utf8');
-          } catch (_) {
+          } catch (_: any) {
             /* non-critical — web panel will fall back to DB names */
           }
         }
 
         // Notify external listeners (SaveService, WebMap, etc.) with steamId→name map
         if (this._onIdMapRefresh) {
-          const idMap = {};
+          const idMap: Record<string, string> = {};
           for (const { steamId, name } of entries) idMap[steamId] = name;
           try {
             this._onIdMapRefresh(idMap);
-          } catch (_) {}
+          } catch (_: any) {}
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       // Not critical — file may not exist yet
       if (!this._idMapWarned) {
         this._log.warn('Could not read PlayerIDMapped.txt:', err.message);
@@ -1319,20 +1329,27 @@ class LogWatcher {
     }
   }
 
-  _simplifyContainerName(rawName) {
+  _simplifyContainerName(rawName: any) {
     return cleanName(rawName);
   }
 
-  _simplifyBlueprintName(rawName) {
+  _simplifyBlueprintName(rawName: any) {
     return cleanName(rawName);
   }
 
-  _formatTime(date) {
+  _formatTime(date: any) {
     return this._config.formatTime(date);
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 Object.assign(LogWatcher.prototype, require('./log-watcher-threads'));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 Object.assign(LogWatcher.prototype, require('./log-watcher-events'));
 
-module.exports = LogWatcher;
+export default LogWatcher;
+
+const _mod = module as { exports: any };
+
+_mod.exports = LogWatcher;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

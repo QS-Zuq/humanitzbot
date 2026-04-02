@@ -1,15 +1,21 @@
-const _defaultConfig = require('../config');
-const { sendAdminMessage, getServerInfo } = require('../rcon/server-info');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultPlayerStats = require('../tracking/player-stats');
-const { createLogger } = require('../utils/log');
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await */
+
+import _defaultConfig from '../config/index.js';
+import { sendAdminMessage, getServerInfo } from '../rcon/server-info.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import { createLogger } from '../utils/log.js';
 
 // Content layer: text generation, color helpers, welcome file builder
-const content = require('./auto-messages-content');
+import * as content from './auto-messages-content.js';
 const { _rconColorLink, buildWelcomeContent } = content;
 
 class AutoMessages {
-  constructor(deps = {}) {
+  [key: string]: any;
+  constructor(deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
@@ -54,7 +60,7 @@ class AutoMessages {
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
-      this._onPlayerJoined = (joiner) => this._sendWelcomeMessage(joiner);
+      this._onPlayerJoined = (joiner: any) => this._sendWelcomeMessage(joiner);
       this._presenceTracker.on('playerJoined', this._onPlayerJoined);
       this._log.info('RCON welcome messages enabled (on player join)');
     } else if (this._config.enableWelcomeMsg) {
@@ -80,7 +86,7 @@ class AutoMessages {
   // ── Private methods ────────────────────────────────────────
 
   /** Colorize a Discord invite link (instance wrapper). */
-  _colorLink(link) {
+  _colorLink(link: any) {
     return content._colorLink(link);
   }
 
@@ -93,7 +99,7 @@ class AutoMessages {
         : `<FO>Join our </><CL>Discord</><FO>! ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
       this._log.info('Sent Discord link to game chat');
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to send Discord link:', err.message);
     }
   }
@@ -106,18 +112,18 @@ class AutoMessages {
         : `<FO>Issues, suggestions, or just want to connect? ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
       this._log.info('Sent promo message to game chat');
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to send promo message:', err.message);
     }
   }
 
   /** Resolve placeholders in custom broadcast messages. */
-  async _resolveMessagePlaceholders(text) {
+  async _resolveMessagePlaceholders(text: any) {
     const info = await this._getServerInfoSafe();
     return this._resolvePlaceholders(text, info);
   }
 
-  async _sendWelcomeMessage(joiner) {
+  async _sendWelcomeMessage(joiner: any) {
     // Anti-spam: don't stack welcome messages too close together
     const now = Date.now();
     if (now - this._lastWelcomeTime < this._welcomeCooldown) {
@@ -140,7 +146,7 @@ class AutoMessages {
       await this._sendAdminMessage(msg);
       this._lastWelcomeTime = Date.now();
       this._log.info(`Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error(`Failed to send welcome to ${joiner.name}:`, err.message);
     }
   }
@@ -152,5 +158,12 @@ Object.assign(AutoMessages.prototype, {
   _pvpScheduleText: content._pvpScheduleText,
 });
 
-module.exports = AutoMessages;
-module.exports.buildWelcomeContent = buildWelcomeContent;
+export default AutoMessages;
+
+export { buildWelcomeContent };
+
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = AutoMessages;
+_mod.exports.buildWelcomeContent = buildWelcomeContent;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

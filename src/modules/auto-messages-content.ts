@@ -1,3 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands */
+
 /**
  * Auto-messages content layer — text generation for RCON and WelcomeMessage.txt.
  *
@@ -9,15 +15,15 @@
  * AutoMessages.prototype by auto-messages.js.
  */
 
-const _defaultConfig = require('../config');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultPlayerStats = require('../tracking/player-stats');
-const { getServerInfo } = require('../rcon/server-info');
-const { getDayOffset, getRotatedProfileIndex } = require('./schedule-utils');
-const { difficultyLabel: diffLabel, spawnLabel } = require('../server/server-display');
+import _defaultConfig from '../config/index.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import { getServerInfo } from '../rcon/server-info.js';
+import { getDayOffset, getRotatedProfileIndex } from './schedule-utils.js';
+import { difficultyLabel as diffLabel, spawnLabel } from '../server/server-display.js';
 
 // ── Color tag helpers for RCON messages ──────────────────
-const { COLOR } = require('../rcon/rcon-colors');
+import { COLOR } from '../rcon/rcon-colors.js';
 
 /**
  * Color helper for WelcomeMessage.txt file context.
@@ -25,7 +31,7 @@ const { COLOR } = require('../rcon/rcon-colors');
  *   <TAG>text</>
  * This matches the game's rich text parser for the welcome popup.
  */
-function fileColor(tag, text) {
+function fileColor(tag: any, text: any) {
   return `<${COLOR[tag] || tag}>${text}</>`;
 }
 
@@ -33,9 +39,9 @@ function fileColor(tag, text) {
  * Colorize a Discord invite link for WelcomeMessage.txt:
  * "Discord" portion → blue, rest unchanged.
  */
-function _colorLink(link) {
+function _colorLink(link: any) {
   if (!link) return '';
-  return link.replace(/discord/i, (m) => fileColor('blue', m));
+  return link.replace(/discord/i, (m: any) => fileColor('blue', m));
 }
 
 /**
@@ -43,7 +49,7 @@ function _colorLink(link) {
  * "discord.gg" → blue, the ID after → back to gray.
  * Caller is responsible for the surrounding color context.
  */
-function _rconColorLink(link) {
+function _rconColorLink(link: any) {
   if (!link) return '';
   const m = link.match(/^(.*?discord\.gg)(\/.*)$/i);
   if (!m) return link;
@@ -52,27 +58,27 @@ function _rconColorLink(link) {
 
 // ── Standalone helpers ───────────────────────────────────────
 
-function loadCachedSettings(db) {
+function loadCachedSettings(db: any) {
   try {
     if (db) {
       const data = db.getStateJSON('server_settings', null);
       if (data) return data;
     }
-  } catch (_) {}
+  } catch (_: any) {}
   return {};
 }
 
-function loadWelcomeStats(db) {
+function loadWelcomeStats(db: any) {
   try {
     if (db) {
       const data = db.getStateJSON('welcome_stats', null);
       if (data) return data;
     }
-  } catch (_) {}
+  } catch (_: any) {}
   return {};
 }
 
-function formatMs(ms) {
+function formatMs(ms: any) {
   if (!ms || ms <= 0) return '0m';
   const totalMin = Math.floor(ms / 60000);
   const days = Math.floor(totalMin / 1440);
@@ -85,7 +91,7 @@ function formatMs(ms) {
   return parts.join(' ');
 }
 
-function _getTimePartsInTz(date, timeZone) {
+function _getTimePartsInTz(date: any, timeZone: any) {
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -93,21 +99,21 @@ function _getTimePartsInTz(date, timeZone) {
     hourCycle: 'h23',
     timeZone,
   }).formatToParts(date);
-  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
-  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+  const hour = parseInt(parts.find((p: any) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p: any) => p.type === 'minute')?.value || '0', 10);
   return { hour, minute };
 }
 
-function _getWeekdayInTz(date, timeZone) {
+function _getWeekdayInTz(date: any, timeZone: any) {
   const parts = new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     timeZone,
   }).formatToParts(date);
-  const year = parseInt(parts.find((p) => p.type === 'year')?.value || '1970', 10);
-  const month = parseInt(parts.find((p) => p.type === 'month')?.value || '1', 10);
-  const day = parseInt(parts.find((p) => p.type === 'day')?.value || '1', 10);
+  const year = parseInt(parts.find((p: any) => p.type === 'year')?.value || '1970', 10);
+  const month = parseInt(parts.find((p: any) => p.type === 'month')?.value || '1', 10);
+  const day = parseInt(parts.find((p: any) => p.type === 'day')?.value || '1', 10);
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
@@ -120,13 +126,13 @@ function pvpScheduleLabel() {
   const startMin = _defaultConfig.pvpStartMinutes;
   const endMin = _defaultConfig.pvpEndMinutes;
   if (isNaN(startMin) || isNaN(endMin)) return '';
-  const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const pvpDays = _defaultConfig.pvpDays;
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const daysLabel = pvpDays
     ? [...pvpDays]
         .sort()
-        .map((d) => DAY_NAMES[d])
+        .map((d: any) => DAY_NAMES[d])
         .join(', ') + ' '
     : '';
   return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${_defaultConfig.botTimezone}`;
@@ -138,17 +144,17 @@ function pvpScheduleLabel() {
  * Highlights the currently active profile based on time.
  * When RESTART_ROTATE_DAILY is on, profile↔slot mapping shifts each day.
  */
-function difficultyScheduleLines(cfg) {
+function difficultyScheduleLines(cfg: any) {
   if (!cfg.enableServerScheduler) return [];
   const timesStr = cfg.restartTimes || process.env.RESTART_TIMES || '';
   const profilesStr = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
   const times = timesStr
     .split(',')
-    .map((s) => s.trim())
+    .map((s: any) => s.trim())
     .filter(Boolean);
   const profiles = profilesStr
     .split(',')
-    .map((s) => s.trim().toLowerCase())
+    .map((s: any) => s.trim().toLowerCase())
     .filter(Boolean);
   if (times.length === 0 || profiles.length === 0) return [];
 
@@ -159,8 +165,8 @@ function difficultyScheduleLines(cfg) {
   const now = new Date();
   const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
-  const timeMins = times.map((t) => {
-    const [th, tm] = t.split(':').map(Number);
+  const timeMins = times.map((t: any) => {
+    const [th = 0, tm = 0] = t.split(':').map(Number) as number[];
     return th * 60 + (tm || 0);
   });
   let activeSlot = 0;
@@ -185,8 +191,8 @@ function difficultyScheduleLines(cfg) {
     const startTime = times[slotIdx];
     const endTime = times[(slotIdx + 1) % times.length] || times[0];
     // Build a short description
-    const zombieAmt = parseFloat(settings.ZombieAmountMulti);
-    const xp = parseFloat(settings.XpMultiplier);
+    const zombieAmt = parseFloat((settings as any).ZombieAmountMulti);
+    const xp = parseFloat((settings as any).XpMultiplier);
     const desc = [];
     if (!isNaN(zombieAmt)) {
       if (zombieAmt <= 0.6) desc.push('Few Zombies');
@@ -194,7 +200,7 @@ function difficultyScheduleLines(cfg) {
       else desc.push(`${zombieAmt}x Zombies`);
     }
     if (!isNaN(xp) && xp > 1) desc.push(`${xp}x XP`);
-    const lootLevel = parseInt(settings.RarityMelee || settings.RarityFood, 10);
+    const lootLevel = parseInt((settings as any).RarityMelee || (settings as any).RarityFood, 10);
     if (!isNaN(lootLevel) && lootLevel > 2) desc.push('Better Loot');
     const descStr = desc.join(', ') || name;
     const label = `${startTime}\u2013${endTime}`;
@@ -202,7 +208,7 @@ function difficultyScheduleLines(cfg) {
     const marker = isActive ? ' \u25c0 NOW' : '';
     const nameDisplay = name.charAt(0).toUpperCase() + name.slice(1);
     const profileColors = { calm: 'green', surge: 'ember', horde: 'red' };
-    const nameColor = profileColors[name] || 'gray';
+    const nameColor = (profileColors as Record<string, string>)[name] || 'gray';
     if (isActive) {
       lines.push(
         `${fileColor(nameColor, nameDisplay)} ${fileColor('gray', label)} ${fileColor('gray', descStr)}${fileColor('ember', marker)}`,
@@ -219,7 +225,7 @@ function difficultyScheduleLines(cfg) {
  * Exported so player-stats-channel can call it after save polls.
  * No RCON required — uses cached server-settings.json for server name.
  */
-async function buildWelcomeContent(deps = {}) {
+async function buildWelcomeContent(deps: any = {}) {
   const cfg = deps.config || _defaultConfig;
   const pt = deps.playtime || _defaultPlaytime;
   const ps = deps.playerStats || _defaultPlayerStats;
@@ -266,8 +272,8 @@ async function buildWelcomeContent(deps = {}) {
 
   // ── Helper: build an inline row of top entries ──
   const RANKS = ['1st', '2nd', '3rd'];
-  function inlineRow(entries, colorTag) {
-    return entries.map((text, i) => `${fileColor(colorTag, RANKS[i])} ${text}`).join('  |  ');
+  function inlineRow(entries: any[], colorTag: any) {
+    return entries.map((text: any, i: any) => `${fileColor(colorTag, RANKS[i])} ${text}`).join('  |  ');
   }
 
   // ── Leaderboards ──
@@ -279,7 +285,7 @@ async function buildWelcomeContent(deps = {}) {
     parts.push(fileColor('ember', '--- Top Survivors ---'));
     const top = leaderboard
       .slice(0, 3)
-      .map((e) => `${fileColor('green', e.name)} - ${fileColor('gray', formatMs(e.totalMs))}`);
+      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', formatMs(e.totalMs))}`);
     parts.push(inlineRow(top, 'ember'));
   }
 
@@ -287,7 +293,7 @@ async function buildWelcomeContent(deps = {}) {
     parts.push(fileColor('ember', '--- Top Zombie Killers ---'));
     const topK = welcomeStats.topKillers
       .slice(0, 3)
-      .map((e) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills.toLocaleString() + ' kills')}`);
+      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills.toLocaleString() + ' kills')}`);
     parts.push(inlineRow(topK, 'ember'));
   }
 
@@ -295,7 +301,7 @@ async function buildWelcomeContent(deps = {}) {
     parts.push(fileColor('ember', '--- Top PvP Killers ---'));
     const topP = welcomeStats.topPvpKillers
       .slice(0, 3)
-      .map((e) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills + ' kills')}`);
+      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills + ' kills')}`);
     parts.push(inlineRow(topP, 'ember'));
   }
 
@@ -321,7 +327,7 @@ async function buildWelcomeContent(deps = {}) {
   if (welcomeStats.topClans && welcomeStats.topClans.length > 0) {
     parts.push(fileColor('ember', '--- Top Clans ---'));
     const topC = welcomeStats.topClans.slice(0, 3);
-    topC.forEach((c, i) => {
+    topC.forEach((c: any, i: any) => {
       const pt = formatMs(c.playtimeMs || 0);
       const mem = c.members === 1 ? '1 member' : `${c.members} members`;
       parts.push(
@@ -359,9 +365,9 @@ async function buildWelcomeContent(deps = {}) {
   // ── Footer ──
   const allLog = ps.getAllPlayers();
   if (allLog.length > 0) {
-    const totalDeaths = allLog.reduce((s, p) => s + p.deaths, 0);
-    const totalBuilds = allLog.reduce((s, p) => s + p.builds, 0);
-    const totalLooted = allLog.reduce((s, p) => s + p.containersLooted, 0);
+    const totalDeaths = allLog.reduce((s: any, p: any) => s + p.deaths, 0);
+    const totalBuilds = allLog.reduce((s: any, p: any) => s + p.builds, 0);
+    const totalLooted = allLog.reduce((s: any, p: any) => s + p.containersLooted, 0);
     const sp = [];
     if (totalDeaths > 0) sp.push(`${totalDeaths} Deaths`);
     if (totalBuilds > 0) sp.push(`${totalBuilds} Builds`);
@@ -388,18 +394,18 @@ async function buildWelcomeContent(deps = {}) {
 // ── Instance methods (mixed into AutoMessages.prototype) ─────
 
 /** Short inline text about current difficulty profile for RCON welcome. */
-function _difficultyText() {
+function _difficultyText(this: any) {
   const cfg = this._config;
   if (!cfg.enableServerScheduler) return '';
   const profilesStr = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
   const timesStr = cfg.restartTimes || process.env.RESTART_TIMES || '';
   const profiles = profilesStr
     .split(',')
-    .map((s) => s.trim().toLowerCase())
+    .map((s: any) => s.trim().toLowerCase())
     .filter(Boolean);
   const times = timesStr
     .split(',')
-    .map((s) => s.trim())
+    .map((s: any) => s.trim())
     .filter(Boolean);
   if (profiles.length === 0 || times.length === 0) return '';
 
@@ -410,8 +416,8 @@ function _difficultyText() {
   const now = new Date();
   const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
-  const timeMins = times.map((t) => {
-    const [th, tm] = t.split(':').map(Number);
+  const timeMins = times.map((t: any) => {
+    const [th = 0, tm = 0] = t.split(':').map(Number) as number[];
     return th * 60 + (tm || 0);
   });
   let activeSlot = 0;
@@ -441,11 +447,11 @@ function _difficultyText() {
   const timeLeft = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   // Profile color: calm=green, surge=ember, horde=red
   const profileColors = { calm: 'PR', surge: 'SP', horde: 'PN' };
-  const ptag = profileColors[name] || 'FO';
+  const ptag = (profileColors as Record<string, string>)[name] || 'FO';
   return `</><SP> | </><FO>Difficulty: </><${ptag}>${displayName}</><FO> (</><PR>${timeLeft}</><FO> left)`;
 }
 
-function _pvpScheduleText() {
+function _pvpScheduleText(this: any) {
   if (!this._config.enablePvpScheduler) return '';
   const defaultStart = this._config.pvpStartMinutes;
   const defaultEnd = this._config.pvpEndMinutes;
@@ -455,7 +461,7 @@ function _pvpScheduleText() {
   const hasDefaults = !isNaN(defaultStart) && !isNaN(defaultEnd);
   if (!hasDefaults && (!pvpDayHours || pvpDayHours.size === 0)) return '';
 
-  const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const pvpDays = this._config.pvpDays; // null = every day
 
@@ -468,7 +474,7 @@ function _pvpScheduleText() {
   const dayOfWeek = _getWeekdayInTz(now, this._config.botTimezone);
 
   // Resolve hours for a given day (per-day override or global default)
-  const getHours = (day) => {
+  const getHours = (day: any) => {
     if (pvpDayHours && pvpDayHours.has(day)) return pvpDayHours.get(day);
     if (hasDefaults) return { start: defaultStart, end: defaultEnd };
     return { start: undefined, end: undefined };
@@ -513,7 +519,7 @@ function _pvpScheduleText() {
   const daysLabel = pvpDays
     ? [...pvpDays]
         .sort()
-        .map((d) => DAY_NAMES[d])
+        .map((d: any) => DAY_NAMES[d])
         .join(', ')
     : '';
 
@@ -572,7 +578,7 @@ function _pvpScheduleText() {
     }
     const schedStart = nextStart !== undefined ? fmt(nextStart) : fmt(defaultStart);
     const nextEnd = getHours(
-      pvpDays ? ([...checkDays].find((d2) => getHours(d2).start !== undefined) ?? dayOfWeek) : dayOfWeek,
+      pvpDays ? ([...checkDays].find((d2: any) => getHours(d2).start !== undefined) ?? dayOfWeek) : dayOfWeek,
     ).end;
     const schedEnd = nextEnd !== undefined ? fmt(nextEnd) : fmt(defaultEnd);
 
@@ -585,8 +591,7 @@ function _pvpScheduleText() {
 
 // ── Exports ──────────────────────────────────────────────────
 
-module.exports = {
-  // Standalone functions (available to external consumers)
+export {
   fileColor,
   _colorLink,
   _rconColorLink,
@@ -596,8 +601,23 @@ module.exports = {
   pvpScheduleLabel,
   difficultyScheduleLines,
   buildWelcomeContent,
-
-  // Prototype methods (mixed into AutoMessages)
   _difficultyText,
   _pvpScheduleText,
 };
+
+const _mod = module as { exports: any };
+
+_mod.exports = {
+  fileColor,
+  _colorLink,
+  _rconColorLink,
+  loadCachedSettings,
+  loadWelcomeStats,
+  formatMs,
+  pvpScheduleLabel,
+  difficultyScheduleLines,
+  buildWelcomeContent,
+  _difficultyText,
+  _pvpScheduleText,
+};
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

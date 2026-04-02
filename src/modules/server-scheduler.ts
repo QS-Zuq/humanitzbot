@@ -1,3 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/no-floating-promises,
+   @typescript-eslint/prefer-promise-reject-errors,
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
+
 /**
  * Server Scheduler — Timed server restarts with dynamic settings profiles.
  *
@@ -20,25 +29,27 @@
  *   RESTART_PROFILE_NIGHT={"ZombieAmountMulti":"1.5","ZombieDiffHealth":"3","ZombieDiffDamage":"3","XpMultiplier":"2"}
  */
 
-const { EmbedBuilder } = require('discord.js');
-const SftpClient = require('ssh2-sftp-client');
-const _defaultConfig = require('../config');
-const _defaultRcon = require('../rcon/rcon');
-const _defaultPanelApi = require('../server/panel-api');
-const { getDayOffset, getRotatedProfileIndex, getTodaySchedule } = require('./schedule-utils');
-const { createLogger } = require('../utils/log');
+import { EmbedBuilder } from 'discord.js';
+// @ts-expect-error — no type declarations for ssh2-sftp-client
+import SftpClient from 'ssh2-sftp-client';
+import _defaultConfig from '../config/index.js';
+import _defaultRcon from '../rcon/rcon.js';
+import _defaultPanelApi from '../server/panel-api.js';
+import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
+import { createLogger } from '../utils/log.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
 // Profile name → RCON color tag for in-game messages
 // NOTE: Never use PN — that's the player name tag, chat parser treats it specially
-const PROFILE_COLORS = { calm: 'PR', surge: 'SP', horde: 'CL' };
-function profileTag(name) {
+const PROFILE_COLORS: Record<string, string> = { calm: 'PR', surge: 'SP', horde: 'CL' };
+function profileTag(this: any, name: any) {
   return PROFILE_COLORS[name] || 'FO';
 }
 
 class ServerScheduler {
-  constructor(client, logWatcher, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, logWatcher: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._panelApi = deps.panelApi || _defaultPanelApi;
@@ -64,14 +75,14 @@ class ServerScheduler {
     const timesStr = this._config.restartTimes || process.env.RESTART_TIMES || '';
     this._restartTimes = timesStr
       .split(',')
-      .map((s) => s.trim())
+      .map((s: any) => s.trim())
       .filter(Boolean)
-      .map((s) => {
+      .map((s: any) => {
         const [h, m] = s.split(':').map(Number);
         return { hour: h, minute: m || 0, totalMinutes: h * 60 + (m || 0) };
       })
-      .filter((t) => !isNaN(t.hour))
-      .sort((a, b) => a.totalMinutes - b.totalMinutes);
+      .filter((t: any) => !isNaN(t.hour))
+      .sort((a: any, b: any) => a.totalMinutes - b.totalMinutes);
 
     if (this._restartTimes.length === 0) {
       this._log.info('No RESTART_TIMES configured — scheduler idle');
@@ -82,7 +93,7 @@ class ServerScheduler {
     const profilesStr = this._config.restartProfiles || process.env.RESTART_PROFILES || '';
     this._profiles = profilesStr
       .split(',')
-      .map((s) => s.trim().toLowerCase())
+      .map((s: any) => s.trim().toLowerCase())
       .filter(Boolean);
 
     // Load profile settings from config (multi-server) or env
@@ -96,7 +107,7 @@ class ServerScheduler {
         if (raw) {
           try {
             this._profileSettings[name] = JSON.parse(raw);
-          } catch (e) {
+          } catch (e: any) {
             this._log.error(`Invalid JSON in ${envKey}:`, e.message);
           }
         }
@@ -109,11 +120,11 @@ class ServerScheduler {
       this._log.info('No profiles configured — restarts only (no settings changes)');
     }
 
-    const delay = parseInt(process.env.RESTART_DELAY, 10) || this._config.pvpRestartDelay || 10;
+    const delay = parseInt(process.env.RESTART_DELAY ?? '', 10) || this._config.pvpRestartDelay || 10;
     this._restartDelay = delay;
 
     // Log configuration
-    const fmt = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+    const fmt = (t: any) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
     this._log.info(`Scheduled restarts: ${this._restartTimes.map(fmt).join(', ')} (${this._config.botTimezone})`);
     this._log.info(`Countdown: ${delay} minutes before each restart`);
     if (this._profiles.length > 0 && this._profiles[0] !== 'default') {
@@ -183,8 +194,8 @@ class ServerScheduler {
       hourCycle: 'h23',
       timeZone: this._config.botTimezone,
     }).formatToParts(now);
-    const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
-    const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+    const h = parseInt(parts.find((p: any) => p.type === 'hour')?.value || '0', 10);
+    const m = parseInt(parts.find((p: any) => p.type === 'minute')?.value || '0', 10);
     return { hour: h, minute: m, totalMinutes: h * 60 + m };
   }
 
@@ -226,15 +237,15 @@ class ServerScheduler {
     // (Only relevant for countdown start — actual day rollover handled naturally)
   }
 
-  _startCountdown(profileName, profileIndex, minutesUntilRestart) {
+  _startCountdown(profileName: any, profileIndex: any, minutesUntilRestart: any) {
     this._transitioning = true;
     const delay = minutesUntilRestart;
     const profileSettings = this._profileSettings[profileName] || {};
     const hasSettings = Object.keys(profileSettings).length > 0;
 
     // Build warning schedule
-    const warnings = WARNINGS.filter((m) => m <= delay);
-    if (warnings.length === 0 || warnings[0] < delay) {
+    const warnings = WARNINGS.filter((m: any) => m <= delay);
+    if (warnings.length === 0 || warnings[0]! < delay) {
       warnings.unshift(Math.ceil(delay));
     }
 
@@ -247,8 +258,8 @@ class ServerScheduler {
         return;
       }
 
-      const minutesLeft = warnings[stepIndex];
-      const nextMinutes = stepIndex + 1 < warnings.length ? warnings[stepIndex + 1] : 0;
+      const minutesLeft = warnings[stepIndex]!;
+      const nextMinutes = stepIndex + 1 < warnings.length ? warnings[stepIndex + 1]! : 0;
       const waitMs = (minutesLeft - nextMinutes) * 60_000;
 
       // Build warning message
@@ -263,7 +274,7 @@ class ServerScheduler {
       }
 
       this._announce(msg, 0xf39c12);
-      this._rcon.send(`admin ${rconMsg}`).catch((err) => {
+      this._rcon.send(`admin ${rconMsg}`).catch((err: any) => {
         this._log.error('Failed to send in-game warning:', err.message);
       });
 
@@ -280,7 +291,7 @@ class ServerScheduler {
   }
 
   /** Get a human-readable display name for a profile. */
-  _getProfileDisplayName(name) {
+  _getProfileDisplayName(name: any) {
     const settings = this._profileSettings[name] || {};
     const parts = [];
 
@@ -301,7 +312,7 @@ class ServerScheduler {
 
     const difficulty = parseInt(settings.ZombieDiffDamage, 10);
     if (!isNaN(difficulty)) {
-      const labels = { 1: 'Easy', 2: 'Normal', 3: 'Hard', 4: 'Brutal' };
+      const labels: Record<number, string> = { 1: 'Easy', 2: 'Normal', 3: 'Hard', 4: 'Brutal' };
       parts.push(labels[difficulty] || `Difficulty ${difficulty}`);
     }
 
@@ -318,7 +329,7 @@ class ServerScheduler {
   }
 
   /** Get profile name and description as separate strings for colored RCON output. */
-  _getProfileParts(name) {
+  _getProfileParts(name: any) {
     const capName = name.charAt(0).toUpperCase() + name.slice(1);
     const full = this._getProfileDisplayName(name);
     const parenIdx = full.indexOf(' (');
@@ -328,7 +339,7 @@ class ServerScheduler {
     return { name: capName, desc: '' };
   }
 
-  async _executeRestart(profileName, profileIndex, profileSettings) {
+  async _executeRestart(profileName: any, profileIndex: any, profileSettings: any) {
     this._log.info(`Executing restart → profile: ${profileName}`);
 
     const hasSettings = Object.keys(profileSettings).length > 0;
@@ -376,7 +387,7 @@ class ServerScheduler {
         if (originalMode !== null) {
           await sftp.chmod(settingsPath, originalMode).catch(() => {});
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('SFTP settings update failed:', err.message);
       } finally {
         await sftp.end().catch(() => {});
@@ -400,7 +411,7 @@ class ServerScheduler {
         const serverName = this._config.serverNameTemplate.replace('{mode}', capName);
         await this._panelApi.updateStartupVariable('SERVER_NAME', serverName);
         this._log.info(`Panel API: SERVER_NAME → ${serverName}`);
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('Panel API server name update failed:', err.message);
       }
     }
@@ -421,31 +432,37 @@ class ServerScheduler {
     // Falls back to docker stop+start if LinuxGSM restart fails.
     if (container) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { exec } = require('child_process');
-        await new Promise((resolve, reject) => {
-          exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err, stdout) => {
-            if (err) reject(err);
-            else {
-              if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
-              resolve();
-            }
-          });
+        await new Promise<void>((resolve, reject) => {
+          exec(
+            `docker exec -u linuxgsm ${container} /app/hzserver restart`,
+            { timeout: 120000 },
+            (err: any, stdout: any) => {
+              if (err) reject(err);
+              else {
+                if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
+                resolve();
+              }
+            },
+          );
         });
         this._log.info(`Restart via LinuxGSM (${container})`);
         restartSucceeded = true;
-      } catch (lgsmErr) {
+      } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
-          await new Promise((resolve, reject) => {
-            exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err) => {
+          await new Promise<void>((resolve, reject) => {
+            exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
               if (err) reject(err);
               else resolve();
             });
           });
           this._log.info(`Restart via Docker stop+start (${container})`);
           restartSucceeded = true;
-        } catch (dockerErr) {
+        } catch (dockerErr: any) {
           this._log.warn('Docker restart also failed:', dockerErr.message);
         }
       }
@@ -457,7 +474,7 @@ class ServerScheduler {
         await this._panelApi.sendPowerAction('restart');
         this._log.info('Restart via Panel API');
         restartSucceeded = true;
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('Panel API restart failed:', err.message);
       }
     }
@@ -468,7 +485,7 @@ class ServerScheduler {
         await this._rcon.send('RestartNow');
         this._log.info('Restart command sent via RCON');
         restartSucceeded = true;
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('RCON RestartNow failed:', err.message);
         try {
           await this._rcon.send('QuickRestart');
@@ -493,7 +510,7 @@ class ServerScheduler {
     this._transitioning = false;
   }
 
-  async _announce(message, color = 0xf39c12) {
+  async _announce(message: any, color: any = 0xf39c12) {
     this._log.info(message);
     const embed = new EmbedBuilder()
       .setAuthor({ name: '🔄 Server Scheduler' })
@@ -523,7 +540,7 @@ class ServerScheduler {
    * If RCON doesn't come back, the game server likely failed to bind the port.
    * Trigger a recovery restart via Docker, Panel API, or RCON.
    */
-  _scheduleRconHealthCheck(container) {
+  _scheduleRconHealthCheck(container: any) {
     const checkInterval = 10_000; // check every 10s
     const maxWait = 90_000; // give up after 90s
     const start = Date.now();
@@ -545,11 +562,12 @@ class ServerScheduler {
         // Try Docker first (if configured)
         if (container) {
           try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { exec } = require('child_process');
-            await new Promise((resolve, reject) => {
-              exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err) => {
+            await new Promise<void>((resolve, reject) => {
+              exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err: any) => {
                 if (err) {
-                  exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err2) => {
+                  exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err2: any) => {
                     if (err2) reject(err2);
                     else resolve();
                   });
@@ -558,7 +576,7 @@ class ServerScheduler {
             });
             this._log.info(`Recovery restart sent (${container})`);
             return;
-          } catch (err) {
+          } catch (err: any) {
             this._log.error('Docker recovery restart failed:', err.message);
           }
         }
@@ -569,7 +587,7 @@ class ServerScheduler {
             await this._panelApi.sendPowerAction('restart');
             this._log.info('Recovery restart sent via Panel API');
             return;
-          } catch (err) {
+          } catch (err: any) {
             this._log.error('Panel API recovery restart failed:', err.message);
           }
         }
@@ -579,12 +597,12 @@ class ServerScheduler {
     }, checkInterval);
   }
 
-  async _postToActivityLog(profileName, profileSettings) {
+  async _postToActivityLog(profileName: any, profileSettings: any) {
     if (!this._logWatcher) return;
 
     const displayName = this._getProfileDisplayName(profileName);
     const settingsList = Object.entries(profileSettings || {})
-      .map(([k, v]) => `• **${k}**: ${v}`)
+      .map(([k, v]: [any, any]) => `• **${k}**: ${v}`)
       .join('\n');
 
     const description = settingsList
@@ -599,7 +617,7 @@ class ServerScheduler {
 
     try {
       await this._logWatcher.sendToThread(embed);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to post to activity thread:', err.message);
     }
   }
@@ -612,7 +630,7 @@ class ServerScheduler {
   /** Get current profile info for external consumers (web panel, status embed). */
   getStatus() {
     const { totalMinutes } = this._getCurrentTime();
-    const fmt = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+    const fmt = (t: any) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
 
     // Find next restart
     let nextRestart = null;
@@ -641,8 +659,8 @@ class ServerScheduler {
       : null;
 
     // Build per-profile settings map for external consumers (web panel hover)
-    const profileSettings = {};
-    const profileDisplayNames = {};
+    const profileSettings: Record<string, any> = {};
+    const profileDisplayNames: Record<string, string> = {};
     for (const name of this._profiles) {
       if (this._profileSettings[name]) {
         profileSettings[name] = { ...this._profileSettings[name] };
@@ -651,9 +669,9 @@ class ServerScheduler {
     }
 
     // Enrich schedule slots with display names
-    const enrichSlots = (slots) => {
+    const enrichSlots = (slots: any) => {
       if (!slots) return null;
-      return slots.map((s) => ({
+      return slots.map((s: any) => ({
         ...s,
         profileDisplayName: profileDisplayNames[s.profileName] || s.profileName,
       }));
@@ -678,4 +696,9 @@ class ServerScheduler {
   }
 }
 
-module.exports = ServerScheduler;
+export default ServerScheduler;
+
+const _mod = module as { exports: any };
+
+_mod.exports = ServerScheduler;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

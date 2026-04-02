@@ -1,24 +1,32 @@
-const { EmbedBuilder } = require('discord.js');
-const SftpClient = require('ssh2-sftp-client');
-const fs = require('fs');
-const path = require('path');
-const { createLogger } = require('../utils/log');
-const _defaultConfig = require('../config');
-const { cleanOwnMessages, embedContentKey } = require('./discord-utils');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultPlayerStats = require('../tracking/player-stats');
-const KillTracker = require('../tracking/kill-tracker');
-const { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } = require('../parsers/save-parser');
-const gameData = require('../parsers/game-data');
-const { cleanItemName: _sharedCleanItemName } = require('../parsers/ue4-names');
-const os = require('os');
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion */
+
+import { EmbedBuilder } from 'discord.js';
+// @ts-expect-error — no type declarations for ssh2-sftp-client
+import SftpClient from 'ssh2-sftp-client';
+import fs from 'fs';
+import path from 'path';
+import { createLogger } from '../utils/log.js';
+import _defaultConfig from '../config/index.js';
+import { cleanOwnMessages, embedContentKey } from './discord-utils.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import KillTracker from '../tracking/kill-tracker.js';
+import { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } from '../parsers/save-parser.js';
+import * as gameData from '../parsers/game-data.js';
+import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
+import os from 'os';
 
 /**
  * Convert a DB player row (snake_case, from _parsePlayerRow) to camelCase
  * save-data format matching parseSave() output.  This allows all embed
  * builders and the kill tracker to work unchanged after the DB-first switch.
  */
-function _dbRowToSave(row) {
+function _dbRowToSave(row: any) {
   if (!row) return null;
   return {
     name: row.name,
@@ -129,7 +137,8 @@ function _dbRowToSave(row) {
 }
 
 class PlayerStatsChannel {
-  constructor(client, logWatcher, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, logWatcher: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
@@ -158,7 +167,7 @@ class PlayerStatsChannel {
 
   // ── Cross-validated player resolver ─────────────────────────
 
-  _resolvePlayer(steamId) {
+  _resolvePlayer(steamId: any) {
     const pt = this._playtime.getPlaytime(steamId);
     const log = this._playerStats.getStats(steamId);
     const save = this._saveData.get(steamId);
@@ -208,7 +217,7 @@ class PlayerStatsChannel {
           this._log.error('Channel not found! Check PLAYER_STATS_CHANNEL_ID.');
           return;
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Failed to fetch channel:', err.message);
         return;
       }
@@ -252,7 +261,7 @@ class PlayerStatsChannel {
         .then(() => {
           if (!this._headless) this._updateEmbed();
         })
-        .catch((err) => this._log.error('Save poll error:', err.message));
+        .catch((err: any) => this._log.error('Save poll error:', err.message));
     }, pollMs);
     this._log.info(`Save poll every ${pollMs / 1000}s${this._headless ? ' (headless)' : ''}`);
 
@@ -308,7 +317,7 @@ class PlayerStatsChannel {
         await this._fetchServerSettings(sftp);
 
         // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Side-channel error:', err.message);
       } finally {
         if (sftp) await sftp.end().catch(() => {});
@@ -349,7 +358,7 @@ class PlayerStatsChannel {
       // Clan data from DB
       try {
         this._clanData = this._db.getAllClans() || [];
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Clan DB read error:', err.message);
       }
 
@@ -367,7 +376,7 @@ class PlayerStatsChannel {
         } catch {
           this._structures = [];
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('Entity load from DB:', err.message);
       }
 
@@ -383,7 +392,7 @@ class PlayerStatsChannel {
       this._writeSaveCache();
 
       return true;
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('DB load error:', err.message);
       return false;
     }
@@ -397,7 +406,7 @@ class PlayerStatsChannel {
   _writeSaveCache() {
     if (!this._dataDir) return;
     try {
-      const cacheData = {
+      const cacheData: Record<string, any> = {
         updatedAt: new Date().toISOString(),
         playerCount: this._saveData.size,
         worldState: this._worldState || {},
@@ -415,7 +424,7 @@ class PlayerStatsChannel {
       }
       const cachePath = path.join(this._dataDir, 'save-cache.json');
       fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to write save-cache.json:', err.message);
     }
   }
@@ -423,7 +432,7 @@ class PlayerStatsChannel {
   /**
    * Fetch server settings INI via SFTP, enrich with world state, and cache to DB.
    */
-  async _fetchServerSettings(sftp) {
+  async _fetchServerSettings(sftp: any) {
     try {
       const settingsPath = this._config.sftpSettingsPath || '/HumanitZServer/GameServerSettings.ini';
       const settingsBuf =
@@ -436,9 +445,9 @@ class PlayerStatsChannel {
       // Cache to DB
       try {
         if (this._db) this._db.setStateJSON('server_settings', this._serverSettings);
-      } catch (_) {}
+      } catch (_: any) {}
       this._log.info(`Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
-    } catch (err) {
+    } catch (err: any) {
       this._loadCachedServerSettings();
       if (!err.message.includes('No such file')) {
         this._log.error('Server settings error:', err.message);
@@ -452,7 +461,7 @@ class PlayerStatsChannel {
   _enrichServerSettings() {
     if (!this._worldState) return;
     const ws = this._worldState;
-    if (ws.daysPassed != null) this._serverSettings._daysPassed = ws.daysPassed;
+    if (ws.daysPassed != null) (this._serverSettings as Record<string, any>)._daysPassed = ws.daysPassed;
     if (ws.currentSeason) this._serverSettings._currentSeason = ws.currentSeason;
     if (ws.currentSeasonDay != null) this._serverSettings._currentSeasonDay = ws.currentSeasonDay;
     if (ws.totalStructures != null) this._serverSettings._totalStructures = ws.totalStructures;
@@ -461,7 +470,7 @@ class PlayerStatsChannel {
     if (ws.totalPlayers != null) this._serverSettings._totalPlayers = ws.totalPlayers;
     // Extract weather from UDS weather state stored in save
     if (Array.isArray(ws.weatherState)) {
-      const weatherProp = ws.weatherState.find((p) => p.name === 'CurrentWeather');
+      const weatherProp = ws.weatherState.find((p: any) => p.name === 'CurrentWeather');
       if (weatherProp && typeof weatherProp.value === 'string') {
         this._serverSettings._currentWeather = _resolveUdsWeather(weatherProp.value);
       }
@@ -483,7 +492,7 @@ class PlayerStatsChannel {
         const cached = this._db.getStateJSON('server_settings', null);
         if (cached) this._serverSettings = cached;
       }
-    } catch (_) {}
+    } catch (_: any) {}
   }
 
   /**
@@ -525,7 +534,7 @@ class PlayerStatsChannel {
         const clanBuf = await sftp.get(clanPath);
         this._clanData = parseClanData(clanBuf);
         this._log.info(`Parsed clans: ${this._clanData.length} clans`);
-      } catch (err) {
+      } catch (err: any) {
         if (!err.message.includes('No such file')) {
           this._log.error('Clan data error:', err.message);
         }
@@ -541,7 +550,7 @@ class PlayerStatsChannel {
       this._writeSaveCache();
 
       // WelcomeMessage.txt is now managed exclusively by the Welcome File Editor
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Legacy save poll error:', err.message);
     } finally {
       await sftp.end().catch(() => {});
@@ -553,7 +562,7 @@ class PlayerStatsChannel {
    * Falls back to buffered get() if fastGet fails (e.g. permissions issue).
    * Validates file size against remote to detect truncated downloads.
    */
-  async _downloadSave(sftp) {
+  async _downloadSave(sftp: any) {
     const remotePath = this._config.sftpSavePath;
     const tmpFile = path.join(os.tmpdir(), `humanitzbot-save-${process.pid}.sav`);
 
@@ -570,21 +579,21 @@ class PlayerStatsChannel {
         const buf = await sftp.get(remotePath);
         try {
           fs.unlinkSync(tmpFile);
-        } catch (_) {}
+        } catch (_: any) {}
         return buf;
       }
 
       const buf = fs.readFileSync(tmpFile);
       try {
         fs.unlinkSync(tmpFile);
-      } catch (_) {}
+      } catch (_: any) {}
       return buf;
-    } catch (err) {
+    } catch (err: any) {
       // fastGet can fail on some SFTP servers — fall back to buffered get
       this._log.warn(`fastGet failed (${err.message}), using buffered get`);
       try {
         fs.unlinkSync(tmpFile);
-      } catch (_) {}
+      } catch (_: any) {}
       return sftp.get(remotePath);
     }
   }
@@ -607,16 +616,16 @@ class PlayerStatsChannel {
         const resolved = this._resolvePlayer(id);
         topKillers.push({ name: resolved.name, kills });
       }
-      topKillers.sort((a, b) => b.kills - a.kills);
+      topKillers.sort((a: any, b: any) => b.kills - a.kills);
 
       // ── Top PvP Killers (from logs) ──
       const topPvpKillers = allLog
-        .filter((p) => (p.pvpKills || 0) > 0)
-        .map((p) => {
+        .filter((p: any) => (p.pvpKills || 0) > 0)
+        .map((p: any) => {
           const resolved = this._resolvePlayer(p.id);
           return { name: resolved.name, kills: p.pvpKills };
         })
-        .sort((a, b) => b.kills - a.kills);
+        .sort((a: any, b: any) => b.kills - a.kills);
 
       // ── Top Fishers (from save) ──
       const topFishers = [];
@@ -626,7 +635,7 @@ class PlayerStatsChannel {
         const resolved = this._resolvePlayer(id);
         topFishers.push({ name: resolved.name, count, pike: save.fishCaughtPike || 0 });
       }
-      topFishers.sort((a, b) => b.count - a.count);
+      topFishers.sort((a: any, b: any) => b.count - a.count);
 
       // ── Most Bitten (from save) ──
       const topBitten = [];
@@ -636,7 +645,7 @@ class PlayerStatsChannel {
         const resolved = this._resolvePlayer(id);
         topBitten.push({ name: resolved.name, count });
       }
-      topBitten.sort((a, b) => b.count - a.count);
+      topBitten.sort((a: any, b: any) => b.count - a.count);
 
       // ── Top clans by combined lifetime kills and playtime ──
       const topClans = [];
@@ -656,7 +665,7 @@ class PlayerStatsChannel {
           playtimeMs: totalPlaytimeMs,
         });
       }
-      topClans.sort((a, b) => b.kills - a.kills);
+      topClans.sort((a: any, b: any) => b.kills - a.kills);
 
       // ── Weekly baseline management ──
       const weekly = this._computeWeeklyStats();
@@ -672,7 +681,7 @@ class PlayerStatsChannel {
         weekly,
       };
       if (this._db) this._db.setStateJSON('welcome_stats', cache);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to cache welcome stats:', err.message);
     }
   }
@@ -697,7 +706,7 @@ class PlayerStatsChannel {
         embeds: [embed],
         ...(components.length > 0 && { components }),
       });
-    } catch (err) {
+    } catch (err: any) {
       // Message was deleted externally — re-create it
       if (err.code === 10008) {
         this._log.info('Embed message was deleted, re-creating...');
@@ -709,7 +718,7 @@ class PlayerStatsChannel {
             ...(components.length > 0 && { components }),
           });
           this._saveMessageId();
-        } catch (createErr) {
+        } catch (createErr: any) {
           this._log.error('Failed to re-create message:', createErr.message);
         }
       } else {
@@ -741,7 +750,7 @@ class PlayerStatsChannel {
    * Download PlayerIDMapped.txt and feed it to PlayerStats so names resolve
    * before the overview embed is built. Reuses the already-open SFTP connection.
    */
-  async _refreshIdMap(sftp) {
+  async _refreshIdMap(sftp: any) {
     try {
       const idMapPath = this._config.sftpIdMapPath;
       if (!idMapPath) return;
@@ -761,7 +770,7 @@ class PlayerStatsChannel {
         this._playerStats.loadIdMap(entries);
         this._log.info(`Loaded ${entries.length} name(s) from PlayerIDMapped.txt`);
       }
-    } catch (err) {
+    } catch (err: any) {
       // Not critical — file may not exist on this server
       if (!err.message.includes('No such file')) {
         this._log.info('Could not read PlayerIDMapped.txt:', err.message);
@@ -791,7 +800,7 @@ class PlayerStatsChannel {
    * @param {EmbedBuilder} embed
    * @param {string} [targetDate] - 'YYYY-MM-DD'; defaults to today's thread
    */
-  async _sendFeedEmbed(embed, targetDate) {
+  async _sendFeedEmbed(embed: any, targetDate?: any) {
     const today = this._config.getToday();
     if (targetDate && targetDate !== today && this._logWatcher.sendToDateThread) {
       return this._logWatcher.sendToDateThread(embed, targetDate);
@@ -804,12 +813,12 @@ class PlayerStatsChannel {
    * a single message to the daily activity thread. This replaces the previous
    * approach of posting 1-10 individual embeds per save poll cycle.
    */
-  async _postActivitySummary(deltas, targetDate) {
+  async _postActivitySummary(deltas: any, targetDate: any) {
     const sections = [];
 
     // ── Kills ──
     if (deltas.killDeltas.length > 0 && this._config.enableKillFeed) {
-      const lines = deltas.killDeltas.map(({ name, delta }) => {
+      const lines = deltas.killDeltas.map(({ name, delta }: any) => {
         const total = delta.zeeksKilled || 0;
         const parts = [];
         if (delta.headshots) parts.push(`${delta.headshots} headshot${delta.headshots > 1 ? 's' : ''}`);
@@ -827,7 +836,7 @@ class PlayerStatsChannel {
 
     // ── Survival ──
     if (deltas.survivalDeltas.length > 0 && this._config.enableKillFeed) {
-      const lines = deltas.survivalDeltas.map(({ name, delta }) => {
+      const lines = deltas.survivalDeltas.map(({ name, delta }: any) => {
         const parts = [];
         if (delta.daysSurvived) parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
         return `**${name}** — ${parts.join(', ')}`;
@@ -837,7 +846,7 @@ class PlayerStatsChannel {
 
     // ── Fishing ──
     if (deltas.fishingDeltas.length > 0 && this._config.enableFishingFeed) {
-      const lines = deltas.fishingDeltas.map(({ name, delta }) => {
+      const lines = deltas.fishingDeltas.map(({ name, delta }: any) => {
         const total = delta.fishCaught || 0;
         const pike = delta.fishCaughtPike || 0;
         const bitten = delta.timesBitten || 0;
@@ -854,8 +863,8 @@ class PlayerStatsChannel {
 
     // ── Recipes ──
     if (deltas.recipeDeltas.length > 0 && this._config.enableRecipeFeed) {
-      const lines = deltas.recipeDeltas.map(({ name, type, items }) => {
-        const names = items.map((r) => _cleanItemName(r)).filter(Boolean);
+      const lines = deltas.recipeDeltas.map(({ name, type, items }: any) => {
+        const names = items.map((r: any) => _cleanItemName(r)).filter(Boolean);
         const display =
           names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
         return `**${name}** learned ${type}: ${display}`;
@@ -865,8 +874,8 @@ class PlayerStatsChannel {
 
     // ── Skills ──
     if (deltas.skillDeltas.length > 0 && this._config.enableSkillFeed) {
-      const lines = deltas.skillDeltas.map(({ name, items }) => {
-        const names = items.map((s) => _cleanItemName(s).toUpperCase());
+      const lines = deltas.skillDeltas.map(({ name, items }: any) => {
+        const names = items.map((s: any) => _cleanItemName(s).toUpperCase());
         return `**${name}** unlocked skill${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
       });
       sections.push({ header: '⚡ Skills', lines });
@@ -874,8 +883,8 @@ class PlayerStatsChannel {
 
     // ── Professions ──
     if (deltas.professionDeltas.length > 0 && this._config.enableProfessionFeed) {
-      const lines = deltas.professionDeltas.map(({ name, items }) => {
-        const names = items.map((p) => {
+      const lines = deltas.professionDeltas.map(({ name, items }: any) => {
+        const names = items.map((p: any) => {
           if (typeof p === 'number') return PERK_INDEX_MAP[p] || `Profession #${p}`;
           if (typeof p === 'string') return PERK_MAP[p] || _cleanItemName(p);
           return String(p);
@@ -887,10 +896,10 @@ class PlayerStatsChannel {
 
     // ── Lore ──
     if (deltas.loreDeltas.length > 0 && this._config.enableLoreFeed) {
-      const lines = deltas.loreDeltas.map(({ name, items }) => {
+      const lines = deltas.loreDeltas.map(({ name, items }: any) => {
         const count = items.length;
         const names = items
-          .map((l) => _cleanItemName(typeof l === 'object' ? l.name || l.id || JSON.stringify(l) : l))
+          .map((l: any) => _cleanItemName(typeof l === 'object' ? l.name || l.id || JSON.stringify(l) : l))
           .filter(Boolean);
         const display = names.length > 0 && names.length <= 3 ? `: ${names.join(', ')}` : '';
         return `**${name}** discovered **${count} lore entr${count > 1 ? 'ies' : 'y'}**${display}`;
@@ -900,9 +909,9 @@ class PlayerStatsChannel {
 
     // ── Unique Items ──
     if (deltas.uniqueDeltas.length > 0 && this._config.enableUniqueFeed) {
-      const lines = deltas.uniqueDeltas.map(({ name, type, items }) => {
+      const lines = deltas.uniqueDeltas.map(({ name, type, items }: any) => {
         const names = items
-          .map((u) => _cleanItemName(typeof u === 'object' ? u.name || u.id || JSON.stringify(u) : u))
+          .map((u: any) => _cleanItemName(typeof u === 'object' ? u.name || u.id || JSON.stringify(u) : u))
           .filter(Boolean);
         const display =
           names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
@@ -913,7 +922,7 @@ class PlayerStatsChannel {
 
     // ── Companions ──
     if (deltas.companionDeltas.length > 0 && this._config.enableCompanionFeed) {
-      const lines = deltas.companionDeltas.map(({ name, type, items }) => {
+      const lines = deltas.companionDeltas.map(({ name, type, items }: any) => {
         const count = items.length;
         const emoji = type === 'horse' ? '🐴' : '🐕';
         const label =
@@ -925,8 +934,8 @@ class PlayerStatsChannel {
 
     // ── Challenges ──
     if (deltas.challengeDeltas.length > 0 && this._config.enableChallengeFeed) {
-      const lines = deltas.challengeDeltas.flatMap(({ name, completed }) =>
-        completed.map((c) => `**${name}** completed **${c.name}** — *${c.desc}*`),
+      const lines = deltas.challengeDeltas.flatMap(({ name, completed }: any) =>
+        completed.map((c: any) => `**${name}** completed **${c.name}** — *${c.desc}*`),
       );
       sections.push({ header: '🏆 Challenges', lines });
     }
@@ -936,7 +945,7 @@ class PlayerStatsChannel {
     // Build consolidated description with section headers, splitting across
     // multiple embeds when the 4096-char description limit would be exceeded.
     const LIMIT = 4000; // margin below Discord's 4096
-    const descParts = sections.map((s) => `**${s.header}**\n${s.lines.join('\n')}`);
+    const descParts = sections.map((s: any) => `**${s.header}**\n${s.lines.join('\n')}`);
 
     const chunks = [];
     let current = '';
@@ -953,22 +962,22 @@ class PlayerStatsChannel {
 
     try {
       for (let i = 0; i < chunks.length; i++) {
-        const embed = new EmbedBuilder().setDescription(chunks[i]).setColor(0x5865f2);
+        const embed = new EmbedBuilder().setDescription(chunks[i]!).setColor(0x5865f2);
         if (i === 0) embed.setAuthor({ name: '📊 Activity Summary' });
         if (i === chunks.length - 1) embed.setTimestamp();
         await this._sendFeedEmbed(embed, targetDate);
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to post activity summary to thread:', err.message);
     }
   }
 
-  async _detectWorldEvents(prev, current) {
+  async _detectWorldEvents(prev: any, current: any) {
     const lines = [];
 
     // Season change
     if (prev.currentSeason && current.currentSeason && prev.currentSeason !== current.currentSeason) {
-      const seasonEmoji = { Spring: '🌱', Summer: '☀️', Autumn: '🍂', Winter: '❄️' };
+      const seasonEmoji: Record<string, string> = { Spring: '🌱', Summer: '☀️', Autumn: '🍂', Winter: '❄️' };
       const emoji = seasonEmoji[current.currentSeason] || '🔄';
       lines.push(`${emoji} Season changed to **${current.currentSeason}**`);
     }
@@ -1000,20 +1009,20 @@ class PlayerStatsChannel {
 
     try {
       await this._sendFeedEmbed(embed);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to post world event feed to activity thread:', err.message);
     }
   }
 
-  getAllTimeKills(steamId) {
+  getAllTimeKills(steamId: any) {
     return this._killTracker.getAllTimeKills(steamId, this._saveData);
   }
 
-  getCurrentLifeKills(steamId) {
+  getCurrentLifeKills(steamId: any) {
     return this._killTracker.getCurrentLifeKills(steamId, this._saveData);
   }
 
-  getAllTimeSurvival(steamId) {
+  getAllTimeSurvival(steamId: any) {
     return this._killTracker.getAllTimeSurvival(steamId, this._saveData);
   }
 
@@ -1030,15 +1039,13 @@ class PlayerStatsChannel {
   }
 }
 
-function _parseIni(text) {
-  const result = {};
-  let _section = '';
+function _parseIni(text: any) {
+  const result: Record<string, string> = {};
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
     const secMatch = trimmed.match(/^\[(.+)\]$/);
     if (secMatch) {
-      _section = secMatch[1];
       continue;
     }
     const kvMatch = trimmed.match(/^([^=]+?)=(.*)$/);
@@ -1056,14 +1063,14 @@ function _parseIni(text) {
  * Clean an item name using the shared cleaner from ue4-names.js.
  * Returns '' for null/undefined (not 'Unknown') to preserve .filter(Boolean) patterns.
  */
-function _cleanItemName(name) {
+function _cleanItemName(name: any) {
   if (!name) return '';
   const cleaned = _sharedCleanItemName(name);
   return cleaned === 'Unknown' ? '' : cleaned;
 }
 
 /** Map UDS (Ultra Dynamic Sky) weather enum values to human-readable names */
-const UDS_WEATHER_MAP = {
+const UDS_WEATHER_MAP: Record<string, string> = {
   'UDS_WeatherTypes::NewEnumerator0': 'Clear Skies',
   'UDS_WeatherTypes::NewEnumerator1': 'Partly Cloudy',
   'UDS_WeatherTypes::NewEnumerator2': 'Cloudy',
@@ -1079,17 +1086,25 @@ const UDS_WEATHER_MAP = {
   'UDS_WeatherTypes::NewEnumerator12': 'Sandstorm',
 };
 
-function _resolveUdsWeather(enumValue) {
+function _resolveUdsWeather(enumValue: any) {
   if (!enumValue) return null;
   return (
     UDS_WEATHER_MAP[enumValue] || enumValue.replace(/^UDS_WeatherTypes::/, '').replace(/NewEnumerator/, 'Weather ')
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 Object.assign(PlayerStatsChannel.prototype, require('./player-stats-embeds'));
 
-module.exports = PlayerStatsChannel;
-module.exports._parseIni = _parseIni;
-module.exports._cleanItemName = _cleanItemName;
-module.exports._resolveUdsWeather = _resolveUdsWeather;
-module.exports._dbRowToSave = _dbRowToSave;
+export default PlayerStatsChannel;
+
+export { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave };
+
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = PlayerStatsChannel;
+_mod.exports._parseIni = _parseIni;
+_mod.exports._cleanItemName = _cleanItemName;
+_mod.exports._resolveUdsWeather = _resolveUdsWeather;
+_mod.exports._dbRowToSave = _dbRowToSave;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

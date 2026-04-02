@@ -1,7 +1,20 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
-const SftpClient = require('ssh2-sftp-client');
-const config = require('../config');
-const { t, getLocalizations } = require('../i18n');
+import {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  EmbedBuilder,
+  MessageFlags,
+  type Message,
+  type TextChannel,
+} from 'discord.js';
+import config from '../config/index.js';
+import { t, getLocalizations } from '../i18n/index.js';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const SftpClient = require('ssh2-sftp-client') as new () => {
+  connect(config: unknown): Promise<void>;
+  get(path: string): Promise<Buffer>;
+  end(): Promise<void>;
+};
 
 /**
  * /threads rebuild — Downloads full log history from SFTP, groups events by
@@ -19,7 +32,7 @@ const HMZ_LINE_RE = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2
 const CONNECT_LINE_RE =
   /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/;
 
-function _dateKey(ts) {
+function _dateKey(ts: Date): string {
   // Return 'YYYY-MM-DD' in BOT_TIMEZONE
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -28,41 +41,74 @@ function _dateKey(ts) {
       month: '2-digit',
       day: '2-digit',
     }).formatToParts(ts);
-    const y = parts.find((p) => p.type === 'year').value;
-    const m = parts.find((p) => p.type === 'month').value;
-    const d = parts.find((p) => p.type === 'day').value;
+    const y = parts.find((p) => p.type === 'year')?.value ?? '';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '';
     return `${y}-${m}-${d}`;
   } catch {
     return ts.toISOString().slice(0, 10);
   }
 }
 
-function _dateLabel(dateStr) {
+function _dateLabel(dateStr: string): string {
   // 'YYYY-MM-DD' → friendly label via config
   return config.getDateLabel(new Date(dateStr + 'T12:00:00Z'));
+}
+
+interface HmzDayData {
+  deaths: number;
+  builds: number;
+  damage: number;
+  loots: number;
+  raidHits: number;
+  destroyed: number;
+  admin: number;
+  cheat: number;
+  players: Set<string>;
+}
+
+interface ConnectDayData {
+  connects: number;
+  disconnects: number;
+  players: Set<string>;
+}
+
+interface MergedDayData {
+  connects: number;
+  disconnects: number;
+  deaths: number;
+  builds: number;
+  damage: number;
+  loots: number;
+  raidHits: number;
+  destroyed: number;
+  admin: number;
+  cheat: number;
+  uniquePlayers: number;
 }
 
 /**
  * Parse HMZLog lines and group event counts by date.
  */
-function _parseHmzLog(text) {
-  const days = {};
+export function _parseHmzLog(text: string): Record<string, HmzDayData> {
+  const days: Record<string, HmzDayData> = {};
 
-  const ensure = (key) => {
-    if (!days[key]) {
-      days[key] = {
-        deaths: 0,
-        builds: 0,
-        damage: 0,
-        loots: 0,
-        raidHits: 0,
-        destroyed: 0,
-        admin: 0,
-        cheat: 0,
-        players: new Set(),
-      };
-    }
-    return days[key];
+  const ensure = (key: string): HmzDayData => {
+    const existing = days[key];
+    if (existing) return existing;
+    const entry: HmzDayData = {
+      deaths: 0,
+      builds: 0,
+      damage: 0,
+      loots: 0,
+      raidHits: 0,
+      destroyed: 0,
+      admin: 0,
+      cheat: 0,
+      players: new Set(),
+    };
+    days[key] = entry;
+    return entry;
   };
 
   for (const rawLine of text.split('\n')) {
@@ -73,8 +119,9 @@ function _parseHmzLog(text) {
     if (!m) continue;
 
     const [, day, month, rawYear, hour, min, body] = m;
+    if (!day || !month || !rawYear || !hour || !min || !body) continue;
     const year = rawYear.replace(',', '');
-    let ts;
+    let ts: Date;
     try {
       ts = config.parseLogTimestamp(year, month, day, hour, min);
     } catch {
@@ -87,7 +134,7 @@ function _parseHmzLog(text) {
     const deathMatch = body.match(/^Player died \((.+)\)$/);
     if (deathMatch) {
       d.deaths++;
-      d.players.add(deathMatch[1].trim());
+      d.players.add((deathMatch[1] ?? '').trim());
       continue;
     }
 
@@ -95,7 +142,7 @@ function _parseHmzLog(text) {
     const buildMatch = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+/);
     if (buildMatch) {
       d.builds++;
-      d.players.add(buildMatch[1].trim());
+      d.players.add((buildMatch[1] ?? '').trim());
       continue;
     }
 
@@ -103,7 +150,7 @@ function _parseHmzLog(text) {
     const dmgMatch = body.match(/^(.+?)\s+took\s+[\d.]+\s+damage from\s+/);
     if (dmgMatch) {
       d.damage++;
-      d.players.add(dmgMatch[1].trim());
+      d.players.add((dmgMatch[1] ?? '').trim());
       continue;
     }
 
@@ -111,7 +158,7 @@ function _parseHmzLog(text) {
     const lootMatch = body.match(/^(.+?)\s*\(\d{17}[^)]*\)\s*looted a container/);
     if (lootMatch) {
       d.loots++;
-      d.players.add(lootMatch[1].trim());
+      d.players.add((lootMatch[1] ?? '').trim());
       continue;
     }
 
@@ -143,14 +190,15 @@ function _parseHmzLog(text) {
 /**
  * Parse PlayerConnectedLog lines and group connect/disconnect counts by date.
  */
-function _parseConnectLog(text) {
-  const days = {};
+export function _parseConnectLog(text: string): Record<string, ConnectDayData> {
+  const days: Record<string, ConnectDayData> = {};
 
-  const ensure = (key) => {
-    if (!days[key]) {
-      days[key] = { connects: 0, disconnects: 0, players: new Set() };
-    }
-    return days[key];
+  const ensure = (key: string): ConnectDayData => {
+    const existing = days[key];
+    if (existing) return existing;
+    const entry: ConnectDayData = { connects: 0, disconnects: 0, players: new Set() };
+    days[key] = entry;
+    return entry;
   };
 
   for (const rawLine of text.split('\n')) {
@@ -161,8 +209,9 @@ function _parseConnectLog(text) {
     if (!m) continue;
 
     const [, action, name, , day, month, rawYear, hour, min] = m;
+    if (!action || !name || !day || !month || !rawYear || !hour || !min) continue;
     const year = rawYear.replace(',', '');
-    let ts;
+    let ts: Date;
     try {
       ts = config.parseLogTimestamp(year, month, day, hour, min);
     } catch {
@@ -182,26 +231,29 @@ function _parseConnectLog(text) {
 /**
  * Merge HMZ + Connect day maps into unified summary objects.
  */
-function _mergeDays(hmzDays, connectDays) {
+export function _mergeDays(
+  hmzDays: Record<string, HmzDayData>,
+  connectDays: Record<string, ConnectDayData>,
+): Record<string, MergedDayData> {
   const allDates = new Set([...Object.keys(hmzDays), ...Object.keys(connectDays)]);
-  const merged = {};
+  const merged: Record<string, MergedDayData> = {};
 
   for (const date of allDates) {
-    const h = hmzDays[date] || {};
-    const c = connectDays[date] || {};
-    const players = new Set([...(h.players || []), ...(c.players || [])]);
+    const h = hmzDays[date];
+    const c = connectDays[date];
+    const players = new Set([...(h?.players ?? []), ...(c?.players ?? [])]);
 
     merged[date] = {
-      connects: c.connects || 0,
-      disconnects: c.disconnects || 0,
-      deaths: h.deaths || 0,
-      builds: h.builds || 0,
-      damage: h.damage || 0,
-      loots: h.loots || 0,
-      raidHits: h.raidHits || 0,
-      destroyed: h.destroyed || 0,
-      admin: h.admin || 0,
-      cheat: h.cheat || 0,
+      connects: c?.connects ?? 0,
+      disconnects: c?.disconnects ?? 0,
+      deaths: h?.deaths ?? 0,
+      builds: h?.builds ?? 0,
+      damage: h?.damage ?? 0,
+      loots: h?.loots ?? 0,
+      raidHits: h?.raidHits ?? 0,
+      destroyed: h?.destroyed ?? 0,
+      admin: h?.admin ?? 0,
+      cheat: h?.cheat ?? 0,
       uniquePlayers: players.size,
     };
   }
@@ -212,10 +264,10 @@ function _mergeDays(hmzDays, connectDays) {
 /**
  * Build exactly the same embed as LogWatcher._postDailySummary().
  */
-function _buildSummaryEmbed(dateStr, counts) {
+export function _buildSummaryEmbed(dateStr: string, counts: MergedDayData): EmbedBuilder {
   const label = _dateLabel(dateStr);
 
-  const lines = [];
+  const lines: [string, number][] = [];
   if (counts.connects > 0) lines.push(['Connections', counts.connects]);
   if (counts.disconnects > 0) lines.push(['Disconnections', counts.disconnects]);
   if (counts.deaths > 0) lines.push(['Deaths', counts.deaths]);
@@ -229,13 +281,13 @@ function _buildSummaryEmbed(dateStr, counts) {
 
   const total = lines.reduce((sum, [, v]) => sum + v, 0);
 
-  const gridLines = lines.map(([l, v]) => `**${l}:** ${v}`);
+  const gridLines = lines.map(([l, v]) => `**${l}:** ${String(v)}`);
 
   return new EmbedBuilder()
     .setTitle(`Daily Summary — ${label}`)
     .setDescription(gridLines.join('\n'))
     .setColor(0x3498db)
-    .setFooter({ text: `${total} total events  •  ${counts.uniquePlayers} unique players` })
+    .setFooter({ text: `${String(total)} total events  •  ${String(counts.uniquePlayers)} unique players` })
     .setTimestamp(new Date(dateStr + 'T23:59:59Z'));
 }
 
@@ -245,17 +297,17 @@ function _buildSummaryEmbed(dateStr, counts) {
  * Skips the thread starter message (the first embed posted by the bot to
  * create the thread) so it isn't duplicated in the rebuilt thread.
  */
-async function _fetchThreadMessages(thread) {
-  const messages = [];
-  let lastId;
+export async function _fetchThreadMessages(thread: import('discord.js').ThreadChannel): Promise<Message[]> {
+  const messages: Message[] = [];
+  let lastId: string | undefined;
 
-  while (true) {
-    const opts = { limit: 100 };
+  for (;;) {
+    const opts: { limit: number; before?: string } = { limit: 100 };
     if (lastId) opts.before = lastId;
     const batch = await thread.messages.fetch(opts);
     if (batch.size === 0) break;
     messages.push(...batch.values());
-    lastId = batch.last().id;
+    lastId = batch.last()?.id;
     if (batch.size < 100) break;
   }
 
@@ -267,10 +319,11 @@ async function _fetchThreadMessages(thread) {
   // _buildSummaryEmbed, so skip any messages that look like:
   //   • A single embed whose title starts with "📋 Activity Log"
   //   • A single embed whose description is the "Log watcher connected" startup notice
-  const isStarter = (m) => {
+  const isStarter = (m: Message): boolean => {
     if (m.embeds.length !== 1 || m.content) return false;
-    const title = m.embeds[0].data?.title || '';
-    const desc = m.embeds[0].data?.description || '';
+    const embed0 = m.embeds[0];
+    const title = embed0 ? (embed0.data.title ?? '') : '';
+    const desc = embed0 ? (embed0.data.description ?? '') : '';
     if (title.startsWith('Daily Summary')) return true;
     if (title.startsWith('📋 Activity Log')) return true;
     if (desc.includes('Log watcher connected')) return true;
@@ -284,8 +337,12 @@ async function _fetchThreadMessages(thread) {
  * Find all existing threads (active + archived) matching a thread name.
  * Returns an array of thread objects.
  */
-async function _findMatchingThreads(channel, threadName, { dateLabel, serverSuffix = '' } = {}) {
-  const found = [];
+export async function _findMatchingThreads(
+  channel: TextChannel,
+  threadName: string,
+  { dateLabel, serverSuffix = '' }: { dateLabel?: string; serverSuffix?: string } = {},
+): Promise<import('discord.js').ThreadChannel[]> {
+  const found: import('discord.js').ThreadChannel[] = [];
 
   // Build a set of name variants to match (current + legacy formats)
   const names = new Set([threadName]);
@@ -306,8 +363,8 @@ async function _findMatchingThreads(channel, threadName, { dateLabel, serverSuff
 
   try {
     const active = await channel.threads.fetchActive();
-    for (const [, t] of active.threads) {
-      if (names.has(t.name)) found.push(t);
+    for (const [, thr] of active.threads) {
+      if (names.has(thr.name)) found.push(thr);
     }
   } catch {
     /* ignore */
@@ -315,8 +372,8 @@ async function _findMatchingThreads(channel, threadName, { dateLabel, serverSuff
 
   try {
     const archived = await channel.threads.fetchArchived({ limit: 100 });
-    for (const [, t] of archived.threads) {
-      if (names.has(t.name)) found.push(t);
+    for (const [, thr] of archived.threads) {
+      if (names.has(thr.name)) found.push(thr);
     }
   } catch {
     /* ignore */
@@ -325,14 +382,23 @@ async function _findMatchingThreads(channel, threadName, { dateLabel, serverSuff
   return found;
 }
 
+export interface RebuildResult {
+  created: number;
+  deleted: number;
+  preserved: number;
+  cleaned: number;
+  error?: string;
+}
+
 /**
  * Core rebuild logic — shared between the /threads command and NUKE_BOT startup.
- * @param {import('discord.js').Client} discordClient
- * @param {number|null} daysBack  Number of days to rebuild, or null for all.
- * @returns {{ created: number, deleted: number, preserved: number, error?: string }}
  */
-async function rebuildThreads(discordClient, daysBack = null, configOverride = null) {
-  const cfg = configOverride || config;
+export async function rebuildThreads(
+  discordClient: import('discord.js').Client,
+  daysBack: number | null = null,
+  configOverride: typeof config | null = null,
+): Promise<RebuildResult> {
+  const cfg = configOverride ?? config;
   const channelId = cfg.logChannelId;
   if (!channelId) return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: 'LOG_CHANNEL_ID is not set' };
   if (!cfg.sftpHost || !cfg.sftpUser || (!cfg.sftpPassword && !cfg.sftpPrivateKeyPath))
@@ -353,19 +419,27 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
       const buf = await sftp.get(cfg.sftpLogPath);
       hmzText = buf.toString('utf8');
     } catch (err) {
-      console.warn('[THREADS] HMZLog not found:', err.message);
+      console.warn('[THREADS] HMZLog not found:', (err as Error).message);
     }
 
     try {
       const buf = await sftp.get(cfg.sftpConnectLogPath);
       connectText = buf.toString('utf8');
     } catch (err) {
-      console.warn('[THREADS] ConnectLog not found:', err.message);
+      console.warn('[THREADS] ConnectLog not found:', (err as Error).message);
     }
   } catch (err) {
-    return { created: 0, deleted: 0, preserved: 0, cleaned: 0, error: `SFTP connection failed: ${err.message}` };
+    return {
+      created: 0,
+      deleted: 0,
+      preserved: 0,
+      cleaned: 0,
+      error: `SFTP connection failed: ${(err as Error).message}`,
+    };
   } finally {
-    await sftp.end().catch(() => {});
+    await sftp.end().catch(() => {
+      /* ignore */
+    });
   }
 
   if (!hmzText && !connectText)
@@ -383,48 +457,48 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
   if (daysBack) dates = dates.slice(-daysBack);
 
   // ── Clean up old bot messages in the channel ────────────
-  // Delete Daily Summary embeds and old thread starters left behind from
-  // previous bot versions. Only deletes messages from the bot itself.
-  // When serverSuffix is set, only clean starters matching this server.
   const serverSuffix = cfg.serverName ? ` [${cfg.serverName}]` : '';
   let cleaned = 0;
+  const textChannel = channel as TextChannel;
   try {
     const botId = discordClient.user?.id;
-    let lastId;
+    let lastId: string | undefined;
     // Scan up to 500 messages in the channel (5 pages)
     for (let page = 0; page < 5; page++) {
-      const opts = { limit: 100 };
+      const opts: { limit: number; before?: string } = { limit: 100 };
       if (lastId) opts.before = lastId;
-      const batch = await channel.messages.fetch(opts);
+      const batch = await textChannel.messages.fetch(opts);
       if (batch.size === 0) break;
-      lastId = batch.last().id;
+      lastId = batch.last()?.id;
 
       for (const [, msg] of batch) {
         // Only delete bot-authored messages
         if (botId && msg.author.id !== botId) continue;
         if (msg.embeds.length !== 1 || msg.content) continue;
 
-        const title = msg.embeds[0].data?.title || '';
+        const msgEmbed0 = msg.embeds[0];
+        const title = msgEmbed0 ? (msgEmbed0.data.title ?? '') : '';
         // Match: "Daily Summary — 19 Feb 2026", "📋 Activity Log — ...", old format starters
         if (/^Daily Summary/i.test(title) || /^📋 Activity Log/i.test(title) || /^Activity Log/i.test(title)) {
           // If this rebuild is for a specific server, only clean matching starters
-          // (skip starters that belong to a different server or the primary)
           if (serverSuffix) {
             if (!title.includes(serverSuffix)) continue;
           } else {
             // Primary rebuild — only clean starters without a server tag
             if (/\[.+\]\s*$/.test(title)) continue;
           }
-          await msg.delete().catch(() => {});
+          await msg.delete().catch(() => {
+            /* ignore */
+          });
           cleaned++;
         }
       }
 
       if (batch.size < 100) break;
     }
-    if (cleaned > 0) console.log(`[THREADS] Cleaned ${cleaned} old summary/starter messages from channel`);
+    if (cleaned > 0) console.log(`[THREADS] Cleaned ${String(cleaned)} old summary/starter messages from channel`);
   } catch (err) {
-    console.warn('[THREADS] Could not clean channel messages:', err.message);
+    console.warn('[THREADS] Could not clean channel messages:', (err as Error).message);
   }
 
   // ── Create threads (preserving existing content) ───────
@@ -437,32 +511,38 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
     const threadName = `Daily Summary — ${label}${serverSuffix}`;
 
     // 1. Find existing threads and harvest their messages before deletion
-    const existingThreads = await _findMatchingThreads(channel, threadName, { dateLabel: label, serverSuffix });
-    const savedMessages = [];
+    const existingThreads = await _findMatchingThreads(textChannel, threadName, { dateLabel: label, serverSuffix });
+    const savedMessages: Message[] = [];
 
     for (const oldThread of existingThreads) {
       try {
         // Unarchive if needed so we can read messages
         if (oldThread.archived) {
-          await oldThread.setArchived(false).catch(() => {});
+          await oldThread.setArchived(false).catch(() => {
+            /* ignore */
+          });
         }
         const msgs = await _fetchThreadMessages(oldThread);
         savedMessages.push(...msgs);
       } catch (err) {
-        console.warn(`[THREADS] Could not read messages from "${threadName}":`, err.message);
+        console.warn(`[THREADS] Could not read messages from "${threadName}":`, (err as Error).message);
       }
     }
 
     // 2. Delete the old threads
     for (const oldThread of existingThreads) {
-      await oldThread.delete('Replaced by thread rebuild').catch(() => {});
+      await oldThread.delete('Replaced by thread rebuild').catch(() => {
+        /* ignore */
+      });
       deleted++;
     }
 
     // 3. Create the new thread with a fresh summary embed
     try {
-      const embed = _buildSummaryEmbed(dateStr, merged[dateStr]);
-      const starterMsg = await channel.send({ embeds: [embed] });
+      const dayData = merged[dateStr];
+      if (!dayData) continue;
+      const embed = _buildSummaryEmbed(dateStr, dayData);
+      const starterMsg = await textChannel.send({ embeds: [embed] });
       const newThread = await starterMsg.startThread({
         name: threadName,
         autoArchiveDuration: 1440,
@@ -473,7 +553,7 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
       // 4. Re-post preserved messages into the new thread
       for (const msg of savedMessages) {
         try {
-          const payload = {};
+          const payload: { content?: string; embeds?: EmbedBuilder[] } = {};
 
           // Preserve embeds
           if (msg.embeds.length > 0) {
@@ -491,62 +571,68 @@ async function rebuildThreads(discordClient, daysBack = null, configOverride = n
           await newThread.send(payload);
           preserved++;
         } catch (err) {
-          console.warn(`[THREADS] Could not re-post message in "${threadName}":`, err.message);
+          console.warn(`[THREADS] Could not re-post message in "${threadName}":`, (err as Error).message);
         }
       }
 
       // Small delay to avoid Discord rate limits
       if (created % 3 === 0) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => {
+          setTimeout(r, 2000);
+        });
       }
     } catch (err) {
-      console.error(`[THREADS] Failed to create thread for ${dateStr}:`, err.message);
+      console.error(`[THREADS] Failed to create thread for ${dateStr}:`, (err as Error).message);
     }
   }
 
   return { created, deleted, preserved, cleaned };
 }
 
-module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('threads')
-    .setNameLocalizations(getLocalizations('commands:threads.name'))
-    .setDescription(t('commands:threads.description', 'en'))
-    .setDescriptionLocalizations(getLocalizations('commands:threads.description'))
-    .addIntegerOption((opt) =>
-      opt
-        .setName('days')
-        .setDescription(t('commands:threads.options.days', 'en'))
-        .setDescriptionLocalizations(getLocalizations('commands:threads.options.days'))
-        .setMinValue(1)
-        .setRequired(false),
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+export const data = new SlashCommandBuilder()
+  .setName('threads')
+  .setNameLocalizations(getLocalizations('commands:threads.name'))
+  .setDescription(t('commands:threads.description', 'en'))
+  .setDescriptionLocalizations(getLocalizations('commands:threads.description'))
+  .addIntegerOption((opt) =>
+    opt
+      .setName('days')
+      .setDescription(t('commands:threads.options.days', 'en'))
+      .setDescriptionLocalizations(getLocalizations('commands:threads.options.days'))
+      .setMinValue(1)
+      .setRequired(false),
+  )
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-  async execute(interaction) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const locale = interaction.locale || 'en';
-    await interaction.editReply(t('commands:threads.reply.downloading', locale));
+export async function execute(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const locale = interaction.locale;
+  await interaction.editReply(t('commands:threads.reply.downloading', locale));
 
-    const daysBack = interaction.options.getInteger('days');
-    const result = await rebuildThreads(interaction.client, daysBack);
+  const daysBack = interaction.options.getInteger('days');
+  const result = await rebuildThreads(interaction.client, daysBack);
 
-    if (result.error) {
-      return interaction.editReply(t('commands:threads.reply.error', locale, { error: result.error }));
-    }
+  if (result.error) {
+    await interaction.editReply(t('commands:threads.reply.error', locale, { error: result.error }));
+    return;
+  }
 
-    const parts = [];
-    if (result.created > 0) parts.push(t('commands:threads.reply.created', locale, { count: result.created }));
-    if (result.deleted > 0) parts.push(t('commands:threads.reply.replaced', locale, { count: result.deleted }));
-    if (result.preserved > 0) parts.push(t('commands:threads.reply.preserved', locale, { count: result.preserved }));
-    if (result.cleaned > 0) parts.push(t('commands:threads.reply.cleaned', locale, { count: result.cleaned }));
-    if (result.created === 0 && result.deleted === 0) parts.push(t('commands:threads.reply.no_events', locale));
-    parts.push(`\n${t('commands:threads.reply.chat_note', locale)}`);
+  const parts: string[] = [];
+  if (result.created > 0) parts.push(t('commands:threads.reply.created', locale, { count: result.created }));
+  if (result.deleted > 0) parts.push(t('commands:threads.reply.replaced', locale, { count: result.deleted }));
+  if (result.preserved > 0) parts.push(t('commands:threads.reply.preserved', locale, { count: result.preserved }));
+  if (result.cleaned > 0) parts.push(t('commands:threads.reply.cleaned', locale, { count: result.cleaned }));
+  if (result.created === 0 && result.deleted === 0) parts.push(t('commands:threads.reply.no_events', locale));
+  parts.push(`\n${t('commands:threads.reply.chat_note', locale)}`);
 
-    await interaction.editReply(parts.join('\n'));
-  },
+  await interaction.editReply(parts.join('\n'));
+}
 
-  // Export shared function + parsers for testing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = {
+  data,
+  execute,
   rebuildThreads,
   _fetchThreadMessages,
   _findMatchingThreads,

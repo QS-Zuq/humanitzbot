@@ -1,11 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 /**
  * Config constants — env categories and game settings definitions.
  *
  * Used by config-migration, web-map/server, and settings UI.
  * Pure data definitions, zero runtime dependencies.
  */
-
-'use strict';
 
 // ── Env categories ──────────────────────────────────────────
 // Max 5 fields per category (Discord modal limit).
@@ -970,4 +970,8 @@ const ENV_CATEGORY_GROUPS = [
   },
 ];
 
-module.exports = { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };
+export { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };

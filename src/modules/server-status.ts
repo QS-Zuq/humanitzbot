@@ -1,21 +1,30 @@
-const _defaultConfig = require('../config');
-const { cleanOwnMessages, embedContentKey, safeEditMessage } = require('./discord-utils');
-const _defaultPlaytime = require('../tracking/playtime-tracker');
-const _defaultPlayerStats = require('../tracking/player-stats');
-const _defaultServerResources = require('../server/server-resources');
-const { createLogger } = require('../utils/log');
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises */
+
+import _defaultConfig from '../config/index.js';
+import { cleanOwnMessages, embedContentKey, safeEditMessage } from './discord-utils.js';
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import _defaultServerResources from '../server/server-resources.js';
+import { createLogger } from '../utils/log.js';
 
 // Embed builders — presentation layer (mixed into prototype below)
-const statusEmbeds = require('./server-status-embeds');
+import * as statusEmbeds from './server-status-embeds.js';
 
 class ServerStatus {
-  constructor(client, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._serverResources = deps.serverResources || _defaultServerResources;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._getServerInfo = deps.getServerInfo || require('../rcon/server-info').getServerInfo;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._getPlayerList = deps.getPlayerList || require('../rcon/server-info').getPlayerList;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._sendAdminMessage = deps.sendAdminMessage || require('../rcon/server-info').sendAdminMessage;
     this._db = deps.db || null;
     this._log = createLogger(deps.label, 'STATUS');
@@ -70,7 +79,7 @@ class ServerStatus {
 
       // Start the loop
       this.interval = setInterval(() => this._update(), this.updateIntervalMs);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to start:', err.message);
       this._log.error('Full error:', err);
     }
@@ -111,7 +120,7 @@ class ServerStatus {
       if (this._config.showHostResources && this._serverResources.backend) {
         try {
           resources = await this._serverResources.getResources();
-        } catch (_) {}
+        } catch (_: any) {}
       }
 
       // Server is online — cache the data
@@ -143,14 +152,14 @@ class ServerStatus {
           { embeds: [embed] },
           {
             label: this._label,
-            onRecreate: (msg) => {
+            onRecreate: (msg: any) => {
               this.statusMessage = msg;
               this._saveMessageId();
             },
           },
         );
       }
-    } catch (err) {
+    } catch (err: any) {
       if (err.message.includes('RCON not connected')) {
         // Server is offline — show offline embed with cached data
         if (this._lastOnline !== false) {
@@ -172,12 +181,12 @@ class ServerStatus {
                 { embeds: [embed] },
                 {
                   label: this._label,
-                  onRecreate: (msg) => {
+                  onRecreate: (msg: any) => {
                     this.statusMessage = msg;
                   },
                 },
               );
-            } catch (_) {
+            } catch (_: any) {
               /* ignore */
             }
           }
@@ -202,7 +211,7 @@ class ServerStatus {
       if (data.lastInfo) this._lastInfo = data.lastInfo;
       if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList;
       this._log.info(`Loaded cached state (online since: ${data.onlineSince || 'unknown'})`);
-    } catch (err) {
+    } catch (err: any) {
       this._log.info('Could not load cached state:', err.message);
     }
   }
@@ -221,7 +230,7 @@ class ServerStatus {
         lastPlayerList: this._lastPlayerList,
         savedAt: new Date().toISOString(),
       });
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Could not save state:', err.message);
     }
   }
@@ -232,7 +241,7 @@ class ServerStatus {
         const data = this._db.getStateJSON('server_settings', null);
         if (data) return data;
       }
-    } catch (_) {}
+    } catch (_: any) {}
     return {};
   }
 }
@@ -240,4 +249,9 @@ class ServerStatus {
 // Mix in embed builders (presentation layer)
 Object.assign(ServerStatus.prototype, statusEmbeds);
 
-module.exports = ServerStatus;
+export default ServerStatus;
+
+const _mod = module as { exports: any };
+
+_mod.exports = ServerStatus;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

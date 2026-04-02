@@ -1,13 +1,24 @@
-const { EmbedBuilder } = require('discord.js');
-const SftpClient = require('ssh2-sftp-client');
-const _defaultConfig = require('../config');
-const _defaultRcon = require('../rcon/rcon');
-const { createLogger } = require('../utils/log');
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/no-floating-promises,
+   @typescript-eslint/prefer-promise-reject-errors,
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
+
+import { EmbedBuilder } from 'discord.js';
+// @ts-expect-error — no type declarations for ssh2-sftp-client
+import SftpClient from 'ssh2-sftp-client';
+import _defaultConfig from '../config/index.js';
+import _defaultRcon from '../rcon/rcon.js';
+import { createLogger } from '../utils/log.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
 class PvpScheduler {
-  constructor(client, logWatcher, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, logWatcher: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._rcon = deps.rcon || _defaultRcon;
     this._log = createLogger(deps.label, 'PVP');
@@ -40,11 +51,11 @@ class PvpScheduler {
       return;
     }
 
-    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     const dayLabel = this._config.pvpDays
       ? [...this._config.pvpDays]
           .sort()
-          .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+          .map((d: any) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
           .join(', ')
       : 'every day';
     const defaultRange =
@@ -107,7 +118,7 @@ class PvpScheduler {
           );
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to read server settings:', err.message);
       this._currentPvp = null;
     } finally {
@@ -124,8 +135,8 @@ class PvpScheduler {
       hourCycle: 'h23',
       timeZone: this._config.botTimezone,
     }).formatToParts(now);
-    const h = parseInt(timeParts.find((p) => p.type === 'hour')?.value || '0', 10);
-    const m = parseInt(timeParts.find((p) => p.type === 'minute')?.value || '0', 10);
+    const h = parseInt(timeParts.find((p: any) => p.type === 'hour')?.value || '0', 10);
+    const m = parseInt(timeParts.find((p: any) => p.type === 'minute')?.value || '0', 10);
 
     // Day of week (0=Sun … 6=Sat) in bot timezone
     const dateParts = new Intl.DateTimeFormat('en-US', {
@@ -134,15 +145,15 @@ class PvpScheduler {
       day: '2-digit',
       timeZone: this._config.botTimezone,
     }).formatToParts(now);
-    const year = parseInt(dateParts.find((p) => p.type === 'year')?.value || '1970', 10);
-    const month = parseInt(dateParts.find((p) => p.type === 'month')?.value || '1', 10);
-    const day = parseInt(dateParts.find((p) => p.type === 'day')?.value || '1', 10);
+    const year = parseInt(dateParts.find((p: any) => p.type === 'year')?.value || '1970', 10);
+    const month = parseInt(dateParts.find((p: any) => p.type === 'month')?.value || '1', 10);
+    const day = parseInt(dateParts.find((p: any) => p.type === 'day')?.value || '1', 10);
     const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 
     return { hour: h, minute: m, totalMinutes: h * 60 + m, dayOfWeek };
   }
 
-  _isInsidePvpWindow(totalMinutes, dayOfWeek) {
+  _isInsidePvpWindow(totalMinutes: any, dayOfWeek: any) {
     const pvpDays = this._config.pvpDays; // null = every day
 
     // Resolve time window for the given day (per-day override or global default)
@@ -175,7 +186,7 @@ class PvpScheduler {
   }
 
   /** Get PvP hours for a specific day (per-day override or global default). */
-  _getHoursForDay(dayOfWeek) {
+  _getHoursForDay(dayOfWeek: any) {
     if (this._pvpDayHours && this._pvpDayHours.has(dayOfWeek)) {
       return this._pvpDayHours.get(dayOfWeek);
     }
@@ -279,14 +290,14 @@ class PvpScheduler {
     }
   }
 
-  _startCountdown(targetPvp, minutesUntilToggle) {
+  _startCountdown(targetPvp: any, minutesUntilToggle: any) {
     this._transitioning = true;
     const targetLabel = targetPvp ? 'ON' : 'OFF';
     const delay = minutesUntilToggle !== undefined ? minutesUntilToggle : this._config.pvpRestartDelay;
 
     // Build warning schedule: which standard warnings fit within the remaining time
-    const warnings = WARNINGS.filter((m) => m <= delay);
-    if (warnings.length === 0 || warnings[0] < delay) {
+    const warnings = WARNINGS.filter((m: any) => m <= delay);
+    if (warnings.length === 0 || warnings[0]! < delay) {
       warnings.unshift(delay);
     }
 
@@ -299,14 +310,14 @@ class PvpScheduler {
         return;
       }
 
-      const minutesLeft = warnings[stepIndex];
-      const nextMinutes = stepIndex + 1 < warnings.length ? warnings[stepIndex + 1] : 0;
+      const minutesLeft = warnings[stepIndex]!;
+      const nextMinutes = stepIndex + 1 < warnings.length ? warnings[stepIndex + 1]! : 0;
       const waitMs = (minutesLeft - nextMinutes) * 60_000;
 
       // Send warning
       const msg = `Server restart in ${minutesLeft} minute${minutesLeft > 1 ? 's' : ''} — PvP turning ${targetLabel}`;
       this._announce(msg);
-      this._rcon.send(`admin ${msg}`).catch((err) => {
+      this._rcon.send(`admin ${msg}`).catch((err: any) => {
         this._log.error('Failed to send in-game warning:', err.message);
       });
 
@@ -322,7 +333,7 @@ class PvpScheduler {
     scheduleNext();
   }
 
-  async _executeToggle(targetPvp) {
+  async _executeToggle(targetPvp: any) {
     const targetLabel = targetPvp ? 'ON' : 'OFF';
     const targetValue = targetPvp ? '1' : '0';
 
@@ -344,7 +355,7 @@ class PvpScheduler {
           await sftp.chmod(settingsPath, mode | 0o220); // add group+owner write
           this._log.info(`Temporarily set ${settingsPath} writable (was ${mode.toString(8)})`);
         }
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('Could not check/set file permissions:', err.message);
       }
 
@@ -381,11 +392,11 @@ class PvpScheduler {
         try {
           await sftp.chmod(settingsPath, originalMode);
           this._log.info(`Restored permissions to ${originalMode.toString(8)}`);
-        } catch (err) {
+        } catch (err: any) {
           this._log.warn('Could not restore permissions:', err.message);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('SFTP toggle failed:', err.message);
       this._transitioning = false;
       return;
@@ -411,31 +422,37 @@ class PvpScheduler {
     // Falls back to docker stop+start if LinuxGSM fails.
     if (container) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { exec } = require('child_process');
-        await new Promise((resolve, reject) => {
-          exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err, stdout) => {
-            if (err) reject(err);
-            else {
-              if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
-              resolve();
-            }
-          });
+        await new Promise<void>((resolve, reject) => {
+          exec(
+            `docker exec -u linuxgsm ${container} /app/hzserver restart`,
+            { timeout: 120000 },
+            (err: any, stdout: any) => {
+              if (err) reject(err);
+              else {
+                if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop()}`);
+                resolve();
+              }
+            },
+          );
         });
         this._log.info(`Restart via LinuxGSM (${container})`);
         restartSucceeded = true;
-      } catch (lgsmErr) {
+      } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
-          await new Promise((resolve, reject) => {
-            exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err) => {
+          await new Promise<void>((resolve, reject) => {
+            exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
               if (err) reject(err);
               else resolve();
             });
           });
           this._log.info(`Restart via Docker stop+start (${container})`);
           restartSucceeded = true;
-        } catch (dockerErr) {
+        } catch (dockerErr: any) {
           this._log.warn('Docker restart also failed:', dockerErr.message);
         }
       }
@@ -447,13 +464,13 @@ class PvpScheduler {
         await this._rcon.send('RestartNow');
         this._log.info('Restart command sent via RCON');
         restartSucceeded = true;
-      } catch (err) {
+      } catch (err: any) {
         this._log.warn('RCON RestartNow failed:', err.message);
         try {
           await this._rcon.send('QuickRestart');
           this._log.info('Restart via RCON QuickRestart');
           restartSucceeded = true;
-        } catch (err2) {
+        } catch (err2: any) {
           this._log.error('All restart methods failed:', err2.message);
         }
       }
@@ -479,7 +496,7 @@ class PvpScheduler {
    * If RCON doesn't come back, the game server likely failed to bind the port.
    * Trigger a LinuxGSM restart (or docker stop+start fallback) to recover.
    */
-  _scheduleRconHealthCheck(container) {
+  _scheduleRconHealthCheck(container: any) {
     const checkInterval = 10_000;
     const maxWait = 90_000;
     const start = Date.now();
@@ -495,12 +512,13 @@ class PvpScheduler {
         clearInterval(timer);
         this._log.warn(`RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`);
         try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
           // Try LinuxGSM first, fall back to docker stop+start
-          await new Promise((resolve, reject) => {
-            exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err) => {
+          await new Promise<void>((resolve, reject) => {
+            exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err: any) => {
               if (err) {
-                exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err2) => {
+                exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err2: any) => {
                   if (err2) reject(err2);
                   else resolve();
                 });
@@ -508,14 +526,14 @@ class PvpScheduler {
             });
           });
           this._log.info(`Recovery restart sent (${container})`);
-        } catch (err) {
+        } catch (err: any) {
           this._log.error('Recovery restart failed:', err.message);
         }
       }
     }, checkInterval);
   }
 
-  async _announce(message) {
+  async _announce(message: any) {
     this._log.info(message);
     const embed = new EmbedBuilder()
       .setAuthor({ name: '⚔️ PvP Scheduler' })
@@ -526,14 +544,14 @@ class PvpScheduler {
       try {
         await this._logWatcher.sendToThread(embed);
         return;
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Failed to post to activity thread:', err.message);
       }
     }
     if (this._adminChannel) {
       try {
         await this._adminChannel.send({ embeds: [embed] });
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Failed to post to Discord:', err.message);
       }
     }
@@ -550,7 +568,7 @@ class PvpScheduler {
    * @param {string} rawContent - the original untouched .ini content (for reading current values)
    * @returns {string} modified content
    */
-  _applySettingsOverrides(content, targetPvp, rawContent) {
+  _applySettingsOverrides(content: any, targetPvp: any, rawContent: any) {
     const overrides = this._config.pvpSettingsOverrides;
     if (!overrides || Object.keys(overrides).length === 0) return content;
 
@@ -600,7 +618,7 @@ class PvpScheduler {
   // ── Server-name helpers ─────────────────────────────────────
 
   _formatPvpTimeRange() {
-    const fmt = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     // Use today's hours (per-day override or global default)
     const { dayOfWeek } = this._getCurrentTime();
     const { start, end } = this._getHoursForDay(dayOfWeek);
@@ -610,7 +628,7 @@ class PvpScheduler {
     return `${fmt(start)}-${fmt(end)} ${this._config.botTimezone}`;
   }
 
-  _updateServerName(content, pvpOn) {
+  _updateServerName(content: any, pvpOn: any) {
     // Match ServerName="value" or ServerName=value (greedy inside quotes)
     const nameMatch =
       content.match(/^ServerName\s*=\s*"([^"]*)"\s*$/m) || content.match(/^ServerName\s*=\s*(.+?)\s*$/m);
@@ -642,7 +660,7 @@ class PvpScheduler {
     return updatedContent;
   }
 
-  async _postToActivityLog(targetPvp) {
+  async _postToActivityLog(targetPvp: any) {
     if (!this._logWatcher) return;
     const label = targetPvp ? 'ENABLED' : 'DISABLED';
     const color = targetPvp ? 0xe74c3c : 0x2ecc71; // red for PvP on, green for PvP off
@@ -655,10 +673,15 @@ class PvpScheduler {
       .setTimestamp();
     try {
       await this._logWatcher.sendToThread(embed);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to post to activity thread:', err.message);
     }
   }
 }
 
-module.exports = PvpScheduler;
+export default PvpScheduler;
+
+const _mod = module as { exports: any };
+
+_mod.exports = PvpScheduler;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

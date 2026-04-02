@@ -1,3 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/restrict-plus-operands,
+   @typescript-eslint/no-unnecessary-type-assertion */
+
 /**
  * Recap Service — automated daily and weekly summary embeds.
  *
@@ -21,24 +28,24 @@
  *   - Player of the Week
  */
 
-const { EmbedBuilder } = require('discord.js');
-const { t, getLocale, fmtNumber } = require('../i18n');
-const { createLogger } = require('../utils/log');
+import { EmbedBuilder } from 'discord.js';
+import { t, getLocale, fmtNumber } from '../i18n/index.js';
+import { createLogger } from '../utils/log.js';
 
 const STATE_KEY = 'recap_service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function _fmt(n, locale = 'en') {
+function _fmt(this: any, n: any, locale: any = 'en') {
   if (n == null) return '0';
   return fmtNumber(Number(n), locale);
 }
 
-function _tr(locale, key, vars = {}) {
+function _tr(this: any, locale: any, key: any, vars: any = {}) {
   return t(`discord:recap.${key}`, locale, vars);
 }
 
-function _fmtHours(seconds, locale = 'en') {
+function _fmtHours(this: any, seconds: any, locale: any = 'en') {
   if (!seconds || seconds <= 0) {
     return _tr(locale, 'duration_minutes', { minutes: fmtNumber(0, locale) });
   }
@@ -51,7 +58,7 @@ function _fmtHours(seconds, locale = 'en') {
   });
 }
 
-function _trend(current, previous) {
+function _trend(this: any, current: any, previous: any) {
   if (!previous || previous === 0) return '';
   const pct = Math.round(((current - previous) / previous) * 100);
   if (pct > 0) return ` ↑ ${pct}%`;
@@ -59,16 +66,10 @@ function _trend(current, previous) {
   return ' →';
 }
 
-function _medal(rank) {
-  if (rank === 0) return '🥇';
-  if (rank === 1) return '🥈';
-  if (rank === 2) return '🥉';
-  return `**${rank + 1}.**`;
-}
-
 // ── RecapService class ───────────────────────────────────────────────────────
 
 class RecapService {
+  [key: string]: any;
   /**
    * @param {object} client - Discord.js Client
    * @param {object} opts
@@ -77,10 +78,11 @@ class RecapService {
    * @param {object} [opts.config] - config object
    * @param {object} [opts.playtime] - PlaytimeTracker for peak stats
    */
-  constructor(client, opts = {}) {
+  constructor(client: any, opts: any = {}) {
     this._client = client;
     this._db = opts.db || null;
     this._logWatcher = opts.logWatcher || null;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._config = opts.config || require('../config');
     this._playtime = opts.playtime || null;
     this._log = createLogger(opts.label, 'RECAP');
@@ -93,7 +95,7 @@ class RecapService {
    * Called on LogWatcher day-rollover — the "yesterday" date is what just ended.
    * @param {string} [dateStr] - YYYY-MM-DD of the day to recap (default: yesterday)
    */
-  async postDailyRecap(dateStr) {
+  async postDailyRecap(dateStr: any) {
     if (!this._db) return;
 
     try {
@@ -116,7 +118,7 @@ class RecapService {
 
       // Save stats for weekly comparison
       this._saveLastDaily(date, stats);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Daily recap error:', err.message);
     }
   }
@@ -124,22 +126,22 @@ class RecapService {
   /**
    * Gather all stats for a single day from the database.
    */
-  _gatherDayStats(startOfDay, endOfDay) {
+  _gatherDayStats(startOfDay: any, endOfDay: any) {
     const events = this._db.getActivitySince(startOfDay);
     // Filter to only this day (getActivitySince returns everything after the timestamp)
-    const dayEvents = events.filter((e) => e.timestamp <= endOfDay);
+    const dayEvents = events.filter((e: any) => e.timestamp <= endOfDay);
 
     if (dayEvents.length === 0) return null;
 
     // Count event types
-    const counts = {};
+    const counts: Record<string, number> = {};
     for (const e of dayEvents) {
       counts[e.type] = (counts[e.type] || 0) + 1;
     }
 
     // Unique players from connect events
-    const uniquePlayers = new Set();
-    const playerNames = {};
+    const uniquePlayers = new Set<string>();
+    const playerNames: Record<string, string> = {};
     for (const e of dayEvents) {
       if (e.steam_id) {
         uniquePlayers.add(e.steam_id);
@@ -148,9 +150,9 @@ class RecapService {
     }
 
     // Per-player kill counts for the day
-    const playerKills = {};
-    const playerDeaths = {};
-    const playerBuilds = {};
+    const playerKills: Record<string, number> = {};
+    const playerDeaths: Record<string, number> = {};
+    const playerBuilds: Record<string, number> = {};
     for (const e of dayEvents) {
       const sid = e.steam_id;
       if (!sid) continue;
@@ -181,7 +183,7 @@ class RecapService {
     }
 
     // New players (first_seen today)
-    const newPlayers = allPlayers.filter((p) => {
+    const newPlayers = allPlayers.filter((p: any) => {
       const firstSeen = p.playtime_first_seen || p.updated_at;
       return firstSeen && firstSeen >= startOfDay && firstSeen <= endOfDay;
     });
@@ -203,9 +205,9 @@ class RecapService {
         mvp = name;
         mvpScore = score;
       }
-      if (deaths > unluckyDeaths) {
+      if ((deaths as number) > unluckyDeaths) {
         unluckiest = name;
-        unluckyDeaths = deaths;
+        unluckyDeaths = deaths as number;
       }
     }
 
@@ -231,7 +233,7 @@ class RecapService {
       totalKills,
       topKiller,
       topKillerKills,
-      newPlayers: newPlayers.map((p) => p.name),
+      newPlayers: newPlayers.map((p: any) => p.name),
       mvp,
       mvpScore,
       unluckiest,
@@ -242,7 +244,7 @@ class RecapService {
   /**
    * Build the daily recap embed.
    */
-  _buildDailyEmbed(stats, dateLabel) {
+  _buildDailyEmbed(stats: any, dateLabel: any) {
     const locale = getLocale({ serverConfig: this._config });
     const lines = [];
 
@@ -346,10 +348,10 @@ class RecapService {
       }
 
       // Count event types
-      const counts = {};
+      const counts: Record<string, number> = {};
       const uniquePlayers = new Set();
-      const playerDeaths = {};
-      const playerNames = {};
+      const playerDeaths: Record<string, number> = {};
+      const playerNames: Record<string, string> = {};
       for (const e of events) {
         counts[e.type] = (counts[e.type] || 0) + 1;
         if (e.steam_id) {
@@ -377,10 +379,10 @@ class RecapService {
       // Unluckiest of the week
       let unluckiest = null,
         unluckyDeaths = 0;
-      for (const [sid, deaths] of Object.entries(playerDeaths)) {
-        if (deaths > unluckyDeaths) {
-          unluckiest = playerNames[sid] || sid;
-          unluckyDeaths = deaths;
+      for (const [sid, deaths] of Object.entries(playerDeaths) as [string, number][]) {
+        if ((deaths as number) > unluckyDeaths) {
+          unluckiest = playerNames[sid as string] || (sid as string);
+          unluckyDeaths = deaths as number;
         }
       }
 
@@ -479,7 +481,7 @@ class RecapService {
         loots: totalLoots,
         totalEvents: events.length,
       });
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Weekly digest error:', err.message);
     }
   }
@@ -488,7 +490,7 @@ class RecapService {
    * Called on each day rollover. Posts daily recap, and weekly digest if it's reset day.
    * @param {string} [yesterdayDate] - YYYY-MM-DD of the day that just ended
    */
-  async onDayRollover(yesterdayDate) {
+  async onDayRollover(yesterdayDate: any) {
     await this.postDailyRecap(yesterdayDate);
 
     // Check if today is the weekly reset day
@@ -502,7 +504,7 @@ class RecapService {
 
   // ── Posting ────────────────────────────────────────────────
 
-  async _post(embeds) {
+  async _post(embeds: any) {
     const target = this._getPostTarget();
     if (!target) {
       this._log.warn('No channel available — recap dropped');
@@ -510,7 +512,7 @@ class RecapService {
     }
     try {
       await target.send({ embeds });
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to post recap:', err.message);
     }
   }
@@ -538,24 +540,24 @@ class RecapService {
     }
   }
 
-  _saveLastDaily(date, stats) {
+  _saveLastDaily(date: any, stats: any) {
     if (!this._db) return;
     try {
       const state = this._loadState();
       state.lastDaily = { date, ...stats };
       this._db.setStateJSON(STATE_KEY, state);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to save daily state:', err.message);
     }
   }
 
-  _saveWeeklyStats(stats) {
+  _saveWeeklyStats(stats: any) {
     if (!this._db) return;
     try {
       const state = this._loadState();
       state.lastWeekly = stats;
       this._db.setStateJSON(STATE_KEY, state);
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Failed to save weekly state:', err.message);
     }
   }
@@ -568,8 +570,13 @@ class RecapService {
     d.setUTCDate(d.getUTCDate() - 1);
     return d.toISOString().split('T')[0];
   }
+
+  static STATE_KEY = STATE_KEY;
 }
 
-RecapService.STATE_KEY = STATE_KEY;
+export default RecapService;
 
-module.exports = RecapService;
+const _mod = module as { exports: any };
+
+_mod.exports = RecapService;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

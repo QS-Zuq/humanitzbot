@@ -1,4 +1,7 @@
-'use strict';
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions */
 
 /**
  * Milestone Tracker — detects and announces player achievements in Discord.
@@ -19,9 +22,9 @@
  *   - Clan milestones (5, 10, 15 members)
  */
 
-const { EmbedBuilder } = require('discord.js');
-const { t, getLocale, fmtNumber } = require('../i18n');
-const { createLogger } = require('../utils/log');
+import { EmbedBuilder } from 'discord.js';
+import { t, getLocale, fmtNumber } from '../i18n/index.js';
+import { createLogger } from '../utils/log.js';
 
 // ── Milestone Thresholds ─────────────────────────────────────────────────────
 
@@ -42,12 +45,12 @@ const CLAN_MEMBER_THRESHOLDS = [5, 10, 15, 20];
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
-function _fmtKills(n, locale = 'en') {
+function _fmtKills(this: any, n: any, locale: any = 'en') {
   if (n >= 1000) return `${fmtNumber(Math.floor(n / 1000), locale)}K`;
   return fmtNumber(n, locale);
 }
 
-function _fmtHours(ms, locale = 'en') {
+function _fmtHours(this: any, ms: any, locale: any = 'en') {
   const h = Math.floor(ms / 3600000);
   if (h >= 1000) return `${(h / 1000).toFixed(1)}K`;
   return fmtNumber(h, locale);
@@ -64,7 +67,7 @@ const STATE_KEY = 'milestones';
  *                     survival: {steamId: [thresholds]}, challenges: {steamId: [names]},
  *                     firsts: {category: [names]}, clans: {clanName: [thresholds]} }
  */
-function _loadState(db) {
+function _loadState(this: any, db: any) {
   const defaults = { kills: {}, playtime: {}, survival: {}, challenges: {}, firsts: {}, clans: {} };
   if (!db) return defaults;
   try {
@@ -77,11 +80,11 @@ function _loadState(db) {
   }
 }
 
-function _saveState(db, state) {
+function _saveState(this: any, db: any, state: any) {
   if (!db) return;
   try {
     db.setStateJSON(STATE_KEY, state);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[MILESTONES] Failed to save state:', err.message);
   }
 }
@@ -89,6 +92,7 @@ function _saveState(db, state) {
 // ── MilestoneTracker class ───────────────────────────────────────────────────
 
 class MilestoneTracker {
+  [key: string]: any;
   /**
    * @param {object} client - Discord.js Client
    * @param {object} opts
@@ -96,10 +100,11 @@ class MilestoneTracker {
    * @param {object} [opts.logWatcher] - LogWatcher for daily thread posting
    * @param {object} [opts.config] - config object (for timezone, channel ID)
    */
-  constructor(client, opts = {}) {
+  constructor(client: any, opts: any = {}) {
     this._client = client;
     this._db = opts.db || null;
     this._logWatcher = opts.logWatcher || null;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     this._config = opts.config || require('../config');
     this._log = createLogger(opts.label, 'MILESTONES');
     this._locale = getLocale({ serverConfig: this._config });
@@ -130,7 +135,7 @@ class MilestoneTracker {
    *
    * @param {object} [syncResult] - SaveService sync result (unused, we read DB directly)
    */
-  async check(_syncResult) {
+  async check(_syncResult: any) {
     if (!this._db) return;
     this._lastCheckCount = 0;
 
@@ -189,14 +194,14 @@ class MilestoneTracker {
 
       // Post queued embeds
       await this._flushEmbeds();
-    } catch (err) {
+    } catch (err: any) {
       this._log.error('Check error:', err.message);
     }
   }
 
   // ── Kill milestones ────────────────────────────────────────
 
-  _checkKills(steamId, name, kills) {
+  _checkKills(steamId: any, name: any, kills: any) {
     if (!kills || kills <= 0) return false;
     let changed = false;
     if (!this._state.kills[steamId]) this._state.kills[steamId] = [];
@@ -221,7 +226,7 @@ class MilestoneTracker {
 
   // ── Playtime milestones ────────────────────────────────────
 
-  _checkPlaytime(steamId, name, playtimeMs) {
+  _checkPlaytime(steamId: any, name: any, playtimeMs: any) {
     if (!playtimeMs || playtimeMs <= 0) return false;
     let changed = false;
     if (!this._state.playtime[steamId]) this._state.playtime[steamId] = [];
@@ -246,7 +251,7 @@ class MilestoneTracker {
 
   // ── Survival streak milestones ─────────────────────────────
 
-  _checkSurvival(steamId, name, daysSurvived) {
+  _checkSurvival(steamId: any, name: any, daysSurvived: any) {
     if (!daysSurvived || daysSurvived <= 0) return false;
     let changed = false;
     if (!this._state.survival[steamId]) this._state.survival[steamId] = [];
@@ -269,7 +274,7 @@ class MilestoneTracker {
 
   // ── Challenge completions ──────────────────────────────────
 
-  _checkChallenges(steamId, name, player) {
+  _checkChallenges(steamId: any, name: any, player: any) {
     // challenges is a JSON array: [{ name, progress, total }] or similar
     let challenges;
     try {
@@ -303,7 +308,7 @@ class MilestoneTracker {
 
   // ── First-to-unlock milestones ─────────────────────────────
 
-  _checkFirsts(steamId, name, player) {
+  _checkFirsts(_steamId: any, name: any, player: any) {
     let changed = false;
 
     // Professions
@@ -385,7 +390,7 @@ class MilestoneTracker {
    * earn them again on their next life. Called externally by LogWatcher.
    * @param {string} steamId
    */
-  onPlayerDeath(steamId) {
+  onPlayerDeath(steamId: any) {
     if (!steamId) return;
     if (this._state.survival[steamId] && this._state.survival[steamId].length > 0) {
       this._state.survival[steamId] = [];
@@ -395,7 +400,7 @@ class MilestoneTracker {
 
   // ── Embed queueing & posting ───────────────────────────────
 
-  _queueEmbed(description, color, footer) {
+  _queueEmbed(description: any, color: any, footer: any) {
     const embed = new EmbedBuilder().setDescription(description).setColor(color).setTimestamp();
     if (footer) embed.setFooter({ text: footer });
     this._pendingEmbeds.push(embed);
@@ -420,7 +425,7 @@ class MilestoneTracker {
       const batch = embeds.slice(i, i + 10);
       try {
         await target.send({ embeds: batch });
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Failed to post milestones:', err.message);
       }
     }
@@ -472,13 +477,19 @@ class MilestoneTracker {
   clearPending() {
     this._pendingEmbeds = [];
   }
+
+  static KILL_THRESHOLDS = KILL_THRESHOLDS;
+  static PLAYTIME_THRESHOLDS_MS = PLAYTIME_THRESHOLDS_MS;
+  static SURVIVAL_THRESHOLDS = SURVIVAL_THRESHOLDS;
+  static CLAN_MEMBER_THRESHOLDS = CLAN_MEMBER_THRESHOLDS;
+  static STATE_KEY = STATE_KEY;
 }
 
 // Export thresholds for testing
-MilestoneTracker.KILL_THRESHOLDS = KILL_THRESHOLDS;
-MilestoneTracker.PLAYTIME_THRESHOLDS_MS = PLAYTIME_THRESHOLDS_MS;
-MilestoneTracker.SURVIVAL_THRESHOLDS = SURVIVAL_THRESHOLDS;
-MilestoneTracker.CLAN_MEMBER_THRESHOLDS = CLAN_MEMBER_THRESHOLDS;
-MilestoneTracker.STATE_KEY = STATE_KEY;
 
-module.exports = MilestoneTracker;
+export default MilestoneTracker;
+
+const _mod = module as { exports: any };
+
+_mod.exports = MilestoneTracker;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -1,3 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/restrict-plus-operands,
+   @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-non-null-assertion */
+
 /**
  * player-stats-embeds.js — Embed builders for PlayerStatsChannel.
  *
@@ -10,19 +17,17 @@
  *   Clan detail    (ephemeral)  — Summary → Members → Activity
  */
 
-'use strict';
-
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
-const { PERK_MAP } = require('../parsers/save-parser');
-const gameData = require('../parsers/game-data');
-const { cleanItemName: _rawClean, cleanItemArray, isHexGuid } = require('../parsers/ue4-names');
-const { buildScheduleField } = require('../server/server-display');
-const { t, getLocale, fmtDate, fmtTime, fmtNumber } = require('../i18n');
+import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { PERK_MAP } from '../parsers/save-parser.js';
+import * as gameData from '../parsers/game-data.js';
+import { cleanItemName as _rawClean, cleanItemArray, isHexGuid } from '../parsers/ue4-names.js';
+import { buildScheduleField } from '../server/server-display.js';
+import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /** Clean a UE4 item name; returns '' for junk/null/hex GUIDs. */
-function _clean(name) {
+function _clean(name: any) {
   if (!name) return '';
   if (typeof name === 'string' && isHexGuid(name)) return '';
   const c = _rawClean(name);
@@ -30,7 +35,7 @@ function _clean(name) {
 }
 
 /** Format milliseconds → "12h 34m" or "34m". */
-function _fmtTime(ms, locale = 'en') {
+function _fmtTime(ms: any, locale: any = 'en') {
   if (!ms || ms <= 0) {
     return t('discord:player_stats.duration_minutes', locale, {
       minutes: fmtNumber(0, locale),
@@ -50,14 +55,14 @@ function _fmtTime(ms, locale = 'en') {
 }
 
 /** Percentage bar — 10 chars wide. */
-function _bar(value, max) {
+function _bar(value: any, max: any) {
   const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
   const filled = Math.round(pct * 10);
   return '\u2588'.repeat(filled) + '\u2591'.repeat(10 - filled);
 }
 
 /** Percentage string. */
-function _pct(value, max) {
+function _pct(value: any, max: any) {
   if (!max || max <= 0) return '0%';
   return `${Math.round(Math.max(0, Math.min(100, (value / max) * 100)))}%`;
 }
@@ -65,26 +70,30 @@ function _pct(value, max) {
 /** Medal array for leaderboards. */
 const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}', '4\uFE0F\u20E3', '5\uFE0F\u20E3'];
 
-function _tp(locale, key, vars = {}) {
+function _tp(locale: any, key: any, vars: any = {}) {
   return t(`discord:player_stats.${key}`, locale, vars);
 }
 
 // ─── Category enum → name ────────────────────────────────────────
-const _SKILL_CAT = { NewEnumerator0: 'Survival', NewEnumerator1: 'Crafting', NewEnumerator2: 'Combat' };
+const _SKILL_CAT: Record<string, string> = {
+  NewEnumerator0: 'Survival',
+  NewEnumerator1: 'Crafting',
+  NewEnumerator2: 'Combat',
+};
 
 /** Build a lookup: { "Survival": [{ tier, column, name }, ...], ... } from SKILL_DETAILS. */
 function _buildSkillLookup() {
-  const byCategory = {};
+  const byCategory: Record<string, any[]> = {};
   for (const sk of Object.values(gameData.SKILL_DETAILS || {})) {
-    if (!sk.name || sk.levelUnlock < 0) continue; // skip disabled placeholders
-    const cat = sk.category || '';
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push({ tier: sk.tier ?? 0, column: sk.column ?? 0, name: sk.name });
+    if (!sk.name || (sk as any).levelUnlock < 0) continue; // skip disabled placeholders
+    const cat = String(sk.category || '');
+    if (!byCategory[cat as string]) byCategory[cat as string] = [];
+    byCategory[cat]!.push({ tier: (sk as any).tier ?? 0, column: (sk as any).column ?? 0, name: (sk as any).name });
   }
   return byCategory;
 }
 
-let _skillLookupCache = null;
+let _skillLookupCache: Record<string, any[]> | null = null;
 function _getSkillLookup() {
   if (!_skillLookupCache) _skillLookupCache = _buildSkillLookup();
   return _skillLookupCache;
@@ -96,7 +105,7 @@ function _getSkillLookup() {
  * @param {Array|string} raw — skillTree array or JSON string from DB
  * @returns {object|null} { Survival: { unlocked, total, names }, Crafting: ..., Combat: ... }
  */
-function _parseSkillTree(raw) {
+function _parseSkillTree(raw: any) {
   if (!raw) return null;
   let tree = raw;
   if (typeof raw === 'string') {
@@ -109,7 +118,7 @@ function _parseSkillTree(raw) {
   if (!Array.isArray(tree) || tree.length === 0) return null;
 
   const lookup = _getSkillLookup();
-  const result = {};
+  const result: Record<string, any> = {};
 
   for (const node of tree) {
     if (!node || typeof node !== 'object') continue;
@@ -135,7 +144,7 @@ function _parseSkillTree(raw) {
         const prog = node.unlockProgress[col];
         if (prog && typeof prog === 'object' && prog.x >= prog.y && prog.y > 0) {
           result[cat].unlocked++;
-          const skill = catSkills.find((s) => s.tier === tier && s.column === col);
+          const skill = catSkills.find((s: any) => s.tier === tier && s.column === col);
           if (skill) result[cat].names.push(skill.name);
         }
       }
@@ -152,7 +161,7 @@ function _parseSkillTree(raw) {
         const prog = node.unlockProgress[0];
         if (prog && typeof prog === 'object' && prog.x >= prog.y && prog.y > 0) {
           result[cat].unlocked++;
-          const skill = catSkills.find((s) => s.tier === tier && s.column === col);
+          const skill = catSkills.find((s: any) => s.tier === tier && s.column === col);
           if (skill) result[cat].names.push(skill.name);
         }
       }
@@ -160,7 +169,7 @@ function _parseSkillTree(raw) {
   }
 
   // Only return if any data was found
-  const hasData = Object.values(result).some((r) => r.unlocked > 0 || r.total > 0);
+  const hasData = Object.values(result).some((r: any) => r.unlocked > 0 || r.total > 0);
   return hasData ? result : null;
 }
 
@@ -174,7 +183,7 @@ function _parseSkillTree(raw) {
 //    4. Weekly highlights
 // ═════════════════════════════════════════════════════════════════════
 
-function _buildOverviewEmbed() {
+function _buildOverviewEmbed(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` — ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
@@ -195,10 +204,10 @@ function _buildOverviewEmbed() {
   // │  2. SERVER QUICK STATS                                      │
   // └──────────────────────────────────────────────────────────────┘
   const roster = this._buildRoster();
-  const players = Array.from(roster.values());
-  const onlineCount = players.filter((p) => p.online).length;
-  const totalKills = players.reduce((s, p) => s + p.kills, 0);
-  const totalDeaths = players.reduce((s, p) => s + p.deaths, 0);
+  const players: any[] = Array.from(roster.values());
+  const onlineCount = players.filter((p: any) => p.online).length;
+  const totalKills = players.reduce((s: any, p: any) => s + p.kills, 0);
+  const totalDeaths = players.reduce((s: any, p: any) => s + p.deaths, 0);
 
   const descLines = [
     _tp(locale, 'overview_online_summary', {
@@ -218,8 +227,8 @@ function _buildOverviewEmbed() {
 
   // Top Killers
   const topKillers = players
-    .filter((p) => p.kills > 0)
-    .sort((a, b) => b.kills - a.kills)
+    .filter((p: any) => p.kills > 0)
+    .sort((a: any, b: any) => b.kills - a.kills)
     .slice(0, 5);
   if (topKillers.length > 0) {
     const lines = topKillers.map((p, i) => `${MEDALS[i]} **${p.name}** \u2014 ${fmtNumber(p.kills, locale)}`);
@@ -228,8 +237,8 @@ function _buildOverviewEmbed() {
 
   // Top Playtime
   const topPlaytime = players
-    .filter((p) => p.playtime > 0)
-    .sort((a, b) => b.playtime - a.playtime)
+    .filter((p: any) => p.playtime > 0)
+    .sort((a: any, b: any) => b.playtime - a.playtime)
     .slice(0, 5);
   if (topPlaytime.length > 0) {
     const lines = topPlaytime.map((p, i) => `${MEDALS[i]} **${p.name}** \u2014 ${_fmtTime(p.playtime, locale)}`);
@@ -238,8 +247,8 @@ function _buildOverviewEmbed() {
 
   // Top Survivors
   const topSurvivors = players
-    .filter((p) => p.daysSurvived > 0)
-    .sort((a, b) => b.daysSurvived - a.daysSurvived)
+    .filter((p: any) => p.daysSurvived > 0)
+    .sort((a: any, b: any) => b.daysSurvived - a.daysSurvived)
     .slice(0, 5);
   if (topSurvivors.length > 0) {
     const lines = topSurvivors.map(
@@ -254,7 +263,7 @@ function _buildOverviewEmbed() {
   // └──────────────────────────────────────────────────────────────┘
 
   const funLines = [];
-  const mostBitten = players.filter((p) => p.bitten > 0).sort((a, b) => b.bitten - a.bitten)[0];
+  const mostBitten = players.filter((p: any) => p.bitten > 0).sort((a: any, b: any) => b.bitten - a.bitten)[0];
   if (mostBitten) {
     funLines.push(
       _tp(locale, 'fun_most_bitten', {
@@ -263,7 +272,9 @@ function _buildOverviewEmbed() {
       }),
     );
   }
-  const topFisher = players.filter((p) => p.fishCaught > 0).sort((a, b) => b.fishCaught - a.fishCaught)[0];
+  const topFisher = players
+    .filter((p: any) => p.fishCaught > 0)
+    .sort((a: any, b: any) => b.fishCaught - a.fishCaught)[0];
   if (topFisher) {
     funLines.push(
       _tp(locale, 'fun_top_angler', {
@@ -272,7 +283,7 @@ function _buildOverviewEmbed() {
       }),
     );
   }
-  const topPvP = players.filter((p) => p.pvpKills > 0).sort((a, b) => b.pvpKills - a.pvpKills)[0];
+  const topPvP = players.filter((p: any) => p.pvpKills > 0).sort((a: any, b: any) => b.pvpKills - a.pvpKills)[0];
   if (topPvP) {
     funLines.push(
       _tp(locale, 'fun_pvp_leader', {
@@ -332,7 +343,7 @@ function _buildOverviewEmbed() {
  * Cached for 5 seconds to avoid duplicate work when _buildOverviewEmbed()
  * and _buildPlayerRow() both call this in the same render cycle.
  */
-function _buildRoster() {
+function _buildRoster(this: any) {
   const now = Date.now();
   if (this._cachedRoster && this._rosterCacheTime && now - this._rosterCacheTime < 5000) {
     return this._cachedRoster;
@@ -414,18 +425,18 @@ function _buildRoster() {
 //  _buildPlayerRow — Player select menu
 // ═════════════════════════════════════════════════════════════════════
 
-function _buildPlayerRow() {
+function _buildPlayerRow(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   const roster = this._buildRoster();
-  const players = Array.from(roster.entries()).map(([sid, p]) => ({ steamId: sid, ...p }));
+  const players = (Array.from(roster.entries()) as [any, any][]).map(([sid, p]) => ({ steamId: sid, ...p }));
 
-  players.sort((a, b) => {
+  players.sort((a: any, b: any) => {
     if (a.online !== b.online) return a.online ? -1 : 1;
     if (b.kills !== a.kills) return b.kills - a.kills;
     return a.name.localeCompare(b.name);
   });
 
-  const options = players.slice(0, 25).map((p) => {
+  const options = players.slice(0, 25).map((p: any) => {
     const status = p.online ? '\uD83D\uDFE2 ' : '';
     const desc = _tp(locale, 'player_option_description', {
       kills: fmtNumber(p.kills, locale),
@@ -455,7 +466,7 @@ function _buildPlayerRow() {
 //  _buildClanRow — Clan select menu
 // ═════════════════════════════════════════════════════════════════════
 
-function _buildClanRow() {
+function _buildClanRow(this: any) {
   const locale = getLocale({ serverConfig: this._config });
   if (!this._clanData || this._clanData.length === 0) return [];
 
@@ -499,9 +510,9 @@ function _buildClanRow() {
 //  Layout: Aggregate stats → Member roster → Recent activity
 // ═════════════════════════════════════════════════════════════════════
 
-function buildClanEmbed(clanName) {
+function buildClanEmbed(this: any, clanName: any) {
   const clan = Array.isArray(this._clanData)
-    ? this._clanData.find((c) => c.name === clanName)
+    ? this._clanData.find((c: any) => c.name === clanName)
     : this._clanData?.get?.(clanName);
   if (!clan) return null;
 
@@ -528,7 +539,7 @@ function buildClanEmbed(clanName) {
     const save = sid ? this._saveData?.get(sid) : null;
     const at = sid ? this.getAllTimeKills(sid) : null;
     const kills = at?.zeeksKilled || 0;
-    const logEntry = sid ? allLog.find((l) => l.id === sid) : null;
+    const logEntry = sid ? allLog.find((l: any) => l.id === sid) : null;
     const deaths = logEntry?.deaths || 0;
     const days = save?.daysSurvived || 0;
     const pt = sid ? this._playtime.getPlaytime(sid) : null;
@@ -586,7 +597,7 @@ function buildClanEmbed(clanName) {
   for (const m of members) {
     const sid = m.steamId || m.steam_id;
     const name = m.name || sid;
-    const logEntry = allLog.find((l) => l.id === sid || l.name === name);
+    const logEntry = allLog.find((l: any) => l.id === sid || l.name === name);
     if (logEntry?.lastEvent) {
       const d = new Date(logEntry.lastEvent);
       const dateStr = fmtDate(d, locale);
@@ -622,7 +633,7 @@ function buildClanEmbed(clanName) {
 //    - Admin-gated data respects canShow() toggles
 // ═════════════════════════════════════════════════════════════════════
 
-function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
+function buildFullPlayerEmbed(this: any, steamId: any, { isAdmin = false } = {}) {
   const resolved = this._resolvePlayer(steamId);
   const log = resolved.log;
   const save = resolved.save;
@@ -633,7 +644,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   const embed = new EmbedBuilder().setColor(0x5865f2).setTimestamp();
 
   // Random loading tip for footer
-  const tips = gameData.LOADING_TIPS.filter((t) => t.length > 20 && t.length < 120);
+  const tips = gameData.LOADING_TIPS.filter((t: any) => t.length > 20 && t.length < 120);
   const tip = tips.length > 0 ? tips[Math.floor(Math.random() * tips.length)] : null;
   embed.setFooter({ text: tip ? `\uD83D\uDCA1 ${tip}` : _tp(locale, 'player_stats_footer') });
 
@@ -705,7 +716,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
   // Name history (compact)
   if (log?.nameHistory?.length > 0) {
-    desc.push(_tp(locale, 'aka_names', { names: log.nameHistory.map((h) => h.name).join(', ') }));
+    desc.push(_tp(locale, 'aka_names', { names: log.nameHistory.map((h: any) => h.name).join(', ') }));
   }
 
   if (desc.length > 0) embed.setDescription(desc.join('\n'));
@@ -732,8 +743,8 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
     const killLines = [];
     for (const [emoji, labelKey, key] of killTypes) {
-      const allTime = at?.[key] || 0;
-      const life = cl?.[key] || 0;
+      const allTime = (at as any)?.[key as string] || 0;
+      const life = (cl as any)?.[key as string] || 0;
       if (allTime <= 0 && life <= 0) continue;
       const label = _tp(locale, labelKey);
       if (hasExt && life > 0 && life !== allTime) {
@@ -878,8 +889,8 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   // └──────────────────────────────────────────────────────────────┘
 
   if (this._config.canShow('showInventory', isAdmin) && save) {
-    const notEmpty = (i) => i?.item && !/^empty$/i.test(i.item) && !/^empty$/i.test(_clean(i.item));
-    const fmtItem = (i) => {
+    const notEmpty = (i: any) => i?.item && !/^empty$/i.test(i.item) && !/^empty$/i.test(_clean(i.item));
+    const fmtItem = (i: any) => {
       const name = _clean(i.item);
       if (!name) return '';
       const amt = i.amount > 1 ? ` \u00D7${i.amount}` : '';
@@ -933,9 +944,9 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   if (log) {
     const dmgEntries = Object.entries(log.damageTaken || {});
     if (dmgEntries.length > 0) {
-      const sorted = dmgEntries.sort((a, b) => b[1] - a[1]);
-      const total = sorted.reduce((s, [, c]) => s + c, 0);
-      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+      const sorted = dmgEntries.sort((a: any, b: any) => b[1] - a[1]);
+      const total = sorted.reduce((s: any, [, c]: any) => s + c, 0);
+      const lines = sorted.slice(0, 4).map(([src, c]: [any, any]) => `${src}: **${fmtNumber(c, locale)}**`);
       if (sorted.length > 4) {
         lines.push(_tp(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
       }
@@ -948,8 +959,8 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 
     const killEntries = Object.entries(log.killedBy || {});
     if (killEntries.length > 0) {
-      const sorted = killEntries.sort((a, b) => b[1] - a[1]);
-      const lines = sorted.slice(0, 4).map(([src, c]) => `${src}: **${fmtNumber(c, locale)}**`);
+      const sorted = killEntries.sort((a: any, b: any) => b[1] - a[1]);
+      const lines = sorted.slice(0, 4).map(([src, c]: [any, any]) => `${src}: **${fmtNumber(c, locale)}**`);
       if (sorted.length > 4) {
         lines.push(_tp(locale, 'list_more_count', { count: fmtNumber(sorted.length - 4, locale) }));
       }
@@ -982,8 +993,8 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   // Unlocked professions
   if (save?.unlockedProfessions?.length > 1) {
     const profNames = save.unlockedProfessions
-      .filter((p) => typeof p === 'string')
-      .map((p) => PERK_MAP[p] || _clean(p))
+      .filter((p: any) => typeof p === 'string')
+      .map((p: any) => PERK_MAP[p] || _clean(p))
       .filter(Boolean);
     if (profNames.length > 0) {
       embed.addFields({ name: _tp(locale, 'professions'), value: profNames.join(', '), inline: true });
@@ -994,8 +1005,12 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   if (save) {
     const tree = _parseSkillTree(save.skillsData || save.skillTree);
     if (tree) {
-      const catEmoji = { Survival: '\uD83C\uDF3F', Crafting: '\uD83D\uDD27', Combat: '\u2694\uFE0F' };
-      const catLabel = {
+      const catEmoji: Record<string, string> = {
+        Survival: '\uD83C\uDF3F',
+        Crafting: '\uD83D\uDD27',
+        Combat: '\u2694\uFE0F',
+      };
+      const catLabel: Record<string, string> = {
         Survival: _tp(locale, 'skill_category_survival'),
         Crafting: _tp(locale, 'skill_category_crafting'),
         Combat: _tp(locale, 'skill_category_combat'),
@@ -1236,7 +1251,7 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
   // Anti-cheat flags (admin only)
   if (isAdmin && log?.cheatFlags?.length > 0) {
     const flags = log.cheatFlags.slice(-3);
-    const lines = flags.map((f) => {
+    const lines = flags.map((f: any) => {
       const d = new Date(f.timestamp);
       return `${fmtDate(d, locale)} \u2014 \`${f.type}\``;
     });
@@ -1250,7 +1265,12 @@ function buildFullPlayerEmbed(steamId, { isAdmin = false } = {}) {
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────
-module.exports = {
+
+export { _buildOverviewEmbed, _buildRoster, _buildPlayerRow, _buildClanRow, buildClanEmbed, buildFullPlayerEmbed };
+
+const _mod = module as { exports: any };
+
+_mod.exports = {
   _buildOverviewEmbed,
   _buildRoster,
   _buildPlayerRow,
@@ -1258,3 +1278,4 @@ module.exports = {
   buildClanEmbed,
   buildFullPlayerEmbed,
 };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */
