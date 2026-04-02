@@ -37,7 +37,7 @@ const ENV_CATEGORIES = [
     label: 'Server & Identity',
     emoji: '🏷️',
     group: 1,
-    description: 'Server name, panel channel, editor toggles (restart)',
+    description: 'Server name, editor toggles (restart)',
     restart: true,
     fields: [
       { env: 'SERVER_NAME', label: 'Server Display Name', cfg: 'serverName' },

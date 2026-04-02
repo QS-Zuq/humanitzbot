@@ -18,12 +18,15 @@
  * @param {string}   [opts.fallbackChannelId]
  */
 async function postAdminAlert(client, embed, opts = {}) {
-  const channelIds =
-    opts.adminAlertChannelIds?.length > 0
-      ? opts.adminAlertChannelIds
-      : opts.fallbackChannelId
-        ? [opts.fallbackChannelId]
-        : [];
+  // Normalize: if adminAlertChannelIds is a string (e.g. from DB live-apply), split into array
+  let alertIds = opts.adminAlertChannelIds;
+  if (typeof alertIds === 'string') {
+    alertIds = alertIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  const channelIds = alertIds?.length > 0 ? alertIds : opts.fallbackChannelId ? [opts.fallbackChannelId] : [];
 
   if (channelIds.length === 0) {
     console.warn('[ADMIN-ALERT] No alert channels configured — embed discarded. Set ADMIN_ALERT_CHANNEL_IDS in .env');

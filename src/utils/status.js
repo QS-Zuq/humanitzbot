@@ -267,7 +267,7 @@ function createBotStatusManager(client, opts = {}) {
     if (_isModuleActive(moduleStatus, 'WebMap') || getWebMapEnabled()) {
       features.push({ type: ActivityType.Watching, name: 'Live Map & Timeline' });
     }
-    if (isOn('Panel', panelApi.available)) {
+    if (isOn('Panel', _isModuleActive(moduleStatus, 'Panel') || panelApi.available)) {
       features.push({ type: ActivityType.Playing, name: '/qspanel Controls' });
     }
     if (isOn('Status Channels', config.enableStatusChannels)) {

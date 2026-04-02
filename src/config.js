@@ -125,7 +125,6 @@ const config = {
   adminChannelId: process.env.ADMIN_CHANNEL_ID,
   chatChannelId: process.env.CHAT_CHANNEL_ID || '', // defaults to adminChannelId if empty
   serverStatusChannelId: process.env.SERVER_STATUS_CHANNEL_ID,
-
   adminUserIds: (process.env.ADMIN_USER_IDS || '')
     .split(',')
     .map((s) => s.trim())

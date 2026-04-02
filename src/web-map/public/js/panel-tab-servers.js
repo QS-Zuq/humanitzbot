@@ -289,6 +289,13 @@ Panel.tabs = Panel.tabs || {};
           method: 'POST',
         });
       }
+      if (!r.ok) {
+        var errData = await r.json().catch(function () {
+          return {};
+        });
+        showToast(t('toast_action_fail', { error: errData.error || r.status }));
+        return;
+      }
       var d = await r.json();
       if (d.ok) {
         showToast(t('toast_' + action + '_ok'));
@@ -1213,7 +1220,7 @@ Panel.tabs = Panel.tabs || {};
       body.textContent = '';
       body.appendChild(wrapper);
     } catch (err) {
-      body.textContent = 'Failed to load: ' + err.message;
+      body.textContent = t('modal_load_fail', { error: err.message });
       return;
     }
 
@@ -1221,7 +1228,7 @@ Panel.tabs = Panel.tabs || {};
       var textarea = modal.querySelector('#srv-wm-textarea');
       var content = textarea ? textarea.value : '';
       if (content.length > 4000) {
-        showToast('Content too long (max 4000 characters).');
+        showToast(t('wm_too_long'));
         return;
       }
       try {
@@ -1233,12 +1240,12 @@ Panel.tabs = Panel.tabs || {};
         var d = await r.json();
         if (d.ok) {
           removeModal();
-          showToast('Welcome message saved.');
+          showToast(t('wm_toast_saved'));
         } else {
-          showToast('Save failed: ' + (d.error || 'Unknown error'));
+          showToast(t('modal_save_fail', { error: d.error || 'Unknown error' }));
         }
       } catch (saveErr) {
-        showToast('Save failed: ' + saveErr.message);
+        showToast(t('modal_save_fail', { error: saveErr.message }));
       }
     });
   }
@@ -1346,19 +1353,19 @@ Panel.tabs = Panel.tabs || {};
       body.textContent = '';
       body.appendChild(container);
     } catch (err) {
-      body.textContent = 'Failed to load: ' + err.message;
+      body.textContent = t('modal_load_fail', { error: err.message });
       return;
     }
 
     overlay.querySelector('.srv-am-save').addEventListener('click', async function () {
       var payload = {
-        enableWelcomeMsg: !!modal.querySelector('#am-welcome-msg').checked,
-        enableWelcomeFile: !!modal.querySelector('#am-welcome-file').checked,
-        enableAutoMsgLink: !!modal.querySelector('#am-link').checked,
-        enableAutoMsgPromo: !!modal.querySelector('#am-promo').checked,
-        linkText: modal.querySelector('#am-link-text').value,
-        promoText: modal.querySelector('#am-promo-text').value,
-        discordLink: modal.querySelector('#am-discord-link').value,
+        enableWelcomeMsg: !!(modal.querySelector('#am-welcome-msg') || {}).checked,
+        enableWelcomeFile: !!(modal.querySelector('#am-welcome-file') || {}).checked,
+        enableAutoMsgLink: !!(modal.querySelector('#am-link') || {}).checked,
+        enableAutoMsgPromo: !!(modal.querySelector('#am-promo') || {}).checked,
+        linkText: (modal.querySelector('#am-link-text') || {}).value || '',
+        promoText: (modal.querySelector('#am-promo-text') || {}).value || '',
+        discordLink: (modal.querySelector('#am-discord-link') || {}).value || '',
       };
       try {
         var r = await apiFetch('/api/panel/servers/' + encodeURIComponent(serverId) + '/auto-messages', {
@@ -1369,12 +1376,12 @@ Panel.tabs = Panel.tabs || {};
         var d = await r.json();
         if (d.ok) {
           removeModal();
-          showToast('Auto-messages saved. Restart required to apply changes.');
+          showToast(t('am_toast_saved'));
         } else {
-          showToast('Save failed: ' + (d.error || 'Unknown error'));
+          showToast(t('modal_save_fail', { error: d.error || 'Unknown error' }));
         }
       } catch (saveErr) {
-        showToast('Save failed: ' + saveErr.message);
+        showToast(t('modal_save_fail', { error: saveErr.message }));
       }
     });
   }

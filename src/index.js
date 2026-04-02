@@ -1085,7 +1085,13 @@ client.once(Events.ClientReady, async (readyClient) => {
     }
 
     // Clean previous lifecycle embeds from admin alert channels
-    const alertIds = config.adminAlertChannelIds?.length > 0 ? config.adminAlertChannelIds : [];
+    let alertIds = config.adminAlertChannelIds;
+    if (typeof alertIds === 'string')
+      alertIds = alertIds
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (!alertIds?.length) alertIds = config.adminChannelId ? [config.adminChannelId] : [];
     for (const chId of alertIds) {
       try {
         const ch = await readyClient.channels.fetch(chId);
@@ -1119,6 +1125,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       .setTimestamp();
     await postAdminAlert(readyClient, onlineEmbed, {
       adminAlertChannelIds: config.adminAlertChannelIds,
+      fallbackChannelId: config.adminChannelId,
     });
   } catch (err) {
     console.error('[BOT] Failed to post online notification:', err.message);
@@ -1288,7 +1295,10 @@ async function shutdown(reason = 'Manual shutdown') {
       .setTimestamp();
 
     await Promise.race([
-      postAdminAlert(client, embed, { adminAlertChannelIds: config.adminAlertChannelIds }),
+      postAdminAlert(client, embed, {
+        adminAlertChannelIds: config.adminAlertChannelIds,
+        fallbackChannelId: config.adminChannelId,
+      }),
       new Promise((resolve) => setTimeout(resolve, 5000)),
     ]);
   } catch (err) {
@@ -1354,6 +1364,7 @@ async function _postErrorEmbed(title, err) {
       .setTimestamp();
     await postAdminAlert(client, embed, {
       adminAlertChannelIds: config.adminAlertChannelIds,
+      fallbackChannelId: config.adminChannelId,
     });
   } catch (embedErr) {
     console.warn('[BOT] Failed to post error embed:', embedErr.message);

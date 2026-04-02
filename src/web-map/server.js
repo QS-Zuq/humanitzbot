@@ -2671,7 +2671,6 @@ class WebMapServer {
       SFTP_PASSWORD: { jsonPath: 'sftp.password', sensitive: true },
       SFTP_PRIVATE_KEY_PATH: { jsonPath: 'sftp.privateKeyPath', sensitive: true },
       // Channels
-
       SERVER_STATUS_CHANNEL_ID: { jsonPath: 'channels.serverStatus' },
       PLAYER_STATS_CHANNEL_ID: { jsonPath: 'channels.playerStats' },
       CHAT_CHANNEL_ID: { jsonPath: 'channels.chat' },
@@ -4053,8 +4052,11 @@ class WebMapServer {
           return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
         }
         const scope = 'server:' + id;
-        const serverData = configRepo.get(scope);
-        const stored = serverData?.autoMessages || null;
+        if (id !== 'primary' && !configRepo.get(scope)) {
+          return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+        }
+        const serverData = configRepo.get(scope) || {};
+        const stored = serverData.autoMessages || null;
         const data = Object.assign({}, defaults, stored || {});
         sendOk(res, data);
       } catch (err) {
@@ -4090,6 +4092,9 @@ class WebMapServer {
           return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
         }
         const scope = 'server:' + id;
+        if (id !== 'primary' && !configRepo.get(scope)) {
+          return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+        }
         configRepo.update(scope, { autoMessages: data });
         sendOk(res, { saved: true, requiresRestart: true });
       } catch (err) {
