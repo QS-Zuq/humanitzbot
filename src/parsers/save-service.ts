@@ -1255,6 +1255,7 @@ class SaveService extends EventEmitter {
   }
 }
 
+export default SaveService;
 export { SaveService };
 
 // CJS compatibility — .js consumers use require('./save-service')

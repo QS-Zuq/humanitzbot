@@ -270,6 +270,7 @@ class AnticheatIntegration {
   }
 }
 
+export default AnticheatIntegration;
 export { AnticheatIntegration };
 
 const _mod = module as { exports: any };

@@ -1076,6 +1076,7 @@ class MultiServerManager {
   }
 }
 
+export default MultiServerManager;
 export {
   MultiServerManager,
   ServerInstance,

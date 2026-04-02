@@ -5148,6 +5148,7 @@ function _cleanInventorySlots(slots: any[]): any[] {
   });
 }
 
+export default WebMapServer;
 export { WebMapServer };
 
 const _mod = module as { exports: any };

@@ -1096,6 +1096,7 @@ function _resolveUdsWeather(enumValue: any) {
 
 Object.assign(PlayerStatsChannel.prototype, require('./player-stats-embeds'));
 
+export default PlayerStatsChannel;
 export { PlayerStatsChannel };
 
 export { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave };

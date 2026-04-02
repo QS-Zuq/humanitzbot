@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/restrict-template-expressions */
 import 'dotenv/config';
 
 import { REST, Routes } from 'discord.js';
@@ -35,7 +34,7 @@ const rest = new REST({ version: '10' }).setToken(token);
 
 void (async () => {
   try {
-    console.log(`[DEPLOY] Registering ${commands.length} slash commands...`);
+    console.log(`[DEPLOY] Registering ${String(commands.length)} slash commands...`);
 
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
 

@@ -584,6 +584,8 @@ export class SnapshotService {
   }
 }
 
+export default SnapshotService;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _mod = module as { exports: any };
 _mod.exports = SnapshotService;

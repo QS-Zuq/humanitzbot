@@ -574,6 +574,7 @@ class RecapService {
   static STATE_KEY = STATE_KEY;
 }
 
+export default RecapService;
 export { RecapService };
 
 const _mod = module as { exports: any };

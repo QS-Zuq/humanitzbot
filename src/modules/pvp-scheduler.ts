@@ -676,6 +676,7 @@ class PvpScheduler {
   }
 }
 
+export default PvpScheduler;
 export { PvpScheduler };
 
 const _mod = module as { exports: any };

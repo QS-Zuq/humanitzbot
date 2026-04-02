@@ -387,6 +387,7 @@ function createPanelApi(opts?: { serverUrl?: string; apiKey?: string }): PanelAp
 // ── Exports ─────────────────────────────────────────────────
 
 const instance = new PanelApi();
+export default instance;
 
 export { PanelApi, createPanelApi };
 

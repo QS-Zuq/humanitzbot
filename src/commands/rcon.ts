@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const rcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
 import { t, getLocalizations } from '../i18n/index.js';
 

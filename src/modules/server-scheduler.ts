@@ -693,6 +693,7 @@ class ServerScheduler {
   }
 }
 
+export default ServerScheduler;
 export { ServerScheduler };
 
 const _mod = module as { exports: any };

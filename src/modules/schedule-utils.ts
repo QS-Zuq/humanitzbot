@@ -1,8 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-non-null-assertion */
-
 /**
  * Shared utilities for the server scheduler's daily rotation feature.
  *
@@ -23,17 +18,17 @@
  * @param {Date}   [now]     Optional date (defaults to new Date())
  * @returns {number} 0-based day of year
  */
-function getDayOfYear(timezone: any, now?: any) {
-  const d = now || new Date();
+function getDayOfYear(timezone: string, now?: Date) {
+  const d = now ?? new Date();
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(d);
-  const year = parseInt(parts.find((p: any) => p.type === 'year')!.value, 10);
-  const month = parseInt(parts.find((p: any) => p.type === 'month')!.value, 10);
-  const day = parseInt(parts.find((p: any) => p.type === 'day')!.value, 10);
+  const year = parseInt(parts.find((p) => p.type === 'year')?.value ?? '0', 10);
+  const month = parseInt(parts.find((p) => p.type === 'month')?.value ?? '1', 10);
+  const day = parseInt(parts.find((p) => p.type === 'day')?.value ?? '1', 10);
   const jan1 = new Date(year, 0, 1);
   const target = new Date(year, month - 1, day);
   return Math.floor((target.getTime() - jan1.getTime()) / 86400000);
@@ -47,7 +42,7 @@ function getDayOfYear(timezone: any, now?: any) {
  * @param {Date}   [now]         Optional date
  * @returns {number} Offset to add to time-slot index (0 when rotation is off)
  */
-function getDayOffset(timezone: any, profileCount: any, rotateDaily: any, now?: any) {
+function getDayOffset(timezone: string, profileCount: number, rotateDaily: boolean, now?: Date) {
   if (!rotateDaily || profileCount <= 1) return 0;
   return getDayOfYear(timezone, now) % profileCount;
 }
@@ -59,7 +54,7 @@ function getDayOffset(timezone: any, profileCount: any, rotateDaily: any, now?: 
  * @param {number} dayOffset      From getDayOffset()
  * @returns {number} Profile index to use
  */
-function getRotatedProfileIndex(timeSlotIndex: any, profileCount: any, dayOffset: any) {
+function getRotatedProfileIndex(timeSlotIndex: number, profileCount: number, dayOffset: number) {
   return (timeSlotIndex + dayOffset) % profileCount;
 }
 
@@ -71,10 +66,10 @@ function getRotatedProfileIndex(timeSlotIndex: any, profileCount: any, dayOffset
  * @param {number}   dayOffset From getDayOffset()
  * @returns {Array<{slotIndex: number, profileIndex: number, profileName: string, startTime: string, endTime: string}>}
  */
-function getTodaySchedule(times: any, profiles: any, dayOffset: any) {
-  return times.map((startTime: any, slotIndex: any) => {
+function getTodaySchedule(times: string[], profiles: string[], dayOffset: number) {
+  return times.map((startTime, slotIndex) => {
     const profileIndex = getRotatedProfileIndex(slotIndex, profiles.length, dayOffset);
-    const endTime = times[(slotIndex + 1) % times.length] || times[0];
+    const endTime = times[(slotIndex + 1) % times.length] ?? times[0];
     return {
       slotIndex,
       profileIndex,
@@ -93,10 +88,10 @@ function getTodaySchedule(times: any, profiles: any, dayOffset: any) {
  * @param {number}   dayOffset   From getDayOffset()
  * @returns {number} Rotated profile index
  */
-function getActiveProfileIndex(timeMins: any, nowMin: any, profileCount: any, dayOffset: any) {
+function getActiveProfileIndex(timeMins: number[], nowMin: number, profileCount: number, dayOffset: number) {
   let slotIndex = 0;
   for (let i = timeMins.length - 1; i >= 0; i--) {
-    if (nowMin >= timeMins[i]) {
+    if (nowMin >= (timeMins[i] ?? 0)) {
       slotIndex = i;
       break;
     }

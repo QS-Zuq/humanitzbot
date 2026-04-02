@@ -487,6 +487,7 @@ class MilestoneTracker {
 
 // Export thresholds for testing
 
+export default MilestoneTracker;
 export { MilestoneTracker };
 
 const _mod = module as { exports: any };

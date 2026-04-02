@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/restrict-template-expressions,
-   @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-type-assertion */
-
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/no-misused-promises, @typescript-eslint/no-confusing-void-expression,
+   @typescript-eslint/no-non-null-assertion */
+// NOTE: This orchestration file wires 20+ modules together; many have untyped interfaces.
+// The unsafe-* + no-explicit-any rules are disabled file-wide while module types are tightened.
+// Removed from original blanket disable: no-require-imports, no-unsafe-return,
+// no-unsafe-argument, no-floating-promises, use-unknown-in-catch-callback-variable.
 import { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilder, MessageFlags } from 'discord.js';
+import type { GuildMember } from 'discord.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from './utils/paths.js';
@@ -17,65 +21,80 @@ const __dirname = getDirname(import.meta.url);
 import { initLogger, shutdownLogger } from './logger/logger.js';
 initLogger();
 
-const config: any = require('./config');
-const { isAdminView } = require('./config') as { isAdminView: (member: any) => boolean };
-const rcon: any = require('./rcon/rcon');
-const { getServerInfo, getPlayerList, sendAdminMessage } = require('./rcon/server-info') as {
-  getServerInfo: () => Promise<any>;
-  getPlayerList: () => Promise<any>;
-  sendAdminMessage: (...args: any[]) => Promise<any>;
-};
-const ChatRelay: any = require('./modules/chat-relay');
-const StatusChannels: any = require('./modules/status-channels');
-const ServerStatus: any = require('./modules/server-status');
-const PlayerPresenceTracker: any = require('./modules/player-presence');
-const AutoMessages: any = require('./modules/auto-messages');
-const LogWatcher: any = require('./modules/log-watcher');
-const playtime: any = require('./tracking/playtime-tracker');
-const playerStats: any = require('./tracking/player-stats');
-const PlayerStatsChannel: any = require('./modules/player-stats-channel');
-const PvpScheduler: any = require('./modules/pvp-scheduler');
-const ServerScheduler: any = require('./modules/server-scheduler');
-const panelApi: any = require('./server/panel-api');
+import config from './config/index.js';
+import { isAdminView as _isAdminViewRaw } from './config/index.js';
+import rcon from './rcon/rcon.js';
+import { getServerInfo, getPlayerList, sendAdminMessage } from './rcon/server-info.js';
+import ChatRelay from './modules/chat-relay.js';
+import StatusChannels from './modules/status-channels.js';
+import ServerStatus from './modules/server-status.js';
+import PlayerPresenceTracker from './modules/player-presence.js';
+import AutoMessages from './modules/auto-messages.js';
+import LogWatcher from './modules/log-watcher.js';
+import playtime from './tracking/playtime-tracker.js';
+import playerStats from './tracking/player-stats.js';
+import PlayerStatsChannel from './modules/player-stats-channel.js';
+import PvpScheduler from './modules/pvp-scheduler.js';
+import ServerScheduler from './modules/server-scheduler.js';
+import panelApi from './server/panel-api.js';
+import MultiServerManager from './server/multi-server.js';
+import { postAdminAlert } from './utils/admin-alert.js';
+import ActivityLog from './modules/activity-log.js';
+import MilestoneTracker from './modules/milestone-tracker.js';
+import RecapService from './modules/recap-service.js';
+import HumanitZDB from './db/database.js';
+import SaveService from './parsers/save-service.js';
+import { seed as seedGameReference } from './parsers/game-reference.js';
+import { writeAgent } from './parsers/agent-builder.js';
+import WebMapServer from './web-map/server.js';
+import SnapshotService from './tracking/snapshot-service.js';
+import StdinConsole from './stdin-console.js';
+import { createBotStatusManager } from './utils/status.js';
+import { needsSync, syncEnv, getVersion, getExampleVersion } from './env-sync.js';
+import ConfigRepository from './db/config-repository.js';
+import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from './db/config-migration.js';
+import { loadServers, createServerConfig } from './server/multi-server.js';
+import BotControlService from './server/bot-control.js';
+import { rebuildThreads } from './commands/threads.js';
 
-const MultiServerManager: any = require('./server/multi-server');
-const { postAdminAlert } = require('./utils/admin-alert') as {
-  postAdminAlert: (client: any, embed: any, opts: any) => Promise<void>;
-};
-const ActivityLog: any = require('./modules/activity-log');
-const MilestoneTracker: any = require('./modules/milestone-tracker');
-const RecapService: any = require('./modules/recap-service');
-let AnticheatIntegration: any;
+// Convenience wrapper: the ESM export has 2-arg signature (permissions[], member).
+// The old CJS require() had a 1-arg wrapper that curried config.adminViewPermissions.
+function isAdminView(member: GuildMember | null): boolean {
+  return _isAdminViewRaw(config.adminViewPermissions, member);
+}
+
+// ── Optional modules (may not be installed) ────────────────
+
+let AnticheatIntegration: (new (...args: any[]) => any) | undefined;
 try {
-  AnticheatIntegration = require('./modules/anticheat-integration');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  AnticheatIntegration = require('./modules/anticheat-integration') as typeof AnticheatIntegration;
 } catch {
   /* optional module */
 }
-const HumanitZDB: any = require('./db/database');
-const SaveService: any = require('./parsers/save-service');
-const gameReference: any = require('./parsers/game-reference');
-const { writeAgent } = require('./parsers/agent-builder') as { writeAgent: () => void };
-const WebMapServer: any = require('./web-map/server');
-const SnapshotService: any = require('./tracking/snapshot-service');
-const StdinConsole: any = require('./stdin-console');
-const { createBotStatusManager } = require('./utils/status') as {
-  createBotStatusManager: (client: any, opts?: any) => any;
-};
+
 let hzmodWebPlugin: any;
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   hzmodWebPlugin = require('./modules/howyagarn/web-plugin');
 } catch {
   /* optional module */
 }
-let HowyagarnManager: any;
+
+let HowyagarnManager: (new (...args: any[]) => any) | undefined;
 try {
-  ({ HowyagarnManager } = require('./modules/howyagarn/howyagarn-manager') as { HowyagarnManager: any });
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ({ HowyagarnManager } = require('./modules/howyagarn/howyagarn-manager') as {
+    HowyagarnManager: typeof HowyagarnManager;
+  });
 } catch {
   /* optional module */
 }
-let HzmodIpcClient: any;
+
+let HzmodIpcClient: (new (...args: any[]) => any) | undefined;
 try {
-  HzmodIpcClient = require('./modules/howyagarn/ipc-client');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  HzmodIpcClient = require('./modules/howyagarn/ipc-client') as typeof HzmodIpcClient;
 } catch {
   /* optional module */
 }
@@ -97,10 +116,12 @@ const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith('.js'));
 
 for (const file of commandFiles) {
-  const command: any = require(path.join(commandsPath, file));
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const command: any = require(path.join(commandsPath, file)); // dynamic path — must use require()
   if (command.data && command.execute) {
     (client as any).commands.set(command.data.name, command);
-    console.log(`[BOT] Loaded command: /${command.data.name}`);
+
+    console.log(`[BOT] Loaded command: /${command.data.name as string}`);
   }
 }
 
@@ -110,10 +131,12 @@ for (const entry of fs.readdirSync(commandsPath, { withFileTypes: true })) {
   const subDir = path.join(commandsPath, entry.name);
   const subFiles = fs.readdirSync(subDir).filter((f) => f.endsWith('.js'));
   for (const file of subFiles) {
-    const command: any = require(path.join(subDir, file));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const command: any = require(path.join(subDir, file)); // dynamic path — must use require()
     if (command.data && command.execute) {
       (client as any).commands.set(command.data.name, command);
-      console.log(`[BOT] Loaded command: /${command.data.name} (${entry.name})`);
+
+      console.log(`[BOT] Loaded command: /${command.data.name as string} (${entry.name})`);
     }
   }
 }
@@ -138,8 +161,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     const selectedId = interaction.values[0] ?? '';
-    const isAdmin = isAdminView((interaction as any).member);
-    const embed: any = psc.buildFullPlayerEmbed(selectedId, { isAdmin });
+    const isAdmin = isAdminView(interaction.member as GuildMember | null);
+
+    const embed: EmbedBuilder = psc.buildFullPlayerEmbed(selectedId, { isAdmin }) as EmbedBuilder;
     await interaction.editReply({ embeds: [embed] });
     return;
   }
@@ -162,8 +186,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     const clanName = (interaction.values[0] ?? '').replace(/^clan:/, '');
-    const isAdmin = isAdminView((interaction as any).member);
-    const embed: any = psc.buildClanEmbed(clanName, { isAdmin });
+    const isAdmin = isAdminView(interaction.member as GuildMember | null);
+
+    const embed: EmbedBuilder = psc.buildClanEmbed(clanName, { isAdmin }) as EmbedBuilder;
     await interaction.editReply({ embeds: [embed] });
     return;
   }
@@ -191,33 +216,38 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // ── Bot ready ───────────────────────────────────────────────
-let chatRelay: any;
-let statusChannels: any;
-let serverStatus: any;
-let autoMessages: any;
-let presenceTracker: any;
-let logWatcher: any;
-let playerStatsChannel: any;
-let pvpScheduler: any;
-let serverScheduler: any;
+let chatRelay: InstanceType<typeof ChatRelay> | undefined;
+let statusChannels: InstanceType<typeof StatusChannels> | undefined;
+let serverStatus: InstanceType<typeof ServerStatus> | undefined;
+let autoMessages: InstanceType<typeof AutoMessages> | undefined;
+let presenceTracker: InstanceType<typeof PlayerPresenceTracker> | undefined;
+let logWatcher: InstanceType<typeof LogWatcher> | undefined;
+let playerStatsChannel: InstanceType<typeof PlayerStatsChannel> | undefined;
+let pvpScheduler: InstanceType<typeof PvpScheduler> | undefined;
+let serverScheduler: InstanceType<typeof ServerScheduler> | undefined;
 
-let multiServerManager: any;
-let webMapServer: any; // Web map server instance
+let multiServerManager: InstanceType<typeof MultiServerManager> | undefined;
+let webMapServer: InstanceType<typeof WebMapServer> | undefined;
+
 let hzmodPlugin: any; // Howyagarn web plugin result (for cleanup)
-let db: any; // HumanitZDB instance
-let configRepo: any; // ConfigRepository instance (DB-backed config)
-let saveService: any; // SaveService instance
+let db: InstanceType<typeof HumanitZDB> | undefined;
+let configRepo: InstanceType<typeof ConfigRepository> | undefined;
+let saveService: InstanceType<typeof SaveService> | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
-let snapshotService: any; // SnapshotService — timeline recording
-let activityLog: any; // ActivityLog instance
-let milestoneTracker: any; // MilestoneTracker instance
-let recapService: any; // RecapService instance
+let snapshotService: InstanceType<typeof SnapshotService> | undefined;
+let activityLog: InstanceType<typeof ActivityLog> | undefined;
+let milestoneTracker: InstanceType<typeof MilestoneTracker> | undefined;
+let recapService: InstanceType<typeof RecapService> | undefined;
+
 let anticheatIntegration: any; // AnticheatIntegration instance
+
 let botStatusManager: any; // Discord profile presence/status rotation
+
 let howyagarnManager: any; // HowyagarnManager instance (MMO system)
+
 let hzmodIpc: any; // Shared IPC client for hzmod plugin (used by manager + web plugin)
 // Bot lifecycle embeds (online/offline) go to panel channel — game server status goes to activity thread
-let stdinConsole: any; // interactive stdin console for headless hosts
+let stdinConsole: InstanceType<typeof StdinConsole> | undefined;
 const startedAt = new Date();
 
 const moduleStatus: Record<string, string> = {};
@@ -227,14 +257,22 @@ function setStatus(name: string, status: string): void {
   if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
 }
 
+/** Extract error message from unknown catch variable. */
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
 /** Find a multi-server module by server ID (used for select menu routing). */
+
 function _findMultiServerModuleById(serverId: string, moduleName: string): any {
   if (!multiServerManager) return null;
-  const instance = multiServerManager._instances.get(serverId);
+
+  const instance = (multiServerManager as any)._instances.get(serverId);
+
   return instance?._modules[moduleName] ?? null;
 }
 
@@ -244,17 +282,11 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Auto-sync .env with .env.example on startup
   try {
-    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('./env-sync') as {
-      needsSync: () => boolean;
-      syncEnv: () => { added: number; deprecated: number; updated: number; backupPath?: string };
-      getVersion: () => string;
-      getExampleVersion: () => string;
-    };
     if (needsSync()) {
       const currentVersion = getVersion();
       const exampleVersion = getExampleVersion();
       console.log(`[BOT] .env schema outdated (v${currentVersion} → v${exampleVersion}), syncing...`);
-      const result = syncEnv();
+      const result = syncEnv() as ReturnType<typeof syncEnv> & { backupPath?: string };
       console.log(
         `[BOT] .env synced: ${result.added} added, ${result.deprecated} deprecated, ${result.updated} updated`,
       );
@@ -262,18 +294,19 @@ client.once(Events.ClientReady, async (readyClient) => {
         console.log(`[BOT] Backup saved: ${result.backupPath}`);
       }
     }
-  } catch (err: any) {
-    console.error('[BOT] .env auto-sync failed:', err.message);
+  } catch (err: unknown) {
+    console.error('[BOT] .env auto-sync failed:', errMsg(err));
   }
 
   // Auto-deploy slash commands on startup
   try {
-    const rest = new REST({ version: '10' }).setToken(config.discordToken);
+    const rest = new REST({ version: '10' }).setToken(config.discordToken!);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     const commandData = [...(client as any).commands.values()].map((c: any) => c.data.toJSON());
-    await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commandData });
+    await rest.put(Routes.applicationGuildCommands(config.clientId!, config.guildId!), { body: commandData });
     console.log(`[BOT] Registered ${commandData.length} slash commands with Discord`);
-  } catch (err: any) {
-    console.error('[BOT] Failed to register slash commands:', err.message);
+  } catch (err: unknown) {
+    console.error('[BOT] Failed to register slash commands:', errMsg(err));
   }
 
   console.log('[BOT] Ready!');
@@ -281,23 +314,19 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Initialize SQLite database + seed game reference data
   db = new HumanitZDB();
   db.init();
-  gameReference.seed(db);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+  seedGameReference(db as any);
 
   // ── One-time config migration (.env + servers.json → config_documents) ──
-  const ConfigRepository: any = require('./db/config-repository');
-  configRepo = new ConfigRepository(db);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+  configRepo = new ConfigRepository(db as any);
 
   if (!db.getState('config_migration_done')) {
     try {
-      const { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } = require('./db/config-migration') as {
-        migrateEnvToDb: (env: any, repo: any) => { appKeys: number; serverKeys: number };
-        migrateServersJsonToDb: (defs: any[], repo: any) => number;
-        migrateDisplaySettings: (db: any, repo: any) => number;
-      };
-
       // 1. Migrate .env values → DB (read from process.env, NOT the file —
       //    env-sync may have already commented out non-bootstrap keys)
-      const envResult = migrateEnvToDb(process.env, configRepo);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      const envResult = migrateEnvToDb(process.env as any, configRepo);
 
       // 2. Migrate servers.json → DB (if exists)
       let serverCount = 0;
@@ -306,10 +335,11 @@ client.once(Events.ClientReady, async (readyClient) => {
         try {
           const serverDefs: unknown = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
           if (Array.isArray(serverDefs)) {
-            serverCount = migrateServersJsonToDb(serverDefs, configRepo);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            serverCount = migrateServersJsonToDb(serverDefs as any, configRepo);
           }
-        } catch (parseErr: any) {
-          console.error('[BOT] CRITICAL: servers.json migration failed:', parseErr.message);
+        } catch (parseErr: unknown) {
+          console.error('[BOT] CRITICAL: servers.json migration failed:', errMsg(parseErr));
           throw parseErr; // Prevent marking migration as done
         }
       }
@@ -322,8 +352,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log(
         `[BOT] Config migrated to DB: ${envResult.appKeys} app, ${envResult.serverKeys} server, ${serverCount} managed servers, ${displayCount} display settings`,
       );
-    } catch (err: any) {
-      console.error('[BOT] Config migration failed:', err.message);
+    } catch (err: unknown) {
+      console.error('[BOT] Config migration failed:', errMsg(err));
       // Non-fatal — continue with .env
     }
   }
@@ -342,8 +372,10 @@ client.once(Events.ClientReady, async (readyClient) => {
   playerStats.init();
 
   // Wire DB into singletons for unified identity + stats syncing
-  playerStats.setDb(db);
-  playtime.setDb(db);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+  playerStats.setDb(db as any);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+  playtime.setDb(db as any);
 
   // Periodic flush of active playtime sessions to DB (crash protection)
   playtimeFlushTimer = setInterval(() => {
@@ -358,8 +390,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   if (!config.needsSetup) {
     try {
       await rcon.connect();
-    } catch (err: any) {
-      console.warn(`[BOT] Initial RCON connection failed: ${err.message} — will auto-reconnect`);
+    } catch (err: unknown) {
+      console.warn(`[BOT] Initial RCON connection failed: ${errMsg(err)} — will auto-reconnect`);
     }
   } else {
     console.log('[BOT] RCON not configured — skipping initial connection');
@@ -403,8 +435,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Generate/update the standalone agent script so it's always fresh
   try {
     writeAgent();
-  } catch (err: any) {
-    console.warn('[BOT] Could not generate humanitz-agent.js:', err.message);
+  } catch (err: unknown) {
+    console.warn('[BOT] Could not generate humanitz-agent.js:', errMsg(err));
   }
 
   // ── Web panel — start EARLY so it's reachable while modules initialise ──
@@ -425,9 +457,9 @@ client.once(Events.ClientReady, async (readyClient) => {
         await webMapServer.start();
         setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
         console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
-      } catch (err: any) {
-        setStatus('WebMap', `⚠️ Failed to start: ${err.message}`);
-        console.error('[BOT] Web panel failed to start:', err.message);
+      } catch (err: unknown) {
+        setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);
+        console.error('[BOT] Web panel failed to start:', errMsg(err));
       }
     }
   } else {
@@ -479,8 +511,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     // Also clear per-server message IDs and orphaned server data directories
     const serversDir = path.join(dataDir, 'servers');
     if (fs.existsSync(serversDir)) {
-      const { loadServers } = require('./server/multi-server') as { loadServers: () => Array<{ id: string }> };
-      const knownIds = new Set(loadServers().map((s) => s.id));
+      const knownIds = new Set(loadServers().map((s: { id: string }) => s.id));
       for (const entry of fs.readdirSync(serversDir)) {
         const dir = path.join(serversDir, entry);
         const fp = path.join(dir, 'message-ids.json');
@@ -516,8 +547,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
       fs.writeFileSync(envPath, envContent, 'utf8');
       console.log('[NUKE] NUKE_BOT set to false in .env (prevents repeat nuke on crash)');
-    } catch (err: any) {
-      console.warn('[NUKE] Could not update .env:', err.message);
+    } catch (err: unknown) {
+      console.warn('[NUKE] Could not update .env:', errMsg(err));
     }
 
     console.log('[NUKE] Wiping all bot content from Discord channels...');
@@ -531,10 +562,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     if (config.activityLogChannelId) channelsToClean.add(config.activityLogChannelId);
     // Additional server channels (including any from removed servers still in servers.json)
-    const { loadServers } = require('./server/multi-server') as {
-      loadServers: () => Array<{ channels?: Record<string, string | undefined> }>;
-    };
-    const servers = loadServers();
+    const servers = loadServers() as Array<{ channels?: Record<string, string | undefined> }>;
     for (const sd of servers) {
       if (sd.channels?.['log']) channelsToClean.add(sd.channels['log']);
       if (sd.channels?.['chat']) channelsToClean.add(sd.channels['chat']);
@@ -615,9 +643,9 @@ client.once(Events.ClientReady, async (readyClient) => {
         chatRelay._awaitActivityThread = true;
         logWatcher._dayRolloverCb = async () => {
           try {
-            await chatRelay.createDailyThread();
-          } catch (e: any) {
-            console.warn('[BOT] Day-rollover chat thread error:', e.message);
+            await chatRelay!.createDailyThread();
+          } catch (e: unknown) {
+            console.warn('[BOT] Day-rollover chat thread error:', errMsg(e));
           }
         };
       }
@@ -638,8 +666,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   });
   try {
     await presenceTracker.start();
-  } catch (err: any) {
-    console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
+  } catch (err: unknown) {
+    console.error('[PRESENCE] Failed to start player presence tracker:', errMsg(err));
   }
 
   // Auto-Messages — periodic broadcasts + join welcome
@@ -686,20 +714,22 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
   if (hasSftp() || panelApi.available) {
-    saveService = new SaveService(db, {
-      sftpConfig: hasSftp() ? config.sftpConnectConfig() : null,
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    saveService = new SaveService(db as any, {
+      sftpConfig: hasSftp() ? config.sftpConnectConfig() : undefined,
       savePath: config.sftpSavePath,
       clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
       pollInterval: config.savePollInterval,
-      agentMode: config.agentMode,
+      agentMode: config.agentMode as 'agent' | 'auto' | 'direct' | undefined,
       agentNodePath: config.agentNodePath,
       agentRemoteDir: config.agentRemoteDir,
       agentCachePath: config.agentCachePath,
       agentTimeout: config.agentTimeout,
-      agentTrigger: config.agentTrigger,
+      agentTrigger: config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
       agentPanelCommand: config.agentPanelCommand,
       agentPanelDelay: config.agentPanelDelay,
-      panelApi: panelApi.available ? panelApi : null,
+
+      panelApi: panelApi.available ? (panelApi as any) : undefined,
     });
     saveService.on('sync', (result: any) => {
       console.log(
@@ -707,8 +737,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       );
       // save-cache.json is now written inside SaveService._syncParsedData()
     });
-    saveService.on('error', (err: any) => {
-      console.error('[BOT] Save service error:', err.message);
+    saveService.on('error', (err: unknown) => {
+      console.error('[BOT] Save service error:', errMsg(err));
     });
     await saveService.start();
     if (webMapServer) webMapServer.setSaveService(saveService);
@@ -717,7 +747,8 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     // Wire LogWatcher → SaveService ID map sharing
     if (logWatcher) {
-      logWatcher._onIdMapRefresh = (idMap: any) => saveService.setIdMap(idMap);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      logWatcher._onIdMapRefresh = (idMap: any) => saveService!.setIdMap(idMap);
     }
 
     // ── Snapshot Service — timeline recording on every save sync ──
@@ -733,10 +764,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         // Build online player set from RCON if available
         const onlinePlayers = new Set<string>();
         try {
-          const { getPlayerList: _getPlayerList } = require('./rcon/server-info') as {
-            getPlayerList: () => Promise<any>;
-          };
-          const list: any = await _getPlayerList();
+          const list = await getPlayerList();
           const arr: any[] = list?.players ?? (Array.isArray(list) ? list : []);
           for (const p of arr) {
             if (p.name) onlinePlayers.add(String(p.name).toLowerCase());
@@ -745,7 +773,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           /* RCON unavailable — online player set will be empty for this snapshot */
         }
 
-        snapshotService.recordSnapshot(
+        snapshotService!.recordSnapshot(
           {
             players: result.parsed.players,
             worldState: result.worldState,
@@ -757,8 +785,8 @@ client.once(Events.ClientReady, async (readyClient) => {
           },
           { onlinePlayers },
         );
-      } catch (err: any) {
-        console.error('[BOT] Snapshot recording error:', err.message);
+      } catch (err: unknown) {
+        console.error('[BOT] Snapshot recording error:', errMsg(err));
       }
     });
     setStatus('Timeline', '🟢 Active');
@@ -789,8 +817,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       // Check milestones on every save sync
       if (saveService) {
         saveService.on('sync', (result: any) => {
-          milestoneTracker.check(result).catch((err: any) => {
-            console.error('[BOT] Milestone check error:', err.message);
+          milestoneTracker!.check(result).catch((checkErr: unknown) => {
+            console.error('[BOT] Milestone check error:', errMsg(checkErr));
           });
         });
       }
@@ -800,7 +828,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         logWatcher._onDeath = function (playerName: string, timestamp: string) {
           origOnDeath(playerName, timestamp);
           const steamId = playerStats.getSteamId(playerName);
-          if (steamId) milestoneTracker.onPlayerDeath(steamId);
+          if (steamId) milestoneTracker!.onPlayerDeath(steamId);
         };
       }
       setStatus('Milestones', '🟢 Active');
@@ -821,8 +849,8 @@ client.once(Events.ClientReady, async (readyClient) => {
         const prevCb: (() => Promise<void>) | undefined = logWatcher._dayRolloverCb;
         logWatcher._dayRolloverCb = async () => {
           if (typeof prevCb === 'function') await prevCb();
-          const yesterday: string = recapService._getYesterday();
-          await recapService.onDayRollover(yesterday);
+          const yesterday: string = recapService!._getYesterday() ?? '';
+          await recapService!.onDayRollover(yesterday);
         };
       }
       setStatus('Recaps', '🟢 Active');
@@ -843,8 +871,8 @@ client.once(Events.ClientReady, async (readyClient) => {
         // Wire into save sync for real-time analysis
         if (saveService) {
           saveService.on('sync', (result: any) => {
-            anticheatIntegration.onSaveSync(result).catch((err: any) => {
-              console.error('[BOT] Anticheat save sync error:', err.message);
+            anticheatIntegration.onSaveSync(result).catch((syncErr: unknown) => {
+              console.error('[BOT] Anticheat save sync error:', errMsg(syncErr));
             });
           });
         }
@@ -870,7 +898,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
           hzmodIpc.on('connect', () => console.log('[BOT] hzmod IPC connected'));
           hzmodIpc.on('disconnect', () => console.log('[BOT] hzmod IPC disconnected — will reconnect'));
-          hzmodIpc.on('error', (err: any) => console.error('[BOT] hzmod IPC error:', err.message));
+          hzmodIpc.on('error', (ipcErr: unknown) => console.error('[BOT] hzmod IPC error:', errMsg(ipcErr)));
           hzmodIpc.connect();
           console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
         }
@@ -897,7 +925,8 @@ client.once(Events.ClientReady, async (readyClient) => {
               const playerMap: Map<string, any> =
                 result.parsed.players instanceof Map
                   ? result.parsed.players
-                  : new Map(Object.entries(result.parsed.players ?? {}));
+                  : // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+                    new Map(Object.entries(result.parsed.players ?? {}));
               for (const [steamId, pData] of playerMap) {
                 players.push({
                   steamId,
@@ -913,22 +942,22 @@ client.once(Events.ClientReady, async (readyClient) => {
               }
               const structures: any[] = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
               howyagarnManager.onSaveSync({ players, structures });
-            } catch (err: any) {
-              console.error('[BOT] HOWYAGARN save sync error:', err.message);
+            } catch (err: unknown) {
+              console.error('[BOT] HOWYAGARN save sync error:', errMsg(err));
             }
           });
         }
 
         // Wire log events (PvP deaths, builds, looting)
         if (logWatcher) {
-          const origLogEvent = logWatcher._logEvent?.bind(logWatcher);
+          const origLogEvent = (logWatcher as any)._logEvent?.bind(logWatcher);
           if (origLogEvent) {
-            logWatcher._logEvent = function (type: string, data: any) {
+            (logWatcher as any)._logEvent = function (type: string, data: any) {
               origLogEvent(type, data);
               try {
                 howyagarnManager.onLogEvent(type, data);
-              } catch (err: any) {
-                console.error('[BOT] howyagarnManager.onLogEvent error:', err.message);
+              } catch (err: unknown) {
+                console.error('[BOT] howyagarnManager.onLogEvent error:', errMsg(err));
               }
             };
           }
@@ -939,8 +968,8 @@ client.once(Events.ClientReady, async (readyClient) => {
               origOnConnect(playerName, steamId);
               try {
                 howyagarnManager.onPlayerConnect(steamId, playerName);
-              } catch (err: any) {
-                console.error('[BOT] howyagarnManager.onPlayerConnect error:', err.message);
+              } catch (err: unknown) {
+                console.error('[BOT] howyagarnManager.onPlayerConnect error:', errMsg(err));
               }
             };
           }
@@ -948,9 +977,9 @@ client.once(Events.ClientReady, async (readyClient) => {
 
         setStatus('HOWYAGARN', '🟢 Active');
         console.log('[BOT] HOWYAGARN MMO system active');
-      } catch (err: any) {
-        setStatus('HOWYAGARN', `⚠️ Failed: ${err.message}`);
-        console.error('[BOT] HOWYAGARN init failed:', err.message);
+      } catch (err: unknown) {
+        setStatus('HOWYAGARN', `⚠️ Failed: ${errMsg(err)}`);
+        console.error('[BOT] HOWYAGARN init failed:', errMsg(err));
       }
     }
   } else {
@@ -1032,14 +1061,13 @@ client.once(Events.ClientReady, async (readyClient) => {
         hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc ?? null });
         // Pass HowyagarnManager to web plugin for MMO API endpoints
         if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
-      } catch (err: any) {
-        console.error('[BOT] hzmod plugin registration failed:', err.message);
+      } catch (err: unknown) {
+        console.error('[BOT] hzmod plugin registration failed:', errMsg(err));
       }
     }
   }
 
   // ── BotControlService (used by both Panel and Web) ───────
-  const BotControlService: any = require('./server/bot-control');
   const botControl = new BotControlService({ exit: (code: number) => process.exit(code) });
   if (webMapServer) webMapServer.setBotControl(botControl);
   if (webMapServer) webMapServer.setModuleStatus(moduleStatus);
@@ -1064,7 +1092,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   try {
     if (db) {
       try {
-        db.setStateJSON('bot_running', { startedAt: startedAt.toISOString() });
+        db.setStateJSON('bot_running', JSON.stringify({ startedAt: startedAt.toISOString() }));
       } catch {
         // ignore
       }
@@ -1085,23 +1113,25 @@ client.once(Events.ClientReady, async (readyClient) => {
         if (!ch) continue;
         const messages: any = await ch.messages.fetch({ limit: 30 });
         const botId = readyClient.user?.id;
-        const toDelete: any = messages.filter(
-          (m: any) =>
+        const toDelete: any = messages.filter((m: any) => {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+          return (
             m.author.id === botId &&
             m.embeds.length > 0 &&
-            m.embeds.some((e: any) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online'),
-        );
+            m.embeds.some((e: any) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online')
+          );
+        });
         if (toDelete.size > 0) {
           try {
             await ch.bulkDelete(toDelete, true);
           } catch {
             for (const msg of toDelete.values()) {
-              await (msg as any).delete().catch(() => {});
+              await msg.delete().catch(() => {});
             }
           }
         }
-      } catch (cleanErr: any) {
-        console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, cleanErr.message);
+      } catch (cleanErr: unknown) {
+        console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, errMsg(cleanErr));
       }
     }
 
@@ -1114,19 +1144,16 @@ client.once(Events.ClientReady, async (readyClient) => {
       adminAlertChannelIds: config.adminAlertChannelIds,
       fallbackChannelId: config.adminChannelId,
     });
-  } catch (err: any) {
-    console.error('[BOT] Failed to post online notification:', err.message);
+  } catch (err: unknown) {
+    console.error('[BOT] Failed to post online notification:', errMsg(err));
   }
 
   // ── NUKE_BOT phase 2: rebuild activity threads from log history ──
   if (config.nukeBot) {
     console.log('[NUKE] Rebuilding activity threads from log history...');
     try {
-      const { rebuildThreads } = require('./commands/threads') as {
-        rebuildThreads: (client: any, a?: any, b?: any) => Promise<any>;
-      };
       // Primary server
-      const result: any = await rebuildThreads(readyClient);
+      const result = await rebuildThreads(readyClient);
       if (result.error) {
         console.error('[NUKE] Thread rebuild failed:', result.error);
       } else {
@@ -1135,11 +1162,8 @@ client.once(Events.ClientReady, async (readyClient) => {
         );
       }
       // Additional servers
-      const { loadServers: _loadServers, createServerConfig } = require('./server/multi-server') as {
-        loadServers: () => any[];
-        createServerConfig: (def: any) => any;
-      };
-      const additionalServers: any[] = _loadServers();
+
+      const additionalServers: any[] = loadServers();
       for (const serverDef of additionalServers) {
         const label: string = serverDef.name ?? serverDef.id;
         if (!serverDef.channels?.log) {
@@ -1148,6 +1172,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         }
         const serverConfig: any = createServerConfig(serverDef);
         console.log('[NUKE] Rebuilding threads for %s...', label);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         const srvResult: any = await rebuildThreads(readyClient, null, serverConfig);
         if (srvResult.error) {
           console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
@@ -1157,8 +1182,8 @@ client.once(Events.ClientReady, async (readyClient) => {
           );
         }
       }
-    } catch (err: any) {
-      console.error('[NUKE] Thread rebuild error:', err.message);
+    } catch (err: unknown) {
+      console.error('[NUKE] Thread rebuild error:', errMsg(err));
     }
 
     // Reset thread caches so modules pick up the newly rebuilt threads
@@ -1182,7 +1207,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       if (typeof chatRelay._getOrCreateChatThread === 'function') {
         await chatRelay
           ._getOrCreateChatThread()
-          .catch((e: any) => console.warn('[NUKE] Could not re-create chat thread:', e.message));
+          .catch((e: unknown) => console.warn('[NUKE] Could not re-create chat thread:', errMsg(e)));
       }
       console.log('[NUKE] ChatRelay thread cache reset + recreated');
     }
@@ -1263,8 +1288,8 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (db) {
     try {
       db.deleteState('bot_running');
-    } catch (err: any) {
-      console.warn('[BOT] Could not clear bot_running flag:', err.message);
+    } catch (err: unknown) {
+      console.warn('[BOT] Could not clear bot_running flag:', errMsg(err));
     }
     db.close();
   }
@@ -1292,12 +1317,14 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
       }),
       new Promise<void>((resolve) => setTimeout(resolve, 5000)),
     ]);
-  } catch (err: any) {
-    console.error('[BOT] Failed to post offline notification:', err.message);
+  } catch (err: unknown) {
+    console.error('[BOT] Failed to post offline notification:', errMsg(err));
   }
 
+  // eslint-disable-next-line @typescript-eslint/await-thenable
   await rcon.disconnect();
   shutdownLogger();
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
   client.destroy();
   process.exit(0);
 }
@@ -1320,7 +1347,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   void shutdown('SIGTERM received');
 });
-process.on('uncaughtException', (err: any) => {
+process.on('uncaughtException', (err: Error & { code?: number }) => {
   console.error('[BOT] Uncaught exception:', err);
 
   // Discord API errors that are safe to ignore (don't crash)
@@ -1335,6 +1362,7 @@ process.on('uncaughtException', (err: any) => {
   }
 
   // Post to admin channel before shutting down
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
   _postErrorEmbed('Uncaught Exception', err).finally(() => {
     shutdown(`Uncaught exception: ${err.message}`).catch(() => process.exit(1));
   });
@@ -1362,8 +1390,8 @@ async function _postErrorEmbed(title: string, err: unknown): Promise<void> {
       adminAlertChannelIds: config.adminAlertChannelIds,
       fallbackChannelId: config.adminChannelId,
     });
-  } catch (embedErr: any) {
-    console.warn('[BOT] Failed to post error embed:', embedErr.message);
+  } catch (embedErr: unknown) {
+    console.warn('[BOT] Failed to post error embed:', errMsg(embedErr));
   }
 }
 
@@ -1401,15 +1429,15 @@ async function _nukeChannel(discordClient: any, channelId: string, botId: string
       if (!batch || batch.size === 0) break;
       lastId = batch.last().id;
       for (const [, msg] of batch) {
-        if ((msg as any).author?.id !== botId) continue;
-        await (msg as any).delete().catch(() => {});
+        if (msg.author?.id !== botId) continue;
+        await msg.delete().catch(() => {});
         deleted++;
       }
       if (batch.size < 100) break;
     }
     if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${ch.name ?? channelId}`);
-  } catch (err: any) {
-    console.warn(`[NUKE] Could not clean channel ${channelId}:`, err.message);
+  } catch (err: unknown) {
+    console.warn(`[NUKE] Could not clean channel ${channelId}:`, errMsg(err));
   }
 }
 
@@ -1483,15 +1511,17 @@ void (async () => {
       console.error('[BOT] Continuing with existing data files...');
     }
     try {
-      const { main: runSetup } = require(setupPath) as { main: () => Promise<void> };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { main: runSetup } = require(setupPath) as { main: () => Promise<void> }; // dynamic path — must use require()
       await runSetup();
       console.log('[BOT] Data import complete.');
-    } catch (err: any) {
-      console.error('[BOT] Setup failed:', err.message);
+    } catch (err: unknown) {
+      console.error('[BOT] Setup failed:', errMsg(err));
       console.error('[BOT] Continuing with existing/empty data files...');
     }
   }
-  client.login(config.discordToken).catch((err: any) => {
+  // eslint-disable-next-line @typescript-eslint/use-unknown-in-catch-callback-variable
+  client.login(config.discordToken).catch((err: Error & { code?: number }) => {
     if (/disallowed intents/i.test(err.message) || err.code === 4014) {
       const requested: string[] = [];
       if (config.enableChatRelay) requested.push('Message Content (ENABLE_CHAT_RELAY=true)');

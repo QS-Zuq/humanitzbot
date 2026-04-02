@@ -347,6 +347,7 @@ class RconManager extends EventEmitter {
 }
 
 const _singleton = new RconManager();
+export default _singleton;
 export { RconManager };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

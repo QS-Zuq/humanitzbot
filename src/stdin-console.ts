@@ -650,6 +650,7 @@ Available commands:
   }
 }
 
+export default StdinConsole;
 export { StdinConsole };
 
 const _mod = module as { exports: any };

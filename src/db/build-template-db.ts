@@ -16,7 +16,6 @@
  * Requires: data/game-tables-raw.json (22 MB, from UE4 pak extraction)
  */
 
-/* eslint-disable @typescript-eslint/no-require-imports */
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
@@ -39,7 +38,9 @@ if (fs.existsSync(TEMPLATE_PATH)) {
 }
 
 // Create fresh DB with schema + seed all game reference data
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const HumanitZDB = require('./database') as new (opts: { dbPath: string; label: string }) => Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const gameReference = require('../parsers/game-reference') as { seed: (db: Record<string, unknown>) => void };
 
 const db = new HumanitZDB({ dbPath: TEMPLATE_PATH, label: 'TEMPLATE' });
@@ -50,6 +51,7 @@ gameReference.seed(db);
 (db['setMeta'] as (k: string, v: string) => void)('template_built_at', new Date().toISOString());
 (db['setMeta'] as (k: string, v: string) => void)(
   'template_schema_version',
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   String((require('./schema') as { SCHEMA_VERSION: number }).SCHEMA_VERSION),
 );
 

@@ -1347,6 +1347,7 @@ Object.assign(LogWatcher.prototype, require('./log-watcher-threads'));
 
 Object.assign(LogWatcher.prototype, require('./log-watcher-events'));
 
+export default LogWatcher;
 export { LogWatcher };
 
 const _mod = module as { exports: any };

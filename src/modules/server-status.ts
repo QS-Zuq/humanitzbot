@@ -251,6 +251,7 @@ class ServerStatus {
 // Mix in embed builders (presentation layer)
 Object.assign(ServerStatus.prototype, statusEmbeds);
 
+export default ServerStatus;
 export { ServerStatus };
 
 const _mod = module as { exports: any };

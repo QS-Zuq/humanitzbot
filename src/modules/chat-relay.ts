@@ -454,6 +454,7 @@ Object.assign(ChatRelay.prototype, {
   _sanitizeRcon: chatParser._sanitizeRcon,
 });
 
+export default ChatRelay;
 export { ChatRelay };
 
 const _mod = module as { exports: any };

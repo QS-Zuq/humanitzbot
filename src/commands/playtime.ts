@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * /playtime — Playtime leaderboard or player lookup.
  *
@@ -6,6 +5,7 @@
  */
 
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
 import { t, getLocalizations, fmtDate } from '../i18n/index.js';
 import config from '../config/index.js';
