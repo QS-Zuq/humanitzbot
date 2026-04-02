@@ -60,7 +60,7 @@ const SPRAYS = _gameData['SPRAYS'] as Record<string, Record<string, unknown>>;
 // ─── DB interface (loose — db module is not yet migrated) ──────────────────
 
 interface GameDB {
-  db: { prepare: (sql: string) => { get: () => { n: number } | undefined } };
+  db: { prepare: (sql: string) => { get: () => { n: number } | undefined } } | null;
   _getMeta: (key: string) => string | undefined;
   _setMeta: (key: string, value: string) => void;
   seedGameItems: (items: unknown[]) => void;
@@ -100,7 +100,7 @@ const GAME_REF_VERSION = 2;
 function seed(db: GameDB): void {
   // Check if re-seed is needed (version mismatch or empty)
   try {
-    const count = db.db.prepare('SELECT COUNT(*) as n FROM game_items').get();
+    const count = db.db?.prepare('SELECT COUNT(*) as n FROM game_items').get();
     const storedVersion = db._getMeta('game_ref_version');
     const currentVersion = String(GAME_REF_VERSION);
 

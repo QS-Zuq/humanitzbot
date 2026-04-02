@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-type-conversion */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-conversion */
 /**
  * Field-level config validation for bot configuration values.
  *

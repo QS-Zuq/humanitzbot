@@ -95,6 +95,8 @@ module.exports = defineConfig([
         },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
+      // Allow numbers/booleans in template literals — `${count}` is safe and idiomatic
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
       'no-var': 'error',
       'prefer-const': 'error',
     },

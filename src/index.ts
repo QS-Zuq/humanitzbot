@@ -1,14 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/no-misused-promises, @typescript-eslint/no-confusing-void-expression,
-   @typescript-eslint/no-non-null-assertion */
-// NOTE: This orchestration file wires 20+ modules together; many have untyped interfaces.
-// The unsafe-* + no-explicit-any rules are disabled file-wide while module types are tightened.
-// Removed from original blanket disable: no-require-imports, no-unsafe-return,
-// no-unsafe-argument, no-floating-promises, use-unknown-in-catch-callback-variable.
 import { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilder, MessageFlags } from 'discord.js';
-import type { GuildMember } from 'discord.js';
+import type { ChatInputCommandInteraction, GuildMember, TextBasedChannel, ThreadChannel } from 'discord.js';
+import type { BotStatusManager } from './utils/status.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from './utils/paths.js';
@@ -64,40 +56,134 @@ function isAdminView(member: GuildMember | null): boolean {
   return _isAdminViewRaw(config.adminViewPermissions, member);
 }
 
+// ── Interfaces for dynamically loaded commands ────────────
+interface SlashCommand {
+  data: { name: string; toJSON: () => unknown };
+  execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+}
+
+// ── Interfaces for optional modules ───────────────────────
+interface AnticheatInstance {
+  start: () => Promise<void>;
+  stop: () => Promise<void> | void;
+  available: boolean;
+  onSaveSync: (result: SaveSyncResult) => Promise<void>;
+}
+
+interface HowyagarnManagerInstance {
+  init: () => void;
+  shutdown: () => void;
+  onSaveSync: (data: { players: HowyagarnPlayer[]; structures: unknown[] }) => void;
+  onLogEvent: (type: string, data: unknown) => void;
+  onPlayerConnect: (steamId: string, playerName: string) => void;
+}
+
+interface HowyagarnPlayer {
+  steamId: string;
+  name: string;
+  x: number;
+  y: number;
+  deltaZeeksKilled: number;
+  deltaNpcKills: number;
+  deltaAnimalKills: number;
+  deltaFishCaught: number;
+  deltaDaysSurvived: number;
+}
+
+interface HzmodWebPluginModule {
+  register: (
+    server: WebMapServer,
+    cfg: typeof config,
+    opts: { ipc: IpcClientInstance | null },
+  ) => { ipcClient?: { destroy: () => void } };
+  setManager: (manager: HowyagarnManagerInstance) => void;
+}
+
+interface IpcClientInstance {
+  connect: () => void;
+  destroy: () => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+}
+
+// ── Server definition (from loadServers() / multi-server.ts) ──
+interface ServerDef {
+  id: string;
+  name?: string;
+  channels?: Record<string, string | undefined>;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+// ── Save sync result (emitted by SaveService 'sync' event) ──
+interface SaveSyncResult {
+  playerCount: number;
+  structureCount: number;
+  vehicleCount: number;
+  companionCount: number;
+  clanCount: number;
+  horseCount: number;
+  containerCount: number;
+  activityEvents: number;
+  itemTracking: Record<string, unknown>;
+  worldState: unknown;
+  elapsed: number;
+  steamIds: string[];
+  mode: string;
+  diffEvents: unknown[];
+  syncTime: Date;
+  parsed: Record<string, unknown> & {
+    players: Map<string, Record<string, unknown>> | Record<string, Record<string, unknown>>;
+    structures: unknown[];
+    vehicles: unknown[];
+    companions: unknown[];
+    horses: unknown[];
+    containers: unknown[];
+  };
+}
+
 // ── Optional modules (may not be installed) ────────────────
+// Loaded asynchronously in loadOptionalModules() before client.login()
 
-let AnticheatIntegration: (new (...args: any[]) => any) | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  AnticheatIntegration = require('./modules/anticheat-integration') as typeof AnticheatIntegration;
-} catch {
-  /* optional module */
-}
+let AnticheatIntegration:
+  | (new (opts: {
+      db: HumanitZDB;
+      config: typeof config;
+      logWatcher: InstanceType<typeof LogWatcher> | undefined;
+    }) => AnticheatInstance)
+  | undefined;
+let hzmodWebPlugin: HzmodWebPluginModule | undefined;
+let HowyagarnManager: (new (opts: Record<string, unknown>) => HowyagarnManagerInstance) | undefined;
+let HzmodIpcClient: (new (socketPath: string) => IpcClientInstance) | undefined;
 
-let hzmodWebPlugin: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  hzmodWebPlugin = require('./modules/howyagarn/web-plugin');
-} catch {
-  /* optional module */
-}
-
-let HowyagarnManager: (new (...args: any[]) => any) | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  ({ HowyagarnManager } = require('./modules/howyagarn/howyagarn-manager') as {
-    HowyagarnManager: typeof HowyagarnManager;
-  });
-} catch {
-  /* optional module */
-}
-
-let HzmodIpcClient: (new (...args: any[]) => any) | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  HzmodIpcClient = require('./modules/howyagarn/ipc-client') as typeof HzmodIpcClient;
-} catch {
-  /* optional module */
+async function loadOptionalModules(): Promise<void> {
+  try {
+    AnticheatIntegration = (
+      (await import('./modules/anticheat-integration.js')) as { default: typeof AnticheatIntegration }
+    ).default;
+  } catch {
+    /* optional module */
+  }
+  // howyagarn/* modules are optional private packages — path via variable bypasses static TSC resolution
+  const _webPluginPath = './modules/howyagarn/web-plugin.js';
+  const _managerPath = './modules/howyagarn/howyagarn-manager.js';
+  const _ipcClientPath = './modules/howyagarn/ipc-client.js';
+  try {
+    hzmodWebPlugin = ((await import(/* @vite-ignore */ _webPluginPath)) as { default: HzmodWebPluginModule }).default;
+  } catch {
+    /* optional module */
+  }
+  try {
+    ({ HowyagarnManager } = (await import(/* @vite-ignore */ _managerPath)) as {
+      HowyagarnManager: typeof HowyagarnManager;
+    });
+  } catch {
+    /* optional module */
+  }
+  try {
+    HzmodIpcClient = ((await import(/* @vite-ignore */ _ipcClientPath)) as { default: typeof HzmodIpcClient }).default;
+  } catch {
+    /* optional module */
+  }
 }
 
 // ── Create Discord client ───────────────────────────────────
@@ -112,108 +198,119 @@ if (config.adminRoleIds.length > 0) {
 const client = new Client({ intents });
 
 // ── Load slash commands ─────────────────────────────────────
-(client as any).commands = new Collection();
-const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith('.js'));
+const slashCommands = new Collection<string, SlashCommand>();
 
-for (const file of commandFiles) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const command: any = require(path.join(commandsPath, file)); // dynamic path — must use require()
-  if (command.data && command.execute) {
-    (client as any).commands.set(command.data.name, command);
+async function loadCommands(): Promise<void> {
+  const commandsPath = path.join(__dirname, 'commands');
+  const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith('.js'));
 
-    console.log(`[BOT] Loaded command: /${command.data.name as string}`);
+  for (const file of commandFiles) {
+    const command = (await import(path.join(commandsPath, file))) as Partial<SlashCommand> & {
+      default?: Partial<SlashCommand>;
+    };
+    const cmd = command.default ?? command;
+    if (cmd.data && cmd.execute) {
+      slashCommands.set(cmd.data.name, cmd as SlashCommand);
+      console.log(`[BOT] Loaded command: /${cmd.data.name}`);
+    }
   }
-}
 
-// Also load commands from subdirectories (e.g. src/commands/howyagarn/)
-for (const entry of fs.readdirSync(commandsPath, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
-  const subDir = path.join(commandsPath, entry.name);
-  const subFiles = fs.readdirSync(subDir).filter((f) => f.endsWith('.js'));
-  for (const file of subFiles) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const command: any = require(path.join(subDir, file)); // dynamic path — must use require()
-    if (command.data && command.execute) {
-      (client as any).commands.set(command.data.name, command);
-
-      console.log(`[BOT] Loaded command: /${command.data.name as string} (${entry.name})`);
+  // Also load commands from subdirectories (e.g. src/commands/howyagarn/)
+  for (const entry of fs.readdirSync(commandsPath, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const subDir = path.join(commandsPath, entry.name);
+    const subFiles = fs.readdirSync(subDir).filter((f) => f.endsWith('.js'));
+    for (const file of subFiles) {
+      const command = (await import(path.join(subDir, file))) as Partial<SlashCommand> & {
+        default?: Partial<SlashCommand>;
+      };
+      const cmd = command.default ?? command;
+      if (cmd.data && cmd.execute) {
+        slashCommands.set(cmd.data.name, cmd as SlashCommand);
+        console.log(`[BOT] Loaded command: /${cmd.data.name} (${entry.name})`);
+      }
     }
   }
 }
 
 // ── Handle interactions ─────────────────────────────────────
-client.on(Events.InteractionCreate, async (interaction) => {
-  // ── Persistent select menu on the player-stats channel ──
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_player_select')) {
+client.on(Events.InteractionCreate, (interaction) => {
+  void (async () => {
+    // ── Persistent select menu on the player-stats channel ──
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_player_select')) {
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      } catch (_deferErr) {
+        // Interaction token expired (10062) or already acknowledged — skip silently
+        console.log('[BOT] Player select interaction expired, ignoring');
+        return;
+      }
+
+      const serverId = interaction.customId.split(':')[1] ?? '';
+      const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
+      if (!psc) {
+        await interaction.editReply({ content: 'Player stats module is currently disabled.' });
+        return;
+      }
+
+      const selectedId = interaction.values[0] ?? '';
+      const isAdmin = isAdminView(interaction.member as GuildMember | null);
+
+      const embed: EmbedBuilder = (
+        psc as unknown as { buildFullPlayerEmbed: (id: string, opts: { isAdmin: boolean }) => EmbedBuilder }
+      ).buildFullPlayerEmbed(selectedId, { isAdmin });
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    // ── Clan select menu on the player-stats channel ──
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_clan_select')) {
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      } catch (_deferErr) {
+        // Interaction token expired (10062) or already acknowledged — skip silently
+        console.log('[BOT] Clan select interaction expired, ignoring');
+        return;
+      }
+
+      const serverId = interaction.customId.split(':')[1] ?? '';
+      const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
+      if (!psc) {
+        await interaction.editReply({ content: 'Player stats module is currently disabled.' });
+        return;
+      }
+
+      const clanName = (interaction.values[0] ?? '').replace(/^clan:/, '');
+      const isAdmin = isAdminView(interaction.member as GuildMember | null);
+
+      const embed: EmbedBuilder = (
+        psc as unknown as { buildClanEmbed: (name: string, opts: { isAdmin: boolean }) => EmbedBuilder }
+      ).buildClanEmbed(clanName, { isAdmin });
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    // ── Slash commands ──
+    if (!interaction.isChatInputCommand()) return;
+
+    const command = slashCommands.get(interaction.commandName);
+    if (!command) return;
+
     try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch (_deferErr) {
-      // Interaction token expired (10062) or already acknowledged — skip silently
-      console.log('[BOT] Player select interaction expired, ignoring');
-      return;
+      await command.execute(interaction);
+    } catch (err) {
+      console.error(`[BOT] Error in /${interaction.commandName}:`, err);
+      const replyOpts = {
+        content: '❌ Something went wrong running that command.',
+        flags: MessageFlags.Ephemeral,
+      } as const;
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(replyOpts);
+      } else {
+        await interaction.reply(replyOpts);
+      }
     }
-
-    const serverId = interaction.customId.split(':')[1] ?? '';
-    const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
-    if (!psc) {
-      await interaction.editReply({ content: 'Player stats module is currently disabled.' });
-      return;
-    }
-
-    const selectedId = interaction.values[0] ?? '';
-    const isAdmin = isAdminView(interaction.member as GuildMember | null);
-
-    const embed: EmbedBuilder = psc.buildFullPlayerEmbed(selectedId, { isAdmin }) as EmbedBuilder;
-    await interaction.editReply({ embeds: [embed] });
-    return;
-  }
-
-  // ── Clan select menu on the player-stats channel ──
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_clan_select')) {
-    try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    } catch (_deferErr) {
-      // Interaction token expired (10062) or already acknowledged — skip silently
-      console.log('[BOT] Clan select interaction expired, ignoring');
-      return;
-    }
-
-    const serverId = interaction.customId.split(':')[1] ?? '';
-    const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
-    if (!psc) {
-      await interaction.editReply({ content: 'Player stats module is currently disabled.' });
-      return;
-    }
-
-    const clanName = (interaction.values[0] ?? '').replace(/^clan:/, '');
-    const isAdmin = isAdminView(interaction.member as GuildMember | null);
-
-    const embed: EmbedBuilder = psc.buildClanEmbed(clanName, { isAdmin }) as EmbedBuilder;
-    await interaction.editReply({ embeds: [embed] });
-    return;
-  }
-
-  // ── Slash commands ──
-  if (!interaction.isChatInputCommand()) return;
-
-  const command: any = (client as any).commands.get(interaction.commandName);
-  if (!command) return;
-
-  try {
-    await command.execute(interaction);
-  } catch (err) {
-    console.error(`[BOT] Error in /${interaction.commandName}:`, err);
-    const replyOpts = {
-      content: '❌ Something went wrong running that command.',
-      flags: MessageFlags.Ephemeral,
-    } as const;
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(replyOpts);
-    } else {
-      await interaction.reply(replyOpts);
-    }
-  }
+  })();
 });
 
 // ── Bot ready ───────────────────────────────────────────────
@@ -230,7 +327,7 @@ let serverScheduler: InstanceType<typeof ServerScheduler> | undefined;
 let multiServerManager: InstanceType<typeof MultiServerManager> | undefined;
 let webMapServer: InstanceType<typeof WebMapServer> | undefined;
 
-let hzmodPlugin: any; // Howyagarn web plugin result (for cleanup)
+let hzmodPlugin: { ipcClient?: { destroy: () => void } } | undefined; // Howyagarn web plugin result
 let db: InstanceType<typeof HumanitZDB> | undefined;
 let configRepo: InstanceType<typeof ConfigRepository> | undefined;
 let saveService: InstanceType<typeof SaveService> | undefined;
@@ -240,13 +337,13 @@ let activityLog: InstanceType<typeof ActivityLog> | undefined;
 let milestoneTracker: InstanceType<typeof MilestoneTracker> | undefined;
 let recapService: InstanceType<typeof RecapService> | undefined;
 
-let anticheatIntegration: any; // AnticheatIntegration instance
+let anticheatIntegration: AnticheatInstance | undefined;
 
-let botStatusManager: any; // Discord profile presence/status rotation
+let botStatusManager: BotStatusManager | undefined;
 
-let howyagarnManager: any; // HowyagarnManager instance (MMO system)
+let howyagarnManager: HowyagarnManagerInstance | undefined;
 
-let hzmodIpc: any; // Shared IPC client for hzmod plugin (used by manager + web plugin)
+let hzmodIpc: IpcClientInstance | undefined;
 // Bot lifecycle embeds (online/offline) go to panel channel — game server status goes to activity thread
 let stdinConsole: InstanceType<typeof StdinConsole> | undefined;
 const startedAt = new Date();
@@ -269,610 +366,630 @@ function hasSftp(): boolean {
 
 /** Find a multi-server module by server ID (used for select menu routing). */
 
-function _findMultiServerModuleById(serverId: string, moduleName: string): any {
+function _findMultiServerModuleById(
+  serverId: string,
+  moduleName: string,
+): InstanceType<typeof PlayerStatsChannel> | null {
   if (!multiServerManager) return null;
-
-  const instance = (multiServerManager as any)._instances.get(serverId);
-
-  return instance?._modules[moduleName] ?? null;
+  const instances = (
+    multiServerManager as unknown as { _instances: Map<string, { _modules: Record<string, unknown> }> }
+  )._instances;
+  const instance = instances.get(serverId);
+  if (!instance) return null;
+  const mod = instance._modules[moduleName];
+  return (mod as InstanceType<typeof PlayerStatsChannel> | undefined) ?? null;
 }
 
-client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`[BOT] Logged in as ${readyClient.user.tag}`);
-  console.log(`[BOT] Serving guild: ${config.guildId}`);
+client.once(Events.ClientReady, (readyClient) => {
+  void (async () => {
+    console.log(`[BOT] Logged in as ${readyClient.user.tag}`);
+    console.log(`[BOT] Serving guild: ${config.guildId}`);
 
-  // Auto-sync .env with .env.example on startup
-  try {
-    if (needsSync()) {
-      const currentVersion = getVersion();
-      const exampleVersion = getExampleVersion();
-      console.log(`[BOT] .env schema outdated (v${currentVersion} → v${exampleVersion}), syncing...`);
-      const result = syncEnv() as ReturnType<typeof syncEnv> & { backupPath?: string };
-      console.log(
-        `[BOT] .env synced: ${result.added} added, ${result.deprecated} deprecated, ${result.updated} updated`,
-      );
-      if (result.backupPath) {
-        console.log(`[BOT] Backup saved: ${result.backupPath}`);
-      }
-    }
-  } catch (err: unknown) {
-    console.error('[BOT] .env auto-sync failed:', errMsg(err));
-  }
-
-  // Auto-deploy slash commands on startup
-  try {
-    const rest = new REST({ version: '10' }).setToken(config.discordToken!);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    const commandData = [...(client as any).commands.values()].map((c: any) => c.data.toJSON());
-    await rest.put(Routes.applicationGuildCommands(config.clientId!, config.guildId!), { body: commandData });
-    console.log(`[BOT] Registered ${commandData.length} slash commands with Discord`);
-  } catch (err: unknown) {
-    console.error('[BOT] Failed to register slash commands:', errMsg(err));
-  }
-
-  console.log('[BOT] Ready!');
-
-  // Initialize SQLite database + seed game reference data
-  db = new HumanitZDB();
-  db.init();
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  seedGameReference(db as any);
-
-  // ── One-time config migration (.env + servers.json → config_documents) ──
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  configRepo = new ConfigRepository(db as any);
-
-  if (!db.getState('config_migration_done')) {
+    // Auto-sync .env with .env.example on startup
     try {
-      // 1. Migrate .env values → DB (read from process.env, NOT the file —
-      //    env-sync may have already commented out non-bootstrap keys)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      const envResult = migrateEnvToDb(process.env as any, configRepo);
-
-      // 2. Migrate servers.json → DB (if exists)
-      let serverCount = 0;
-      const serversPath = path.join(__dirname, '..', 'data', 'servers.json');
-      if (fs.existsSync(serversPath)) {
-        try {
-          const serverDefs: unknown = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
-          if (Array.isArray(serverDefs)) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-            serverCount = migrateServersJsonToDb(serverDefs as any, configRepo);
-          }
-        } catch (parseErr: unknown) {
-          console.error('[BOT] CRITICAL: servers.json migration failed:', errMsg(parseErr));
-          throw parseErr; // Prevent marking migration as done
+      if (needsSync()) {
+        const currentVersion = getVersion();
+        const exampleVersion = getExampleVersion();
+        console.log(`[BOT] .env schema outdated (v${currentVersion} → v${exampleVersion}), syncing...`);
+        const result = syncEnv() as ReturnType<typeof syncEnv> & { backupPath?: string };
+        console.log(
+          `[BOT] .env synced: ${result.added} added, ${result.deprecated} deprecated, ${result.updated} updated`,
+        );
+        if (result.backupPath) {
+          console.log(`[BOT] Backup saved: ${result.backupPath}`);
         }
       }
-
-      // 3. Migrate display_settings → DB
-      const displayCount = migrateDisplaySettings(db, configRepo);
-
-      // Mark migration as done
-      db.setState('config_migration_done', 'true');
-      console.log(
-        `[BOT] Config migrated to DB: ${envResult.appKeys} app, ${envResult.serverKeys} server, ${serverCount} managed servers, ${displayCount} display settings`,
-      );
     } catch (err: unknown) {
-      console.error('[BOT] Config migration failed:', errMsg(err));
-      // Non-fatal — continue with .env
+      console.error('[BOT] .env auto-sync failed:', errMsg(err));
     }
-  }
 
-  config.hydrate(configRepo);
-  config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
-
-  console.log('[BOT] SQLite database initialised');
-
-  // Initialize playtime tracker (must be before AutoMessages)
-  if (config.enablePlaytime) {
-    playtime.init();
-  }
-
-  // Initialize player stats tracker (must be before LogWatcher)
-  playerStats.init();
-
-  // Wire DB into singletons for unified identity + stats syncing
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  playerStats.setDb(db as any);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  playtime.setDb(db as any);
-
-  // Periodic flush of active playtime sessions to DB (crash protection)
-  playtimeFlushTimer = setInterval(() => {
+    // Auto-deploy slash commands on startup
     try {
-      playtime.flushActiveSessions();
-    } catch {
-      // ignore
-    }
-  }, 60000);
-
-  // Connect to RCON (non-fatal — auto-reconnect handles recovery)
-  if (!config.needsSetup) {
-    try {
-      await rcon.connect();
+      const rest = new REST({ version: '10' }).setToken(config.discordToken ?? '');
+      const commandData = [...slashCommands.values()].map((c) => c.data.toJSON());
+      await rest.put(Routes.applicationGuildCommands(config.clientId ?? '', config.guildId ?? ''), {
+        body: commandData,
+      });
+      console.log(`[BOT] Registered ${commandData.length} slash commands with Discord`);
     } catch (err: unknown) {
-      console.warn(`[BOT] Initial RCON connection failed: ${errMsg(err)} — will auto-reconnect`);
+      console.error('[BOT] Failed to register slash commands:', errMsg(err));
     }
-  } else {
-    console.log('[BOT] RCON not configured — skipping initial connection');
-  }
 
-  // ── RCON lifecycle events — log game server restarts ──
-  rcon.on('disconnect', ({ reason }: { reason: string }) => {
-    console.log(`[BOT] Game server disconnected: ${reason}`);
-    if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
-    if (logWatcher) {
-      const embed = new EmbedBuilder()
-        .setDescription('🟡 Game server disconnected — RCON connection lost')
-        .setColor(0xf39c12)
-        .setTimestamp();
-      logWatcher.sendToThread(embed).catch(() => {});
-    }
-  });
-  rcon.on('reconnect', ({ downtime }: { downtime?: number }) => {
-    const downtimeStr = downtime ? _formatUptime(downtime) : 'unknown';
-    console.log(`[BOT] Game server reconnected (downtime: ${downtimeStr})`);
-    if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
-    if (logWatcher) {
-      const embed = new EmbedBuilder()
-        .setDescription(`🟢 Game server reconnected (downtime: ${downtimeStr})`)
-        .setColor(0x2ecc71)
-        .setTimestamp();
-      logWatcher.sendToThread(embed).catch(() => {});
-    }
-  });
+    console.log('[BOT] Ready!');
 
-  // Bot profile status (presence/activity) — rotates live players + feature highlights
-  botStatusManager = createBotStatusManager(readyClient, {
-    refreshMs: parseInt(process.env['BOT_PROFILE_STATUS_INTERVAL'] ?? '', 10) || 30000,
-    getHasSftp: () => hasSftp(),
-    getPanelAvailable: () => panelApi.available,
-    getWebMapEnabled: () => !!parseInt(process.env['WEB_MAP_PORT'] ?? '', 10),
-    getModuleStatus: () => moduleStatus,
-  });
-  botStatusManager.start();
+    // Initialize SQLite database + seed game reference data
+    db = new HumanitZDB();
+    db.init();
+    // db.init() guarantees db.db is non-null, but the type includes null
+    seedGameReference(db as Parameters<typeof seedGameReference>[0]);
 
-  // Generate/update the standalone agent script so it's always fresh
-  try {
-    writeAgent();
-  } catch (err: unknown) {
-    console.warn('[BOT] Could not generate humanitz-agent.js:', errMsg(err));
-  }
+    // ── One-time config migration (.env + servers.json → config_documents) ──
+    configRepo = new ConfigRepository(db);
 
-  // ── Web panel — start EARLY so it's reachable while modules initialise ──
-  const webMapPort = parseInt(process.env['WEB_MAP_PORT'] ?? '', 10);
-  if (webMapPort) {
-    if (!config.discordClientSecret && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
-      setStatus('WebMap', '⚠️ Requires Discord OAuth (set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL)');
-      console.warn(
-        '[BOT] Web panel requires Discord OAuth — set DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL in .env',
-      );
-      console.warn('[BOT] To run without auth (dev only), set WEB_PANEL_ALLOW_NO_AUTH=true');
-    } else {
+    if (!db.getState('config_migration_done')) {
       try {
-        if (!config.discordClientSecret) {
-          console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
-        }
-        webMapServer = new WebMapServer(readyClient, { db, configRepo });
-        await webMapServer.start();
-        setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
-        console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
-      } catch (err: unknown) {
-        setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);
-        console.error('[BOT] Web panel failed to start:', errMsg(err));
-      }
-    }
-  } else {
-    setStatus('WebMap', '⚫ Disabled (no WEB_MAP_PORT)');
-    console.log('[BOT] Web panel disabled — set WEB_MAP_PORT in .env to enable');
-  }
+        // 1. Migrate .env values → DB (read from process.env, NOT the file —
+        //    env-sync may have already commented out non-bootstrap keys)
+        const envResult = migrateEnvToDb(process.env as Record<string, string>, configRepo);
 
-  // ── Wipe saved message IDs on FIRST_RUN ──
-  //    Forces each module to re-create its embed from scratch.
-  if (config.firstRun) {
-    const dataDir = path.join(__dirname, '..', 'data');
-    // Clear bot_state keys that hold transient/session data
-    if (db) {
-      const transientKeys = [
-        'msg_id_server_status',
-        'msg_id_player_stats',
-        'msg_id_panel_bot',
-        'msg_id_panel_server',
-        'msg_id_panel_servers',
-        'log_offsets',
-        'day_counts',
-        'pvp_kills',
-        'welcome_stats',
-        'bot_running',
-      ];
-      for (const key of transientKeys) {
+        // 2. Migrate servers.json → DB (if exists)
+        let serverCount = 0;
+        const serversPath = path.join(__dirname, '..', 'data', 'servers.json');
+        if (fs.existsSync(serversPath)) {
+          try {
+            const serverDefs: unknown = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
+            if (Array.isArray(serverDefs)) {
+              serverCount = migrateServersJsonToDb(serverDefs as Array<Record<string, unknown>>, configRepo);
+            }
+          } catch (parseErr: unknown) {
+            console.error('[BOT] CRITICAL: servers.json migration failed:', errMsg(parseErr));
+            throw parseErr; // Prevent marking migration as done
+          }
+        }
+
+        // 3. Migrate display_settings → DB
+        const displayCount = migrateDisplaySettings(db, configRepo);
+
+        // Mark migration as done
+        db.setState('config_migration_done', 'true');
+        console.log(
+          `[BOT] Config migrated to DB: ${envResult.appKeys} app, ${envResult.serverKeys} server, ${serverCount} managed servers, ${displayCount} display settings`,
+        );
+      } catch (err: unknown) {
+        console.error('[BOT] Config migration failed:', errMsg(err));
+        // Non-fatal — continue with .env
+      }
+    }
+
+    config.hydrate(configRepo);
+    config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
+
+    console.log('[BOT] SQLite database initialised');
+
+    // Initialize playtime tracker (must be before AutoMessages)
+    if (config.enablePlaytime) {
+      playtime.init();
+    }
+
+    // Initialize player stats tracker (must be before LogWatcher)
+    playerStats.init();
+
+    // Wire DB into singletons for unified identity + stats syncing
+    playerStats.setDb(db as unknown as Parameters<typeof playerStats.setDb>[0]);
+    playtime.setDb(db as unknown as Parameters<typeof playtime.setDb>[0]);
+
+    // Periodic flush of active playtime sessions to DB (crash protection)
+    playtimeFlushTimer = setInterval(() => {
+      try {
+        playtime.flushActiveSessions();
+      } catch {
+        // ignore
+      }
+    }, 60000);
+
+    // Connect to RCON (non-fatal — auto-reconnect handles recovery)
+    if (!config.needsSetup) {
+      try {
+        await rcon.connect();
+      } catch (err: unknown) {
+        console.warn(`[BOT] Initial RCON connection failed: ${errMsg(err)} — will auto-reconnect`);
+      }
+    } else {
+      console.log('[BOT] RCON not configured — skipping initial connection');
+    }
+
+    // ── RCON lifecycle events — log game server restarts ──
+    rcon.on('disconnect', ({ reason }: { reason: string }) => {
+      console.log(`[BOT] Game server disconnected: ${reason}`);
+      if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
+      if (logWatcher) {
+        const embed = new EmbedBuilder()
+          .setDescription('🟡 Game server disconnected — RCON connection lost')
+          .setColor(0xf39c12)
+          .setTimestamp();
+        (logWatcher as unknown as { sendToThread: (embed: EmbedBuilder) => Promise<void> })
+          .sendToThread(embed)
+          .catch(() => {});
+      }
+    });
+    rcon.on('reconnect', ({ downtime }: { downtime?: number }) => {
+      const downtimeStr = downtime ? _formatUptime(downtime) : 'unknown';
+      console.log(`[BOT] Game server reconnected (downtime: ${downtimeStr})`);
+      if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
+      if (logWatcher) {
+        const embed = new EmbedBuilder()
+          .setDescription(`🟢 Game server reconnected (downtime: ${downtimeStr})`)
+          .setColor(0x2ecc71)
+          .setTimestamp();
+        (logWatcher as unknown as { sendToThread: (embed: EmbedBuilder) => Promise<void> })
+          .sendToThread(embed)
+          .catch(() => {});
+      }
+    });
+
+    // Bot profile status (presence/activity) — rotates live players + feature highlights
+    botStatusManager = createBotStatusManager(readyClient, {
+      refreshMs: parseInt(process.env['BOT_PROFILE_STATUS_INTERVAL'] ?? '', 10) || 30000,
+      getHasSftp: () => hasSftp(),
+      getPanelAvailable: () => panelApi.available,
+      getWebMapEnabled: () => !!parseInt(process.env['WEB_MAP_PORT'] ?? '', 10),
+      getModuleStatus: () => moduleStatus,
+    });
+    botStatusManager.start();
+
+    // Generate/update the standalone agent script so it's always fresh
+    try {
+      writeAgent();
+    } catch (err: unknown) {
+      console.warn('[BOT] Could not generate humanitz-agent.js:', errMsg(err));
+    }
+
+    // ── Web panel — start EARLY so it's reachable while modules initialise ──
+    const webMapPort = parseInt(process.env['WEB_MAP_PORT'] ?? '', 10);
+    if (webMapPort) {
+      if (!config.discordClientSecret && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
+        setStatus('WebMap', '⚠️ Requires Discord OAuth (set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL)');
+        console.warn(
+          '[BOT] Web panel requires Discord OAuth — set DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL in .env',
+        );
+        console.warn('[BOT] To run without auth (dev only), set WEB_PANEL_ALLOW_NO_AUTH=true');
+      } else {
         try {
-          db.deleteState(key);
-        } catch {
-          // ignore
+          if (!config.discordClientSecret) {
+            console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
+          }
+          webMapServer = new WebMapServer(readyClient, { db, configRepo });
+          await webMapServer.start();
+          setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
+          console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
+        } catch (err: unknown) {
+          setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);
+          console.error('[BOT] Web panel failed to start:', errMsg(err));
         }
       }
-      console.log('[BOT] Cleared bot_state transient keys (FIRST_RUN)');
+    } else {
+      setStatus('WebMap', '⚫ Disabled (no WEB_MAP_PORT)');
+      console.log('[BOT] Web panel disabled — set WEB_MAP_PORT in .env to enable');
     }
-    // Also clear legacy JSON files
-    const msgIdFile = path.join(dataDir, 'message-ids.json');
-    if (fs.existsSync(msgIdFile)) {
-      fs.unlinkSync(msgIdFile);
-      console.log('[BOT] Cleared message-ids.json (FIRST_RUN)');
-    }
-    const transientFiles = ['log-offsets.json', 'day-counts.json', 'pvp-kills.json', 'welcome-stats.json'];
-    for (const f of transientFiles) {
-      const fp = path.join(dataDir, f);
-      if (fs.existsSync(fp)) {
-        fs.unlinkSync(fp);
-        console.log(`[BOT] Cleared ${f}`);
+
+    // ── Wipe saved message IDs on FIRST_RUN ──
+    //    Forces each module to re-create its embed from scratch.
+    if (config.firstRun) {
+      const dataDir = path.join(__dirname, '..', 'data');
+      // Clear bot_state keys that hold transient/session data (db is guaranteed set above)
+      {
+        const transientKeys = [
+          'msg_id_server_status',
+          'msg_id_player_stats',
+          'msg_id_panel_bot',
+          'msg_id_panel_server',
+          'msg_id_panel_servers',
+          'log_offsets',
+          'day_counts',
+          'pvp_kills',
+          'welcome_stats',
+          'bot_running',
+        ];
+        for (const key of transientKeys) {
+          try {
+            db.deleteState(key);
+          } catch {
+            // ignore
+          }
+        }
+        console.log('[BOT] Cleared bot_state transient keys (FIRST_RUN)');
       }
-    }
-    // Also clear per-server message IDs and orphaned server data directories
-    const serversDir = path.join(dataDir, 'servers');
-    if (fs.existsSync(serversDir)) {
-      const knownIds = new Set(loadServers().map((s: { id: string }) => s.id));
-      for (const entry of fs.readdirSync(serversDir)) {
-        const dir = path.join(serversDir, entry);
-        const fp = path.join(dir, 'message-ids.json');
+      // Also clear legacy JSON files
+      const msgIdFile = path.join(dataDir, 'message-ids.json');
+      if (fs.existsSync(msgIdFile)) {
+        fs.unlinkSync(msgIdFile);
+        console.log('[BOT] Cleared message-ids.json (FIRST_RUN)');
+      }
+      const transientFiles = ['log-offsets.json', 'day-counts.json', 'pvp-kills.json', 'welcome-stats.json'];
+      for (const f of transientFiles) {
+        const fp = path.join(dataDir, f);
         if (fs.existsSync(fp)) {
           fs.unlinkSync(fp);
+          console.log(`[BOT] Cleared ${f}`);
         }
-        if (!knownIds.has(entry) && fs.statSync(dir).isDirectory()) {
-          fs.rmSync(dir, { recursive: true, force: true });
-          console.log(`[BOT] Removed orphaned server data: ${entry}`);
-        } else {
-          for (const f of transientFiles) {
-            const sfp = path.join(dir, f);
-            if (fs.existsSync(sfp)) {
-              fs.unlinkSync(sfp);
+      }
+      // Also clear per-server message IDs and orphaned server data directories
+      const serversDir = path.join(dataDir, 'servers');
+      if (fs.existsSync(serversDir)) {
+        const knownIds = new Set(loadServers().map((s: { id: string }) => s.id));
+        for (const entry of fs.readdirSync(serversDir)) {
+          const dir = path.join(serversDir, entry);
+          const fp = path.join(dir, 'message-ids.json');
+          if (fs.existsSync(fp)) {
+            fs.unlinkSync(fp);
+          }
+          if (!knownIds.has(entry) && fs.statSync(dir).isDirectory()) {
+            fs.rmSync(dir, { recursive: true, force: true });
+            console.log(`[BOT] Removed orphaned server data: ${entry}`);
+          } else {
+            for (const f of transientFiles) {
+              const sfp = path.join(dir, f);
+              if (fs.existsSync(sfp)) {
+                fs.unlinkSync(sfp);
+              }
             }
           }
         }
       }
     }
-  }
 
-  // ── NUKE_BOT: factory reset — wipe all bot content from Discord ──
-  //    Cleans every configured channel BEFORE modules start, so all
-  //    threads and embeds are recreated fresh in the correct order.
-  if (config.nukeBot) {
-    // Immediately clear NUKE_BOT in .env FIRST to prevent infinite nuke loops
-    // if anything crashes during the wipe/rebuild process.
+    // ── NUKE_BOT: factory reset — wipe all bot content from Discord ──
+    //    Cleans every configured channel BEFORE modules start, so all
+    //    threads and embeds are recreated fresh in the correct order.
+    if (config.nukeBot) {
+      // Immediately clear NUKE_BOT in .env FIRST to prevent infinite nuke loops
+      // if anything crashes during the wipe/rebuild process.
+      try {
+        const envPath = path.join(__dirname, '..', '.env');
+        let envContent = fs.readFileSync(envPath, 'utf8');
+        envContent = envContent.replace(/^NUKE_BOT\s*=\s*true$/m, 'NUKE_BOT=false');
+        envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
+        envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
+        fs.writeFileSync(envPath, envContent, 'utf8');
+        console.log('[NUKE] NUKE_BOT set to false in .env (prevents repeat nuke on crash)');
+      } catch (err: unknown) {
+        console.warn('[NUKE] Could not update .env:', errMsg(err));
+      }
+
+      console.log('[NUKE] Wiping all bot content from Discord channels...');
+      const channelsToClean = new Set<string>();
+      // Primary server channels
+      if (config.logChannelId) channelsToClean.add(config.logChannelId);
+      if (config.adminChannelId) channelsToClean.add(config.adminChannelId);
+      if (config.chatChannelId) channelsToClean.add(config.chatChannelId);
+      if (config.serverStatusChannelId) channelsToClean.add(config.serverStatusChannelId);
+      if (config.playerStatsChannelId) channelsToClean.add(config.playerStatsChannelId);
+
+      if (config.activityLogChannelId) channelsToClean.add(config.activityLogChannelId);
+      // Additional server channels (including any from removed servers still in servers.json)
+      const servers = loadServers() as Array<{ channels?: Record<string, string | undefined> }>;
+      for (const sd of servers) {
+        if (sd.channels?.['log']) channelsToClean.add(sd.channels['log']);
+        if (sd.channels?.['chat']) channelsToClean.add(sd.channels['chat']);
+        if (sd.channels?.['admin']) channelsToClean.add(sd.channels['admin']);
+        if (sd.channels?.['status']) channelsToClean.add(sd.channels['status']);
+        if (sd.channels?.['stats']) channelsToClean.add(sd.channels['stats']);
+        if (sd.channels?.['panel']) channelsToClean.add(sd.channels['panel']);
+      }
+
+      const botId = readyClient.user.id;
+      for (const channelId of channelsToClean) {
+        await _nukeChannel(readyClient, channelId, botId);
+      }
+      console.log(`[NUKE] Cleaned ${channelsToClean.size} channel(s)`);
+    }
+
+    // ── Start modules with dependency checks ──────────────────
+
+    // Status Channels — voice channel dashboard
+    if (config.enableStatusChannels) {
+      const categoryHint = config.serverName;
+      statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
+      await statusChannels.start();
+      setStatus('Status Channels', '🟢 Active');
+    } else {
+      setStatus('Status Channels', '⚫ Disabled');
+      console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
+    }
+
+    // Server Status — live embed in a text channel
+    if (config.enableServerStatus) {
+      if (!config.serverStatusChannelId) {
+        setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
+        console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
+      } else {
+        serverStatus = new ServerStatus(readyClient, { db });
+        await serverStatus.start();
+        setStatus('Server Status', '🟢 Active');
+      }
+    } else {
+      setStatus('Server Status', '⚫ Disabled');
+      console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
+    }
+
+    // Log Watcher — SFTP log parsing + daily activity threads
+    // Started BEFORE Chat Relay so activity thread appears first in channel
+    if (config.enableLogWatcher) {
+      if (!hasSftp()) {
+        setStatus('Log Watcher', '🟡 Skipped (SFTP credentials not set)');
+        console.log('[BOT] Log watcher skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+      } else if (!config.logChannelId) {
+        setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
+        console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
+      } else {
+        logWatcher = new LogWatcher(readyClient, {
+          db,
+          dataDir: path.resolve(__dirname, '..'),
+          panelApi: panelApi.available ? panelApi : null,
+        });
+        await logWatcher.start();
+        setStatus('Log Watcher', '🟢 Active');
+      }
+    } else {
+      setStatus('Log Watcher', '⚫ Disabled');
+      console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
+    }
+
+    // Chat Relay — bidirectional chat bridge
+    if (config.enableChatRelay) {
+      if (!config.adminChannelId && !config.chatChannelId) {
+        setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
+        console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
+      } else {
+        chatRelay = new ChatRelay(readyClient, { db });
+        const _chatRelay = chatRelay;
+        if (config.nukeBot) _chatRelay._nukeActive = true;
+        // If LogWatcher handles activity threads, coordinate day-rollover ordering
+        if (logWatcher) {
+          _chatRelay._awaitActivityThread = true;
+          logWatcher._dayRolloverCb = async () => {
+            try {
+              await _chatRelay.createDailyThread();
+            } catch (e: unknown) {
+              console.warn('[BOT] Day-rollover chat thread error:', errMsg(e));
+            }
+          };
+        }
+        await chatRelay.start();
+        setStatus('Chat Relay', '🟢 Active');
+      }
+    } else {
+      setStatus('Chat Relay', '⚫ Disabled');
+      console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
+    }
+
+    // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
+    presenceTracker = new PlayerPresenceTracker({
+      config,
+      playtime,
+      getPlayerList,
+      label: 'PRESENCE',
+    });
     try {
-      const envPath = path.join(__dirname, '..', '.env');
-      let envContent = fs.readFileSync(envPath, 'utf8');
-      envContent = envContent.replace(/^NUKE_BOT\s*=\s*true$/m, 'NUKE_BOT=false');
-      envContent = envContent.replace(/^NUKE_THREADS\s*=\s*true$/m, 'NUKE_THREADS=false');
-      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
-      fs.writeFileSync(envPath, envContent, 'utf8');
-      console.log('[NUKE] NUKE_BOT set to false in .env (prevents repeat nuke on crash)');
+      await presenceTracker.start();
     } catch (err: unknown) {
-      console.warn('[NUKE] Could not update .env:', errMsg(err));
+      console.error('[PRESENCE] Failed to start player presence tracker:', errMsg(err));
     }
 
-    console.log('[NUKE] Wiping all bot content from Discord channels...');
-    const channelsToClean = new Set<string>();
-    // Primary server channels
-    if (config.logChannelId) channelsToClean.add(config.logChannelId);
-    if (config.adminChannelId) channelsToClean.add(config.adminChannelId);
-    if (config.chatChannelId) channelsToClean.add(config.chatChannelId);
-    if (config.serverStatusChannelId) channelsToClean.add(config.serverStatusChannelId);
-    if (config.playerStatsChannelId) channelsToClean.add(config.playerStatsChannelId);
-
-    if (config.activityLogChannelId) channelsToClean.add(config.activityLogChannelId);
-    // Additional server channels (including any from removed servers still in servers.json)
-    const servers = loadServers() as Array<{ channels?: Record<string, string | undefined> }>;
-    for (const sd of servers) {
-      if (sd.channels?.['log']) channelsToClean.add(sd.channels['log']);
-      if (sd.channels?.['chat']) channelsToClean.add(sd.channels['chat']);
-      if (sd.channels?.['admin']) channelsToClean.add(sd.channels['admin']);
-      if (sd.channels?.['status']) channelsToClean.add(sd.channels['status']);
-      if (sd.channels?.['stats']) channelsToClean.add(sd.channels['stats']);
-      if (sd.channels?.['panel']) channelsToClean.add(sd.channels['panel']);
-    }
-
-    const botId = readyClient.user?.id;
-    for (const channelId of channelsToClean) {
-      await _nukeChannel(readyClient, channelId, botId);
-    }
-    console.log(`[NUKE] Cleaned ${channelsToClean.size} channel(s)`);
-  }
-
-  // ── Start modules with dependency checks ──────────────────
-
-  // Status Channels — voice channel dashboard
-  if (config.enableStatusChannels) {
-    const categoryHint = config.serverName ?? '';
-    statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
-    await statusChannels.start();
-    setStatus('Status Channels', '🟢 Active');
-  } else {
-    setStatus('Status Channels', '⚫ Disabled');
-    console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
-  }
-
-  // Server Status — live embed in a text channel
-  if (config.enableServerStatus) {
-    if (!config.serverStatusChannelId) {
-      setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
-      console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
-    } else {
-      serverStatus = new ServerStatus(readyClient, { db });
-      await serverStatus.start();
-      setStatus('Server Status', '🟢 Active');
-    }
-  } else {
-    setStatus('Server Status', '⚫ Disabled');
-    console.log('[BOT] Server status embed disabled via ENABLE_SERVER_STATUS=false');
-  }
-
-  // Log Watcher — SFTP log parsing + daily activity threads
-  // Started BEFORE Chat Relay so activity thread appears first in channel
-  if (config.enableLogWatcher) {
-    if (!hasSftp()) {
-      setStatus('Log Watcher', '🟡 Skipped (SFTP credentials not set)');
-      console.log('[BOT] Log watcher skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
-    } else if (!config.logChannelId) {
-      setStatus('Log Watcher', '🟡 Skipped (LOG_CHANNEL_ID not set)');
-      console.log('[BOT] Log watcher skipped — LOG_CHANNEL_ID not configured');
-    } else {
-      logWatcher = new LogWatcher(readyClient, {
+    // Auto-Messages — periodic broadcasts + join welcome
+    const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
+    if (hasAnyAutoMsg) {
+      autoMessages = new AutoMessages({
+        config,
+        presenceTracker,
+        playtime,
+        playerStats,
+        getServerInfo,
+        sendAdminMessage,
         db,
-        dataDir: path.resolve(__dirname, '..'),
-        panelApi: panelApi.available ? panelApi : null,
+        label: 'AUTO MSG',
       });
-      await logWatcher.start();
-      setStatus('Log Watcher', '🟢 Active');
-    }
-  } else {
-    setStatus('Log Watcher', '⚫ Disabled');
-    console.log('[BOT] Log watcher disabled via ENABLE_LOG_WATCHER=false');
-  }
-
-  // Chat Relay — bidirectional chat bridge
-  if (config.enableChatRelay) {
-    if (!config.adminChannelId && !config.chatChannelId) {
-      setStatus('Chat Relay', '🟡 Skipped (CHAT_CHANNEL_ID / ADMIN_CHANNEL_ID not set)');
-      console.log('[BOT] Chat relay skipped — neither CHAT_CHANNEL_ID nor ADMIN_CHANNEL_ID configured');
+      await autoMessages.start();
+      setStatus('Auto-Messages', '🟢 Active');
     } else {
-      chatRelay = new ChatRelay(readyClient, { db });
-      if (config.nukeBot) chatRelay._nukeActive = true;
-      // If LogWatcher handles activity threads, coordinate day-rollover ordering
+      setStatus('Auto-Messages', '⚫ Disabled');
+      console.log('[AUTO MSG] All message features disabled — skipping');
+    }
+
+    // Kill Feed — sub-feature of Log Watcher
+    if (config.enableKillFeed) {
+      if (!logWatcher) {
+        setStatus('Kill Feed', '🟡 Skipped (requires Log Watcher)');
+      } else {
+        setStatus('Kill Feed', '🟢 Active');
+      }
+    } else {
+      setStatus('Kill Feed', '⚫ Disabled');
+    }
+
+    // PvP Kill Feed — sub-feature of Log Watcher
+    if (config.enablePvpKillFeed) {
+      if (!logWatcher) {
+        setStatus('PvP Kill Feed', '🟡 Skipped (requires Log Watcher)');
+      } else {
+        setStatus('PvP Kill Feed', '🟢 Active');
+      }
+    } else {
+      setStatus('PvP Kill Feed', '⚫ Disabled');
+    }
+
+    // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
+    if (hasSftp() || panelApi.available) {
+      saveService = new SaveService(db as unknown as ConstructorParameters<typeof SaveService>[0], {
+        sftpConfig: hasSftp() ? config.sftpConnectConfig() : undefined,
+        savePath: config.sftpSavePath,
+        clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
+        pollInterval: config.savePollInterval,
+        agentMode: config.agentMode as 'agent' | 'auto' | 'direct' | undefined,
+        agentNodePath: config.agentNodePath,
+        agentRemoteDir: config.agentRemoteDir,
+        agentCachePath: config.agentCachePath,
+        agentTimeout: config.agentTimeout,
+        agentTrigger: config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
+        agentPanelCommand: config.agentPanelCommand,
+        agentPanelDelay: config.agentPanelDelay,
+
+        // panelApi module type differs from SaveService's local PanelApi interface
+        panelApi: panelApi.available ? (panelApi as never) : undefined,
+      });
+      saveService.on('sync', (result: SaveSyncResult) => {
+        console.log(
+          `[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
+        );
+        // save-cache.json is now written inside SaveService._syncParsedData()
+      });
+      saveService.on('error', (err: unknown) => {
+        console.error('[BOT] Save service error:', errMsg(err));
+      });
+      await saveService.start();
+      if (webMapServer)
+        (webMapServer as unknown as { setSaveService: (s: typeof saveService) => void }).setSaveService(saveService);
+      const saveSource = hasSftp() ? '' : ' via Panel API';
+
+      setStatus('Save Service', `🟢 Active (${String(saveService.stats.mode)} mode${saveSource})`);
+
+      // Wire LogWatcher → SaveService ID map sharing
       if (logWatcher) {
-        chatRelay._awaitActivityThread = true;
-        logWatcher._dayRolloverCb = async () => {
-          try {
-            await chatRelay!.createDailyThread();
-          } catch (e: unknown) {
-            console.warn('[BOT] Day-rollover chat thread error:', errMsg(e));
-          }
+        // _onIdMapRefresh is a monkey-patched internal hook on LogWatcher (any-typed index signature)
+        const _svc = saveService;
+
+        logWatcher._onIdMapRefresh = (idMap: unknown) => {
+          _svc.setIdMap(idMap as Parameters<InstanceType<typeof SaveService>['setIdMap']>[0]);
         };
       }
-      await chatRelay.start();
-      setStatus('Chat Relay', '🟢 Active');
-    }
-  } else {
-    setStatus('Chat Relay', '⚫ Disabled');
-    console.log('[BOT] Chat relay disabled via ENABLE_CHAT_RELAY=false');
-  }
 
-  // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
-  presenceTracker = new PlayerPresenceTracker({
-    config,
-    playtime,
-    getPlayerList,
-    label: 'PRESENCE',
-  });
-  try {
-    await presenceTracker.start();
-  } catch (err: unknown) {
-    console.error('[PRESENCE] Failed to start player presence tracker:', errMsg(err));
-  }
+      // ── Snapshot Service — timeline recording on every save sync ──
+      snapshotService = new SnapshotService(db, {
+        retentionDays: parseInt(process.env['TIMELINE_RETENTION_DAYS'] ?? '', 10) || 14,
+        trackStructures: process.env['TIMELINE_TRACK_STRUCTURES'] !== 'false',
+        trackHouses: process.env['TIMELINE_TRACK_HOUSES'] !== 'false',
+        trackBackpacks: process.env['TIMELINE_TRACK_BACKPACKS'] !== 'false',
+      });
+      saveService.on('sync', (result: SaveSyncResult) => {
+        void (async () => {
+          if (!(result.parsed as unknown)) return;
+          try {
+            // Build online player set from RCON if available
+            const onlinePlayers = new Set<string>();
+            try {
+              const list = await getPlayerList();
+              // getPlayerList returns loosely typed data — defensive runtime access
+              const raw = list as unknown as Record<string, unknown>;
+              const arr: unknown[] = Array.isArray(raw.players)
+                ? raw.players
+                : Array.isArray(list)
+                  ? (list as unknown[])
+                  : [];
+              for (const p of arr) {
+                const player = p as Record<string, unknown>;
+                if (typeof player.name === 'string') onlinePlayers.add(player.name.toLowerCase());
+              }
+            } catch {
+              /* RCON unavailable — online player set will be empty for this snapshot */
+            }
 
-  // Auto-Messages — periodic broadcasts + join welcome
-  const hasAnyAutoMsg = config.enableAutoMsgLink || config.enableAutoMsgPromo || config.enableWelcomeMsg;
-  if (hasAnyAutoMsg) {
-    autoMessages = new AutoMessages({
-      config,
-      presenceTracker,
-      playtime,
-      playerStats,
-      getServerInfo,
-      sendAdminMessage,
-      db,
-      label: 'AUTO MSG',
-    });
-    await autoMessages.start();
-    setStatus('Auto-Messages', '🟢 Active');
-  } else {
-    setStatus('Auto-Messages', '⚫ Disabled');
-    console.log('[AUTO MSG] All message features disabled — skipping');
-  }
-
-  // Kill Feed — sub-feature of Log Watcher
-  if (config.enableKillFeed) {
-    if (!logWatcher) {
-      setStatus('Kill Feed', '🟡 Skipped (requires Log Watcher)');
-    } else {
-      setStatus('Kill Feed', '🟢 Active');
-    }
-  } else {
-    setStatus('Kill Feed', '⚫ Disabled');
-  }
-
-  // PvP Kill Feed — sub-feature of Log Watcher
-  if (config.enablePvpKillFeed) {
-    if (!logWatcher) {
-      setStatus('PvP Kill Feed', '🟡 Skipped (requires Log Watcher)');
-    } else {
-      setStatus('PvP Kill Feed', '🟢 Active');
-    }
-  } else {
-    setStatus('PvP Kill Feed', '⚫ Disabled');
-  }
-
-  // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
-  if (hasSftp() || panelApi.available) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-    saveService = new SaveService(db as any, {
-      sftpConfig: hasSftp() ? config.sftpConnectConfig() : undefined,
-      savePath: config.sftpSavePath,
-      clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
-      pollInterval: config.savePollInterval,
-      agentMode: config.agentMode as 'agent' | 'auto' | 'direct' | undefined,
-      agentNodePath: config.agentNodePath,
-      agentRemoteDir: config.agentRemoteDir,
-      agentCachePath: config.agentCachePath,
-      agentTimeout: config.agentTimeout,
-      agentTrigger: config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
-      agentPanelCommand: config.agentPanelCommand,
-      agentPanelDelay: config.agentPanelDelay,
-
-      panelApi: panelApi.available ? (panelApi as any) : undefined,
-    });
-    saveService.on('sync', (result: any) => {
-      console.log(
-        `[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
-      );
-      // save-cache.json is now written inside SaveService._syncParsedData()
-    });
-    saveService.on('error', (err: unknown) => {
-      console.error('[BOT] Save service error:', errMsg(err));
-    });
-    await saveService.start();
-    if (webMapServer) webMapServer.setSaveService(saveService);
-    const saveSource = hasSftp() ? '' : ' via Panel API';
-    setStatus('Save Service', `🟢 Active (${saveService.stats.mode} mode${saveSource})`);
-
-    // Wire LogWatcher → SaveService ID map sharing
-    if (logWatcher) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      logWatcher._onIdMapRefresh = (idMap: any) => saveService!.setIdMap(idMap);
-    }
-
-    // ── Snapshot Service — timeline recording on every save sync ──
-    snapshotService = new SnapshotService(db, {
-      retentionDays: parseInt(process.env['TIMELINE_RETENTION_DAYS'] ?? '', 10) || 14,
-      trackStructures: process.env['TIMELINE_TRACK_STRUCTURES'] !== 'false',
-      trackHouses: process.env['TIMELINE_TRACK_HOUSES'] !== 'false',
-      trackBackpacks: process.env['TIMELINE_TRACK_BACKPACKS'] !== 'false',
-    });
-    saveService.on('sync', async (result: any) => {
-      if (!result.parsed) return;
-      try {
-        // Build online player set from RCON if available
-        const onlinePlayers = new Set<string>();
-        try {
-          const list = await getPlayerList();
-          const arr: any[] = list?.players ?? (Array.isArray(list) ? list : []);
-          for (const p of arr) {
-            if (p.name) onlinePlayers.add(String(p.name).toLowerCase());
+            const _snapshot = snapshotService;
+            if (_snapshot) {
+              _snapshot.recordSnapshot(
+                {
+                  players: result.parsed.players,
+                  worldState: result.worldState,
+                  vehicles: result.parsed.vehicles,
+                  structures: result.parsed.structures,
+                  containers: result.parsed.containers,
+                  companions: result.parsed.companions,
+                  horses: result.parsed.horses,
+                } as Parameters<InstanceType<typeof SnapshotService>['recordSnapshot']>[0],
+                { onlinePlayers },
+              );
+            }
+          } catch (err: unknown) {
+            console.error('[BOT] Snapshot recording error:', errMsg(err));
           }
-        } catch {
-          /* RCON unavailable — online player set will be empty for this snapshot */
-        }
-
-        snapshotService!.recordSnapshot(
-          {
-            players: result.parsed.players,
-            worldState: result.worldState,
-            vehicles: result.parsed.vehicles,
-            structures: result.parsed.structures,
-            containers: result.parsed.containers,
-            companions: result.parsed.companions,
-            horses: result.parsed.horses,
-          },
-          { onlinePlayers },
-        );
-      } catch (err: unknown) {
-        console.error('[BOT] Snapshot recording error:', errMsg(err));
-      }
-    });
-    setStatus('Timeline', '🟢 Active');
-  } else {
-    setStatus('Save Service', '🟡 Skipped (no SFTP credentials or Panel API)');
-    setStatus('Timeline', '🟡 Skipped (requires Save Service)');
-  }
-
-  // Activity Log — save-file change tracking feed
-  if (config.enableActivityLog) {
-    if (!saveService) {
-      setStatus('Activity Log', '🟡 Skipped (requires Save Service)');
+        })();
+      });
+      setStatus('Timeline', '🟢 Active');
     } else {
-      activityLog = new ActivityLog(readyClient, { db, saveService, logWatcher });
-      await activityLog.start();
-      setStatus('Activity Log', '🟢 Active');
+      setStatus('Save Service', '🟡 Skipped (no SFTP credentials or Panel API)');
+      setStatus('Timeline', '🟡 Skipped (requires Save Service)');
     }
-  } else {
-    setStatus('Activity Log', '⚫ Disabled');
-  }
 
-  // Milestone Tracker — player achievement announcements
-  if (config.enableMilestones) {
-    if (!db) {
-      setStatus('Milestones', '🟡 Skipped (no database)');
+    // Activity Log — save-file change tracking feed
+    if (config.enableActivityLog) {
+      if (!saveService) {
+        setStatus('Activity Log', '🟡 Skipped (requires Save Service)');
+      } else {
+        activityLog = new ActivityLog(readyClient, { db, saveService, logWatcher });
+        await activityLog.start();
+        setStatus('Activity Log', '🟢 Active');
+      }
     } else {
+      setStatus('Activity Log', '⚫ Disabled');
+    }
+
+    // Milestone Tracker — player achievement announcements
+    if (config.enableMilestones) {
       milestoneTracker = new MilestoneTracker(readyClient, { db, logWatcher, config });
+      const _milestone = milestoneTracker;
       // Check milestones on every save sync
       if (saveService) {
-        saveService.on('sync', (result: any) => {
-          milestoneTracker!.check(result).catch((checkErr: unknown) => {
+        saveService.on('sync', (result: SaveSyncResult) => {
+          _milestone.check(result).catch((checkErr: unknown) => {
             console.error('[BOT] Milestone check error:', errMsg(checkErr));
           });
         });
       }
       // Wire death events from LogWatcher to reset survival streaks
       if (logWatcher) {
-        const origOnDeath = logWatcher._onDeath.bind(logWatcher);
-        logWatcher._onDeath = function (playerName: string, timestamp: string) {
+        const lw = logWatcher as unknown as { _onDeath: (playerName: string, timestamp: string) => void };
+        const origOnDeath = lw._onDeath.bind(logWatcher);
+        lw._onDeath = function (playerName: string, timestamp: string) {
           origOnDeath(playerName, timestamp);
           const steamId = playerStats.getSteamId(playerName);
-          if (steamId) milestoneTracker!.onPlayerDeath(steamId);
+          if (steamId) _milestone.onPlayerDeath(steamId);
         };
       }
       setStatus('Milestones', '🟢 Active');
-    }
-  } else {
-    setStatus('Milestones', '⚫ Disabled');
-    console.log('[BOT] Milestones disabled via ENABLE_MILESTONES=false');
-  }
-
-  // Recap Service — daily/weekly summary embeds
-  if (config.enableRecaps) {
-    if (!db) {
-      setStatus('Recaps', '🟡 Skipped (no database)');
     } else {
+      setStatus('Milestones', '⚫ Disabled');
+      console.log('[BOT] Milestones disabled via ENABLE_MILESTONES=false');
+    }
+
+    // Recap Service — daily/weekly summary embeds
+    if (config.enableRecaps) {
       recapService = new RecapService(readyClient, { db, logWatcher, config, playtime });
+      const _recap = recapService;
       // Chain into LogWatcher day-rollover callback
       if (logWatcher) {
-        const prevCb: (() => Promise<void>) | undefined = logWatcher._dayRolloverCb;
-        logWatcher._dayRolloverCb = async () => {
+        const lwRecap = logWatcher as unknown as { _dayRolloverCb: (() => Promise<void>) | null };
+        const prevCb = lwRecap._dayRolloverCb;
+        lwRecap._dayRolloverCb = async () => {
           if (typeof prevCb === 'function') await prevCb();
-          const yesterday: string = recapService!._getYesterday() ?? '';
-          await recapService!.onDayRollover(yesterday);
+          const yesterday: string = (_recap as unknown as { _getYesterday: () => string | null })._getYesterday() ?? '';
+          await (_recap as unknown as { onDayRollover: (day: string) => Promise<void> }).onDayRollover(yesterday);
         };
       }
       setStatus('Recaps', '🟢 Active');
-    }
-  } else {
-    setStatus('Recaps', '⚫ Disabled');
-    console.log('[BOT] Recaps disabled via ENABLE_RECAPS=false');
-  }
-
-  // Anticheat — observation-only anomaly detection (optional private package)
-  if (config.enableAnticheat && AnticheatIntegration) {
-    if (!db) {
-      setStatus('Anticheat', '🟡 Skipped (no database)');
     } else {
+      setStatus('Recaps', '⚫ Disabled');
+      console.log('[BOT] Recaps disabled via ENABLE_RECAPS=false');
+    }
+
+    // Anticheat — observation-only anomaly detection (optional private package)
+    if (config.enableAnticheat && AnticheatIntegration) {
       anticheatIntegration = new AnticheatIntegration({ db, config, logWatcher });
       await anticheatIntegration.start();
-      if (anticheatIntegration.available) {
+      const _anticheat = anticheatIntegration;
+      if (_anticheat.available) {
         // Wire into save sync for real-time analysis
         if (saveService) {
-          saveService.on('sync', (result: any) => {
-            anticheatIntegration.onSaveSync(result).catch((syncErr: unknown) => {
+          saveService.on('sync', (result: SaveSyncResult) => {
+            _anticheat.onSaveSync(result).catch((syncErr: unknown) => {
               console.error('[BOT] Anticheat save sync error:', errMsg(syncErr));
             });
           });
@@ -881,373 +998,411 @@ client.once(Events.ClientReady, async (readyClient) => {
       } else {
         setStatus('Anticheat', '🟡 Package not installed');
       }
-    }
-  } else {
-    setStatus('Anticheat', '⚫ Disabled');
-  }
-
-  // HOWYAGARN MMO — faction PvP / territory control system
-  if (config.enableHowyagarn) {
-    if (!HowyagarnManager) {
-      setStatus('HOWYAGARN', '🟡 Skipped (module not installed)');
-    } else if (!db) {
-      setStatus('HOWYAGARN', '🟡 Skipped (no database)');
     } else {
-      try {
-        // Create shared IPC client for engine communication
-        if (HzmodIpcClient && config.hzmodSocketPath) {
-          hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
-          hzmodIpc.on('connect', () => console.log('[BOT] hzmod IPC connected'));
-          hzmodIpc.on('disconnect', () => console.log('[BOT] hzmod IPC disconnected — will reconnect'));
-          hzmodIpc.on('error', (ipcErr: unknown) => console.error('[BOT] hzmod IPC error:', errMsg(ipcErr)));
-          hzmodIpc.connect();
-          console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
-        }
+      setStatus('Anticheat', '⚫ Disabled');
+    }
 
-        howyagarnManager = new HowyagarnManager({
-          db,
-          client: readyClient,
-          rcon,
-          chatRelay,
-          config,
-          ipc: hzmodIpc ?? null,
-        });
-        howyagarnManager.init();
+    // HOWYAGARN MMO — faction PvP / territory control system
+    if (config.enableHowyagarn) {
+      if (!HowyagarnManager) {
+        setStatus('HOWYAGARN', '🟡 Skipped (module not installed)');
+      } else {
+        try {
+          // Create shared IPC client for engine communication
+          if (HzmodIpcClient && config.hzmodSocketPath) {
+            hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
+            hzmodIpc.on('connect', () => {
+              console.log('[BOT] hzmod IPC connected');
+            });
+            hzmodIpc.on('disconnect', () => {
+              console.log('[BOT] hzmod IPC disconnected — will reconnect');
+            });
+            hzmodIpc.on('error', (ipcErr: unknown) => {
+              console.error('[BOT] hzmod IPC error:', errMsg(ipcErr));
+            });
+            hzmodIpc.connect();
+            console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
+          }
 
-        // Expose on client so slash commands can access it via interaction.client._howyagarnManager
-        (readyClient as any)._howyagarnManager = howyagarnManager;
-
-        // Wire save-sync events
-        if (saveService) {
-          saveService.on('sync', (result: any) => {
-            try {
-              if (!result.parsed) return;
-              const players: any[] = [];
-              const playerMap: Map<string, any> =
-                result.parsed.players instanceof Map
-                  ? result.parsed.players
-                  : // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-                    new Map(Object.entries(result.parsed.players ?? {}));
-              for (const [steamId, pData] of playerMap) {
-                players.push({
-                  steamId,
-                  name: pData.name ?? pData.playerName ?? '',
-                  x: pData.posX ?? pData.x ?? 0,
-                  y: pData.posY ?? pData.y ?? 0,
-                  deltaZeeksKilled: pData.deltaZeeksKilled ?? 0,
-                  deltaNpcKills: pData.deltaNpcKills ?? 0,
-                  deltaAnimalKills: pData.deltaAnimalKills ?? 0,
-                  deltaFishCaught: pData.deltaFishCaught ?? 0,
-                  deltaDaysSurvived: pData.deltaDaysSurvived ?? 0,
-                });
-              }
-              const structures: any[] = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
-              howyagarnManager.onSaveSync({ players, structures });
-            } catch (err: unknown) {
-              console.error('[BOT] HOWYAGARN save sync error:', errMsg(err));
-            }
+          howyagarnManager = new HowyagarnManager({
+            db,
+            client: readyClient,
+            rcon,
+            chatRelay,
+            config,
+            ipc: hzmodIpc ?? null,
           });
-        }
+          howyagarnManager.init();
+          const _howyagarn = howyagarnManager;
 
-        // Wire log events (PvP deaths, builds, looting)
-        if (logWatcher) {
-          const origLogEvent = (logWatcher as any)._logEvent?.bind(logWatcher);
-          if (origLogEvent) {
-            (logWatcher as any)._logEvent = function (type: string, data: any) {
-              origLogEvent(type, data);
+          // Expose on client so slash commands can access it via interaction.client._howyagarnManager
+          (readyClient as unknown as Record<string, unknown>)['_howyagarnManager'] = _howyagarn;
+
+          // Wire save-sync events
+          if (saveService) {
+            saveService.on('sync', (result: SaveSyncResult) => {
               try {
-                howyagarnManager.onLogEvent(type, data);
+                if (!(result.parsed as unknown)) return;
+                const players: HowyagarnPlayer[] = [];
+                const playerMap: Map<string, Record<string, unknown>> = result.parsed.players instanceof Map
+                  ? result.parsed.players
+                  : new Map(Object.entries(result.parsed.players));
+                for (const [steamId, pData] of playerMap) {
+                  players.push({
+                    steamId,
+                    name: (pData['name'] ?? pData['playerName'] ?? '') as string,
+                    x: (pData['posX'] ?? pData['x'] ?? 0) as number,
+                    y: (pData['posY'] ?? pData['y'] ?? 0) as number,
+                    deltaZeeksKilled: (pData['deltaZeeksKilled'] ?? 0) as number,
+                    deltaNpcKills: (pData['deltaNpcKills'] ?? 0) as number,
+                    deltaAnimalKills: (pData['deltaAnimalKills'] ?? 0) as number,
+                    deltaFishCaught: (pData['deltaFishCaught'] ?? 0) as number,
+                    deltaDaysSurvived: (pData['deltaDaysSurvived'] ?? 0) as number,
+                  });
+                }
+                const structures: unknown[] = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
+                _howyagarn.onSaveSync({ players, structures });
               } catch (err: unknown) {
-                console.error('[BOT] howyagarnManager.onLogEvent error:', errMsg(err));
+                console.error('[BOT] HOWYAGARN save sync error:', errMsg(err));
               }
-            };
+            });
           }
-          // Wire connect events
-          const origOnConnect = logWatcher._onPlayerConnect?.bind(logWatcher);
-          if (origOnConnect) {
-            logWatcher._onPlayerConnect = function (playerName: string, steamId: string) {
-              origOnConnect(playerName, steamId);
-              try {
-                howyagarnManager.onPlayerConnect(steamId, playerName);
-              } catch (err: unknown) {
-                console.error('[BOT] howyagarnManager.onPlayerConnect error:', errMsg(err));
-              }
+
+          // Wire log events (PvP deaths, builds, looting)
+          if (logWatcher) {
+            // _logEvent and _onPlayerConnect are monkey-patched internal hooks (LogWatcher has [key:string]:any)
+            type LwHooks = {
+              _logEvent?: (type: string, data: unknown) => void;
+              _onPlayerConnect?: (playerName: string, steamId: string) => void;
             };
+            const lwHooks = logWatcher as unknown as LwHooks;
+            const origLogEvent = lwHooks._logEvent?.bind(logWatcher);
+            if (origLogEvent) {
+              lwHooks._logEvent = function (type: string, data: unknown) {
+                origLogEvent(type, data);
+                try {
+                  _howyagarn.onLogEvent(type, data);
+                } catch (err: unknown) {
+                  console.error('[BOT] howyagarnManager.onLogEvent error:', errMsg(err));
+                }
+              };
+            }
+            // Wire connect events
+            const origOnConnect = lwHooks._onPlayerConnect?.bind(logWatcher);
+            if (origOnConnect) {
+              lwHooks._onPlayerConnect = function (playerName: string, steamId: string) {
+                origOnConnect(playerName, steamId);
+                try {
+                  _howyagarn.onPlayerConnect(steamId, playerName);
+                } catch (err: unknown) {
+                  console.error('[BOT] howyagarnManager.onPlayerConnect error:', errMsg(err));
+                }
+              };
+            }
           }
+
+          setStatus('HOWYAGARN', '🟢 Active');
+          console.log('[BOT] HOWYAGARN MMO system active');
+        } catch (err: unknown) {
+          setStatus('HOWYAGARN', `⚠️ Failed: ${errMsg(err)}`);
+          console.error('[BOT] HOWYAGARN init failed:', errMsg(err));
         }
-
-        setStatus('HOWYAGARN', '🟢 Active');
-        console.log('[BOT] HOWYAGARN MMO system active');
-      } catch (err: unknown) {
-        setStatus('HOWYAGARN', `⚠️ Failed: ${errMsg(err)}`);
-        console.error('[BOT] HOWYAGARN init failed:', errMsg(err));
       }
-    }
-  } else {
-    setStatus('HOWYAGARN', '⚫ Disabled');
-  }
-
-  // Player Stats — DB-first reads (SaveService populates DB, PSC reads it)
-  if (config.enablePlayerStats) {
-    if (!hasSftp() && !panelApi.available && !db) {
-      setStatus('Player Stats', '🟡 Skipped (no SFTP, Panel API, or database)');
-      console.log('[BOT] Player stats skipped — no SFTP, Panel API, or database available');
-    } else if (!config.playerStatsChannelId) {
-      setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
-      console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
     } else {
-      playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
-        db,
-        panelApi: panelApi.available ? panelApi : null,
-      });
-      await playerStatsChannel.start();
-      const mode = db ? 'DB-first' : 'SFTP legacy';
-      setStatus('Player Stats', `🟢 Active (${mode})`);
-      if (!logWatcher) {
-        setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
-      }
+      setStatus('HOWYAGARN', '⚫ Disabled');
     }
-  } else {
-    setStatus('Player Stats', '⚫ Disabled');
-    console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
-  }
 
-  // PvP Scheduler — SFTP-based PvP toggling on a schedule
-  if (config.enablePvpScheduler) {
-    if (!hasSftp()) {
-      setStatus('PvP Scheduler', '🟡 Skipped (SFTP credentials not set)');
-      console.log('[BOT] PvP scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
-    } else if (isNaN(config.pvpStartMinutes) || isNaN(config.pvpEndMinutes)) {
-      setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
-      console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
+    // Player Stats — DB-first reads (SaveService populates DB, PSC reads it)
+    if (config.enablePlayerStats) {
+      if (!hasSftp() && !panelApi.available) {
+        setStatus('Player Stats', '🟡 Skipped (no SFTP, Panel API, or database)');
+        console.log('[BOT] Player stats skipped — no SFTP, Panel API, or database available');
+      } else if (!config.playerStatsChannelId) {
+        setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
+        console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
+      } else {
+        playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
+          db,
+          panelApi: panelApi.available ? panelApi : null,
+        });
+        await playerStatsChannel.start();
+        const mode = 'DB-first';
+        setStatus('Player Stats', `🟢 Active (${mode})`);
+        if (!logWatcher) {
+          setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
+        }
+      }
     } else {
-      pvpScheduler = new PvpScheduler(readyClient, logWatcher);
-      await pvpScheduler.start();
-      setStatus('PvP Scheduler', '🟢 Active');
-      if (!logWatcher) {
-        setStatus('PvP Scheduler', '🟢 Active (activity log announcements unavailable — Log Watcher off)');
-      }
+      setStatus('Player Stats', '⚫ Disabled');
+      console.log('[BOT] Player stats disabled via ENABLE_PLAYER_STATS=false');
     }
-  } else {
-    setStatus('PvP Scheduler', '⚫ Disabled');
-    console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
-  }
 
-  // Server Scheduler — timed restarts with dynamic difficulty profiles
-  if (config.enableServerScheduler) {
-    if (!hasSftp()) {
-      setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
-      console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+    // PvP Scheduler — SFTP-based PvP toggling on a schedule
+    if (config.enablePvpScheduler) {
+      if (!hasSftp()) {
+        setStatus('PvP Scheduler', '🟡 Skipped (SFTP credentials not set)');
+        console.log('[BOT] PvP scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+      } else if (isNaN(config.pvpStartMinutes) || isNaN(config.pvpEndMinutes)) {
+        setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
+        console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
+      } else {
+        pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+        await pvpScheduler.start();
+        setStatus('PvP Scheduler', '🟢 Active');
+        if (!logWatcher) {
+          setStatus('PvP Scheduler', '🟢 Active (activity log announcements unavailable — Log Watcher off)');
+        }
+      }
     } else {
-      serverScheduler = new ServerScheduler(readyClient, logWatcher);
-      await serverScheduler.start();
-      if (webMapServer) webMapServer.setScheduler(serverScheduler);
-      const status = serverScheduler.getStatus();
-      const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
-      setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
+      setStatus('PvP Scheduler', '⚫ Disabled');
+      console.log('[BOT] PvP scheduler disabled via ENABLE_PVP_SCHEDULER=false');
     }
-  } else {
-    setStatus('Server Scheduler', '⚫ Disabled');
-    console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
-  }
 
-  // ── Multi-server manager (independent of Panel) ──────────
-  multiServerManager = new MultiServerManager(readyClient, { configRepo });
-  await multiServerManager.startAll();
-  if (webMapServer) {
-    webMapServer.setMultiServerManager(multiServerManager);
-    // Register hzmod web plugin now that multiServerManager is available
-    if (hzmodWebPlugin) {
-      try {
-        hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc ?? null });
-        // Pass HowyagarnManager to web plugin for MMO API endpoints
-        if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
-      } catch (err: unknown) {
-        console.error('[BOT] hzmod plugin registration failed:', errMsg(err));
+    // Server Scheduler — timed restarts with dynamic difficulty profiles
+    if (config.enableServerScheduler) {
+      if (!hasSftp()) {
+        setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
+        console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
+      } else {
+        serverScheduler = new ServerScheduler(readyClient, logWatcher);
+        await serverScheduler.start();
+        if (webMapServer)
+          (webMapServer as unknown as { setScheduler: (s: typeof serverScheduler) => void }).setScheduler(
+            serverScheduler,
+          );
+        const status = (
+          serverScheduler as unknown as { getStatus: () => { profiles: string[]; restartTimes: string[] } }
+        ).getStatus();
+        const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
+        setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
+      }
+    } else {
+      setStatus('Server Scheduler', '⚫ Disabled');
+      console.log('[BOT] Server scheduler disabled via ENABLE_SERVER_SCHEDULER=false');
+    }
+
+    // ── Multi-server manager (independent of Panel) ──────────
+    multiServerManager = new MultiServerManager(readyClient, { configRepo });
+    await multiServerManager.startAll();
+    if (webMapServer) {
+      (
+        webMapServer as unknown as { setMultiServerManager: (m: typeof multiServerManager) => void }
+      ).setMultiServerManager(multiServerManager);
+      // Register hzmod web plugin now that multiServerManager is available
+      if (hzmodWebPlugin) {
+        try {
+          hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc ?? null });
+          // Pass HowyagarnManager to web plugin for MMO API endpoints
+          if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
+        } catch (err: unknown) {
+          console.error('[BOT] hzmod plugin registration failed:', errMsg(err));
+        }
       }
     }
-  }
 
-  // ── BotControlService (used by both Panel and Web) ───────
-  const botControl = new BotControlService({ exit: (code: number) => process.exit(code) });
-  if (webMapServer) webMapServer.setBotControl(botControl);
-  if (webMapServer) webMapServer.setModuleStatus(moduleStatus);
+    // ── BotControlService (used by both Panel and Web) ───────
+    const botControl = new BotControlService({ exit: (code: number) => process.exit(code) });
+    if (webMapServer)
+      (webMapServer as unknown as { setBotControl: (b: typeof botControl) => void }).setBotControl(botControl);
+    if (webMapServer)
+      (webMapServer as unknown as { setModuleStatus: (s: typeof moduleStatus) => void }).setModuleStatus(moduleStatus);
 
-  // ── Panel API status (/qspanel command) ─────────────────────
-  if (panelApi.available) {
-    setStatus('Panel', '🟢 Active (/qspanel command)');
-    console.log('[BOT] Panel API available — /qspanel command active');
-  } else {
-    setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY)');
-  }
+    // ── Panel API status (/qspanel command) ─────────────────────
+    if (panelApi.available) {
+      setStatus('Panel', '🟢 Active (/qspanel command)');
+      console.log('[BOT] Panel API available — /qspanel command active');
+    } else {
+      setStatus('Panel', '🟡 Skipped (no PANEL_SERVER_URL/PANEL_API_KEY)');
+    }
 
-  // ── Stdin console (for headless hosts like Bisect) ──────────
-  if (config.enableStdinConsole) {
-    stdinConsole = new StdinConsole({ db, writable: config.stdinConsoleWritable });
-    stdinConsole.start();
-    setStatus('Console', '🟢 Active (stdin)');
-    console.log(`[BOT] Stdin console active${config.stdinConsoleWritable ? ' (writable)' : ' (read-only)'}`);
-  }
+    // ── Stdin console (for headless hosts like Bisect) ──────────
+    if (config.enableStdinConsole) {
+      stdinConsole = new StdinConsole({ db, writable: config.stdinConsoleWritable });
+      stdinConsole.start();
+      setStatus('Console', '🟢 Active (stdin)');
+      console.log(`[BOT] Stdin console active${config.stdinConsoleWritable ? ' (writable)' : ' (read-only)'}`);
+    }
 
-  // ── Write running flag + clean old lifecycle embeds + post online notification ──
-  try {
-    if (db) {
+    // ── Write running flag + clean old lifecycle embeds + post online notification ──
+    try {
       try {
         db.setStateJSON('bot_running', JSON.stringify({ startedAt: startedAt.toISOString() }));
       } catch {
         // ignore
       }
-    }
 
-    // Clean previous lifecycle embeds from admin alert channels
-    let alertIds: string[] = config.adminAlertChannelIds;
-    if (typeof alertIds === 'string') {
-      alertIds = (alertIds as string)
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean);
-    }
-    if (!alertIds?.length) alertIds = config.adminChannelId ? [config.adminChannelId] : [];
-    for (const chId of alertIds) {
-      try {
-        const ch: any = await readyClient.channels.fetch(chId);
-        if (!ch) continue;
-        const messages: any = await ch.messages.fetch({ limit: 30 });
-        const botId = readyClient.user?.id;
-        const toDelete: any = messages.filter((m: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-          return (
-            m.author.id === botId &&
-            m.embeds.length > 0 &&
-            m.embeds.some((e: any) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online')
-          );
-        });
-        if (toDelete.size > 0) {
-          try {
-            await ch.bulkDelete(toDelete, true);
-          } catch {
-            for (const msg of toDelete.values()) {
-              await msg.delete().catch(() => {});
+      // Clean previous lifecycle embeds from admin alert channels
+      let alertIds: string[] = config.adminAlertChannelIds;
+      if (typeof alertIds === 'string') {
+        alertIds = (alertIds as string)
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
+      }
+      if (!alertIds.length) alertIds = config.adminChannelId ? [config.adminChannelId] : [];
+      const botUserId = readyClient.user.id;
+      for (const chId of alertIds) {
+        try {
+          const ch = await readyClient.channels.fetch(chId).catch(() => null);
+          if (!ch || !('messages' in ch)) continue;
+          const textCh = ch as TextBasedChannel;
+          const messages = await textCh.messages.fetch({ limit: 30 });
+          const toDelete = messages.filter((m) => {
+            return (
+              m.author.id === botUserId &&
+              m.embeds.length > 0 &&
+              m.embeds.some((e) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online')
+            );
+          });
+          if (toDelete.size > 0) {
+            try {
+              if ('bulkDelete' in textCh) await (textCh as import('discord.js').TextChannel).bulkDelete(toDelete, true);
+            } catch {
+              for (const msg of toDelete.values()) {
+                await msg.delete().catch(() => {});
+              }
             }
           }
+        } catch (cleanErr: unknown) {
+          console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, errMsg(cleanErr));
         }
-      } catch (cleanErr: unknown) {
-        console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, errMsg(cleanErr));
       }
+
+      const onlineEmbed = new EmbedBuilder()
+        .setTitle('🟢 Bot Online')
+        .setDescription(`Started at ${startedAt.toISOString()}`)
+        .setColor(0x2ecc71)
+        .setTimestamp();
+      await postAdminAlert(readyClient, onlineEmbed, {
+        adminAlertChannelIds: config.adminAlertChannelIds,
+        fallbackChannelId: config.adminChannelId,
+      });
+    } catch (err: unknown) {
+      console.error('[BOT] Failed to post online notification:', errMsg(err));
     }
 
-    const onlineEmbed = new EmbedBuilder()
-      .setTitle('🟢 Bot Online')
-      .setDescription(`Started at ${startedAt.toISOString()}`)
-      .setColor(0x2ecc71)
-      .setTimestamp();
-    await postAdminAlert(readyClient, onlineEmbed, {
-      adminAlertChannelIds: config.adminAlertChannelIds,
-      fallbackChannelId: config.adminChannelId,
-    });
-  } catch (err: unknown) {
-    console.error('[BOT] Failed to post online notification:', errMsg(err));
-  }
-
-  // ── NUKE_BOT phase 2: rebuild activity threads from log history ──
-  if (config.nukeBot) {
-    console.log('[NUKE] Rebuilding activity threads from log history...');
-    try {
-      // Primary server
-      const result = await rebuildThreads(readyClient);
-      if (result.error) {
-        console.error('[NUKE] Thread rebuild failed:', result.error);
-      } else {
-        console.log(
-          `[NUKE] Thread rebuild: ${result.created} created, ${result.deleted} replaced, ${result.preserved} preserved, ${result.cleaned} cleaned`,
-        );
-      }
-      // Additional servers
-
-      const additionalServers: any[] = loadServers();
-      for (const serverDef of additionalServers) {
-        const label: string = serverDef.name ?? serverDef.id;
-        if (!serverDef.channels?.log) {
-          console.log('[NUKE] Skipping %s thread rebuild (no log channel)', label);
-          continue;
-        }
-        const serverConfig: any = createServerConfig(serverDef);
-        console.log('[NUKE] Rebuilding threads for %s...', label);
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        const srvResult: any = await rebuildThreads(readyClient, null, serverConfig);
-        if (srvResult.error) {
-          console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
+    // ── NUKE_BOT phase 2: rebuild activity threads from log history ──
+    if (config.nukeBot) {
+      console.log('[NUKE] Rebuilding activity threads from log history...');
+      try {
+        // Primary server
+        const result = await rebuildThreads(readyClient);
+        if (result.error) {
+          console.error('[NUKE] Thread rebuild failed:', result.error);
         } else {
           console.log(
-            `[NUKE] ${label}: ${srvResult.created} created, ${srvResult.deleted} replaced, ${srvResult.preserved} preserved, ${srvResult.cleaned} cleaned`,
+            `[NUKE] Thread rebuild: ${result.created} created, ${result.deleted} replaced, ${result.preserved} preserved, ${result.cleaned} cleaned`,
           );
         }
-      }
-    } catch (err: unknown) {
-      console.error('[NUKE] Thread rebuild error:', errMsg(err));
-    }
+        // Additional servers
 
-    // Reset thread caches so modules pick up the newly rebuilt threads
-    // Clear nuke suppression first so thread creation works normally again
-    if (logWatcher) {
-      logWatcher._nukeActive = false;
-      logWatcher.resetThreadCache();
-      // Send the startup notification that was deferred during nuke
-      const thread: any = await logWatcher._getOrCreateDailyThread();
-      const startEmbed = new EmbedBuilder()
-        .setDescription('Log watcher connected. Monitoring game server activity.')
-        .setColor(0x3498db)
-        .setTimestamp();
-      await thread.send({ embeds: [startEmbed] }).catch(() => {});
-      console.log('[NUKE] LogWatcher thread cache reset');
-    }
-    if (chatRelay && typeof chatRelay.resetThreadCache === 'function') {
-      chatRelay._nukeActive = false;
-      chatRelay.resetThreadCache();
-      // Re-create chat thread so it appears after rebuilt activity threads
-      if (typeof chatRelay._getOrCreateChatThread === 'function') {
-        await chatRelay
-          ._getOrCreateChatThread()
-          .catch((e: unknown) => console.warn('[NUKE] Could not re-create chat thread:', errMsg(e)));
-      }
-      console.log('[NUKE] ChatRelay thread cache reset + recreated');
-    }
-    if (multiServerManager) {
-      for (const [, instance] of multiServerManager._instances) {
-        if (instance._modules?.logWatcher) {
-          instance._modules.logWatcher._nukeActive = false;
-          instance._modules.logWatcher.resetThreadCache();
-          console.log(`[NUKE] ${instance.name ?? instance.id} LogWatcher thread cache reset`);
-        }
-        if (instance._modules?.chatRelay && typeof instance._modules.chatRelay.resetThreadCache === 'function') {
-          instance._modules.chatRelay._nukeActive = false;
-          instance._modules.chatRelay.resetThreadCache();
-          if (typeof instance._modules.chatRelay._getOrCreateChatThread === 'function') {
-            await instance._modules.chatRelay._getOrCreateChatThread().catch(() => {});
+        const additionalServers = loadServers() as ServerDef[];
+        for (const serverDef of additionalServers) {
+          const label: string = serverDef.name ?? serverDef.id;
+          if (!serverDef.channels?.['log']) {
+            console.log('[NUKE] Skipping %s thread rebuild (no log channel)', label);
+            continue;
           }
-          console.log(`[NUKE] ${instance.name ?? instance.id} ChatRelay thread cache reset + recreated`);
+
+          const serverConfig = createServerConfig(serverDef) as unknown;
+          console.log('[NUKE] Rebuilding threads for %s...', label);
+
+          const srvResult = await rebuildThreads(
+            readyClient,
+            null,
+            serverConfig as Parameters<typeof rebuildThreads>[2],
+          );
+          if (srvResult.error) {
+            console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
+          } else {
+            console.log(
+              `[NUKE] ${label}: ${String(srvResult.created)} created, ${String(srvResult.deleted)} replaced, ${String(srvResult.preserved)} preserved, ${String(srvResult.cleaned)} cleaned`,
+            );
+          }
         }
+      } catch (err: unknown) {
+        console.error('[NUKE] Thread rebuild error:', errMsg(err));
+      }
+
+      // Reset thread caches so modules pick up the newly rebuilt threads
+      // Clear nuke suppression first so thread creation works normally again
+      if (logWatcher) {
+        type LwNuke = {
+          _nukeActive: boolean;
+          resetThreadCache: () => void;
+          _getOrCreateDailyThread: () => Promise<{ send: (opts: unknown) => Promise<unknown> }>;
+        };
+        const lwNuke = logWatcher as unknown as LwNuke;
+        lwNuke._nukeActive = false;
+        lwNuke.resetThreadCache();
+        // Send the startup notification that was deferred during nuke
+        const thread = await lwNuke._getOrCreateDailyThread();
+        const startEmbed = new EmbedBuilder()
+          .setDescription('Log watcher connected. Monitoring game server activity.')
+          .setColor(0x3498db)
+          .setTimestamp();
+        await thread.send({ embeds: [startEmbed] }).catch(() => {});
+        console.log('[NUKE] LogWatcher thread cache reset');
+      }
+      if (chatRelay && typeof chatRelay.resetThreadCache === 'function') {
+        chatRelay._nukeActive = false;
+        chatRelay.resetThreadCache();
+        // Re-create chat thread so it appears after rebuilt activity threads
+        if (typeof chatRelay._getOrCreateChatThread === 'function') {
+          await chatRelay._getOrCreateChatThread().catch((e: unknown) => {
+            console.warn('[NUKE] Could not re-create chat thread:', errMsg(e));
+          });
+        }
+        console.log('[NUKE] ChatRelay thread cache reset + recreated');
+      }
+      {
+        type ModuleMap = Record<string, Record<string, unknown> | undefined>;
+        type LwType = { _nukeActive: boolean; resetThreadCache: () => void };
+        type CrType = {
+          _nukeActive: boolean;
+          resetThreadCache: () => void;
+          _getOrCreateChatThread?: () => Promise<unknown>;
+        };
+        type InstType = { name?: unknown; id?: unknown; _modules: ModuleMap };
+        const msInstances = (multiServerManager as unknown as { _instances: Map<string, InstType> })._instances;
+        for (const [, instance] of msInstances) {
+          const lw = instance._modules['logWatcher'];
+          if (lw) {
+            (lw as unknown as LwType)._nukeActive = false;
+            (lw as unknown as LwType).resetThreadCache();
+            console.log(`[NUKE] ${String(instance.name ?? instance.id)} LogWatcher thread cache reset`);
+          }
+          const cr = instance._modules['chatRelay'];
+          if (cr && typeof (cr as unknown as CrType).resetThreadCache === 'function') {
+            (cr as unknown as CrType)._nukeActive = false;
+            (cr as unknown as CrType).resetThreadCache();
+            if (typeof (cr as unknown as CrType)._getOrCreateChatThread === 'function') {
+              await (cr as unknown as CrType)._getOrCreateChatThread?.().catch(() => {});
+            }
+            console.log(`[NUKE] ${String(instance.name ?? instance.id)} ChatRelay thread cache reset + recreated`);
+          }
+        }
+      }
+
+      // NUKE_BOT was already set to false at the start of the nuke process
+      console.log('[NUKE] Factory reset complete!');
+    }
+
+    // Auto-set FIRST_RUN=false after successful startup
+    if (config.firstRun && !config.nukeBot) {
+      try {
+        const envPath = path.join(__dirname, '..', '.env');
+        let envContent = fs.readFileSync(envPath, 'utf8');
+        envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
+        fs.writeFileSync(envPath, envContent, 'utf8');
+        console.log('[BOT] FIRST_RUN set back to false in .env');
+      } catch {
+        console.warn('[BOT] Could not update .env — please manually set FIRST_RUN=false');
       }
     }
 
-    // NUKE_BOT was already set to false at the start of the nuke process
-    console.log('[NUKE] Factory reset complete!');
-  }
-
-  // Auto-set FIRST_RUN=false after successful startup
-  if (config.firstRun && !config.nukeBot) {
-    try {
-      const envPath = path.join(__dirname, '..', '.env');
-      let envContent = fs.readFileSync(envPath, 'utf8');
-      envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
-      fs.writeFileSync(envPath, envContent, 'utf8');
-      console.log('[BOT] FIRST_RUN set back to false in .env');
-    } catch {
-      console.warn('[BOT] Could not update .env — please manually set FIRST_RUN=false');
-    }
-  }
-
-  console.log('[BOT] Ready!');
+    console.log('[BOT] Ready!');
+  })();
 });
 
 // ── Lifecycle embed cleanup ─────────────────────────────────
@@ -1322,11 +1477,9 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
     console.error('[BOT] Failed to post offline notification:', errMsg(err));
   }
 
-  // eslint-disable-next-line @typescript-eslint/await-thenable
-  await rcon.disconnect();
+  rcon.disconnect();
   shutdownLogger();
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  client.destroy();
+  void client.destroy();
   process.exit(0);
 }
 
@@ -1363,8 +1516,7 @@ process.on('uncaughtException', (err: Error & { code?: number }) => {
   }
 
   // Post to admin channel before shutting down
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  _postErrorEmbed('Uncaught Exception', err).finally(() => {
+  void _postErrorEmbed('Uncaught Exception', err).finally(() => {
     shutdown(`Uncaught exception: ${err.message}`).catch(() => process.exit(1));
   });
 });
@@ -1379,7 +1531,7 @@ process.on('unhandledRejection', (reason) => {
  * Silently ignores failures (client may not be ready yet).
  */
 async function _postErrorEmbed(title: string, err: unknown): Promise<void> {
-  if (!client?.isReady()) return;
+  if (!client.isReady()) return;
   try {
     const raw = err instanceof Error ? (err.stack?.slice(0, 1000) ?? err.message) : String(err).slice(0, 1000);
     const embed = new EmbedBuilder()
@@ -1402,47 +1554,59 @@ async function _postErrorEmbed(title: string, err: unknown): Promise<void> {
  * Delete all bot-authored threads and messages from a channel.
  * Used by NUKE_BOT to factory-reset Discord state before modules start.
  */
-async function _nukeChannel(discordClient: any, channelId: string, botId: string | undefined): Promise<void> {
+async function _nukeChannel(discordClient: Client, channelId: string, botId: string | undefined): Promise<void> {
   try {
-    const ch: any = await discordClient.channels.fetch(channelId).catch(() => null);
+    const ch = await discordClient.channels.fetch(channelId).catch(() => null);
     if (!ch) return;
 
     // Handle bot-authored threads (active + archived)
     // Delete ALL bot threads for a clean slate during nuke.
-    if (ch.threads) {
-      const active: any = await ch.threads.fetchActive().catch(() => ({ threads: new Map() }));
-      const archived: any = await ch.threads.fetchArchived({ limit: 100 }).catch(() => ({ threads: new Map() }));
-      const allThreads: any[] = [...active.threads.values(), ...archived.threads.values()];
+    if ('threads' in ch) {
+      const textCh = ch as import('discord.js').TextChannel;
+      const active = await textCh.threads.fetchActive().catch(() => ({ threads: new Map<string, ThreadChannel>() }));
+      const archived = await textCh.threads
+        .fetchArchived({ limit: 100 })
+        .catch(() => ({ threads: new Map<string, ThreadChannel>() }));
+      const allThreads: ThreadChannel[] = [...active.threads.values(), ...archived.threads.values()];
       for (const thread of allThreads) {
         if (thread.ownerId !== botId) continue;
         await thread.delete('NUKE_BOT factory reset').catch(() => {});
-        console.log(`[NUKE] Deleted thread "${thread.name}" from #${ch.name ?? channelId}`);
+        const chName = 'name' in ch ? String((ch as { name: unknown }).name) : channelId;
+        console.log(`[NUKE] Deleted thread "${thread.name}" from #${chName}`);
       }
     }
 
     // Delete bot-authored messages (scan up to 1000)
+    if (!('messages' in ch)) return;
+    const textCh = ch as TextBasedChannel;
     let lastId: string | undefined;
     let deleted = 0;
     for (let page = 0; page < 10; page++) {
-      const opts: any = { limit: 100 };
+      const opts: { limit: number; before?: string } = { limit: 100 };
       if (lastId) opts.before = lastId;
-      const batch: any = await ch.messages?.fetch(opts).catch(() => new Map());
+      const batch = await textCh.messages.fetch(opts).catch(() => null);
       if (!batch || batch.size === 0) break;
-      lastId = batch.last().id;
+      const lastMsg = batch.last();
+      if (lastMsg) lastId = lastMsg.id;
       for (const [, msg] of batch) {
-        if (msg.author?.id !== botId) continue;
+        if (msg.author.id !== botId) continue;
         await msg.delete().catch(() => {});
         deleted++;
       }
       if (batch.size < 100) break;
     }
-    if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${ch.name ?? channelId}`);
+    const chName = 'name' in ch ? String((ch as { name: unknown }).name) : channelId;
+    if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${chName}`);
   } catch (err: unknown) {
     console.warn(`[NUKE] Could not clean channel ${channelId}:`, errMsg(err));
   }
 }
 
 void (async () => {
+  // Load optional modules and slash commands (async import() requires async context)
+  await loadOptionalModules();
+  await loadCommands();
+
   // NUKE_BOT implies FIRST_RUN — wipe local data files first, then re-import
   // Log raw .env value for debugging — track unexpected NUKE_BOT=true
   const _nukeLog = createLogger(null, 'NUKE-AUDIT');
@@ -1504,8 +1668,7 @@ void (async () => {
       console.error('[BOT] Continuing with existing data files...');
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { main: runSetup } = require(setupPath) as { main: () => Promise<void> }; // dynamic path — must use require()
+      const { main: runSetup } = (await import(setupPath)) as { main: () => Promise<void> };
       await runSetup();
       console.log('[BOT] Data import complete.');
     } catch (err: unknown) {
@@ -1513,8 +1676,8 @@ void (async () => {
       console.error('[BOT] Continuing with existing/empty data files...');
     }
   }
-  // eslint-disable-next-line @typescript-eslint/use-unknown-in-catch-callback-variable
-  client.login(config.discordToken).catch((err: Error & { code?: number }) => {
+  client.login(config.discordToken).catch((rawErr: unknown) => {
+    const err = rawErr as Error & { code?: number };
     if (/disallowed intents/i.test(err.message) || err.code === 4014) {
       const requested: string[] = [];
       if (config.enableChatRelay) requested.push('Message Content (ENABLE_CHAT_RELAY=true)');

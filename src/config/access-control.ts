@@ -40,11 +40,26 @@ export async function addAdminMembers(
     thread.members.add(uid).catch(() => {});
   }
   // Role-based — requires GuildMembers privileged intent
+  // Fetch all members once (not per-role) so the role.members cache is populated.
+  if (adminRoleIds.length > 0 && guild.members.cache.size <= 1) {
+    try {
+      await guild.members.fetch();
+    } catch (e) {
+      const err = e as Error & { code?: number };
+      if (err.code === 50001 || /disallowed intents|privileged/i.test(err.message)) {
+        console.error(
+          `[CONFIG] ADMIN_ROLE_IDS requires the "Server Members Intent" to be enabled in the Discord Developer Portal (Bot → Privileged Gateway Intents).`,
+        );
+      } else {
+        console.warn(`[CONFIG] Could not fetch guild members:`, err.message);
+      }
+      return; // Cannot resolve roles without member cache
+    }
+  }
   for (const roleId of adminRoleIds) {
     try {
       const role = guild.roles.cache.get(roleId) ?? (await guild.roles.fetch(roleId));
       if (!role) continue;
-      if (guild.members.cache.size <= 1) await guild.members.fetch();
       for (const [uid] of role.members) {
         thread.members.add(uid).catch(() => {});
       }

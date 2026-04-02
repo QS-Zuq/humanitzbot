@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-conversion */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-conversion */
 import { ActivityType, type Client } from 'discord.js';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const config = require('../config') as {

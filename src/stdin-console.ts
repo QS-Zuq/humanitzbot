@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
    @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-assertion */
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-assertion */
 
 'use strict';
 

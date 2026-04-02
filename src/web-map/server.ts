@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
    @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/no-misused-promises,
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
    @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
    @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,

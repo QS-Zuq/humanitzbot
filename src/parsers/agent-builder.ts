@@ -19,6 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { transformSync } from 'esbuild';
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
@@ -288,72 +289,37 @@ function buildAgentScript(): string {
   const parserSource = fs.readFileSync(SAVE_PARSER_PATH, 'utf-8');
 
   /**
-   * Strip TypeScript syntax from source to produce valid JS.
-   * Handles: imports, exports, interfaces, type aliases, type annotations,
-   * type assertions, generics, eslint directives, CJS compat block.
+   * Transpile TypeScript source to plain JS using esbuild, then strip
+   * module-level constructs (imports/exports/require/CJS compat) so the
+   * code can be inlined into the self-contained agent script.
    */
-  function stripTS(src: string): string {
-    return (
-      src
-        // Remove top docblock
-        .replace(/^\/\*\*[\s\S]*?\*\/\s*\n/, '')
-        // Remove multi-line import statements: import { ... } from '...'
-        .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];?\s*\n/gm, '')
-        // Remove single-line import statements
-        .replace(/^import\s+.*$/gm, '')
-        // Remove multi-line export { ... } statements
-        .replace(/^export\s*\{[\s\S]*?\}.*$/gm, '')
-        // Remove single-line export prefix
-        .replace(/^export\s+/gm, '')
-        // Remove `} from '...'` leftover fragments
-        .replace(/^\}\s*from\s+['"][^'"]+['"];?\s*$/gm, '')
-        // Remove require() lines (will be inlined)
-        .replace(/const\s*\{[^}]+\}\s*=\s*require\(['"][^'"]+['"]\);\s*\n/g, '')
-        .replace(/^\/\/\s*eslint-disable-next-line.*\n\s*const\s+\w+\s*=\s*require\(.*\n/gm, '')
-        // Remove interface/type blocks (multi-line)
-        .replace(/^(?:export\s+)?interface\s+\w+[\s\S]*?^}\s*\n/gm, '')
-        .replace(/^(?:export\s+)?type\s+\w+\s*=[\s\S]*?;\s*\n/gm, '')
-        // Remove eslint directive comments
-        .replace(/\/\/\s*eslint-disable.*$/gm, '')
-        .replace(/\/\*\s*eslint-.*?\*\//g, '')
-        // Remove type annotations — only where safe (declarations, not ternary colons).
-        // Matches: `const x: Type =`, `param: Type,`, `param: Type)`, `): ReturnType {`
-        // Uses negative lookbehind to avoid stripping ternary `: value` expressions
-        .replace(
-          /(?<=(?:const|let|var|,|\()\s*[\w$]+)\s*:\s*(?:readonly\s+)?(?:[\w.]+(?:<[^>]*>)?(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*)\s*(?=[,)=;{\n])/g,
-          '',
-        )
-        // Remove return type annotations: `): Type {` or `): Type =>`
-        .replace(/\):\s*(?:[\w.]+(?:<[^>]*>)?(?:\[\])*(?:\s*\|\s*[\w.]+(?:<[^>]*>)?(?:\[\])*)*)\s*(?=[{=])/g, ') ')
-        // Remove `as Type` assertions (handles nested braces, generics, unions, multiline)
-        // First collapse multi-line `as ... | Type` onto one line
-        .replace(/\bas\s*\n\s*/g, 'as ')
-        // Match `as` + optional leading `|` + type expression (handles unions)
-        .replace(
-          /\s+as\s+\|?\s*(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*/g,
-          '',
-        )
-        // Remove generic type parameters on functions: `function foo<T>(` → `function foo(`
-        .replace(/(<[\w\s,]+>)\s*\(/g, '(')
-        // Remove non-null assertions: `expr!.` or `expr!)` or `expr!;` (not `!==` or `!=`)
-        .replace(/([\w\])])\s*!(?=[.);,\s\n])/g, '$1')
-        // Remove `type X` import specifiers (leftover from multi-line imports)
-        .replace(/^\s*type\s+\w+,?\s*$/gm, '')
-        // Remove stray lines that are just braces/semicolons from stripped blocks
-        .replace(/^\s*\{\s*$/gm, '')
-        // Remove CJS compat comments
-        .replace(/^\/\/\s*CJS compatibility.*$/gm, '')
-        // Remove CJS compat block at end
-        .replace(/const _mod[\s\S]*$/, '')
-        // Remove module.exports
-        .replace(/\nmodule\.exports\s*=\s*\{[\s\S]*\};\s*$/, '\n')
-        // Clean up blank lines
-        .replace(/\n{3,}/g, '\n\n')
-    );
+  function transpileAndStrip(src: string): string {
+    // 1. Use esbuild to reliably strip all TypeScript syntax
+    const { code } = transformSync(src, {
+      loader: 'ts',
+      format: 'esm', // keeps import/export as-is for regex removal below
+      target: 'node16',
+      treeShaking: false,
+      sourcemap: false,
+    });
+
+    // 2. Strip module constructs (imports, exports, require, CJS compat)
+    //    These are simple line-level patterns — much more reliable than
+    //    the previous approach of stripping TS syntax with regex.
+    return code
+      .replace(/^\/\*\*[\s\S]*?\*\/\s*\n/, '') // top docblock
+      .replace(/^import\s+.*$/gm, '') // import statements
+      .replace(/^\}\s*from\s+['"][^'"]+['"];?\s*$/gm, '') // multi-line import continuation
+      .replace(/^export\s*\{[\s\S]*?\};?\s*$/gm, '') // export { ... } blocks
+      .replace(/^export\s+/gm, '') // export prefix on declarations
+      .replace(/^\/\/\s*CJS compatibility.*$/gm, '') // CJS compat comments
+      .replace(/const _mod[\s\S]*$/, '') // CJS compat block at end
+      .replace(/\nmodule\.exports\s*=\s*\{[\s\S]*\};\s*$/, '\n') // module.exports
+      .replace(/\n{3,}/g, '\n\n'); // collapse blank lines
   }
 
-  const gvasBody = stripTS(gvasSource);
-  const parserBody = stripTS(parserSource);
+  const gvasBody = transpileAndStrip(gvasSource);
+  const parserBody = transpileAndStrip(parserSource);
 
   return [
     AGENT_HEADER,

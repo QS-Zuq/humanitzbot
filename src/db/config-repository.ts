@@ -14,7 +14,7 @@ import type Database from 'better-sqlite3';
 
 interface HumanitZDBLike {
   _db?: Database.Database;
-  db?: Database.Database;
+  db?: Database.Database | null;
 }
 
 interface ConfigMetaRow {
