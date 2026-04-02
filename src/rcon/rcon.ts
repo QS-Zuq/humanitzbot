@@ -1,20 +1,46 @@
-const net = require('net');
-const { EventEmitter } = require('events');
-const _defaultConfig = require('../config');
-const { createLogger } = require('../utils/log');
+import net from 'node:net';
+import { EventEmitter } from 'node:events';
+import config from '../config/index.js';
+import { createLogger, type Logger } from '../utils/log.js';
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
 
+interface RconOptions {
+  host?: string;
+  port?: number;
+  password?: string;
+  label?: string;
+  cacheTtl?: number;
+}
+
+interface CacheEntry {
+  data: string;
+  timestamp: number;
+}
+
 class RconManager extends EventEmitter {
-  /**
-   * @param {object} [options]
-   * @param {string} [options.host]     Override RCON host
-   * @param {number} [options.port]     Override RCON port
-   * @param {string} [options.password] Override RCON password
-   * @param {string} [options.label]    Log prefix for multi-server identification
-   */
-  constructor(options = {}) {
+  socket: net.Socket | null;
+  connected: boolean;
+  authenticated: boolean;
+  reconnectTimeout: ReturnType<typeof setTimeout> | null;
+  cache: Map<string, CacheEntry>;
+  requestId: number;
+  _responseBuffer: Buffer;
+  _commandCallback: ((body: string) => void) | null;
+  _authCallback: ((id: number) => void) | null;
+  _commandQueue: Promise<void>;
+  _host: string | null;
+  _port: number | null;
+  _password: string | null;
+  _log: Logger;
+  _cacheTtl: number | null;
+  /** True after first successful connect — distinguishes initial connection from reconnects. */
+  _everConnected: boolean;
+  /** Timestamp of last disconnect (for uptime reporting). */
+  _disconnectedAt: number | null;
+
+  constructor(options: RconOptions = {}) {
     super();
     this.socket = null;
     this.connected = false;
@@ -27,18 +53,16 @@ class RconManager extends EventEmitter {
     this._authCallback = null;
     this._commandQueue = Promise.resolve();
     // Per-instance overrides (for multi-server support)
-    this._host = options.host || null;
-    this._port = options.port || null;
-    this._password = options.password || null;
+    this._host = options.host ?? null;
+    this._port = options.port ?? null;
+    this._password = options.password ?? null;
     this._log = createLogger(options.label, 'RCON');
-    this._cacheTtl = options.cacheTtl || null;
-    /** True after first successful connect — distinguishes initial connection from reconnects. */
+    this._cacheTtl = options.cacheTtl ?? null;
     this._everConnected = false;
-    /** Timestamp of last disconnect (for uptime reporting). */
     this._disconnectedAt = null;
   }
 
-  async connect() {
+  async connect(): Promise<void> {
     if (this.connected && this.authenticated) return;
 
     this._cleanup();
@@ -51,13 +75,13 @@ class RconManager extends EventEmitter {
 
       this.socket = new net.Socket();
 
-      const host = this._host || _defaultConfig.rconHost;
-      const port = this._port || _defaultConfig.rconPort;
-      const password = this._password || _defaultConfig.rconPassword;
+      const host = this._host ?? config.rconHost ?? 'localhost';
+      const port = this._port ?? config.rconPort;
+      const password = this._password ?? config.rconPassword ?? '';
 
       this.socket.connect(port, host, () => {
         this.connected = true;
-        this._log.info(`TCP connected to ${host}:${port}`);
+        this._log.info(`TCP connected to ${host}:${String(port)}`);
 
         // Send auth packet
         this._sendPacket(1, SERVERDATA_AUTH, password);
@@ -90,9 +114,11 @@ class RconManager extends EventEmitter {
         };
       });
 
-      this.socket.on('data', (data) => this._onData(data));
+      this.socket.on('data', (data: Buffer) => {
+        this._onData(data);
+      });
 
-      this.socket.on('error', (err) => {
+      this.socket.on('error', (err: Error) => {
         this._log.error('Socket error:', err.message);
         clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
@@ -121,7 +147,7 @@ class RconManager extends EventEmitter {
     });
   }
 
-  async send(command) {
+  async send(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
       this._commandQueue = this._commandQueue.then(async () => {
         try {
@@ -136,18 +162,18 @@ class RconManager extends EventEmitter {
           const result = await this._sendCommand(command);
           resolve(result);
         } catch (err) {
-          reject(err);
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
     });
   }
 
-  _sendCommand(command) {
+  _sendCommand(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const id = this._nextId();
       let responseData = '';
       let resolved = false;
-      let dataTimer = null;
+      let dataTimer: ReturnType<typeof setTimeout> | null = null;
 
       // Absolute timeout — if nothing comes back at all
       const hardTimeout = setTimeout(() => {
@@ -183,19 +209,19 @@ class RconManager extends EventEmitter {
         this._sendPacket(id, SERVERDATA_EXECCOMMAND, command);
       } catch (err) {
         clearTimeout(hardTimeout);
-        if (dataTimer) clearTimeout(dataTimer);
+        // dataTimer cannot be set yet — _sendPacket is synchronous
         this._commandCallback = null;
         this.connected = false;
         this.authenticated = false;
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }
 
-  async sendCached(command, ttl = null) {
-    if (ttl === null) ttl = this._cacheTtl || _defaultConfig.statusCacheTtl;
+  async sendCached(command: string, ttl: number | null = null): Promise<string> {
+    const effectiveTtl = ttl ?? this._cacheTtl ?? config.statusCacheTtl;
     const cached = this.cache.get(command);
-    if (cached && Date.now() - cached.timestamp < ttl) {
+    if (cached && Date.now() - cached.timestamp < effectiveTtl) {
       return cached.data;
     }
 
@@ -203,7 +229,7 @@ class RconManager extends EventEmitter {
     if (this.cache.size > 50) {
       const now = Date.now();
       for (const [key, entry] of this.cache) {
-        if (now - entry.timestamp > ttl * 2) this.cache.delete(key);
+        if (now - entry.timestamp > effectiveTtl * 2) this.cache.delete(key);
       }
     }
 
@@ -212,7 +238,7 @@ class RconManager extends EventEmitter {
     return data;
   }
 
-  async disconnect() {
+  disconnect(): void {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -222,12 +248,12 @@ class RconManager extends EventEmitter {
 
   // ── Private ──────────────────────────────────────────────
 
-  _nextId() {
+  _nextId(): number {
     this.requestId = (this.requestId + 1) & 0x7fffffff;
     return this.requestId;
   }
 
-  _sendPacket(id, type, body) {
+  _sendPacket(id: number, type: number, body: string): void {
     const bodyBuf = Buffer.from(body, 'utf8');
     const size = 4 + 4 + bodyBuf.length + 1 + 1;
     const packet = Buffer.alloc(4 + size);
@@ -237,10 +263,11 @@ class RconManager extends EventEmitter {
     bodyBuf.copy(packet, 12);
     packet.writeInt8(0, 12 + bodyBuf.length);
     packet.writeInt8(0, 13 + bodyBuf.length);
-    this.socket.write(packet);
+    // socket is always set when _sendPacket is called (after connect)
+    (this.socket as net.Socket).write(packet);
   }
 
-  _onData(data) {
+  _onData(data: Buffer): void {
     this._responseBuffer = Buffer.concat([this._responseBuffer, data]);
 
     while (this._responseBuffer.length >= 12) {
@@ -248,7 +275,7 @@ class RconManager extends EventEmitter {
 
       // Sanity check — if size is nonsensical, try treating raw data as text
       if (size < 10 || size > 65536) {
-        this._log.info(`Non-standard packet (size=${size}), treating as raw text`);
+        this._log.info(`Non-standard packet (size=${String(size)}), treating as raw text`);
         const rawText = this._responseBuffer.toString('utf8');
         this._responseBuffer = Buffer.alloc(0);
         if (this._commandCallback) {
@@ -269,7 +296,7 @@ class RconManager extends EventEmitter {
       const body = this._responseBuffer.toString('utf8', 12, bodyEnd);
 
       // Consume packet
-      this._responseBuffer = this._responseBuffer.slice(4 + size);
+      this._responseBuffer = this._responseBuffer.subarray(4 + size);
 
       // During auth phase — type 2 with id matching auth (1) or id -1
       if (this._authCallback && !this.authenticated) {
@@ -290,7 +317,7 @@ class RconManager extends EventEmitter {
     }
   }
 
-  _cleanup() {
+  _cleanup(): void {
     this.connected = false;
     this.authenticated = false;
     this._commandQueue = Promise.resolve();
@@ -299,26 +326,34 @@ class RconManager extends EventEmitter {
     if (this.socket) {
       try {
         this.socket.destroy();
-      } catch (_) {}
+      } catch (_) {
+        /* ignore */
+      }
       this.socket = null;
     }
     this._responseBuffer = Buffer.alloc(0);
   }
 
-  _scheduleReconnect() {
+  _scheduleReconnect(): void {
     if (this.reconnectTimeout) return;
     this._log.info('Reconnecting in 15 seconds...');
-    this.reconnectTimeout = setTimeout(async () => {
+    this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      try {
-        await this.connect();
-      } catch (err) {
-        this._log.error('Reconnect failed:', err.message);
-      }
+      this.connect().catch((err: unknown) => {
+        this._log.error('Reconnect failed:', err instanceof Error ? err.message : String(err));
+      });
     }, 15000);
   }
 }
 
 const _singleton = new RconManager();
-module.exports = _singleton;
-module.exports.RconManager = RconManager;
+export default _singleton;
+export { RconManager };
+
+// CJS compatibility — non-migrated .js files require() this module
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = _singleton;
+_mod.exports.RconManager = RconManager;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

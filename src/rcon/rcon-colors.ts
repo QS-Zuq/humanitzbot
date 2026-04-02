@@ -8,7 +8,7 @@
  *   <FO> gray       — secondary info
  *   <CL> blue       — Discord identity
  */
-const COLOR = {
+export const COLOR: Record<string, string> = {
   red: 'PN',
   green: 'PR',
   ember: 'SP',
@@ -19,44 +19,44 @@ const COLOR = {
 /**
  * Wrap text in an RCON color tag (simple open tag, no close).
  * Works in WelcomeMessage.txt and other file contexts.
- * @param {string} tag  A key from COLOR (e.g. 'ember') or a raw tag code (e.g. 'SP')
- * @param {string} text The text to colorise
- * @returns {string} e.g. `<SP>Hello`
+ * @param tag  A key from COLOR (e.g. 'ember') or a raw tag code (e.g. 'SP')
+ * @param text The text to colorise
+ * @returns e.g. `<SP>Hello`
  */
-function color(tag, text) {
-  return `<${COLOR[tag] || tag}>${text}`;
+export function color(tag: string, text: string): string {
+  return `<${COLOR[tag] ?? tag}>${text}`;
 }
 
 /**
  * Color tag for RCON admin commands — close previous color first.
  * Admin messages start in yellow; each new color needs </> before opening.
  * Never end a message with </> (renders visibly).
- * @param {string} tag  A key from COLOR or raw tag code
- * @param {string} text
- * @returns {string} e.g. `</><SP>Hello`
+ * @param tag  A key from COLOR or raw tag code
+ * @param text
+ * @returns e.g. `</><SP>Hello`
  */
-function rconColor(tag, text) {
-  return `</><${COLOR[tag] || tag}>${text}`;
+export function rconColor(tag: string, text: string): string {
+  return `</><${COLOR[tag] ?? tag}>${text}`;
 }
 
 /**
  * Open a color tag without closing the previous one.
  * Use for the first tag in an admin message (no prior color to close)
  * or in file contexts.
- * @param {string} tag  A key from COLOR or raw tag code
- * @param {string} text
- * @returns {string} e.g. `<FO>Hello`
+ * @param tag  A key from COLOR or raw tag code
+ * @param text
+ * @returns e.g. `<FO>Hello`
  */
-function colorOpen(tag, text) {
-  return `<${COLOR[tag] || tag}>${text}`;
+export function colorOpen(tag: string, text: string): string {
+  return `<${COLOR[tag] ?? tag}>${text}`;
 }
 
 /**
  * Switch to white in an admin command (close current color).
- * @param {string} text
- * @returns {string}
+ * @param text
+ * @returns
  */
-function white(text) {
+export function white(text: string): string {
   return `</>${text}`;
 }
 
@@ -64,11 +64,14 @@ function white(text) {
  * Strip all RCON color tags from a string.
  * Use this when you need plain text (e.g. Discord embeds, logs).
  * Note: the RCON `admin` command DOES render color tags in-game.
- * @param {string} text
- * @returns {string} Plain text with all color tags removed
+ * @param text
+ * @returns Plain text with all color tags removed
  */
-function stripColorTags(text) {
+export function stripColorTags(text: string): string {
   return text.replace(/<(?:PN|PR|SP|FO|CL|\/)>/g, '');
 }
 
-module.exports = { COLOR, color, rconColor, colorOpen, white, stripColorTags };
+// CJS compatibility — non-migrated .js files require() this module
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = { COLOR, color, rconColor, colorOpen, white, stripColorTags };

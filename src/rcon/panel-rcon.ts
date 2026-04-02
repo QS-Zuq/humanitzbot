@@ -10,7 +10,7 @@
  * (`info`, `Players`, `admin`, etc.) work identically — the game server
  * doesn't know the difference between a TCP RCON packet and a stdin line.
  *
- * Interface matches RconManager so callers (server-info.js, chat-relay.js,
+ * Interface matches RconManager so callers (server-info.ts, chat-relay.js,
  * multi-server.js) can use either transport transparently:
  *
  *   const rcon = new PanelRcon({ panelApi });
@@ -32,22 +32,71 @@
  *   - 'output'     string        — raw console output line
  */
 
-const { EventEmitter } = require('events');
-const WebSocket = require('ws');
-const { createLogger } = require('../utils/log');
+import { EventEmitter } from 'node:events';
+import WebSocket from 'ws';
+import { createLogger, type Logger } from '../utils/log.js';
+
+interface PanelApi {
+  available: boolean;
+  getWebsocketAuth(): Promise<{ token?: string; socket?: string }>;
+}
+
+interface CacheEntry {
+  data: string;
+  timestamp: number;
+}
+
+interface PanelRconOptions {
+  panelApi?: PanelApi;
+  label?: string;
+  cacheTtl?: number;
+  WebSocket?: typeof WebSocket;
+  silenceMs?: number;
+}
+
+interface WsMessage {
+  event?: string;
+  args?: string[];
+}
 
 class PanelRcon extends EventEmitter {
-  /**
-   * @param {object} options
-   * @param {import('../server/panel-api')} options.panelApi - Configured PanelApi instance
-   * @param {string}  [options.label]    - Log prefix (default: 'PANEL-RCON')
-   * @param {number}  [options.cacheTtl] - Default cache TTL in ms
-   */
-  constructor(options = {}) {
+  _panelApi: PanelApi | null;
+  _log: Logger;
+  _cacheTtl: number | null;
+  _WebSocket: typeof WebSocket;
+  _silenceMs: number;
+
+  // WebSocket state
+  _ws: WebSocket | null;
+  _wsUrl: string | null;
+  _token: string | null;
+
+  // Connection flags (match RconManager interface)
+  connected: boolean;
+  authenticated: boolean;
+  cache: Map<string, CacheEntry>;
+
+  // Command queue — sequential, one at a time (match RconManager)
+  _commandQueue: Promise<void>;
+
+  // Reconnect
+  _reconnectTimeout: ReturnType<typeof setTimeout> | null;
+  _connectPromise: Promise<void> | null;
+  _everConnected: boolean;
+  _disconnectedAt: number | null;
+
+  // Token refresh
+  _tokenRefreshTimer: ReturnType<typeof setTimeout> | null;
+
+  // Output buffer — collects lines between command send and response
+  _outputBuffer: string[];
+  _outputCallback: ((line: string) => void) | null;
+
+  constructor(options: PanelRconOptions = {}) {
     super();
-    this._panelApi = options.panelApi || null;
+    this._panelApi = options.panelApi ?? null;
     this._log = createLogger(options.label, 'PANEL-RCON');
-    this._cacheTtl = options.cacheTtl || null;
+    this._cacheTtl = options.cacheTtl ?? null;
     this._WebSocket = options.WebSocket ?? WebSocket;
     this._silenceMs = options.silenceMs ?? 1500;
 
@@ -80,7 +129,7 @@ class PanelRcon extends EventEmitter {
 
   // ── Connection lifecycle ────────────────────────────────────
 
-  async connect() {
+  async connect(): Promise<void> {
     if (this.connected && this.authenticated) return;
 
     // Prevent concurrent connect attempts — wait for existing one
@@ -92,12 +141,13 @@ class PanelRcon extends EventEmitter {
     return this._connectPromise;
   }
 
-  async _doConnect() {
+  async _doConnect(): Promise<void> {
     this._cleanup();
 
     if (!this._panelApi) {
       try {
-        this._panelApi = require('../server/panel-api');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        this._panelApi = require('../server/panel-api') as PanelApi;
       } catch {
         throw new Error('Panel API module not available');
       }
@@ -116,45 +166,57 @@ class PanelRcon extends EventEmitter {
     this._token = auth.token;
     this._wsUrl = auth.socket;
 
+    // Capture locally so TypeScript knows they're non-null inside the Promise
+    const wsUrl = auth.socket;
+    const token = auth.token;
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this._cleanup();
         reject(new Error('WebSocket connection timeout'));
       }, 15000);
 
-      this._ws = new this._WebSocket(this._wsUrl, {
+      const ws = new this._WebSocket(wsUrl, {
         headers: { Origin: 'https://games.bisecthosting.com' },
       });
+      this._ws = ws;
 
-      this._ws.on('open', () => {
+      ws.on('open', () => {
         // Authenticate with the JWT
         try {
-          this._ws.send(
+          ws.send(
             JSON.stringify({
               event: 'auth',
-              args: [this._token],
+              args: [token],
             }),
           );
         } catch (err) {
-          this._log.error('Auth send failed:', err.message);
+          const error = err instanceof Error ? err : new Error(String(err));
+          this._log.error('Auth send failed:', error.message);
           clearTimeout(timeout);
-          reject(err);
+          reject(error);
           this._cleanup();
         }
       });
 
-      this._ws.on('message', (raw) => {
-        let msg;
+      ws.on('message', (raw: WebSocket.RawData) => {
+        let msg: WsMessage;
         try {
-          msg = JSON.parse(raw.toString());
+          // raw is Buffer | ArrayBuffer | Buffer[] — convert to string safely
+          const rawStr = Buffer.isBuffer(raw)
+            ? raw.toString('utf8')
+            : Array.isArray(raw)
+              ? Buffer.concat(raw).toString('utf8')
+              : Buffer.from(raw).toString('utf8');
+          msg = JSON.parse(rawStr) as WsMessage;
         } catch {
           return;
         }
 
-        this._handleMessage(msg, resolve, reject, timeout);
+        this._handleMessage(msg, resolve, timeout);
       });
 
-      this._ws.on('error', (err) => {
+      ws.on('error', (err: Error) => {
         this._log.error('WebSocket error:', err.message);
         clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
@@ -168,8 +230,8 @@ class PanelRcon extends EventEmitter {
         this._scheduleReconnect();
       });
 
-      this._ws.on('close', (code, reason) => {
-        const reasonStr = reason?.toString() || `code ${code}`;
+      ws.on('close', (code: number, reason: Buffer) => {
+        const reasonStr = reason.length > 0 ? reason.toString() : `code ${String(code)}`;
         if (this.connected) {
           this._log.info(`WebSocket closed: ${reasonStr}`);
           if (this._everConnected && !this._disconnectedAt) {
@@ -186,7 +248,7 @@ class PanelRcon extends EventEmitter {
   /**
    * Handle incoming WebSocket messages from the Pterodactyl daemon.
    */
-  _handleMessage(msg, connectResolve, connectReject, connectTimeout) {
+  _handleMessage(msg: WsMessage, connectResolve: () => void, connectTimeout: ReturnType<typeof setTimeout>): void {
     const { event, args } = msg;
 
     switch (event) {
@@ -206,7 +268,9 @@ class PanelRcon extends EventEmitter {
 
       case 'token expiring':
         // JWT about to expire — refresh it
-        this._refreshToken();
+        this._refreshToken().catch(() => {
+          /* handled inside */
+        });
         break;
 
       case 'token expired':
@@ -218,7 +282,7 @@ class PanelRcon extends EventEmitter {
 
       case 'console output':
       case 'install output': {
-        const line = (args && args[0]) || '';
+        const line = (args && args[0]) ?? '';
         this.emit('output', line);
 
         // Feed to any waiting command callback
@@ -230,14 +294,14 @@ class PanelRcon extends EventEmitter {
 
       case 'status':
         // Server status change (e.g., 'running', 'starting', 'stopping', 'offline')
-        if (args && args[0]) {
+        if (args?.[0]) {
           this.emit('status', args[0]);
         }
         break;
 
       case 'stats':
         // Resource stats (CPU, RAM, etc.)
-        if (args && args[0]) {
+        if (args?.[0]) {
           try {
             this.emit('stats', JSON.parse(args[0]));
           } catch {
@@ -268,9 +332,11 @@ class PanelRcon extends EventEmitter {
   /**
    * Refresh the JWT token without dropping the WebSocket connection.
    */
-  async _refreshToken() {
+  async _refreshToken(): Promise<void> {
     try {
-      const auth = await this._panelApi.getWebsocketAuth();
+      const panelApi = this._panelApi;
+      if (!panelApi) return;
+      const auth = await panelApi.getWebsocketAuth();
       if (auth.token && this._ws && this._ws.readyState === this._WebSocket.OPEN) {
         this._token = auth.token;
         this._ws.send(
@@ -281,8 +347,8 @@ class PanelRcon extends EventEmitter {
         );
         this._log.info('Token refreshed');
       }
-    } catch (err) {
-      this._log.warn('Token refresh failed:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Token refresh failed:', err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -291,10 +357,10 @@ class PanelRcon extends EventEmitter {
   /**
    * Send a command and wait for the response.
    * Commands are queued sequentially — only one at a time.
-   * @param {string} command - Game command to send (e.g. 'info', 'Players')
-   * @returns {Promise<string>} Command output
+   * @param command - Game command to send (e.g. 'info', 'Players')
+   * @returns Command output
    */
-  async send(command) {
+  async send(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
       this._commandQueue = this._commandQueue
         .then(async () => {
@@ -306,10 +372,12 @@ class PanelRcon extends EventEmitter {
             const result = await this._sendCommand(command);
             resolve(result);
           } catch (err) {
-            reject(err);
+            reject(err instanceof Error ? err : new Error(String(err)));
           }
         })
-        .catch(() => {}); // Prevent unhandled rejection on queue chain — caller gets the error via reject()
+        .catch(() => {
+          /* Prevent unhandled rejection on queue chain — caller gets the error via reject() */
+        });
     });
   }
 
@@ -325,15 +393,17 @@ class PanelRcon extends EventEmitter {
    *   - The game echoes the sent command as the first line — we skip it.
    *   - Response lines are prefixed with `[RCON]: ` — we strip that prefix.
    */
-  _sendCommand(command) {
+  _sendCommand(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      if (!this._ws || this._ws.readyState !== this._WebSocket.OPEN) {
-        return reject(new Error('WebSocket not connected'));
+      const ws = this._ws;
+      if (!ws || ws.readyState !== this._WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
       }
 
-      const responseLines = [];
+      const responseLines: string[] = [];
       let resolved = false;
-      let dataTimer = null;
+      let dataTimer: ReturnType<typeof setTimeout> | null = null;
       let seenEcho = false;
 
       // Hard timeout — if nothing comes back at all
@@ -383,7 +453,7 @@ class PanelRcon extends EventEmitter {
 
       // Send the command
       try {
-        this._ws.send(
+        ws.send(
           JSON.stringify({
             event: 'send command',
             args: [command],
@@ -391,25 +461,25 @@ class PanelRcon extends EventEmitter {
         );
       } catch (err) {
         clearTimeout(hardTimeout);
-        if (dataTimer) clearTimeout(dataTimer);
+        // dataTimer cannot be set yet — ws.send is synchronous
         this._outputCallback = null;
         this.connected = false;
         this.authenticated = false;
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
   }
 
   /**
    * Send a command with response caching.
-   * @param {string} command
-   * @param {number} [ttl] - Cache TTL in ms
-   * @returns {Promise<string>}
+   * @param command
+   * @param ttl - Cache TTL in ms
+   * @returns
    */
-  async sendCached(command, ttl = null) {
-    if (ttl === null) ttl = this._cacheTtl || 30000;
+  async sendCached(command: string, ttl: number | null = null): Promise<string> {
+    const effectiveTtl = ttl ?? this._cacheTtl ?? 30000;
     const cached = this.cache.get(command);
-    if (cached && Date.now() - cached.timestamp < ttl) {
+    if (cached && Date.now() - cached.timestamp < effectiveTtl) {
       return cached.data;
     }
 
@@ -417,7 +487,7 @@ class PanelRcon extends EventEmitter {
     if (this.cache.size > 50) {
       const now = Date.now();
       for (const [key, entry] of this.cache) {
-        if (now - entry.timestamp > ttl * 2) this.cache.delete(key);
+        if (now - entry.timestamp > effectiveTtl * 2) this.cache.delete(key);
       }
     }
 
@@ -426,7 +496,7 @@ class PanelRcon extends EventEmitter {
     return data;
   }
 
-  async disconnect() {
+  disconnect(): void {
     if (this._reconnectTimeout) {
       clearTimeout(this._reconnectTimeout);
       this._reconnectTimeout = null;
@@ -436,7 +506,7 @@ class PanelRcon extends EventEmitter {
 
   // ── Private helpers ─────────────────────────────────────────
 
-  _cleanup() {
+  _cleanup(): void {
     this.connected = false;
     this.authenticated = false;
     this._commandQueue = Promise.resolve();
@@ -451,21 +521,21 @@ class PanelRcon extends EventEmitter {
     if (this._ws) {
       try {
         this._ws.terminate();
-      } catch (_) {}
+      } catch (_) {
+        /* ignore */
+      }
       this._ws = null;
     }
   }
 
-  _scheduleReconnect() {
+  _scheduleReconnect(): void {
     if (this._reconnectTimeout) return;
     this._log.info('Reconnecting in 15 seconds...');
-    this._reconnectTimeout = setTimeout(async () => {
+    this._reconnectTimeout = setTimeout(() => {
       this._reconnectTimeout = null;
-      try {
-        await this.connect();
-      } catch (err) {
-        this._log.error('Reconnect failed:', err.message);
-      }
+      this.connect().catch((err: unknown) => {
+        this._log.error('Reconnect failed:', err instanceof Error ? err.message : String(err));
+      });
     }, 15000);
   }
 }
@@ -474,9 +544,14 @@ class PanelRcon extends EventEmitter {
  * Strip ANSI escape codes from a string.
  * Pterodactyl daemon wraps some output in ANSI color codes.
  */
-function stripAnsi(str) {
+function stripAnsi(str: string): string {
   // eslint-disable-next-line no-control-regex
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '');
 }
 
-module.exports = { PanelRcon };
+export { PanelRcon };
+
+// CJS compatibility — non-migrated .js files require() this module
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = { PanelRcon };

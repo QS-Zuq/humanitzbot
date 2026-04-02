@@ -1,6 +1,7 @@
-const _defaultRcon = require('./rcon');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _defaultRcon = require('./rcon') as import('./rcon').RconManager;
 
-const COMMANDS = {
+export const COMMANDS = {
   INFO: 'info',
   PLAYERS: 'Players',
   ADMIN_MSG: 'admin',
@@ -17,22 +18,53 @@ const COMMANDS = {
   RESTART_NOW: 'RestartNow',
   CANCEL_RESTART: 'CancelRestart',
   SHUTDOWN: 'shutdown',
-};
+} as const;
 
-async function getServerInfo(rcon) {
-  const r = rcon || _defaultRcon;
+interface RconLike {
+  sendCached(command: string, ttl: number): Promise<string>;
+  send(command: string): Promise<string>;
+}
+
+export interface ServerInfo {
+  raw: string;
+  fields: Record<string, string>;
+  players?: number;
+  maxPlayers?: number;
+  name?: string;
+  time?: string;
+  season?: string;
+  weather?: string;
+  day?: string;
+  fps?: string;
+  ai?: string;
+  version?: string;
+}
+
+export interface PlayerEntry {
+  name: string;
+  steamId: string;
+}
+
+export interface PlayerList {
+  count: number;
+  players: PlayerEntry[];
+  raw: string;
+}
+
+export async function getServerInfo(rcon?: RconLike): Promise<ServerInfo> {
+  const r = rcon ?? _defaultRcon;
   const raw = await r.sendCached(COMMANDS.INFO, 30000);
   return parseServerInfo(raw);
 }
 
-async function getPlayerList(rcon) {
-  const r = rcon || _defaultRcon;
+export async function getPlayerList(rcon?: RconLike): Promise<PlayerList> {
+  const r = rcon ?? _defaultRcon;
   const raw = await r.sendCached(COMMANDS.PLAYERS, 30000);
   return parsePlayerList(raw);
 }
 
-async function sendAdminMessage(message, rcon) {
-  const r = rcon || _defaultRcon;
+export async function sendAdminMessage(message: string, rcon?: RconLike): Promise<string> {
+  const r = rcon ?? _defaultRcon;
   // Lead with </> to close default yellow so color tags in message work.
   // Message should start with a color open tag (e.g. <FO>) not </><FO>.
   return r.send(`${COMMANDS.ADMIN_MSG} </>${message}`);
@@ -40,9 +72,9 @@ async function sendAdminMessage(message, rcon) {
 
 // ── Parsers ─────────────────────────────────────────────────────────────
 
-function parseServerInfo(raw) {
-  const result = {
-    raw: raw || '',
+export function parseServerInfo(raw: string | null | undefined): ServerInfo {
+  const result: ServerInfo = {
+    raw: raw ?? '',
     fields: {},
   };
 
@@ -57,8 +89,8 @@ function parseServerInfo(raw) {
     // Handle "X connected." format (no colon separator)
     const connectedMatch = line.match(/^(\d+)\s+connected\.?$/i);
     if (connectedMatch) {
-      result.players = parseInt(connectedMatch[1], 10);
-      result.fields['Connected'] = connectedMatch[1];
+      result.players = parseInt(connectedMatch[1] ?? '0', 10);
+      result.fields['Connected'] = connectedMatch[1] ?? '';
       continue;
     }
 
@@ -71,8 +103,8 @@ function parseServerInfo(raw) {
     // Try key: value format
     const kv = line.match(/^(.+?):\s*(.+)$/);
     if (!kv) continue;
-    const key = kv[1].trim();
-    const value = kv[2].trim();
+    const key = kv[1]?.trim() ?? '';
+    const value = kv[2]?.trim() ?? '';
     const k = key.toLowerCase();
 
     // Store all fields for generic display
@@ -85,7 +117,7 @@ function parseServerInfo(raw) {
       // Zero-pad minutes: "2:2" → "2:02", "14:5" → "14:05"
       const timeParts = value.match(/^(\d{1,2}):(\d{1,2})$/);
       if (timeParts) {
-        result.time = `${timeParts[1]}:${timeParts[2].padStart(2, '0')}`;
+        result.time = `${timeParts[1] ?? ''}:${(timeParts[2] ?? '').padStart(2, '0')}`;
         result.fields[key] = result.time;
       } else {
         result.time = value;
@@ -103,7 +135,7 @@ function parseServerInfo(raw) {
     } else if (k.includes('player')) {
       const pm = value.match(/(\d+)\s*(?:\/\s*(\d+))?/);
       if (pm) {
-        result.players = parseInt(pm[1], 10);
+        result.players = parseInt(pm[1] ?? '0', 10);
         if (pm[2]) result.maxPlayers = parseInt(pm[2], 10);
       }
     } else if (k.includes('version')) {
@@ -114,7 +146,7 @@ function parseServerInfo(raw) {
   return result;
 }
 
-function parsePlayerList(raw) {
+export function parsePlayerList(raw: string | null | undefined): PlayerList {
   if (!raw || raw.trim() === '') {
     return { count: 0, players: [], raw: '' };
   }
@@ -123,7 +155,7 @@ function parsePlayerList(raw) {
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-  const players = [];
+  const players: PlayerEntry[] = [];
   let count = 0;
 
   for (const line of lines) {
@@ -134,7 +166,7 @@ function parsePlayerList(raw) {
     // Try to extract player count from a header like "Players: 5" or "Players: 5/32"
     const countMatch = line.match(/players?\s*[:-]\s*(\d+)(?:\s*\/\s*(\d+))?/i);
     if (countMatch) {
-      count = parseInt(countMatch[1], 10);
+      count = parseInt(countMatch[1] ?? '0', 10);
       continue;
     }
 
@@ -148,9 +180,9 @@ function parsePlayerList(raw) {
 
     if (playerMatch) {
       // Matched "Name (SteamID...)" format
-      const name = playerMatch[1].trim();
+      const name = playerMatch[1]?.trim() ?? '';
       if (name) {
-        players.push({ name, steamId: playerMatch[2] });
+        players.push({ name, steamId: playerMatch[2] ?? '' });
       }
     } else {
       // Fallback: line might just be a plain name
@@ -178,7 +210,10 @@ function parsePlayerList(raw) {
   return { count, players, raw };
 }
 
-module.exports = {
+// CJS compatibility — non-migrated .js files require() this module
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = {
   COMMANDS,
   getServerInfo,
   getPlayerList,
