@@ -64,18 +64,18 @@ module.exports = defineConfig([
     },
   },
 
-  // ── Backend: TypeScript ESM (.ts) ───────────────────────────
-  {
-    name: 'backend/node-ts',
-    files: ['src/**/*.ts'],
-    ignores: ['src/web-map/public/**'],
+  // ── Shared TypeScript config ─────────────────────────────────
+  // Extracted to avoid duplication between backend and test configs.
+  ...[
+    { name: 'backend/node-ts', files: ['src/**/*.ts'], ignores: ['src/web-map/public/**'] },
+    { name: 'tests/node-test-ts', files: ['test/**/*.ts'] },
+  ].map((target) => ({
+    ...target,
     extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
-      globals: {
-        ...globals.node,
-      },
+      globals: { ...globals.node },
       parserOptions: {
         projectService: true,
         tsconfigRootDir: __dirname,
@@ -95,14 +95,13 @@ module.exports = defineConfig([
         },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
-      // Allow numbers/booleans in template literals — `${count}` is safe and idiomatic
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
       'no-var': 'error',
       'prefer-const': 'error',
     },
-  },
+  })),
 
-  // ── Tests: node:test framework ──────────────────────────────
+  // ── Tests: node:test framework (JS) ────────────────────────
   {
     name: 'tests/node-test',
     files: ['test/**/*.js'],
@@ -119,39 +118,6 @@ module.exports = defineConfig([
       ...sharedRules,
       'no-var': 'error',
       'prefer-const': 'error',
-    },
-  },
-
-  // ── Tests: TypeScript ───────────────────────────────────────
-  {
-    name: 'tests/node-test-ts',
-    files: ['test/**/*.ts'],
-    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        ...globals.node,
-      },
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: __dirname,
-      },
-    },
-    rules: {
-      'no-console': 'off',
-      'no-empty': ['error', { allowEmptyCatch: true }],
-      eqeqeq: ['error', 'always', { null: 'ignore' }],
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          args: 'after-used',
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_',
-        },
-      ],
-      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
 

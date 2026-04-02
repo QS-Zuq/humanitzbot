@@ -13,7 +13,7 @@
 import type Database from 'better-sqlite3';
 
 interface HumanitZDBLike {
-  _db?: Database.Database;
+  _db?: Database.Database | null;
   db?: Database.Database | null;
 }
 
