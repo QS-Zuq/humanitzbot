@@ -8,11 +8,9 @@
  * Zero runtime dependencies. Pure functions only.
  */
 
-'use strict';
-
 // ── Ordered rules: specific variants first, generic catch-alls last ──
 
-const ZOMBIE_RULES = [
+const ZOMBIE_RULES: [RegExp, string][] = [
   [/Dogzombie/i, 'Dog Zombie'],
   [/ZombieBear/i, 'Zombie Bear'],
   [/Mutant/i, 'Mutant'],
@@ -32,9 +30,9 @@ const ZOMBIE_RULES = [
   [/Zombie/i, 'Zombie'], // generic catch-all
 ];
 
-const BANDIT_RULES = [[/KaiHuman/i, 'Bandit']];
+const BANDIT_RULES: [RegExp, string][] = [[/KaiHuman/i, 'Bandit']];
 
-const ANIMAL_RULES = [
+const ANIMAL_RULES: [RegExp, string][] = [
   [/Wolf/i, 'Wolf'],
   [/Bear(?!.*Zombie)/i, 'Bear'],
   [/Deer|Stag|Doe/i, 'Deer'],
@@ -45,14 +43,19 @@ const ANIMAL_RULES = [
   [/Chicken/i, 'Chicken'],
 ];
 
+export interface DamageClassification {
+  name: string;
+  type: string;
+}
+
 /**
  * Classify a raw BP_ damage source into a human-readable name + category.
  * Used for death attribution, embed text, and DB records.
  *
- * @param {string} source - Raw damage source (e.g. 'BP_PawnZombie_Runner_C_123')
+ * @param source - Raw damage source (e.g. 'BP_PawnZombie_Runner_C_123')
  * @returns {{ name: string, type: string }}
  */
-function classifyDamageSource(source) {
+export function classifyDamageSource(source: string): DamageClassification {
   for (const [re, name] of ZOMBIE_RULES) {
     if (re.test(source)) return { name, type: 'zombie' };
   }
@@ -74,10 +77,10 @@ function classifyDamageSource(source) {
  * Same classification logic but with simplified return values
  * optimised for stat counters (merges armoured variants, etc.).
  *
- * @param {string} source - Raw damage source
- * @returns {string} Human-readable label
+ * @param source - Raw damage source
+ * @returns Human-readable label
  */
-function classifyDamageLabel(source) {
+export function classifyDamageLabel(source: string): string {
   // Specific zombie variants
   if (/Dogzombie/i.test(source)) return 'Dog Zombie';
   if (/ZombieBear/i.test(source)) return 'Zombie Bear';
@@ -106,10 +109,10 @@ function classifyDamageLabel(source) {
  * UE4 blueprint-style names always have underscores — player names don't.
  * Secondary regex catches bare NPC type names without BP_ prefix.
  *
- * @param {string} source - Damage source string
- * @returns {boolean}
+ * @param source - Damage source string
+ * @returns boolean
  */
-function isNpcDamageSource(source) {
+export function isNpcDamageSource(source: string): boolean {
   if (source.includes('_')) return true;
   // Space-separated UE4 pawn format: "Pawn Zombie Runner C 2147019193(25m) Weapon()"
   if (/^Pawn\s/i.test(source)) return true;
@@ -118,4 +121,7 @@ function isNpcDamageSource(source) {
   );
 }
 
-module.exports = { classifyDamageSource, classifyDamageLabel, isNpcDamageSource };
+// CJS compat — consumed by non-migrated .js modules via require()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = { classifyDamageSource, classifyDamageLabel, isNpcDamageSource };

@@ -15,10 +15,198 @@
  * @module tracking/kill-tracker
  */
 
-const _defaultConfig = require('../config');
-const _defaultPlaytime = require('./playtime-tracker');
-const _defaultPlayerStats = require('./player-stats');
-const { createLogger } = require('../utils/log');
+import config from '../config/index.js';
+import { PlaytimeTracker } from './playtime-tracker.js';
+import { PlayerStats } from './player-stats.js';
+import { createLogger, type Logger } from '../utils/log.js';
+
+type ConfigType = typeof config;
+type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
+type PlayerStatsType = InstanceType<typeof PlayerStats>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Loose save-data shape — save-parser is not yet migrated
+type SaveEntry = Record<string, unknown>;
+
+interface ResolvedPlayer {
+  name: string;
+  firstSeen: string | null;
+  lastActive: string | null;
+  playtime: ReturnType<PlaytimeType['getPlaytime']>;
+  log: ReturnType<PlayerStatsType['getStats']>;
+  save: SaveEntry | null;
+}
+
+interface KillObj {
+  zeeksKilled: number;
+  headshots: number;
+  meleeKills: number;
+  gunKills: number;
+  blastKills: number;
+  fistKills: number;
+  takedownKills: number;
+  vehicleKills: number;
+}
+
+interface SurvivalObj {
+  daysSurvived: number;
+}
+
+type ScalarActivityObj = Record<string, number>;
+type ArrayActivityObj = Record<string, unknown[]>;
+type ChallengeObj = Record<string, number>;
+
+interface PlayerKillRecord {
+  cumulative: KillObj;
+  lastSnapshot: KillObj;
+  survivalCumulative: SurvivalObj;
+  survivalSnapshot: SurvivalObj;
+  hasExtendedStats: boolean;
+  deathCheckpoint: KillObj | null;
+  lastKnownDeaths: number;
+  lifetimeSnapshot: KillObj | null;
+  survivalLifetimeSnapshot: SurvivalObj | null;
+  lastLifetimeSnapshot: KillObj | null;
+  lastSurvivalLifetimeSnapshot: SurvivalObj | null;
+  activitySnapshot: ScalarActivityObj;
+  activityArraySnapshot: ArrayActivityObj;
+  challengeSnapshot: ChallengeObj;
+}
+
+interface TrackerData {
+  players: Record<string, PlayerKillRecord>;
+  lastPollDate?: string | null;
+}
+
+interface KillDelta {
+  steamId: string;
+  name: string;
+  delta: Partial<KillObj>;
+}
+
+interface SurvivalDelta {
+  steamId: string;
+  name: string;
+  delta: Partial<SurvivalObj>;
+}
+
+interface FishingDelta {
+  steamId: string;
+  name: string;
+  delta: Record<string, number>;
+}
+
+interface RecipeDelta {
+  steamId: string;
+  name: string;
+  type: string;
+  items: unknown[];
+}
+
+interface SkillDelta {
+  steamId: string;
+  name: string;
+  items: unknown[];
+}
+
+interface ProfessionDelta {
+  steamId: string;
+  name: string;
+  items: unknown[];
+}
+
+interface LoreDelta {
+  steamId: string;
+  name: string;
+  items: unknown[];
+}
+
+interface UniqueDelta {
+  steamId: string;
+  name: string;
+  type: string;
+  items: unknown[];
+}
+
+interface CompanionDelta {
+  steamId: string;
+  name: string;
+  type: string;
+  items: unknown[];
+}
+
+interface ChallengeDelta {
+  steamId: string;
+  name: string;
+  completed: { key: string; name: string; desc: string }[];
+}
+
+interface AccumulateResult {
+  deltas: {
+    killDeltas: KillDelta[];
+    survivalDeltas: SurvivalDelta[];
+    fishingDeltas: FishingDelta[];
+    recipeDeltas: RecipeDelta[];
+    skillDeltas: SkillDelta[];
+    professionDeltas: ProfessionDelta[];
+    loreDeltas: LoreDelta[];
+    uniqueDeltas: UniqueDelta[];
+    companionDeltas: CompanionDelta[];
+    challengeDeltas: ChallengeDelta[];
+  };
+  targetDate: string;
+}
+
+interface WeeklyStats {
+  weekStart: string | null;
+  topKillers: { name: string; kills: number }[];
+  topPvpKillers: { name: string; kills: number }[];
+  topFishers: { name: string; count: number }[];
+  topBitten: { name: string; count: number }[];
+  topPlaytime: { name: string; ms: number }[];
+}
+
+interface PlayerBaseline {
+  kills: number;
+  pvpKills: number;
+  fish: number;
+  bitten: number;
+  playtimeMs: number;
+  craftingRecipes: number;
+  buildingRecipes: number;
+  unlockedSkills: number;
+  unlockedProfessions: number;
+  lore: number;
+  uniqueLoots: number;
+  craftedUniques: number;
+  companions: number;
+}
+
+interface WeeklyBaseline {
+  weekStart: string | null;
+  players: Record<string, PlayerBaseline>;
+}
+
+interface GameData {
+  CHALLENGE_DESCRIPTIONS: Record<string, { name: string; desc: string; target?: number }>;
+}
+
+// Minimal DB interface (src/db not yet migrated)
+interface HumanitZDB {
+  getStateJSON(key: string, fallback: null): unknown;
+  setStateJSON(key: string, data: unknown): void;
+}
+
+export interface KillTrackerDeps {
+  config?: ConfigType;
+  playtime?: PlaytimeType;
+  playerStats?: PlayerStatsType;
+  db?: HumanitZDB | null;
+  label?: string;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Standalone player resolver — shared between KillTracker and PSC
@@ -27,31 +215,30 @@ const { createLogger } = require('../utils/log');
 /**
  * Cross-validated player name/timestamp resolver.
  * Picks the most-recent-event name from playtime and log sources.
- *
- * @param {string} steamId
- * @param {object} deps - { playtime, playerStats, saveData }
- * @returns {{ name, firstSeen, lastActive, playtime, log, save }}
  */
-function resolvePlayer(steamId, { playtime, playerStats, saveData }) {
-  const pt = playtime.getPlaytime(steamId);
-  const log = playerStats.getStats(steamId);
-  const save = saveData instanceof Map ? saveData.get(steamId) : null;
+export function resolvePlayer(
+  steamId: string,
+  deps: { playtime: PlaytimeType; playerStats: PlayerStatsType; saveData: Map<string, SaveEntry> },
+): ResolvedPlayer {
+  const pt = deps.playtime.getPlaytime(steamId);
+  const log = deps.playerStats.getStats(steamId);
+  const save = deps.saveData instanceof Map ? (deps.saveData.get(steamId) ?? null) : null;
 
   // Name resolution: most-recent-event wins
-  let name;
+  let name: string;
   const ptName = pt?.name;
   const logName = log?.name;
 
   if (ptName && logName) {
     if (ptName !== logName) {
-      const ptTime = pt.lastSeen ? new Date(pt.lastSeen).getTime() : 0;
-      const logTime = log.lastEvent ? new Date(log.lastEvent).getTime() : 0;
+      const ptTime = ptName && pt.lastSeen ? new Date(pt.lastSeen).getTime() : 0;
+      const logTime = logName && log.lastEvent ? new Date(log.lastEvent).getTime() : 0;
       name = ptTime >= logTime ? ptName : logName;
     } else {
       name = ptName;
     }
   } else {
-    name = ptName || logName || playerStats.getNameForId(steamId) || steamId;
+    name = ptName ?? logName ?? deps.playerStats.getNameForId(steamId);
   }
 
   // Last active: max of both timestamps
@@ -60,7 +247,7 @@ function resolvePlayer(steamId, { playtime, playerStats, saveData }) {
   const lastActiveMs = Math.max(ptLastSeen, logLastEvent);
   const lastActive = lastActiveMs > 0 ? new Date(lastActiveMs).toISOString() : null;
 
-  const firstSeen = pt?.firstSeen || null;
+  const firstSeen = pt?.firstSeen ?? null;
 
   return { name, firstSeen, lastActive, playtime: pt, log, save };
 }
@@ -69,9 +256,9 @@ function resolvePlayer(steamId, { playtime, playerStats, saveData }) {
 //  KillTracker
 // ═══════════════════════════════════════════════════════════════════════════
 
-class KillTracker {
+export class KillTracker {
   // ── Key arrays (shared between tracker and embeds) ──
-  static KILL_KEYS = [
+  static readonly KILL_KEYS: readonly (keyof KillObj)[] = [
     'zeeksKilled',
     'headshots',
     'meleeKills',
@@ -81,9 +268,9 @@ class KillTracker {
     'takedownKills',
     'vehicleKills',
   ];
-  static SURVIVAL_KEYS = ['daysSurvived'];
-  static ACTIVITY_SCALAR_KEYS = ['fishCaught', 'fishCaughtPike', 'timesBitten'];
-  static CHALLENGE_KEYS = [
+  static readonly SURVIVAL_KEYS: readonly (keyof SurvivalObj)[] = ['daysSurvived'];
+  static readonly ACTIVITY_SCALAR_KEYS: readonly string[] = ['fishCaught', 'fishCaughtPike', 'timesBitten'];
+  static readonly CHALLENGE_KEYS: readonly string[] = [
     'challengeKillZombies',
     'challengeKill50',
     'challengeCatch20Fish',
@@ -104,7 +291,7 @@ class KillTracker {
     'challengeLockpickSUV',
     'challengeRepairRadio',
   ];
-  static ACTIVITY_ARRAY_KEYS = [
+  static readonly ACTIVITY_ARRAY_KEYS: readonly string[] = [
     'craftingRecipes',
     'buildingRecipes',
     'unlockedSkills',
@@ -115,7 +302,7 @@ class KillTracker {
     'companionData',
     'horses',
   ];
-  static LIFETIME_KEY_MAP = {
+  static readonly LIFETIME_KEY_MAP: Record<string, string> = {
     zeeksKilled: 'lifetimeKills',
     headshots: 'lifetimeHeadshots',
     meleeKills: 'lifetimeMeleeKills',
@@ -126,11 +313,21 @@ class KillTracker {
     vehicleKills: 'lifetimeVehicleKills',
   };
 
-  constructor(deps = {}) {
-    this._config = deps.config || _defaultConfig;
-    this._playtime = deps.playtime || _defaultPlaytime;
-    this._playerStats = deps.playerStats || _defaultPlayerStats;
-    this._db = deps.db || null;
+  private _config: ConfigType;
+  private _playtime: PlaytimeType;
+  private _playerStats: PlayerStatsType;
+  private _db: HumanitZDB | null;
+  private _log: Logger;
+  private _data: TrackerData;
+  private _dirty: boolean;
+
+  constructor(deps: KillTrackerDeps = {}) {
+    this._config = deps.config ?? config;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    this._playtime = deps.playtime ?? (require('./playtime-tracker') as PlaytimeType);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    this._playerStats = deps.playerStats ?? (require('./player-stats') as PlayerStatsType);
+    this._db = deps.db ?? null;
     this._log = createLogger(deps.label, 'KillTracker');
 
     // { players: { steamId: { cumulative, lastSnapshot, survivalCumulative, ... } } }
@@ -142,65 +339,84 @@ class KillTracker {
   //  Persistence
   // ═══════════════════════════════════════════════════════════════════════════
 
-  load() {
+  load(): void {
     try {
-      let raw = null;
+      let raw: TrackerData | null = null;
       if (this._db) {
-        raw = this._db.getStateJSON('kill_tracker', null);
+        raw = this._db.getStateJSON('kill_tracker', null) as TrackerData | null;
         if (raw) {
           this._data = raw;
-          const count = Object.keys(this._data.players || {}).length;
-          this._log.info(`Loaded ${count} player(s) from kill tracker (DB)`);
+          const count = Object.keys(this._data.players).length;
+          this._log.info(`Loaded ${String(count)} player(s) from kill tracker (DB)`);
         }
       }
       if (raw) {
-        // Migrate old records: ensure all fields exist
-        for (const record of Object.values(this._data.players)) {
-          if (!record.survivalCumulative) record.survivalCumulative = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
-          if (!record.survivalSnapshot) record.survivalSnapshot = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
+        // Migrate old records loaded from JSON: fields may be missing in older saves.
+        // We cast to unknown first so TypeScript allows the falsy checks on required fields.
+        for (const r of Object.values(this._data.players)) {
+          const record = r as unknown as Record<string, unknown> & PlayerKillRecord;
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!record.survivalCumulative) {
+            record.survivalCumulative = KillTracker._emptySurvival();
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!record.survivalSnapshot) {
+            record.survivalSnapshot = KillTracker._emptySurvival();
+          }
           if (!record.deathCheckpoint) record.deathCheckpoint = null;
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (record.lastKnownDeaths === undefined) record.lastKnownDeaths = 0;
           if (!record.lifetimeSnapshot) record.lifetimeSnapshot = null;
           if (!record.survivalLifetimeSnapshot) record.survivalLifetimeSnapshot = null;
-          if (!record.lastLifetimeSnapshot)
+          if (!record.lastLifetimeSnapshot) {
             record.lastLifetimeSnapshot = record.lifetimeSnapshot ? { ...record.lifetimeSnapshot } : null;
-          if (!record.lastSurvivalLifetimeSnapshot)
+          }
+          if (!record.lastSurvivalLifetimeSnapshot) {
             record.lastSurvivalLifetimeSnapshot = record.survivalLifetimeSnapshot
               ? { ...record.survivalLifetimeSnapshot }
               : null;
-          if (!record.activitySnapshot)
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!record.activitySnapshot) {
             record.activitySnapshot = KillTracker._emptyObj(KillTracker.ACTIVITY_SCALAR_KEYS);
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (!record.activityArraySnapshot) {
             record.activityArraySnapshot = {};
             for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) record.activityArraySnapshot[k] = [];
           }
-          if (!record.challengeSnapshot) record.challengeSnapshot = KillTracker._emptyObj(KillTracker.CHALLENGE_KEYS);
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          if (!record.challengeSnapshot) {
+            record.challengeSnapshot = KillTracker._emptyObj(KillTracker.CHALLENGE_KEYS);
+          }
         }
       }
     } catch (err) {
-      this._log.error('Failed to load kill tracker, starting fresh:', err.message);
+      this._log.error('Failed to load kill tracker, starting fresh:', (err as Error).message);
       this._data = { players: {} };
     }
   }
 
-  save() {
+  save(): void {
     if (!this._dirty) return;
     try {
       if (this._db) this._db.setStateJSON('kill_tracker', this._data);
       this._dirty = false;
     } catch (err) {
-      this._log.error('Failed to save kill tracker:', err.message);
+      this._log.error('Failed to save kill tracker:', (err as Error).message);
     }
   }
 
   /** Expose raw data for PSC's _cacheWelcomeStats and embed builders */
-  get players() {
+  get players(): Record<string, PlayerKillRecord> {
     return this._data.players;
   }
-  get lastPollDate() {
-    return this._data.lastPollDate || null;
+
+  get lastPollDate(): string | null {
+    return this._data.lastPollDate ?? null;
   }
-  set lastPollDate(v) {
+
+  set lastPollDate(v: string | null) {
     this._data.lastPollDate = v;
     this._dirty = true;
   }
@@ -209,31 +425,35 @@ class KillTracker {
   //  Static helpers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static _emptyObj(keys) {
-    const obj = {};
+  static _emptyObj(keys: readonly string[]): Record<string, number> {
+    const obj: Record<string, number> = {};
     for (const k of keys) obj[k] = 0;
     return obj;
   }
 
-  static _emptyKills() {
-    return KillTracker._emptyObj(KillTracker.KILL_KEYS);
+  static _emptyKills(): KillObj {
+    return KillTracker._emptyObj(KillTracker.KILL_KEYS) as unknown as KillObj;
   }
 
-  static _snapshotKills(save) {
-    const obj = {};
-    for (const k of KillTracker.KILL_KEYS) obj[k] = save[k] || 0;
+  static _emptySurvival(): SurvivalObj {
+    return { daysSurvived: 0 };
+  }
+
+  static _snapshotKills(save: SaveEntry): KillObj {
+    const obj: KillObj = KillTracker._emptyKills();
+    for (const k of KillTracker.KILL_KEYS) {
+      obj[k] = (save[k] as number | undefined) ?? 0;
+    }
     return obj;
   }
 
-  static _snapshotSurvival(save) {
-    const obj = {};
-    for (const k of KillTracker.SURVIVAL_KEYS) obj[k] = save[k] || 0;
-    return obj;
+  static _snapshotSurvival(save: SaveEntry): SurvivalObj {
+    return { daysSurvived: (save['daysSurvived'] as number | undefined) ?? 0 };
   }
 
-  static _snapshotChallenges(save) {
-    const obj = {};
-    for (const k of KillTracker.CHALLENGE_KEYS) obj[k] = save[k] || 0;
+  static _snapshotChallenges(save: SaveEntry): ChallengeObj {
+    const obj: ChallengeObj = {};
+    for (const k of KillTracker.CHALLENGE_KEYS) obj[k] = (save[k] as number | undefined) ?? 0;
     return obj;
   }
 
@@ -244,16 +464,16 @@ class KillTracker {
   /**
    * Process a new save poll: compute deltas, update snapshots, return arrays.
    *
-   * @param {Map<string,object>} saveData - steamId → save data map
-   * @param {object} [opts] - { gameData } for challenge descriptions
-   * @returns {{ deltas: object, targetDate: string }} deltas object + which date they belong to
+   * @param saveData - steamId → save data map
+   * @param opts - { gameData } for challenge descriptions
+   * @returns deltas object + which date they belong to
    */
-  accumulate(saveData, opts = {}) {
+  accumulate(saveData: Map<string, SaveEntry>, opts: { gameData?: GameData | null } = {}): AccumulateResult {
     const today = this._config.getToday();
-    const gameData = opts.gameData || null;
+    const gameData = opts.gameData ?? null;
 
     // Determine which date's thread these deltas belong to.
-    const lastPollDate = this._data.lastPollDate || null;
+    const lastPollDate = this._data.lastPollDate ?? null;
     const targetDate = lastPollDate && lastPollDate !== today ? lastPollDate : today;
     this._data.lastPollDate = today;
     this._dirty = true;
@@ -262,16 +482,16 @@ class KillTracker {
       this._log.info(`First poll after restart — pending deltas for ${targetDate}`);
     }
 
-    const killDeltas = [];
-    const survivalDeltas = [];
-    const fishingDeltas = [];
-    const recipeDeltas = [];
-    const skillDeltas = [];
-    const professionDeltas = [];
-    const loreDeltas = [];
-    const uniqueDeltas = [];
-    const companionDeltas = [];
-    const challengeDeltas = [];
+    const killDeltas: KillDelta[] = [];
+    const survivalDeltas: SurvivalDelta[] = [];
+    const fishingDeltas: FishingDelta[] = [];
+    const recipeDeltas: RecipeDelta[] = [];
+    const skillDeltas: SkillDelta[] = [];
+    const professionDeltas: ProfessionDelta[] = [];
+    const loreDeltas: LoreDelta[] = [];
+    const uniqueDeltas: UniqueDelta[] = [];
+    const companionDeltas: CompanionDelta[] = [];
+    const challengeDeltas: ChallengeDelta[] = [];
 
     for (const [id, save] of saveData) {
       const currentKills = KillTracker._snapshotKills(save);
@@ -279,17 +499,19 @@ class KillTracker {
 
       if (!this._data.players[id]) {
         // First time seeing this player — initialise
-        const logDeaths = this._playerStats.getStats(id)?.deaths || 0;
-        const actSnapshot = {};
-        for (const k of KillTracker.ACTIVITY_SCALAR_KEYS) actSnapshot[k] = save[k] || 0;
-        const arrSnapshot = {};
-        for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) arrSnapshot[k] = Array.isArray(save[k]) ? [...save[k]] : [];
-        this._data.players[id] = {
+        const logDeaths = this._playerStats.getStats(id)?.deaths ?? 0;
+        const actSnapshot: ScalarActivityObj = {};
+        for (const k of KillTracker.ACTIVITY_SCALAR_KEYS) actSnapshot[k] = (save[k] as number | undefined) ?? 0;
+        const arrSnapshot: ArrayActivityObj = {};
+        for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) {
+          arrSnapshot[k] = Array.isArray(save[k]) ? [...(save[k] as unknown[])] : [];
+        }
+        const newRecord: PlayerKillRecord = {
           cumulative: KillTracker._emptyKills(),
           lastSnapshot: currentKills,
-          survivalCumulative: KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS),
+          survivalCumulative: KillTracker._emptySurvival(),
           survivalSnapshot: currentSurvival,
-          hasExtendedStats: !!save.hasExtendedStats,
+          hasExtendedStats: !!save['hasExtendedStats'],
           deathCheckpoint: null,
           lastKnownDeaths: logDeaths,
           lifetimeSnapshot: null,
@@ -300,21 +522,21 @@ class KillTracker {
           activityArraySnapshot: arrSnapshot,
           challengeSnapshot: KillTracker._snapshotChallenges(save),
         };
+        this._data.players[id] = newRecord;
         // Cache lifetime values if available
-        if (save.hasExtendedStats) {
-          const ls = {};
+        if (save['hasExtendedStats']) {
+          const ls = KillTracker._emptyKills();
           for (const k of KillTracker.KILL_KEYS) {
             const lifetimeKey = KillTracker.LIFETIME_KEY_MAP[k];
-            ls[k] = lifetimeKey ? save[lifetimeKey] || 0 : 0;
+            ls[k] = lifetimeKey ? ((save[lifetimeKey] as number | undefined) ?? 0) : 0;
           }
-          this._data.players[id].lifetimeSnapshot = ls;
-          this._data.players[id].lastLifetimeSnapshot = { ...ls };
-          this._data.players[id].survivalLifetimeSnapshot = {
-            daysSurvived: save.lifetimeDaysSurvived || save.daysSurvived || 0,
+          newRecord.lifetimeSnapshot = ls;
+          newRecord.lastLifetimeSnapshot = { ...ls };
+          newRecord.survivalLifetimeSnapshot = {
+            daysSurvived:
+              (save['lifetimeDaysSurvived'] as number | undefined) ?? (save['daysSurvived'] as number | undefined) ?? 0,
           };
-          this._data.players[id].lastSurvivalLifetimeSnapshot = {
-            ...this._data.players[id].survivalLifetimeSnapshot,
-          };
+          newRecord.lastSurvivalLifetimeSnapshot = { ...newRecord.survivalLifetimeSnapshot };
         }
         this._dirty = true;
         continue;
@@ -322,7 +544,7 @@ class KillTracker {
 
       const record = this._data.players[id];
       const lastKills = record.lastSnapshot;
-      const lastSurvival = record.survivalSnapshot || KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
+      const lastSurvival = record.survivalSnapshot;
       const playerName = resolvePlayer(id, {
         playtime: this._playtime,
         playerStats: this._playerStats,
@@ -330,39 +552,40 @@ class KillTracker {
       }).name;
 
       // ExtendedStats path
-      if (save.hasExtendedStats) {
+      if (save['hasExtendedStats']) {
         record.hasExtendedStats = true;
         // Clear stale cumulative data
-        if (record.cumulative.zeeksKilled > 0 || record.survivalCumulative?.daysSurvived > 0) {
+        if (record.cumulative.zeeksKilled > 0 || record.survivalCumulative.daysSurvived > 0) {
           this._log.info(`${id}: ExtendedStats available — clearing banked cumulative`);
           record.cumulative = KillTracker._emptyKills();
-          record.survivalCumulative = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
+          record.survivalCumulative = KillTracker._emptySurvival();
         }
         // Cache lifetime values
-        const ls = {};
+        const ls = KillTracker._emptyKills();
         for (const k of KillTracker.KILL_KEYS) {
           const lifetimeKey = KillTracker.LIFETIME_KEY_MAP[k];
-          ls[k] = lifetimeKey ? save[lifetimeKey] || 0 : 0;
+          ls[k] = lifetimeKey ? ((save[lifetimeKey] as number | undefined) ?? 0) : 0;
         }
         record.lifetimeSnapshot = ls;
         record.survivalLifetimeSnapshot = {
-          daysSurvived: save.lifetimeDaysSurvived || save.daysSurvived || 0,
+          daysSurvived:
+            (save['lifetimeDaysSurvived'] as number | undefined) ?? (save['daysSurvived'] as number | undefined) ?? 0,
         };
 
         // Death checkpoint
-        const logDeaths = this._playerStats.getStats(id)?.deaths || 0;
-        const prevDeaths = record.lastKnownDeaths || 0;
+        const logDeaths = this._playerStats.getStats(id)?.deaths ?? 0;
+        const prevDeaths = record.lastKnownDeaths;
         if (logDeaths > prevDeaths) {
-          const cp = {};
+          const cp = KillTracker._emptyKills();
           for (const k of KillTracker.KILL_KEYS) {
             const lifetimeKey = KillTracker.LIFETIME_KEY_MAP[k];
-            const lifetime = lifetimeKey ? save[lifetimeKey] || 0 : 0;
-            cp[k] = lifetime - (currentKills[k] || 0);
+            const lifetime = lifetimeKey ? ((save[lifetimeKey] as number | undefined) ?? 0) : 0;
+            cp[k] = lifetime - currentKills[k];
           }
           record.deathCheckpoint = cp;
           record.lastKnownDeaths = logDeaths;
           this._log.info(
-            `${id}: death #${logDeaths} — checkpoint set (lifetime ${save.lifetimeKills || 0}, session ${currentKills.zeeksKilled})`,
+            `${id}: death #${String(logDeaths)} — checkpoint set (lifetime ${String((save['lifetimeKills'] as number | undefined) ?? 0)}, session ${String(currentKills.zeeksKilled)})`,
           );
           this._dirty = true;
         } else if (record.lastKnownDeaths !== logDeaths) {
@@ -376,12 +599,11 @@ class KillTracker {
           for (const k of KillTracker.KILL_KEYS) {
             record.cumulative[k] += lastKills[k];
           }
-          if (!record.survivalCumulative) record.survivalCumulative = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
           for (const k of KillTracker.SURVIVAL_KEYS) {
             record.survivalCumulative[k] += lastSurvival[k];
           }
           this._log.info(
-            `${id}: death detected — banked ${lastKills.zeeksKilled} kills, ${lastSurvival.daysSurvived} days`,
+            `${id}: death detected — banked ${String(lastKills.zeeksKilled)} kills, ${String(lastSurvival.daysSurvived)} days`,
           );
           record.lastSnapshot = currentKills;
           record.survivalSnapshot = currentSurvival;
@@ -391,12 +613,12 @@ class KillTracker {
       }
 
       // ── Kill deltas ──
-      const killDelta = {};
+      const killDelta: Partial<KillObj> = {};
       let hasKills = false;
       if (record.hasExtendedStats && record.lifetimeSnapshot) {
-        const prevLifetime = record.lastLifetimeSnapshot || KillTracker._emptyKills();
+        const prevLifetime = record.lastLifetimeSnapshot ?? KillTracker._emptyKills();
         for (const k of KillTracker.KILL_KEYS) {
-          const diff = (record.lifetimeSnapshot[k] || 0) - (prevLifetime[k] || 0);
+          const diff = record.lifetimeSnapshot[k] - prevLifetime[k];
           if (diff > 0) {
             killDelta[k] = diff;
             hasKills = true;
@@ -417,13 +639,12 @@ class KillTracker {
       }
 
       // ── Survival deltas ──
-      const survDelta = {};
+      const survDelta: Partial<SurvivalObj> = {};
       let hasSurv = false;
       if (record.hasExtendedStats && record.survivalLifetimeSnapshot) {
-        const prevSurvLifetime =
-          record.lastSurvivalLifetimeSnapshot || KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
+        const prevSurvLifetime = record.lastSurvivalLifetimeSnapshot ?? KillTracker._emptySurvival();
         for (const k of KillTracker.SURVIVAL_KEYS) {
-          const diff = (record.survivalLifetimeSnapshot[k] || 0) - (prevSurvLifetime[k] || 0);
+          const diff = record.survivalLifetimeSnapshot[k] - prevSurvLifetime[k];
           if (diff > 0) {
             survDelta[k] = diff;
             hasSurv = true;
@@ -444,11 +665,11 @@ class KillTracker {
       }
 
       // ── Activity scalar diffs (fishing, bites) ──
-      const prevAct = record.activitySnapshot || KillTracker._emptyObj(KillTracker.ACTIVITY_SCALAR_KEYS);
-      const fishDelta = {};
+      const prevAct = record.activitySnapshot;
+      const fishDelta: Record<string, number> = {};
       let hasFish = false;
       for (const k of KillTracker.ACTIVITY_SCALAR_KEYS) {
-        const diff = (save[k] || 0) - (prevAct[k] || 0);
+        const diff = ((save[k] as number | undefined) ?? 0) - (prevAct[k] ?? 0);
         if (diff > 0) {
           fishDelta[k] = diff;
           hasFish = true;
@@ -457,24 +678,25 @@ class KillTracker {
       if (hasFish) {
         fishingDeltas.push({ steamId: id, name: playerName, delta: fishDelta });
       }
-      const newActSnapshot = {};
-      for (const k of KillTracker.ACTIVITY_SCALAR_KEYS) newActSnapshot[k] = save[k] || 0;
+      const newActSnapshot: ScalarActivityObj = {};
+      for (const k of KillTracker.ACTIVITY_SCALAR_KEYS) newActSnapshot[k] = (save[k] as number | undefined) ?? 0;
       record.activitySnapshot = newActSnapshot;
 
       // ── Activity array diffs (recipes, skills, professions, lore, uniques, companions) ──
-      const prevArr = record.activityArraySnapshot || {};
-      const newArrSnapshot = {};
+      const prevArr = record.activityArraySnapshot;
+      const newArrSnapshot: ArrayActivityObj = {};
       for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) {
-        const current = Array.isArray(save[k]) ? save[k] : [];
+        const current = Array.isArray(save[k]) ? (save[k] as unknown[]) : [];
         const prev = Array.isArray(prevArr[k]) ? prevArr[k] : [];
         newArrSnapshot[k] = [...current];
 
         if (current.length > prev.length) {
-          const prevSet = new Set(prev.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))));
-          const newItems = current.filter((v) => {
-            const key = typeof v === 'object' ? JSON.stringify(v) : String(v);
-            return !prevSet.has(key);
-          });
+          const toKey = (v: unknown): string =>
+            v !== null && typeof v === 'object'
+              ? JSON.stringify(v as Record<string, unknown>)
+              : String(v as string | number | boolean);
+          const prevSet = new Set(prev.map(toKey));
+          const newItems = current.filter((v) => !prevSet.has(toKey(v)));
           if (newItems.length > 0) {
             if (k === 'craftingRecipes' || k === 'buildingRecipes') {
               recipeDeltas.push({
@@ -510,12 +732,12 @@ class KillTracker {
       record.activityArraySnapshot = newArrSnapshot;
 
       // ── Challenge completion detection ──
-      if (save.hasExtendedStats && gameData?.CHALLENGE_DESCRIPTIONS) {
-        const prevChal = record.challengeSnapshot || KillTracker._emptyObj(KillTracker.CHALLENGE_KEYS);
-        const completedNow = [];
+      if (save['hasExtendedStats'] && gameData?.CHALLENGE_DESCRIPTIONS) {
+        const prevChal = record.challengeSnapshot;
+        const completedNow: { key: string; name: string; desc: string }[] = [];
         for (const k of KillTracker.CHALLENGE_KEYS) {
-          const cur = save[k] || 0;
-          const prev = prevChal[k] || 0;
+          const cur = (save[k] as number | undefined) ?? 0;
+          const prev = prevChal[k] ?? 0;
           if (cur > prev) {
             const info = gameData.CHALLENGE_DESCRIPTIONS[k];
             if (info) {
@@ -563,34 +785,34 @@ class KillTracker {
 
   /**
    * Get all-time kill totals for a player (lifetime across deaths).
-   * @param {string} steamId
-   * @param {Map<string,object>} saveData - current save data map
-   * @returns {object|null} { zeeksKilled, headshots, ... }
+   * @param steamId
+   * @param saveData - current save data map
+   * @returns kill totals or null
    */
-  getAllTimeKills(steamId, saveData) {
+  getAllTimeKills(steamId: string, saveData: Map<string, SaveEntry>): KillObj | null {
     const record = this._data.players[steamId];
-    const save = saveData instanceof Map ? saveData.get(steamId) : null;
+    const save = saveData instanceof Map ? (saveData.get(steamId) ?? null) : null;
     if (!record && !save) return null;
 
     const allTime = KillTracker._emptyKills();
 
     // ExtendedStats lifetime values (persist across deaths)
-    if (save?.hasExtendedStats) {
-      allTime.zeeksKilled = save.lifetimeKills || 0;
-      allTime.headshots = save.lifetimeHeadshots || 0;
-      allTime.meleeKills = save.lifetimeMeleeKills || 0;
-      allTime.gunKills = save.lifetimeGunKills || 0;
-      allTime.blastKills = save.lifetimeBlastKills || 0;
-      allTime.fistKills = save.lifetimeFistKills || 0;
-      allTime.takedownKills = save.lifetimeTakedownKills || 0;
-      allTime.vehicleKills = save.lifetimeVehicleKills || 0;
+    if (save?.['hasExtendedStats']) {
+      allTime.zeeksKilled = (save['lifetimeKills'] as number | undefined) ?? 0;
+      allTime.headshots = (save['lifetimeHeadshots'] as number | undefined) ?? 0;
+      allTime.meleeKills = (save['lifetimeMeleeKills'] as number | undefined) ?? 0;
+      allTime.gunKills = (save['lifetimeGunKills'] as number | undefined) ?? 0;
+      allTime.blastKills = (save['lifetimeBlastKills'] as number | undefined) ?? 0;
+      allTime.fistKills = (save['lifetimeFistKills'] as number | undefined) ?? 0;
+      allTime.takedownKills = (save['lifetimeTakedownKills'] as number | undefined) ?? 0;
+      allTime.vehicleKills = (save['lifetimeVehicleKills'] as number | undefined) ?? 0;
       return allTime;
     }
 
     // Offline but previously had ExtendedStats — use cached lifetime
     if (record?.hasExtendedStats && record.lifetimeSnapshot) {
       for (const k of KillTracker.KILL_KEYS) {
-        allTime[k] = record.lifetimeSnapshot[k] || 0;
+        allTime[k] = record.lifetimeSnapshot[k];
       }
       return allTime;
     }
@@ -603,7 +825,7 @@ class KillTracker {
     }
     if (save) {
       for (const k of KillTracker.KILL_KEYS) {
-        allTime[k] += save[k] || 0;
+        allTime[k] += (save[k] as number | undefined) ?? 0;
       }
     }
     return allTime;
@@ -613,32 +835,31 @@ class KillTracker {
    * Get current-life kills for a player.
    * ExtendedStats: lifetime - deathCheckpoint.
    * Legacy: raw GameStats values.
-   * @param {string} steamId
-   * @param {Map<string,object>} saveData
-   * @returns {object|null}
+   * @param steamId
+   * @param saveData
    */
-  getCurrentLifeKills(steamId, saveData) {
+  getCurrentLifeKills(steamId: string, saveData: Map<string, SaveEntry>): KillObj | null {
     const record = this._data.players[steamId];
-    const save = saveData instanceof Map ? saveData.get(steamId) : null;
+    const save = saveData instanceof Map ? (saveData.get(steamId) ?? null) : null;
     if (!save) return null;
 
     // ExtendedStats: compute from lifetime - checkpoint
-    if (save.hasExtendedStats && record?.deathCheckpoint) {
-      const life = {};
+    if (save['hasExtendedStats'] && record?.deathCheckpoint) {
+      const life = KillTracker._emptyKills();
       for (const k of KillTracker.KILL_KEYS) {
         const lifetimeKey = KillTracker.LIFETIME_KEY_MAP[k];
-        const lifetime = lifetimeKey ? save[lifetimeKey] || 0 : 0;
-        life[k] = Math.max(0, lifetime - (record.deathCheckpoint[k] || 0));
+        const lifetime = lifetimeKey ? ((save[lifetimeKey] as number | undefined) ?? 0) : 0;
+        life[k] = Math.max(0, lifetime - record.deathCheckpoint[k]);
       }
       return life;
     }
 
     // ExtendedStats, never died: all lifetime kills are current life
-    if (save.hasExtendedStats) {
-      const life = {};
+    if (save['hasExtendedStats']) {
+      const life = KillTracker._emptyKills();
       for (const k of KillTracker.KILL_KEYS) {
         const lifetimeKey = KillTracker.LIFETIME_KEY_MAP[k];
-        life[k] = lifetimeKey ? save[lifetimeKey] || 0 : 0;
+        life[k] = lifetimeKey ? ((save[lifetimeKey] as number | undefined) ?? 0) : 0;
       }
       return life;
     }
@@ -646,9 +867,9 @@ class KillTracker {
     // Offline, previously ExtendedStats — cached lifetime - checkpoint
     if (record?.hasExtendedStats && record.lifetimeSnapshot) {
       if (record.deathCheckpoint) {
-        const life = {};
+        const life = KillTracker._emptyKills();
         for (const k of KillTracker.KILL_KEYS) {
-          life[k] = Math.max(0, (record.lifetimeSnapshot[k] || 0) - (record.deathCheckpoint[k] || 0));
+          life[k] = Math.max(0, record.lifetimeSnapshot[k] - record.deathCheckpoint[k]);
         }
         return life;
       }
@@ -661,36 +882,37 @@ class KillTracker {
 
   /**
    * Get all-time survival days for a player.
-   * @param {string} steamId
-   * @param {Map<string,object>} saveData
-   * @returns {object|null} { daysSurvived }
+   * @param steamId
+   * @param saveData
+   * @returns survival totals or null
    */
-  getAllTimeSurvival(steamId, saveData) {
+  getAllTimeSurvival(steamId: string, saveData: Map<string, SaveEntry>): SurvivalObj | null {
     const record = this._data.players[steamId];
-    const save = saveData instanceof Map ? saveData.get(steamId) : null;
+    const save = saveData instanceof Map ? (saveData.get(steamId) ?? null) : null;
     if (!record && !save) return null;
 
-    const allTime = KillTracker._emptyObj(KillTracker.SURVIVAL_KEYS);
+    const allTime = KillTracker._emptySurvival();
 
-    if (save?.hasExtendedStats) {
-      allTime.daysSurvived = save.lifetimeDaysSurvived || save.daysSurvived || 0;
+    if (save?.['hasExtendedStats']) {
+      allTime.daysSurvived =
+        (save['lifetimeDaysSurvived'] as number | undefined) ?? (save['daysSurvived'] as number | undefined) ?? 0;
       return allTime;
     }
 
     if (record?.hasExtendedStats && record.survivalLifetimeSnapshot) {
-      allTime.daysSurvived = record.survivalLifetimeSnapshot.daysSurvived || 0;
+      allTime.daysSurvived = record.survivalLifetimeSnapshot.daysSurvived;
       return allTime;
     }
 
     // Legacy fallback
-    if (record?.survivalCumulative) {
+    if (record) {
       for (const k of KillTracker.SURVIVAL_KEYS) {
         allTime[k] += record.survivalCumulative[k];
       }
     }
     if (save) {
       for (const k of KillTracker.SURVIVAL_KEYS) {
-        allTime[k] += save[k] || 0;
+        allTime[k] += (save[k] as number | undefined) ?? 0;
       }
     }
     return allTime;
@@ -704,19 +926,21 @@ class KillTracker {
    * Compute weekly delta leaderboards by comparing current stats to a baseline.
    * Manages baseline persistence: loads/resets from DB on week rollover.
    *
-   * @param {Map<string,object>} saveData
-   * @returns {object|null} { weekStart, topKillers, topPvpKillers, topFishers, topBitten, topPlaytime }
+   * @param saveData
+   * @returns weekly stats object or null
    */
-  computeWeeklyStats(saveData) {
+  computeWeeklyStats(saveData: Map<string, SaveEntry>): WeeklyStats | null {
     if (!this._config.showWeeklyStats) return null;
 
-    let baseline = { weekStart: null, players: {} };
+    let baseline: WeeklyBaseline = { weekStart: null, players: {} };
     try {
       if (this._db) {
-        const saved = this._db.getStateJSON('weekly_baseline', null);
+        const saved = this._db.getStateJSON('weekly_baseline', null) as WeeklyBaseline | null;
         if (saved) baseline = saved;
       }
-    } catch (_) {}
+    } catch (_) {
+      /* non-critical */
+    }
 
     const now = new Date();
     const needsReset = !baseline.weekStart || this._isNewWeek(baseline.weekStart, now);
@@ -730,41 +954,41 @@ class KillTracker {
         if (this._db) this._db.setStateJSON('weekly_baseline', baseline);
         this._log.info('Weekly baseline reset');
       } catch (err) {
-        this._log.error('Failed to write weekly baseline:', err.message);
+        this._log.error('Failed to write weekly baseline:', (err as Error).message);
       }
     }
 
-    const allLog = this._playerStats.getAllPlayers();
+    const allLog = this._playerStats.getAllPlayers() as Array<{ id: string; pvpKills?: number }>;
     const logMap = new Map(allLog.map((p) => [p.id, p]));
 
-    const weeklyKillers = [];
-    const weeklyPvpKillers = [];
-    const weeklyFishers = [];
-    const weeklyBitten = [];
-    const weeklyPlaytime = [];
+    const weeklyKillers: { name: string; kills: number }[] = [];
+    const weeklyPvpKillers: { name: string; kills: number }[] = [];
+    const weeklyFishers: { name: string; count: number }[] = [];
+    const weeklyBitten: { name: string; count: number }[] = [];
+    const weeklyPlaytime: { name: string; ms: number }[] = [];
 
     const allIds = new Set([...saveData.keys(), ...allLog.map((p) => p.id)]);
     for (const id of allIds) {
       const resolved = resolvePlayer(id, { playtime: this._playtime, playerStats: this._playerStats, saveData });
-      const snap = baseline.players[id] || {};
+      const snap: Partial<PlayerBaseline> = baseline.players[id] ?? {};
 
       const at = this.getAllTimeKills(id, saveData);
-      const kills = (at?.zeeksKilled || 0) - (snap.kills || 0);
+      const kills = (at?.zeeksKilled ?? 0) - (snap.kills ?? 0);
       if (kills > 0) weeklyKillers.push({ name: resolved.name, kills });
 
       const log = logMap.get(id);
-      const pvp = (log?.pvpKills || 0) - (snap.pvpKills || 0);
+      const pvp = (log?.pvpKills ?? 0) - (snap.pvpKills ?? 0);
       if (pvp > 0) weeklyPvpKillers.push({ name: resolved.name, kills: pvp });
 
       const save = saveData.get(id);
-      const fish = (save?.fishCaught || 0) - (snap.fish || 0);
+      const fish = ((save?.['fishCaught'] as number | undefined) ?? 0) - (snap.fish ?? 0);
       if (fish > 0) weeklyFishers.push({ name: resolved.name, count: fish });
 
-      const bites = (save?.timesBitten || 0) - (snap.bitten || 0);
+      const bites = ((save?.['timesBitten'] as number | undefined) ?? 0) - (snap.bitten ?? 0);
       if (bites > 0) weeklyBitten.push({ name: resolved.name, count: bites });
 
       const pt = this._playtime.getPlaytime(id);
-      const ptMs = (pt?.totalMs || 0) - (snap.playtimeMs || 0);
+      const ptMs = (pt?.totalMs ?? 0) - (snap.playtimeMs ?? 0);
       if (ptMs > 60000) weeklyPlaytime.push({ name: resolved.name, ms: ptMs });
     }
 
@@ -787,43 +1011,45 @@ class KillTracker {
   /**
    * Snapshot a player's current stats for weekly baseline comparison.
    */
-  _snapshotPlayerStats(id, saveData) {
+  private _snapshotPlayerStats(id: string, saveData: Map<string, SaveEntry>): PlayerBaseline {
     const at = this.getAllTimeKills(id, saveData);
     const log = this._playerStats.getStats(id);
     const save = saveData.get(id);
     const pt = this._playtime.getPlaytime(id);
     return {
-      kills: at?.zeeksKilled || 0,
-      pvpKills: log?.pvpKills || 0,
-      fish: save?.fishCaught || 0,
-      bitten: save?.timesBitten || 0,
-      playtimeMs: pt?.totalMs || 0,
-      craftingRecipes: save?.craftingRecipes?.length || 0,
-      buildingRecipes: save?.buildingRecipes?.length || 0,
-      unlockedSkills: save?.unlockedSkills?.length || 0,
-      unlockedProfessions: save?.unlockedProfessions?.length || 0,
-      lore: save?.lore?.length || 0,
-      uniqueLoots: save?.uniqueLoots?.length || 0,
-      craftedUniques: save?.craftedUniques?.length || 0,
-      companions: (save?.companionData?.length || 0) + (save?.horses?.length || 0),
+      kills: at?.zeeksKilled ?? 0,
+      pvpKills: log?.pvpKills ?? 0,
+      fish: (save?.['fishCaught'] as number | undefined) ?? 0,
+      bitten: (save?.['timesBitten'] as number | undefined) ?? 0,
+      playtimeMs: pt?.totalMs ?? 0,
+      craftingRecipes: (save?.['craftingRecipes'] as unknown[] | undefined)?.length ?? 0,
+      buildingRecipes: (save?.['buildingRecipes'] as unknown[] | undefined)?.length ?? 0,
+      unlockedSkills: (save?.['unlockedSkills'] as unknown[] | undefined)?.length ?? 0,
+      unlockedProfessions: (save?.['unlockedProfessions'] as unknown[] | undefined)?.length ?? 0,
+      lore: (save?.['lore'] as unknown[] | undefined)?.length ?? 0,
+      uniqueLoots: (save?.['uniqueLoots'] as unknown[] | undefined)?.length ?? 0,
+      craftedUniques: (save?.['craftedUniques'] as unknown[] | undefined)?.length ?? 0,
+      companions:
+        ((save?.['companionData'] as unknown[] | undefined)?.length ?? 0) +
+        ((save?.['horses'] as unknown[] | undefined)?.length ?? 0),
     };
   }
 
   /**
    * Check if the baseline's weekStart falls in a previous week.
    */
-  _isNewWeek(weekStartIso, now) {
+  private _isNewWeek(weekStartIso: string, now: Date): boolean {
     const resetDay = this._config.weeklyResetDay;
     const dayStr = now.toLocaleDateString('en-US', {
       weekday: 'short',
       timeZone: this._config.botTimezone,
     });
-    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const currentDay = dayMap[dayStr] ?? now.getDay();
     const daysSinceReset = (currentDay - resetDay + 7) % 7;
 
     const todayStr = now.toLocaleDateString('en-CA', { timeZone: this._config.botTimezone });
-    const [y, m, d] = todayStr.split('-').map(Number);
+    const [y, m, d] = todayStr.split('-').map(Number) as [number, number, number];
     const resetDate = new Date(Date.UTC(y, m - 1, d - daysSinceReset));
     const resetDateStr = resetDate.toISOString().slice(0, 10);
 
@@ -834,5 +1060,12 @@ class KillTracker {
   }
 }
 
-module.exports = KillTracker;
-module.exports.resolvePlayer = resolvePlayer;
+// CJS compat — consumed by non-migrated .js modules via require()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = KillTracker;
+_mod.exports.resolvePlayer = resolvePlayer;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */
+
+export default KillTracker;
