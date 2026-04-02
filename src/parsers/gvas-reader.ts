@@ -18,51 +18,114 @@
  *   Transform, SoftClassPath, SoftObjectPath, + generic fallback
  */
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface GvasReader {
+  buf: Buffer;
+  readU8: () => number;
+  readU16: () => number;
+  readU32: () => number;
+  readI32: () => number;
+  readI64: () => number;
+  readF32: () => number;
+  readF64: () => number;
+  readGuid: () => string;
+  readBool: () => boolean;
+  readFString: () => string;
+  getOffset: () => number;
+  setOffset: (o: number) => void;
+  remaining: () => number;
+  peek: (bytes: number) => Buffer;
+  skip: (bytes: number) => void;
+  length: number;
+}
+
+export interface GvasCustomVersion {
+  guid: string;
+  version: number;
+}
+
+export interface GvasHeader {
+  magic: string;
+  saveVersion: number;
+  packageVersion: number;
+  engineVersion: {
+    major: number;
+    minor: number;
+    patch: number;
+  };
+  build: number;
+  branch: string;
+  customVersions: GvasCustomVersion[];
+  saveClass?: string;
+}
+
+export interface GvasProperty {
+  name: string;
+  type: string;
+  raw: string;
+  value: unknown;
+  structType?: string;
+  enumType?: string;
+  innerType?: string;
+  count?: number;
+  arrayStructType?: string;
+  keyType?: string;
+  valType?: string;
+  children?: GvasProperty[];
+}
+
+export interface ReadPropertyOptions {
+  skipLargeArrays?: boolean;
+  skipThreshold?: number;
+}
+
 // ─── Binary Reader ──────────────────────────────────────────────────────────
 
-function createReader(buf) {
+function createReader(buf: Buffer): GvasReader {
   let offset = 0;
 
-  function readU8() {
-    return buf[offset++];
+  function readU8(): number {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return buf[offset++]!;
   }
-  function readU16() {
+  function readU16(): number {
     const v = buf.readUInt16LE(offset);
     offset += 2;
     return v;
   }
-  function readU32() {
+  function readU32(): number {
     const v = buf.readUInt32LE(offset);
     offset += 4;
     return v;
   }
-  function readI32() {
+  function readI32(): number {
     const v = buf.readInt32LE(offset);
     offset += 4;
     return v;
   }
-  function readI64() {
+  function readI64(): number {
     const lo = buf.readUInt32LE(offset);
     const hi = buf.readInt32LE(offset + 4);
     offset += 8;
     return Number(BigInt(hi) * 0x100000000n + BigInt(lo >>> 0));
   }
-  function readF32() {
+  function readF32(): number {
     const v = buf.readFloatLE(offset);
     offset += 4;
     return v;
   }
-  function readF64() {
+  function readF64(): number {
     const v = buf.readDoubleLE(offset);
     offset += 8;
     return v;
   }
-  function readGuid() {
+  function readGuid(): string {
     const g = buf.subarray(offset, offset + 16);
     offset += 16;
     return g.toString('hex');
   }
-  function readBool() {
+  function readBool(): boolean {
     return readU8() !== 0;
   }
 
@@ -70,7 +133,7 @@ function createReader(buf) {
    * Read a UE4 FString (length-prefixed, null-terminated).
    * Positive length = UTF-8, negative length = UTF-16LE.
    */
-  function readFString() {
+  function readFString(): string {
     const len = readI32();
     if (len === 0) return '';
     if (len > 0 && len < 65536) {
@@ -84,22 +147,22 @@ function createReader(buf) {
       offset += chars * 2;
       return s;
     }
-    throw new Error(`Bad FString length: ${len} at offset ${offset - 4}`);
+    throw new Error(`Bad FString length: ${String(len)} at offset ${String(offset - 4)}`);
   }
 
-  function getOffset() {
+  function getOffset(): number {
     return offset;
   }
-  function setOffset(o) {
+  function setOffset(o: number): void {
     offset = o;
   }
-  function remaining() {
+  function remaining(): number {
     return buf.length - offset;
   }
-  function peek(bytes) {
+  function peek(bytes: number): Buffer {
     return buf.subarray(offset, offset + bytes);
   }
-  function skip(bytes) {
+  function skip(bytes: number): void {
     offset += bytes;
   }
 
@@ -126,18 +189,18 @@ function createReader(buf) {
 
 // ─── Clean UE4 GUID suffixes from property names ───────────────────────────
 
-function cleanName(name) {
+function cleanName(name: string): string {
   return name.replace(/_\d+_[A-F0-9]{32}$/i, '');
 }
 
 // ─── GVAS header parser ────────────────────────────────────────────────────
 
-function parseHeader(r) {
+function parseHeader(r: GvasReader): GvasHeader {
   const magic = Buffer.from([r.readU8(), r.readU8(), r.readU8(), r.readU8()]).toString('ascii');
 
   if (magic !== 'GVAS') throw new Error('Not a GVAS save file');
 
-  const header = {
+  const header: GvasHeader = {
     magic,
     saveVersion: r.readU32(),
     packageVersion: r.readU32(),
@@ -178,20 +241,15 @@ const MAP_CAPTURE = new Set([
 /**
  * Read one UProperty from the stream.
  * Returns { name, type, raw, value, ...extras } or null at end/error.
- *
- * @param {object} r - Reader from createReader()
- * @param {object} [options]
- * @param {boolean} [options.skipLargeArrays=false] - Skip arrays >100 elements of Vector/Rotator/Transform
- * @returns {object|null}
  */
-function readProperty(r, options = {}) {
+function readProperty(r: GvasReader, options: ReadPropertyOptions = {}): GvasProperty | null {
   const skipLargeArrays = options.skipLargeArrays ?? false;
   const skipThreshold = options.skipThreshold ?? 10;
 
   if (r.remaining() < 4) return null;
   const startOff = r.getOffset();
 
-  let name;
+  let name: string;
   try {
     name = r.readFString();
   } catch {
@@ -199,7 +257,7 @@ function readProperty(r, options = {}) {
   }
   if (name === 'None' || name === '') return null;
 
-  let typeName;
+  let typeName: string;
   try {
     typeName = r.readFString();
   } catch {
@@ -214,7 +272,7 @@ function readProperty(r, options = {}) {
   }
 
   const cname = cleanName(name);
-  const prop = { name: cname, type: typeName, raw: name };
+  const prop: GvasProperty = { name: cname, type: typeName, raw: name, value: null };
 
   try {
     switch (typeName) {
@@ -306,7 +364,7 @@ function readProperty(r, options = {}) {
         prop.value = null;
         break;
     }
-  } catch (_e) {
+  } catch {
     // Unrecoverable parse error within this property
     return null;
   }
@@ -316,7 +374,7 @@ function readProperty(r, options = {}) {
 
 // ─── Struct subtypes ───────────────────────────────────────────────────────
 
-function _readStructProperty(r, prop, _dataSize) {
+function _readStructProperty(r: GvasReader, prop: GvasProperty, _dataSize: number): void {
   const structType = r.readFString();
   r.readGuid();
   r.readU8();
@@ -351,8 +409,11 @@ function _readStructProperty(r, prop, _dataSize) {
 
     case 'GameplayTagContainer': {
       const c = r.readU32();
-      prop.value = [];
-      for (let i = 0; i < c; i++) prop.value.push(r.readFString());
+      const tags: string[] = [];
+      for (let i = 0; i < c; i++) {
+        tags.push(r.readFString());
+      }
+      prop.value = tags;
       break;
     }
 
@@ -366,16 +427,18 @@ function _readStructProperty(r, prop, _dataSize) {
       break;
 
     case 'Transform': {
-      const subProps = [];
-      let sub;
-      while ((sub = readProperty(r)) !== null) subProps.push(sub);
+      const subProps: GvasProperty[] = [];
+      let sub: GvasProperty | null;
+      while ((sub = readProperty(r)) !== null) {
+        subProps.push(sub);
+      }
       const translation = subProps.find((s) => s.name === 'Translation');
       const rotation = subProps.find((s) => s.name === 'Rotation');
       const scale = subProps.find((s) => s.name === 'Scale3D');
       prop.value = {
-        translation: translation?.value || null,
-        rotation: rotation?.value || null,
-        scale: scale?.value || null,
+        translation: translation?.value ?? null,
+        rotation: rotation?.value ?? null,
+        scale: scale?.value ?? null,
       };
       prop.children = subProps;
       break;
@@ -384,9 +447,11 @@ function _readStructProperty(r, prop, _dataSize) {
     default: {
       // Generic struct — recursively read child properties
       prop.value = 'struct';
-      const children = [];
-      let child;
-      while ((child = readProperty(r)) !== null) children.push(child);
+      const children: GvasProperty[] = [];
+      let child: GvasProperty | null;
+      while ((child = readProperty(r)) !== null) {
+        children.push(child);
+      }
       prop.children = children;
       break;
     }
@@ -395,7 +460,12 @@ function _readStructProperty(r, prop, _dataSize) {
 
 // ─── Array subtypes ────────────────────────────────────────────────────────
 
-function _readArrayProperty(r, prop, dataSize, options) {
+interface ArrayOptions {
+  skipLargeArrays: boolean;
+  skipThreshold: number;
+}
+
+function _readArrayProperty(r: GvasReader, prop: GvasProperty, dataSize: number, options: ArrayOptions): void {
   const innerType = r.readFString();
   r.readU8();
   const afterSep = r.getOffset();
@@ -419,7 +489,7 @@ function _readArrayProperty(r, prop, dataSize, options) {
       count > options.skipThreshold
     ) {
       r.setOffset(afterSep + dataSize);
-      prop.value = `<skipped ${count}>`;
+      prop.value = `<skipped ${String(count)}>`;
       return;
     }
 
@@ -428,62 +498,101 @@ function _readArrayProperty(r, prop, dataSize, options) {
       prop.value = _parseInventorySlots(r, count);
     } else if (arrStructType === 'Guid') {
       // Guid arrays are inline 16-byte values, not property lists
-      prop.value = [];
-      for (let i = 0; i < count; i++) prop.value.push(r.readGuid());
+      const guids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        guids.push(r.readGuid());
+      }
+      prop.value = guids;
     } else if (arrStructType === 'Vector' || arrStructType === 'Rotator') {
       // Inline 12-byte structs (3 x float32)
-      prop.value = [];
-      for (let i = 0; i < count; i++) prop.value.push({ x: r.readF32(), y: r.readF32(), z: r.readF32() });
+      const vecs: Array<{ x: number; y: number; z: number }> = [];
+      for (let i = 0; i < count; i++) {
+        vecs.push({ x: r.readF32(), y: r.readF32(), z: r.readF32() });
+      }
+      prop.value = vecs;
     } else if (arrStructType === 'Quat') {
       // Inline 16-byte structs (4 x float32)
-      prop.value = [];
-      for (let i = 0; i < count; i++)
-        prop.value.push({ x: r.readF32(), y: r.readF32(), z: r.readF32(), w: r.readF32() });
+      const quats: Array<{ x: number; y: number; z: number; w: number }> = [];
+      for (let i = 0; i < count; i++) {
+        quats.push({ x: r.readF32(), y: r.readF32(), z: r.readF32(), w: r.readF32() });
+      }
+      prop.value = quats;
     } else if (arrStructType === 'LinearColor') {
       // Inline 16-byte structs (4 x float32)
-      prop.value = [];
-      for (let i = 0; i < count; i++)
-        prop.value.push({ r: r.readF32(), g: r.readF32(), b: r.readF32(), a: r.readF32() });
+      const colors: Array<{ r: number; g: number; b: number; a: number }> = [];
+      for (let i = 0; i < count; i++) {
+        colors.push({ r: r.readF32(), g: r.readF32(), b: r.readF32(), a: r.readF32() });
+      }
+      prop.value = colors;
     } else if (arrStructType === 'DateTime' || arrStructType === 'Timespan') {
       // Inline 8-byte values
-      prop.value = [];
-      for (let i = 0; i < count; i++) prop.value.push(r.readI64());
+      const times: number[] = [];
+      for (let i = 0; i < count; i++) {
+        times.push(r.readI64());
+      }
+      prop.value = times;
     } else if (arrStructType === 'Vector2D') {
       // Inline 8-byte structs (2 x float32)
-      prop.value = [];
-      for (let i = 0; i < count; i++) prop.value.push({ x: r.readF32(), y: r.readF32() });
+      const vec2s: Array<{ x: number; y: number }> = [];
+      for (let i = 0; i < count; i++) {
+        vec2s.push({ x: r.readF32(), y: r.readF32() });
+      }
+      prop.value = vec2s;
     } else {
       // Generic struct array — parse each element
-      const elements = [];
+      const elements: GvasProperty[][] = [];
       for (let i = 0; i < count; i++) {
-        const elemProps = [];
-        let child;
-        while ((child = readProperty(r)) !== null) elemProps.push(child);
+        const elemProps: GvasProperty[] = [];
+        let child: GvasProperty | null;
+        while ((child = readProperty(r)) !== null) {
+          elemProps.push(child);
+        }
         elements.push(elemProps);
       }
       prop.value = elements;
     }
   } else if (innerType === 'NameProperty' || innerType === 'StrProperty' || innerType === 'ObjectProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readFString());
+    const strs: string[] = [];
+    for (let i = 0; i < count; i++) {
+      strs.push(r.readFString());
+    }
+    prop.value = strs;
   } else if (innerType === 'IntProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readI32());
+    const ints: number[] = [];
+    for (let i = 0; i < count; i++) {
+      ints.push(r.readI32());
+    }
+    prop.value = ints;
   } else if (innerType === 'FloatProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readF32());
+    const floats: number[] = [];
+    for (let i = 0; i < count; i++) {
+      floats.push(r.readF32());
+    }
+    prop.value = floats;
   } else if (innerType === 'BoolProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readBool());
+    const bools: boolean[] = [];
+    for (let i = 0; i < count; i++) {
+      bools.push(r.readBool());
+    }
+    prop.value = bools;
   } else if (innerType === 'ByteProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readU8());
+    const bytes: number[] = [];
+    for (let i = 0; i < count; i++) {
+      bytes.push(r.readU8());
+    }
+    prop.value = bytes;
   } else if (innerType === 'EnumProperty') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readFString());
+    const enums: string[] = [];
+    for (let i = 0; i < count; i++) {
+      enums.push(r.readFString());
+    }
+    prop.value = enums;
   } else if (innerType === 'UInt32Property') {
-    prop.value = [];
-    for (let i = 0; i < count; i++) prop.value.push(r.readU32());
+    const uints: number[] = [];
+    for (let i = 0; i < count; i++) {
+      uints.push(r.readU32());
+    }
+    prop.value = uints;
   } else {
     // Unknown inner type — skip the data
     r.setOffset(afterSep + dataSize);
@@ -493,40 +602,54 @@ function _readArrayProperty(r, prop, dataSize, options) {
 
 // ─── Inventory slot parsing ────────────────────────────────────────────────
 
-function _parseInventorySlots(r, count) {
-  const items = [];
-  for (let i = 0; i < count; i++) {
-    const slotProps = [];
-    let child;
-    while ((child = readProperty(r)) !== null) slotProps.push(child);
+interface InventorySlot {
+  item: string;
+  amount: number;
+  durability: number;
+  ammo?: number;
+  attachments?: unknown[];
+  cap?: number;
+  weight?: number;
+  maxDur?: number;
+  wetness?: number;
+}
 
-    let itemName = null,
-      amount = 0,
-      durability = 0;
-    let ammo = 0,
-      attachments = [];
-    let cap = 0,
-      weight = 0,
-      maxDur = 0,
-      wetness = 0;
+function _parseInventorySlots(r: GvasReader, count: number): InventorySlot[] {
+  const items: InventorySlot[] = [];
+  for (let i = 0; i < count; i++) {
+    const slotProps: GvasProperty[] = [];
+    let child: GvasProperty | null;
+    while ((child = readProperty(r)) !== null) {
+      slotProps.push(child);
+    }
+
+    let itemName: string | null = null;
+    let amount = 0;
+    let durability = 0;
+    let ammo = 0;
+    let attachments: unknown[] = [];
+    let cap = 0;
+    let weight = 0;
+    let maxDur = 0;
+    let wetness = 0;
     for (const sp of slotProps) {
       if (sp.name === 'Item' && sp.children) {
         for (const c of sp.children) {
-          if (c.name === 'RowName') itemName = c.value;
+          if (c.name === 'RowName') itemName = c.value as string;
         }
       }
-      if (sp.name === 'Amount') amount = sp.value || 0;
-      if (sp.name === 'Durability') durability = sp.value || 0;
-      if (sp.name === 'Ammo') ammo = sp.value || 0;
+      if (sp.name === 'Amount') amount = (sp.value as number) || 0;
+      if (sp.name === 'Durability') durability = (sp.value as number) || 0;
+      if (sp.name === 'Ammo') ammo = (sp.value as number) || 0;
       if (sp.name === 'Attachments' && Array.isArray(sp.value)) attachments = sp.value;
-      if (sp.name === 'Cap') cap = sp.value || 0;
-      if (sp.name === 'Weight') weight = sp.value || 0;
-      if (sp.name === 'MaxDur') maxDur = sp.value || 0;
-      if (sp.name === 'Wetness') wetness = sp.value || 0;
+      if (sp.name === 'Cap') cap = (sp.value as number) || 0;
+      if (sp.name === 'Weight') weight = (sp.value as number) || 0;
+      if (sp.name === 'MaxDur') maxDur = (sp.value as number) || 0;
+      if (sp.name === 'Wetness') wetness = (sp.value as number) || 0;
     }
 
     if (itemName && itemName !== 'None' && itemName !== 'Empty') {
-      const slot = {
+      const slot: InventorySlot = {
         item: itemName,
         amount,
         durability: Math.round(durability * 100) / 100,
@@ -545,7 +668,12 @@ function _parseInventorySlots(r, count) {
 
 // ─── Map property ──────────────────────────────────────────────────────────
 
-function _readMapProperty(r, prop, dataSize, cname) {
+interface MapEntry {
+  key: unknown;
+  value: unknown;
+}
+
+function _readMapProperty(r: GvasReader, prop: GvasProperty, dataSize: number, cname: string): void {
   const keyType = r.readFString();
   const valType = r.readFString();
   r.readU8();
@@ -559,24 +687,28 @@ function _readMapProperty(r, prop, dataSize, cname) {
 
     // StructProperty values require recursive parsing
     if (valType === 'StructProperty' || keyType === 'StructProperty') {
-      const entries = [];
+      const entries: MapEntry[] = [];
       for (let i = 0; i < count; i++) {
-        const entry = {};
+        const entry: MapEntry = { key: null, value: null };
         // Read key
         if (keyType === 'StrProperty' || keyType === 'NameProperty') entry.key = r.readFString();
         else if (keyType === 'IntProperty') entry.key = r.readI32();
         else if (keyType === 'EnumProperty') entry.key = r.readFString();
         else if (keyType === 'StructProperty') {
-          const keyProps = [];
-          let kp;
-          while ((kp = readProperty(r)) !== null) keyProps.push(kp);
+          const keyProps: GvasProperty[] = [];
+          let kp: GvasProperty | null;
+          while ((kp = readProperty(r)) !== null) {
+            keyProps.push(kp);
+          }
           entry.key = keyProps;
         }
         // Read value
         if (valType === 'StructProperty') {
-          const valProps = [];
-          let vp;
-          while ((vp = readProperty(r)) !== null) valProps.push(vp);
+          const valProps: GvasProperty[] = [];
+          let vp: GvasProperty | null;
+          while ((vp = readProperty(r)) !== null) {
+            valProps.push(vp);
+          }
           entry.value = valProps;
         } else if (valType === 'FloatProperty') entry.value = r.readF32();
         else if (valType === 'IntProperty') entry.value = r.readI32();
@@ -588,9 +720,9 @@ function _readMapProperty(r, prop, dataSize, cname) {
       return;
     }
 
-    const entries = {};
+    const entries: Record<string, unknown> = {};
     for (let i = 0; i < count; i++) {
-      let key;
+      let key: string | number;
       if (keyType === 'StrProperty' || keyType === 'NameProperty') key = r.readFString();
       else if (keyType === 'IntProperty') key = r.readI32();
       else if (keyType === 'EnumProperty') key = r.readFString();
@@ -600,7 +732,7 @@ function _readMapProperty(r, prop, dataSize, cname) {
         return;
       }
 
-      let val;
+      let val: unknown;
       if (valType === 'FloatProperty') val = r.readF32();
       else if (valType === 'IntProperty') val = r.readI32();
       else if (valType === 'StrProperty') val = r.readFString();
@@ -626,12 +758,8 @@ function _readMapProperty(r, prop, dataSize, cname) {
 /**
  * When parsing gets stuck (null property without offset advancement),
  * scan forward to find the next valid property header.
- * @param {object} r - Reader
- * @param {number} startPos - Position where we got stuck
- * @param {number} [maxScan=500000] - Max bytes to scan forward
- * @returns {boolean} true if a valid offset was found and reader repositioned
  */
-function recoverForward(r, startPos, maxScan = 500000) {
+function recoverForward(r: GvasReader, startPos: number, maxScan = 500000): boolean {
   const buf = r.buf;
   for (let scan = startPos + 1; scan < Math.min(startPos + maxScan, buf.length - 10); scan++) {
     const len = buf.readInt32LE(scan);
@@ -646,11 +774,10 @@ function recoverForward(r, startPos, maxScan = 500000) {
   return false;
 }
 
-module.exports = {
-  createReader,
-  cleanName,
-  parseHeader,
-  readProperty,
-  recoverForward,
-  MAP_CAPTURE,
-};
+export { createReader, cleanName, parseHeader, readProperty, recoverForward, MAP_CAPTURE };
+
+// CJS compatibility — .js consumers use require('./gvas-reader')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { createReader, cleanName, parseHeader, readProperty, recoverForward, MAP_CAPTURE };

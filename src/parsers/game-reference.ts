@@ -2,76 +2,102 @@
  * Game reference module — seeds all static game data into SQLite.
  *
  * Sources:
- *   - game-data-extract.js (dynamic extraction from game-tables-raw.json)
- *   - game-data.js (hand-curated data + re-exports from extract)
+ *   - game-data-extract.ts (dynamic extraction from game-tables-raw.json)
+ *   - game-data.ts (hand-curated data + re-exports from extract)
  *
  * Tables populated (schema v11):
- *   - game_items              (718 items)
- *   - game_professions        (12 professions)
- *   - game_afflictions        (20 afflictions)
- *   - game_skills             (35 skills — all from DT_Skills)
- *   - game_challenges         (67+ challenges — DT_Statistics + DT_StatConfig merged)
- *   - game_loading_tips       (26 tips)
- *   - game_server_setting_defs
- *   - game_recipes            (154 recipes)
- *   - game_lore               (12 lore entries)
- *   - game_quests             (18 quests)
- *   - game_spawn_locations    (10 spawn locations)
- *   - game_buildings          (122 buildings)
- *   - game_loot_pools / game_loot_pool_items (68 loot tables)
- *   - game_vehicles_ref       (27 vehicles)
- *   - game_animals            (6 animals)
- *   - game_crops              (6 crops)
- *   - game_car_upgrades       (23 upgrades)
- *   - game_ammo_types         (8 ammo types)
- *   - game_repair_data        (57 repair entries)
- *   - game_furniture          (21 furniture)
- *   - game_traps              (6 traps)
- *   - game_sprays             (8 sprays)
+ *   - game_items, game_professions, game_afflictions, game_skills,
+ *     game_challenges, game_loading_tips, game_server_setting_defs,
+ *     game_recipes, game_lore, game_quests, game_spawn_locations,
+ *     game_buildings, game_loot_pools / game_loot_pool_items,
+ *     game_vehicles_ref, game_animals, game_crops, game_car_upgrades,
+ *     game_ammo_types, game_repair_data, game_furniture, game_traps, game_sprays
  */
 
-const {
-  AFFLICTION_MAP,
-  AFFLICTION_DETAILS,
-  PROFESSION_DETAILS,
-  CHALLENGES,
-  CHALLENGE_DESCRIPTIONS,
-  LOADING_TIPS,
-  SKILL_EFFECTS,
-  SKILL_DETAILS,
-  SERVER_SETTING_DESCRIPTIONS,
-  ITEM_DATABASE,
-  CRAFTING_RECIPES,
-  LORE_ENTRIES,
-  QUEST_DATA,
-  SPAWN_LOCATIONS,
-  BUILDINGS,
-  LOOT_TABLES,
-  VEHICLES,
-  ANIMALS,
-  CROP_DATA,
-  CAR_UPGRADES,
-  AMMO_DAMAGE,
-  REPAIR_RECIPES,
-  FURNITURE_DROPS,
-  TRAPS,
-  SPRAYS,
-} = require('./game-data');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _gameData = require('./game-data') as Record<string, unknown>;
+
+const AFFLICTION_MAP = _gameData['AFFLICTION_MAP'] as string[];
+const AFFLICTION_DETAILS = _gameData['AFFLICTION_DETAILS'] as Record<string, { name: string; description: string }>;
+const PROFESSION_DETAILS = _gameData['PROFESSION_DETAILS'] as Record<
+  string,
+  { perk: string; description: string; affliction: string; unlockedSkills: string[] }
+>;
+const CHALLENGES = _gameData['CHALLENGES'] as Array<{
+  id: string;
+  name: string;
+  description: string;
+  progressMax: number;
+}>;
+const CHALLENGE_DESCRIPTIONS = _gameData['CHALLENGE_DESCRIPTIONS'] as Record<
+  string,
+  { name: string; desc?: string; target?: number }
+>;
+const LOADING_TIPS = _gameData['LOADING_TIPS'] as string[];
+const SKILL_EFFECTS = _gameData['SKILL_EFFECTS'] as Record<string, string>;
+const SKILL_DETAILS = _gameData['SKILL_DETAILS'] as Record<
+  string,
+  { name: string; description: string; category?: string }
+>;
+const SERVER_SETTING_DESCRIPTIONS = _gameData['SERVER_SETTING_DESCRIPTIONS'] as Record<string, string>;
+const ITEM_DATABASE = _gameData['ITEM_DATABASE'] as Record<string, Record<string, unknown>>;
+const CRAFTING_RECIPES = _gameData['CRAFTING_RECIPES'] as Record<string, Record<string, unknown>>;
+const LORE_ENTRIES = _gameData['LORE_ENTRIES'] as Record<string, Record<string, unknown>>;
+const QUEST_DATA = _gameData['QUEST_DATA'] as Record<string, Record<string, unknown>>;
+const SPAWN_LOCATIONS = _gameData['SPAWN_LOCATIONS'] as Record<string, Record<string, unknown>>;
+const BUILDINGS = _gameData['BUILDINGS'] as Record<string, Record<string, unknown>>;
+const LOOT_TABLES = _gameData['LOOT_TABLES'] as Record<string, Record<string, unknown>>;
+const VEHICLES = _gameData['VEHICLES'] as Record<string, { name?: string }>;
+const ANIMALS = _gameData['ANIMALS'] as Record<string, Record<string, unknown>>;
+const CROP_DATA = _gameData['CROP_DATA'] as Record<string, Record<string, unknown>>;
+const CAR_UPGRADES = _gameData['CAR_UPGRADES'] as Record<string, Record<string, unknown>>;
+const AMMO_DAMAGE = _gameData['AMMO_DAMAGE'] as Record<string, Record<string, unknown>>;
+const REPAIR_RECIPES = _gameData['REPAIR_RECIPES'] as Record<string, Record<string, unknown>>;
+const FURNITURE_DROPS = _gameData['FURNITURE_DROPS'] as Record<string, Record<string, unknown>>;
+const TRAPS = _gameData['TRAPS'] as Record<string, Record<string, unknown>>;
+const SPRAYS = _gameData['SPRAYS'] as Record<string, Record<string, unknown>>;
+
+// ─── DB interface (loose — db module is not yet migrated) ──────────────────
+
+interface GameDB {
+  db: { prepare: (sql: string) => { get: () => { n: number } | undefined } };
+  _getMeta: (key: string) => string | undefined;
+  _setMeta: (key: string, value: string) => void;
+  seedGameItems: (items: unknown[]) => void;
+  seedGameProfessions: (professions: unknown[]) => void;
+  seedGameAfflictions: (afflictions: unknown[]) => void;
+  seedGameSkills: (skills: unknown[]) => void;
+  seedGameChallenges: (challenges: unknown[]) => void;
+  seedLoadingTips: (tips: unknown[]) => void;
+  seedGameServerSettingDefs: (settings: unknown[]) => void;
+  seedGameRecipes: (recipes: unknown[]) => void;
+  seedGameLore: (lore: unknown[]) => void;
+  seedGameQuests: (quests: unknown[]) => void;
+  seedGameSpawnLocations: (spawns: unknown[]) => void;
+  seedGameBuildings: (buildings: unknown[]) => void;
+  seedGameLootPools: (tables: unknown) => void;
+  seedGameVehiclesRef: (vehicles: unknown[]) => void;
+  seedGameAnimals: (animals: unknown[]) => void;
+  seedGameCrops: (crops: unknown[]) => void;
+  seedGameCarUpgrades: (upgrades: unknown[]) => void;
+  seedGameAmmoTypes: (ammo: unknown[]) => void;
+  seedGameRepairData: (repairs: unknown[]) => void;
+  seedGameFurniture: (furniture: unknown[]) => void;
+  seedGameTraps: (traps: unknown[]) => void;
+  seedGameSprays: (sprays: unknown[]) => void;
+}
 
 // ─── Seed all game reference data ──────────────────────────────────────────
 
 // Current version — bump this whenever ENUM_MAPS, extractors, or curated data change
-// to force re-seed on existing databases.
-const GAME_REF_VERSION = 2; // v2: corrected ENUM_MAPS, 35 skills, 116 challenges, DT_StatConfig
+const GAME_REF_VERSION = 2;
 
 /**
  * Seed all game reference data into the database.
  * Safe to call multiple times — uses INSERT OR REPLACE.
  * Re-seeds automatically when GAME_REF_VERSION is bumped.
- *
- * @param {import('../db/database')} db - Initialised HumanitZDB instance
  */
-function seed(db) {
+function seed(db: GameDB): void {
   // Check if re-seed is needed (version mismatch or empty)
   try {
     const count = db.db.prepare('SELECT COUNT(*) as n FROM game_items').get();
@@ -79,13 +105,13 @@ function seed(db) {
     const currentVersion = String(GAME_REF_VERSION);
 
     if (count && count.n > 0 && storedVersion === currentVersion) {
-      console.log(`[GameRef] Game reference data up to date (v${currentVersion}, ${count.n} items) — skipping`);
+      console.log(`[GameRef] Game reference data up to date (v${currentVersion}, ${String(count.n)} items) — skipping`);
       return;
     }
 
     if (count && count.n > 0 && storedVersion !== currentVersion) {
       console.log(
-        `[GameRef] Game reference data outdated (v${storedVersion || '?'} → v${currentVersion}) — re-seeding...`,
+        `[GameRef] Game reference data outdated (v${storedVersion ?? '?'} → v${currentVersion}) — re-seeding...`,
       );
     }
   } catch {
@@ -98,7 +124,7 @@ function seed(db) {
   seedAfflictions(db);
   seedSkills(db);
   seedChallenges(db);
-  seedLoadingTips(db);
+  seedLoadingTipsData(db);
   seedServerSettingDefs(db);
   seedRecipes(db);
   seedLore(db);
@@ -108,7 +134,7 @@ function seed(db) {
   // New v11 reference tables
   seedBuildings(db);
   seedLootPools(db);
-  seedVehicles(db);
+  seedVehiclesRef(db);
   seedAnimals(db);
   seedCrops(db);
   seedCarUpgrades(db);
@@ -116,68 +142,68 @@ function seed(db) {
   seedRepairData(db);
   seedFurniture(db);
   seedTraps(db);
-  seedSprays(db);
+  seedSpraysData(db);
 
   db._setMeta('game_ref_seeded', new Date().toISOString());
   db._setMeta('game_ref_version', String(GAME_REF_VERSION));
-  console.log(`[GameRef] All game reference data seeded (v${GAME_REF_VERSION}, 22 tables)`);
+  console.log(`[GameRef] All game reference data seeded (v${String(GAME_REF_VERSION)}, 22 tables)`);
 }
 
 // ─── Items (game_items — 718 entries) ───────────────────────────────────────
 
-function seedItems(db) {
-  // Extract ITEMS already have the exact shape seedGameItems expects
+function seedItems(db: GameDB): void {
   const items = Object.values(ITEM_DATABASE);
   db.seedGameItems(items);
 }
 
 // ─── Professions ────────────────────────────────────────────────────────────
 
-function seedProfessions(db) {
-  let PERK_MAP;
+function seedProfessions(db: GameDB): void {
+  let PERK_MAP: Record<string, string>;
   try {
-    PERK_MAP = require('./save-parser').PERK_MAP;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    PERK_MAP = (require('./save-parser') as { PERK_MAP: Record<string, string> }).PERK_MAP;
   } catch {
     PERK_MAP = {};
   }
 
   // Build enum_value → name reverse map
-  const enumToName = {};
+  const enumToName: Record<string, string> = {};
   for (const [enumVal, name] of Object.entries(PERK_MAP)) {
     enumToName[name] = enumVal;
   }
 
   const professions = Object.entries(PROFESSION_DETAILS).map(([name, info]) => ({
     id: name,
-    enumValue: enumToName[name] || '',
+    enumValue: enumToName[name] ?? '',
     enumIndex: _enumIndex(enumToName[name]),
     perk: info.perk || '',
     description: info.description || '',
     affliction: info.affliction || '',
-    skills: info.unlockedSkills || [],
+    skills: info.unlockedSkills,
   }));
 
   db.seedGameProfessions(professions);
 }
 
-function _enumIndex(enumValue) {
+function _enumIndex(enumValue: string | undefined): number {
   if (!enumValue) return 0;
   const m = enumValue.match(/(\d+)$/);
-  return m ? parseInt(m[1], 10) : 0;
+  return m?.[1] ? parseInt(m[1], 10) : 0;
 }
 
 // ─── Afflictions ────────────────────────────────────────────────────────────
 
-function seedAfflictions(db) {
-  const detailsByName = {};
-  for (const [, detail] of Object.entries(AFFLICTION_DETAILS)) {
+function seedAfflictions(db: GameDB): void {
+  const detailsByName: Record<string, { description: string }> = {};
+  for (const detail of Object.values(AFFLICTION_DETAILS)) {
     detailsByName[detail.name] = detail;
   }
 
   const afflictions = AFFLICTION_MAP.map((name, idx) => ({
     idx,
     name,
-    description: detailsByName[name]?.description || '',
+    description: detailsByName[name]?.description ?? '',
     icon: '',
   }));
   db.seedGameAfflictions(afflictions);
@@ -185,12 +211,10 @@ function seedAfflictions(db) {
 
 // ─── Skills ─────────────────────────────────────────────────────────────────
 
-function seedSkills(db) {
-  // Use SKILL_DETAILS (35 extracted from DT_Skills) as primary source,
-  // enriched with SKILL_EFFECTS (21 hand-curated effect descriptions)
+function seedSkills(db: GameDB): void {
   const skills = Object.entries(SKILL_DETAILS).map(([id, detail]) => {
     const upperName = (detail.name || id).toUpperCase();
-    const effect = SKILL_EFFECTS[upperName] || SKILL_EFFECTS[id] || '';
+    const effect = SKILL_EFFECTS[upperName] ?? SKILL_EFFECTS[id] ?? '';
     return {
       id: id,
       name: detail.name || id,
@@ -205,10 +229,9 @@ function seedSkills(db) {
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
 
-function seedChallenges(db) {
-  const merged = [];
+function seedChallenges(db: GameDB): void {
+  const merged: Array<{ id: string; name: string; description: string; saveField: string; target: number }> = [];
 
-  // CHALLENGES now includes both DT_Statistics (32) and DT_StatConfig (67) merged
   for (const ch of CHALLENGES) {
     merged.push({
       id: ch.id,
@@ -219,7 +242,6 @@ function seedChallenges(db) {
     });
   }
 
-  // Overlay hand-curated CHALLENGE_DESCRIPTIONS (save-field mappings + friendly names)
   for (const [field, info] of Object.entries(CHALLENGE_DESCRIPTIONS)) {
     const existing = merged.find((m) => m.name === info.name);
     if (existing) {
@@ -230,9 +252,9 @@ function seedChallenges(db) {
       merged.push({
         id: field,
         name: info.name,
-        description: info.desc || '',
+        description: info.desc ?? '',
         saveField: field,
-        target: info.target || 0,
+        target: info.target ?? 0,
       });
     }
   }
@@ -242,7 +264,7 @@ function seedChallenges(db) {
 
 // ─── Loading tips ───────────────────────────────────────────────────────────
 
-function seedLoadingTips(db) {
+function seedLoadingTipsData(db: GameDB): void {
   const categorized = LOADING_TIPS.map((text) => {
     let category = 'general';
     if (/RMB|LMB|press|toggle|click|key|ctrl|shift|spacebar|hot key|button/i.test(text)) category = 'controls';
@@ -259,19 +281,19 @@ function seedLoadingTips(db) {
 
 // ─── Server setting definitions ─────────────────────────────────────────────
 
-function seedServerSettingDefs(db) {
+function seedServerSettingDefs(db: GameDB): void {
   const settings = Object.entries(SERVER_SETTING_DESCRIPTIONS).map(([key, label]) => ({
     key,
     label,
     description: '',
     type: _inferSettingType(key),
     defaultVal: '',
-    options: [],
+    options: [] as string[],
   }));
   db.seedGameServerSettingDefs(settings);
 }
 
-function _inferSettingType(key) {
+function _inferSettingType(key: string): string {
   if (/enabled|fire|anywhere|position|drop/i.test(key)) return 'bool';
   if (/max|time|drain|multiplier|population|difficulty/i.test(key)) return 'float';
   if (/mode|level/i.test(key)) return 'enum';
@@ -281,109 +303,115 @@ function _inferSettingType(key) {
 
 // ─── Recipes (game_recipes — 154 entries) ───────────────────────────────────
 
-function seedRecipes(db) {
+function seedRecipes(db: GameDB): void {
   const recipes = Object.values(CRAFTING_RECIPES);
   db.seedGameRecipes(recipes);
 }
 
 // ─── Lore (game_lore — 12 entries) ──────────────────────────────────────────
 
-function seedLore(db) {
+function seedLore(db: GameDB): void {
   const lore = Object.values(LORE_ENTRIES);
   db.seedGameLore(lore);
 }
 
 // ─── Quests (game_quests — 18 entries) ──────────────────────────────────────
 
-function seedQuests(db) {
+function seedQuests(db: GameDB): void {
   const quests = Object.values(QUEST_DATA);
   db.seedGameQuests(quests);
 }
 
 // ─── Spawn locations (game_spawn_locations — 10 entries) ────────────────────
 
-function seedSpawnLocations(db) {
+function seedSpawnLocations(db: GameDB): void {
   const spawns = Object.values(SPAWN_LOCATIONS);
   db.seedGameSpawnLocations(spawns);
 }
 
 // ─── Buildings (game_buildings — 122 entries) ───────────────────────────────
 
-function seedBuildings(db) {
+function seedBuildings(db: GameDB): void {
   const buildings = Object.values(BUILDINGS);
   db.seedGameBuildings(buildings);
 }
 
 // ─── Loot pools (game_loot_pools + game_loot_pool_items — 68 tables) ───────
 
-function seedLootPools(db) {
+function seedLootPools(db: GameDB): void {
   db.seedGameLootPools(LOOT_TABLES);
 }
 
 // ─── Vehicles (game_vehicles_ref — 27 entries) ─────────────────────────────
 
-function seedVehicles(db) {
+function seedVehiclesRef(db: GameDB): void {
   const vehicles = Object.entries(VEHICLES).map(([id, v]) => ({
     id,
-    name: v.name || id,
+    name: v.name ?? id,
   }));
   db.seedGameVehiclesRef(vehicles);
 }
 
 // ─── Animals (game_animals — 6 entries) ─────────────────────────────────────
 
-function seedAnimals(db) {
+function seedAnimals(db: GameDB): void {
   const animals = Object.values(ANIMALS);
   db.seedGameAnimals(animals);
 }
 
 // ─── Crops (game_crops — 6 entries) ─────────────────────────────────────────
 
-function seedCrops(db) {
+function seedCrops(db: GameDB): void {
   const crops = Object.values(CROP_DATA);
   db.seedGameCrops(crops);
 }
 
 // ─── Car upgrades (game_car_upgrades — 23 entries) ──────────────────────────
 
-function seedCarUpgrades(db) {
+function seedCarUpgrades(db: GameDB): void {
   const upgrades = Object.values(CAR_UPGRADES);
   db.seedGameCarUpgrades(upgrades);
 }
 
 // ─── Ammo types (game_ammo_types — 8 entries) ───────────────────────────────
 
-function seedAmmoTypes(db) {
+function seedAmmoTypes(db: GameDB): void {
   const ammo = Object.values(AMMO_DAMAGE);
   db.seedGameAmmoTypes(ammo);
 }
 
 // ─── Repair data (game_repair_data — 57 entries) ────────────────────────────
 
-function seedRepairData(db) {
+function seedRepairData(db: GameDB): void {
   const repairs = Object.values(REPAIR_RECIPES);
   db.seedGameRepairData(repairs);
 }
 
 // ─── Furniture (game_furniture — 21 entries) ─────────────────────────────────
 
-function seedFurniture(db) {
+function seedFurniture(db: GameDB): void {
   const furniture = Object.values(FURNITURE_DROPS);
   db.seedGameFurniture(furniture);
 }
 
 // ─── Traps (game_traps — 6 entries) ─────────────────────────────────────────
 
-function seedTraps(db) {
+function seedTraps(db: GameDB): void {
   const traps = Object.values(TRAPS);
   db.seedGameTraps(traps);
 }
 
 // ─── Sprays (game_sprays — 8 entries) ───────────────────────────────────────
 
-function seedSprays(db) {
+function seedSpraysData(db: GameDB): void {
   const sprays = Object.values(SPRAYS);
   db.seedGameSprays(sprays);
 }
 
-module.exports = { seed };
+export { seed };
+
+// CJS compatibility — .js consumers use require('./game-reference')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { seed };

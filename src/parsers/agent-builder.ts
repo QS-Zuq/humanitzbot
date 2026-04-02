@@ -7,10 +7,8 @@
  *   3. Writes a compact JSON cache (~200-500KB vs 60MB .sav)
  *   4. Optionally watches for changes and re-parses automatically
  *
- * The bot then downloads only the small JSON via SFTP.
- *
  * The agent is dynamically generated from the actual parser source files
- * (gvas-reader.js + save-parser.js) so it always stays in sync — no
+ * (gvas-reader.ts + save-parser.ts) so it always stays in sync — no
  * duplicate code to maintain.
  *
  * Usage:
@@ -19,11 +17,14 @@
  *   // Upload `script` to game server via SFTP, then execute via SSH
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDirname } from '../utils/paths.js';
 
-const GVAS_READER_PATH = path.join(__dirname, 'gvas-reader.js');
-const SAVE_PARSER_PATH = path.join(__dirname, 'save-parser.js');
+const __dirname = getDirname(import.meta.url);
+
+const GVAS_READER_PATH = path.join(__dirname, 'gvas-reader.ts');
+const SAVE_PARSER_PATH = path.join(__dirname, 'save-parser.ts');
 
 const AGENT_VERSION = 2;
 
@@ -31,7 +32,7 @@ const AGENT_VERSION = 2;
 
 const AGENT_HEADER = `#!/usr/bin/env node
 /**
- * HumanitZ Save Parser Agent v${AGENT_VERSION}
+ * HumanitZ Save Parser Agent v${String(AGENT_VERSION)}
  * Auto-generated — do not edit manually.
  * Regenerate via: node -e "require('./src/parsers/agent-builder').writeAgent()"
  *
@@ -175,7 +176,7 @@ function parseAndWrite(savePath, outputPath, pretty) {
   }
 
   const cache = {
-    v: ${AGENT_VERSION},
+    v: ${String(AGENT_VERSION)},
     ts: new Date().toISOString(),
     mtime: _fs.statSync(savePath).mtimeMs,
     players: playersObj,
@@ -282,29 +283,84 @@ main();
  * Build the self-contained agent script from the parser source files.
  * Returns the full JS source as a string.
  */
-function buildAgentScript() {
+function buildAgentScript(): string {
   const gvasSource = fs.readFileSync(GVAS_READER_PATH, 'utf-8');
   const parserSource = fs.readFileSync(SAVE_PARSER_PATH, 'utf-8');
 
-  // Strip the top docblock and module.exports from gvas-reader
-  const gvasBody = gvasSource
-    .replace(/^\/\*\*[\s\S]*?\*\/\s*\n/, '')
-    .replace(/\nmodule\.exports\s*=\s*\{[\s\S]*\};\s*$/, '\n');
+  /**
+   * Strip TypeScript syntax from source to produce valid JS.
+   * Handles: imports, exports, interfaces, type aliases, type annotations,
+   * type assertions, generics, eslint directives, CJS compat block.
+   */
+  function stripTS(src: string): string {
+    return (
+      src
+        // Remove top docblock
+        .replace(/^\/\*\*[\s\S]*?\*\/\s*\n/, '')
+        // Remove multi-line import statements: import { ... } from '...'
+        .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];?\s*\n/gm, '')
+        // Remove single-line import statements
+        .replace(/^import\s+.*$/gm, '')
+        // Remove multi-line export { ... } statements
+        .replace(/^export\s*\{[\s\S]*?\}.*$/gm, '')
+        // Remove single-line export prefix
+        .replace(/^export\s+/gm, '')
+        // Remove `} from '...'` leftover fragments
+        .replace(/^\}\s*from\s+['"][^'"]+['"];?\s*$/gm, '')
+        // Remove require() lines (will be inlined)
+        .replace(/const\s*\{[^}]+\}\s*=\s*require\(['"][^'"]+['"]\);\s*\n/g, '')
+        .replace(/^\/\/\s*eslint-disable-next-line.*\n\s*const\s+\w+\s*=\s*require\(.*\n/gm, '')
+        // Remove interface/type blocks (multi-line)
+        .replace(/^(?:export\s+)?interface\s+\w+[\s\S]*?^}\s*\n/gm, '')
+        .replace(/^(?:export\s+)?type\s+\w+\s*=[\s\S]*?;\s*\n/gm, '')
+        // Remove eslint directive comments
+        .replace(/\/\/\s*eslint-disable.*$/gm, '')
+        .replace(/\/\*\s*eslint-.*?\*\//g, '')
+        // Remove type annotations — only where safe (declarations, not ternary colons).
+        // Matches: `const x: Type =`, `param: Type,`, `param: Type)`, `): ReturnType {`
+        // Uses negative lookbehind to avoid stripping ternary `: value` expressions
+        .replace(
+          /(?<=(?:const|let|var|,|\()\s*[\w$]+)\s*:\s*(?:readonly\s+)?(?:[\w.]+(?:<[^>]*>)?(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*)\s*(?=[,)=;{\n])/g,
+          '',
+        )
+        // Remove return type annotations: `): Type {` or `): Type =>`
+        .replace(/\):\s*(?:[\w.]+(?:<[^>]*>)?(?:\[\])*(?:\s*\|\s*[\w.]+(?:<[^>]*>)?(?:\[\])*)*)\s*(?=[{=])/g, ') ')
+        // Remove `as Type` assertions (handles nested braces, generics, unions)
+        // Match `as` + type expression up to `;` or `)` or `,` boundary
+        .replace(
+          /\s+as\s+(?:\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*(?:\s*\|\s*(?:\{(?:[^{}]|\{[^{}]*\})*\}|[\w.]+(?:<[^>]*>)?)(?:\[\])*)*/g,
+          '',
+        )
+        // Remove generic type parameters on functions: `function foo<T>(` → `function foo(`
+        .replace(/(<[\w\s,]+>)\s*\(/g, '(')
+        // Remove non-null assertions: `expr!.` or `expr!)` or `expr!;` (not `!==` or `!=`)
+        .replace(/([\w\])])\s*!(?=[.);,\s\n])/g, '$1')
+        // Remove `type X` import specifiers (leftover from multi-line imports)
+        .replace(/^\s*type\s+\w+,?\s*$/gm, '')
+        // Remove stray lines that are just braces/semicolons from stripped blocks
+        .replace(/^\s*\{\s*$/gm, '')
+        // Remove CJS compat comments
+        .replace(/^\/\/\s*CJS compatibility.*$/gm, '')
+        // Remove CJS compat block at end
+        .replace(/const _mod[\s\S]*$/, '')
+        // Remove module.exports
+        .replace(/\nmodule\.exports\s*=\s*\{[\s\S]*\};\s*$/, '\n')
+        // Clean up blank lines
+        .replace(/\n{3,}/g, '\n\n')
+    );
+  }
 
-  // Strip require(), top docblock, and module.exports from save-parser
-  const parserBody = parserSource
-    .replace(/^\/\*\*[\s\S]*?\*\/\s*\n/, '')
-    .replace(/const\s*\{[^}]+\}\s*=\s*require\(['"][^'"]+['"]\);\s*\n/g, '')
-    .replace(/\nmodule\.exports\s*=\s*\{[\s\S]*\};\s*$/, '\n');
+  const gvasBody = stripTS(gvasSource);
+  const parserBody = stripTS(parserSource);
 
   return [
     AGENT_HEADER,
     '// ═══════════════════════════════════════════════════════════════════════════',
-    '//  GVAS Binary Reader (auto-bundled from gvas-reader.js)',
+    '//  GVAS Binary Reader (auto-bundled from gvas-reader.ts)',
     '// ═══════════════════════════════════════════════════════════════════════════\n',
     gvasBody.trim(),
     '\n\n// ═══════════════════════════════════════════════════════════════════════════',
-    '//  Save Parser (auto-bundled from save-parser.js)',
+    '//  Save Parser (auto-bundled from save-parser.ts)',
     '// ═══════════════════════════════════════════════════════════════════════════\n',
     parserBody.trim(),
     AGENT_CLI,
@@ -313,18 +369,16 @@ function buildAgentScript() {
 
 /**
  * Write the agent script to a file.
- * @param {string} [outputPath] - Default: project root / humanitz-agent.js
- * @returns {string} The path written to
  */
-function writeAgent(outputPath) {
-  const target = outputPath || path.join(__dirname, '..', 'game-server', 'humanitz-agent.js');
+function writeAgent(outputPath?: string): string {
+  const target = outputPath ?? path.join(__dirname, '..', 'game-server', 'humanitz-agent.js');
   const script = buildAgentScript();
   fs.writeFileSync(target, script, 'utf-8');
 
   // Format with Prettier so the generated file follows project style.
-  // Uses sync exec to keep writeAgent() synchronous.
   try {
-    const { execFileSync } = require('child_process');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { execFileSync } = require('child_process') as typeof import('child_process');
     const prettierBin = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'prettier');
     execFileSync(prettierBin, ['--write', target], { stdio: 'ignore' });
   } catch {
@@ -336,4 +390,10 @@ function writeAgent(outputPath) {
   return target;
 }
 
-module.exports = { buildAgentScript, writeAgent, AGENT_VERSION };
+export { buildAgentScript, writeAgent, AGENT_VERSION };
+
+// CJS compatibility — .js consumers use require('./agent-builder')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { buildAgentScript, writeAgent, AGENT_VERSION };

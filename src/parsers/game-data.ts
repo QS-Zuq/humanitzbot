@@ -1,7 +1,7 @@
 /**
  * Game reference data for HumanitZ bot.
  *
- * Combines dynamically extracted data from game-data-extract.js
+ * Combines dynamically extracted data from game-data-extract.ts
  * (DT_ItemDatabase, DT_Buildings, DT_CraftingData, etc.) with
  * hand-curated sections that require human interpretation or
  * cannot be machine-extracted (AFFLICTION_MAP index order,
@@ -11,7 +11,62 @@
  * @module game-data
  */
 
-const extract = require('./game-data-extract');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const extract = require('./game-data-extract') as Record<string, unknown>;
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface AfflictionDetail {
+  name: string;
+  description: string;
+  value: number;
+}
+
+interface ProfessionDetail {
+  perk: string;
+  description: string;
+  affliction: string;
+  unlockedSkills: string[];
+}
+
+interface ChallengeDescription {
+  name: string;
+  desc?: string;
+  target?: number;
+}
+
+interface StatDisplayEntry {
+  name: string;
+  completionValue: number;
+  isSection: boolean;
+}
+
+interface ChallengeEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: unknown;
+  xp: number;
+  skillPoint: number;
+  guid: string;
+  progressMax: number;
+  source: string;
+}
+
+interface ExtractedStat {
+  id: string;
+  name: string;
+  description: string;
+  category: unknown;
+  xp: number;
+  skillPoint: number;
+  guid: string;
+  progressMax: number;
+}
+
+interface ExtractedTip {
+  text: string;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Hand-curated data (cannot be derived from game-tables-raw.json)
@@ -24,7 +79,7 @@ const extract = require('./game-data-extract');
  * Save file stores affliction as a numeric index; this array maps them.
  * ORDER MATTERS — do not sort or reorder.
  */
-const AFFLICTION_MAP = [
+const AFFLICTION_MAP: string[] = [
   'No Affliction',
   'Random Affliction',
   'Carnivore',
@@ -48,7 +103,7 @@ const AFFLICTION_MAP = [
 ];
 
 /** Full affliction details with descriptions (hand-curated). */
-const AFFLICTION_DETAILS = {
+const AFFLICTION_DETAILS: Record<string, AfflictionDetail> = {
   NoAffliction: { name: 'No Affliction', description: 'You start the game with no affliction', value: 0 },
   Random: { name: 'Random Affliction', description: 'You start the game with a random affliction', value: 0 },
   Carnivore: { name: 'Carnivore', description: 'Only eats meat', value: 0 },
@@ -56,7 +111,11 @@ const AFFLICTION_DETAILS = {
   Gastro: { name: 'Gastro', description: 'Risk of sickness from eating stale food', value: 1 },
   NightTerrors: { name: 'Night Terrors', description: 'Unable to sleep at night', value: 1 },
   Veggie: { name: 'Vegetarian', description: 'Cannot eat meat products', value: 1 },
-  HeavyFeet: { name: 'Heavy Feet', description: 'Increased noise while walking, jogging, and sprinting', value: 20 },
+  HeavyFeet: {
+    name: 'Heavy Feet',
+    description: 'Increased noise while walking, jogging, and sprinting',
+    value: 20,
+  },
   ACL: { name: 'ACL Injury', description: 'Jogging and sprinting speed reduced by 20%', value: 20 },
   Feeble: { name: 'Feeble', description: 'Melee damage reduced by 25%', value: 25 },
   BadBack: { name: 'Bad Back', description: 'Carry weight reduced by 25%', value: 25 },
@@ -64,8 +123,16 @@ const AFFLICTION_DETAILS = {
   ZMagnet: { name: 'Z Magnet', description: 'More susceptible to infection and cuts from zeeks', value: 30 },
   ShakyHands: { name: 'Shaky Hands', description: 'Reduced ranged weapon accuracy', value: 50 },
   LingeringPain: { name: 'Lingering Pain', description: 'Reduced effectiveness of healing items', value: 50 },
-  Alcoholic: { name: 'Alcoholic', description: 'Needs alcohol on a regular basis or risk losing stamina', value: 50 },
-  Tactless: { name: 'Tactless', description: 'Poor negotiation skills, and trades cost twice as much', value: 50 },
+  Alcoholic: {
+    name: 'Alcoholic',
+    description: 'Needs alcohol on a regular basis or risk losing stamina',
+    value: 50,
+  },
+  Tactless: {
+    name: 'Tactless',
+    description: 'Poor negotiation skills, and trades cost twice as much',
+    value: 50,
+  },
   Fumble: { name: 'Fumble', description: 'Reloading weapons takes longer', value: 50 },
   Wasteful: { name: 'Wasteful', description: 'Poor condition of crafted items', value: 50 },
   Hemophilia: { name: 'Hemophiliac', description: 'Rate of blood loss increased when bleeding', value: 50 },
@@ -73,7 +140,7 @@ const AFFLICTION_DETAILS = {
 
 // ─── Professions ────────────────────────────────────────────────────────────
 
-const PROFESSION_DETAILS = {
+const PROFESSION_DETAILS: Record<string, ProfessionDetail> = {
   Unemployed: {
     perk: '25% more experience gained',
     description:
@@ -151,7 +218,7 @@ const PROFESSION_DETAILS = {
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
 
-const CHALLENGE_DESCRIPTIONS = {
+const CHALLENGE_DESCRIPTIONS: Record<string, ChallengeDescription> = {
   challengeKillZombies: { name: 'Kill Zombies', desc: 'Kill some zombies to get started' },
   challengeKill50: { name: 'Exterminator', desc: 'Kill 50 zombies', target: 50 },
   challengeCatch20Fish: { name: 'Angler', desc: 'Catch 20 fish', target: 20 },
@@ -175,7 +242,7 @@ const CHALLENGE_DESCRIPTIONS = {
 
 // ─── Skill effects (legacy text) ────────────────────────────────────────────
 
-const SKILL_EFFECTS = {
+const SKILL_EFFECTS: Record<string, string> = {
   BANDOLEER: 'Carry more ammo',
   'BEAST OF BURDEN': 'Carry weight increased by 25%',
   CALLUSED: 'Melee damage reduced by 25%',
@@ -201,7 +268,7 @@ const SKILL_EFFECTS = {
 
 // ─── Server settings ────────────────────────────────────────────────────────
 
-const SERVER_SETTING_DESCRIPTIONS = {
+const SERVER_SETTING_DESCRIPTIONS: Record<string, string> = {
   ServerName: 'Server Name',
   MaxPlayers: 'Max Players',
   GameMode: 'Game Mode',
@@ -230,7 +297,7 @@ const SERVER_SETTING_DESCRIPTIONS = {
 
 // ─── Stat display names ─────────────────────────────────────────────────────
 
-const STAT_DISPLAY_NAMES = {
+const STAT_DISPLAY_NAMES: Record<string, StatDisplayEntry> = {
   NewRow_0: { name: 'Blast Kills', completionValue: 50, isSection: true },
   NewRow_1: { name: 'Ranged Kills', completionValue: 50, isSection: true },
   NewRow_10: { name: 'Catch 20 Fish', completionValue: 20, isSection: false },
@@ -266,51 +333,49 @@ const STAT_DISPLAY_NAMES = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Extracted data (from game-data-extract.js — 22 MB game-tables-raw.json)
+//  Extracted data (from game-data-extract.ts — 22 MB game-tables-raw.json)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const {
-  ITEMS: ITEM_DATABASE,
-  ITEM_NAMES,
-  BUILDINGS,
-  BUILDING_NAMES,
-  VEHICLE_NAMES,
-  RECIPES: CRAFTING_RECIPES,
-  LOOT_TABLES,
-  SKILLS: SKILL_DETAILS,
-  PROFESSIONS: EXTRACTED_PROFESSIONS,
-  STATISTICS,
-  STAT_CONFIG,
-  CROPS: CROP_DATA,
-  VEHICLES,
-  CAR_UPGRADES,
-  AMMO_DAMAGE,
-  REPAIR_DATA: REPAIR_RECIPES,
-  FURNITURE: FURNITURE_DROPS,
-  TRAPS,
-  ANIMALS,
-  XP_DATA,
-  SPAWN_LOCATIONS,
-  LORE: LORE_ENTRIES,
-  QUESTS: QUEST_DATA,
-  AFFLICTIONS: EXTRACTED_AFFLICTIONS,
-  LOADING_TIPS: EXTRACTED_LOADING_TIPS,
-  SPRAYS,
-  FOLIAGE,
-  CHARACTERS,
-  TABLE_SUMMARY,
-  ENUM_MAPS,
-  cleanKey,
-  cleanRow,
-  deepClean,
-  resolveEnum,
-  getTable,
-  getTableCleaned,
-} = extract;
+const ITEM_DATABASE = extract['ITEMS'] as Record<string, Record<string, unknown>>;
+const ITEM_NAMES = extract['ITEM_NAMES'] as Record<string, string>;
+const BUILDINGS = extract['BUILDINGS'] as Record<string, Record<string, unknown>>;
+const BUILDING_NAMES = extract['BUILDING_NAMES'] as Record<string, string>;
+const VEHICLE_NAMES = extract['VEHICLE_NAMES'] as Record<string, string>;
+const CRAFTING_RECIPES = extract['RECIPES'] as Record<string, Record<string, unknown>>;
+const LOOT_TABLES = extract['LOOT_TABLES'] as Record<string, Record<string, unknown>>;
+const SKILL_DETAILS = extract['SKILLS'] as Record<string, Record<string, unknown>>;
+const EXTRACTED_PROFESSIONS = extract['PROFESSIONS'] as Record<string, Record<string, unknown>>;
+const STATISTICS = extract['STATISTICS'] as Record<string, ExtractedStat>;
+const STAT_CONFIG = extract['STAT_CONFIG'] as Record<string, ExtractedStat>;
+const CROP_DATA = extract['CROPS'] as Record<string, Record<string, unknown>>;
+const VEHICLES = extract['VEHICLES'] as Record<string, Record<string, unknown>>;
+const CAR_UPGRADES = extract['CAR_UPGRADES'] as Record<string, Record<string, unknown>>;
+const AMMO_DAMAGE = extract['AMMO_DAMAGE'] as Record<string, Record<string, unknown>>;
+const REPAIR_RECIPES = extract['REPAIR_DATA'] as Record<string, Record<string, unknown>>;
+const FURNITURE_DROPS = extract['FURNITURE'] as Record<string, Record<string, unknown>>;
+const TRAPS = extract['TRAPS'] as Record<string, Record<string, unknown>>;
+const ANIMALS = extract['ANIMALS'] as Record<string, Record<string, unknown>>;
+const XP_DATA = extract['XP_DATA'] as Record<string, unknown>[];
+const SPAWN_LOCATIONS = extract['SPAWN_LOCATIONS'] as Record<string, Record<string, unknown>>;
+const LORE_ENTRIES = extract['LORE'] as Record<string, Record<string, unknown>>;
+const QUEST_DATA = extract['QUESTS'] as Record<string, Record<string, unknown>>;
+const EXTRACTED_AFFLICTIONS = extract['AFFLICTIONS'] as Record<string, Record<string, unknown>>;
+const EXTRACTED_LOADING_TIPS = extract['LOADING_TIPS'] as ExtractedTip[];
+const SPRAYS = extract['SPRAYS'] as Record<string, Record<string, unknown>>;
+const FOLIAGE = extract['FOLIAGE'] as Record<string, Record<string, unknown>>;
+const CHARACTERS = extract['CHARACTERS'] as Record<string, Record<string, unknown>>;
+const TABLE_SUMMARY = extract['TABLE_SUMMARY'] as Record<string, number>;
+const ENUM_MAPS = extract['ENUM_MAPS'] as Record<string, Record<string, string>>;
+const cleanKey = extract['cleanKey'] as (key: string) => string;
+const cleanRow = extract['cleanRow'] as (row: Record<string, unknown>) => Record<string, unknown>;
+const deepClean = extract['deepClean'] as (val: unknown) => unknown;
+const resolveEnum = extract['resolveEnum'] as (value: unknown) => unknown;
+const getTable = extract['getTable'] as (name: string) => Record<string, Record<string, unknown>>;
+const getTableCleaned = extract['getTableCleaned'] as (name: string) => Record<string, Record<string, unknown>>;
 
 // ─── Challenges (from extracted STATISTICS + STAT_CONFIG) ───────────────────
 
-const _challengeMap = new Map();
+const _challengeMap = new Map<string, ChallengeEntry>();
 
 // Start with DT_Statistics (32 entries — legacy stat tracking)
 for (const s of Object.values(STATISTICS)) {
@@ -331,7 +396,8 @@ for (const s of Object.values(STATISTICS)) {
 for (const sc of Object.values(STAT_CONFIG)) {
   if (_challengeMap.has(sc.id)) {
     // Merge — StatConfig has better descriptions and XP values
-    const existing = _challengeMap.get(sc.id);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- guarded by .has() above
+    const existing = _challengeMap.get(sc.id)!;
     if (sc.description && !existing.description) existing.description = sc.description;
     if (sc.xp > existing.xp) existing.xp = sc.xp;
     if (sc.skillPoint > existing.skillPoint) existing.skillPoint = sc.skillPoint;
@@ -353,25 +419,25 @@ for (const sc of Object.values(STAT_CONFIG)) {
   }
 }
 
-const CHALLENGES = [..._challengeMap.values()];
+const CHALLENGES: ChallengeEntry[] = [..._challengeMap.values()];
 
 // ─── Loading tips (consumers expect array of strings) ───────────────────────
 
-const LOADING_TIPS = EXTRACTED_LOADING_TIPS.map((t) => t.text).filter((t) => t.length > 0);
+const LOADING_TIPS: string[] = EXTRACTED_LOADING_TIPS.map((t) => t.text).filter((t) => t.length > 0);
 
 // ─── Enum lookup maps ───────────────────────────────────────────────────────
 
-const CRAFTING_STATION_NAMES = ENUM_MAPS['E_CraftingStation'] || {};
-const ITEM_TYPE_NAMES = ENUM_MAPS['E_ItemTypes'] || {};
-const BUILD_CATEGORY_NAMES = ENUM_MAPS['E_BuildCategory'] || {};
-const CHALLENGE_CATEGORY_NAMES = ENUM_MAPS['E_StatCat'] || {};
-const SKILL_CATEGORY_NAMES = ENUM_MAPS['Enum_SkillCategories'] || {};
+const CRAFTING_STATION_NAMES = ENUM_MAPS['E_CraftingStation'] ?? {};
+const ITEM_TYPE_NAMES = ENUM_MAPS['E_ItemTypes'] ?? {};
+const BUILD_CATEGORY_NAMES = ENUM_MAPS['E_BuildCategory'] ?? {};
+const CHALLENGE_CATEGORY_NAMES = ENUM_MAPS['E_StatCat'] ?? {};
+const SKILL_CATEGORY_NAMES = ENUM_MAPS['Enum_SkillCategories'] ?? {};
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Exports
 // ═══════════════════════════════════════════════════════════════════════════
 
-module.exports = {
+export {
   // Hand-curated (save-specific mapping, human-written text)
   AFFLICTION_MAP,
   AFFLICTION_DETAILS,
@@ -420,6 +486,62 @@ module.exports = {
   SKILL_CATEGORY_NAMES,
   ENUM_MAPS,
   // Utilities (re-exported)
+  cleanKey,
+  cleanRow,
+  deepClean,
+  resolveEnum,
+  getTable,
+  getTableCleaned,
+};
+
+// CJS compatibility — .js consumers use require('./game-data')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = {
+  AFFLICTION_MAP,
+  AFFLICTION_DETAILS,
+  PROFESSION_DETAILS,
+  CHALLENGE_DESCRIPTIONS,
+  SKILL_EFFECTS,
+  SERVER_SETTING_DESCRIPTIONS,
+  STAT_DISPLAY_NAMES,
+  CHALLENGES,
+  LOADING_TIPS,
+  ITEM_DATABASE,
+  ITEM_NAMES,
+  BUILDINGS,
+  BUILDING_NAMES,
+  VEHICLE_NAMES,
+  CRAFTING_RECIPES,
+  LOOT_TABLES,
+  SKILL_DETAILS,
+  EXTRACTED_PROFESSIONS,
+  STATISTICS,
+  STAT_CONFIG,
+  CROP_DATA,
+  VEHICLES,
+  CAR_UPGRADES,
+  AMMO_DAMAGE,
+  REPAIR_RECIPES,
+  FURNITURE_DROPS,
+  TRAPS,
+  ANIMALS,
+  XP_DATA,
+  SPAWN_LOCATIONS,
+  LORE_ENTRIES,
+  QUEST_DATA,
+  EXTRACTED_AFFLICTIONS,
+  SPRAYS,
+  FOLIAGE,
+  CHARACTERS,
+  TABLE_SUMMARY,
+  CRAFTING_STATION_NAMES,
+  ITEM_TYPE_NAMES,
+  BUILD_CATEGORY_NAMES,
+  CHALLENGE_CATEGORY_NAMES,
+  SKILL_CATEGORY_NAMES,
+  ENUM_MAPS,
   cleanKey,
   cleanRow,
   deepClean,

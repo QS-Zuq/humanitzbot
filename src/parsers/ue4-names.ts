@@ -15,11 +15,17 @@
  * @module ue4-names
  */
 
-const { ITEM_NAMES, BUILDING_NAMES } = require('./game-data');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const gameData = require('./game-data') as {
+  ITEM_NAMES: Record<string, string>;
+  BUILDING_NAMES: Record<string, string>;
+};
+
+const { ITEM_NAMES, BUILDING_NAMES } = gameData;
 
 // ─── Common container aliases ────────────────────────────────────────────────
 // These fire first to catch well-known patterns before generic cleanup.
-const CONTAINER_ALIASES = [
+const CONTAINER_ALIASES: Array<[RegExp, string]> = [
   [/ContainerEnemyAI_Pistol/i, 'Zombie Drop (Pistol)'],
   [/ContainerEnemyAI/i, 'Zombie Drop'],
   [/WeaponStash/i, 'Weapon Stash'],
@@ -36,7 +42,7 @@ const CONTAINER_ALIASES = [
 
 // ─── NPC/AI name aliases ──────────────────────────────────────────────────
 // Post-cleanup names from damage sources that generic CamelCase splitting can't fix.
-const NPC_ALIASES = new Map([
+const NPC_ALIASES = new Map<string, string>([
   ['dogzombie', 'Dog Zombie'],
   ['zombiebear', 'Zombie Bear'],
   ['kaihuman', 'Bandit'],
@@ -58,21 +64,11 @@ const NPC_ALIASES = new Map([
 
 /**
  * Clean a raw UE4 actor name, blueprint path, or item name into a readable label.
- *
- * Handles all known patterns:
- *   - Full blueprint paths:  /Game/.../BP_Name.BP_Name_C
- *   - Actor instances:       Door_GEN_VARIABLE_BP_LockedMetalShutter_C_CAT_2147206852
- *   - Storage actors:        ChildActor_GEN_VARIABLE_BP_VehicleStorage_C_2147253396
- *   - Build containers:      BuildContainer_147
- *   - Simple blueprints:     BP_WoodWall_C_12345
- *   - Already clean names:   "Wood Wall"
- *
- * @param {string} raw - The raw UE4 name
- * @returns {string} Human-readable label
  */
-function cleanName(raw) {
+function cleanName(raw: unknown): string {
   if (!raw) return 'Unknown';
-  let name = String(raw);
+  const rawStr = typeof raw === 'string' ? raw : String(raw as number);
+  let name = rawStr;
 
   // Strip trailing UE4 pawn metadata: "(25m) Weapon()" suffix
   name = name.replace(/\(\d+m\)\s*Weapon\(\)\s*$/, '').trim();
@@ -81,15 +77,11 @@ function cleanName(raw) {
   if (/^BuildContainer(?:_\d+)?$/i.test(name)) return 'Container';
 
   // Space-separated UE4 pawn names: "Pawn Zombie Runner C 2147019193"
-  // Strip pawn prefix, trailing instance ID, then delegate to normal cleanup
   const pawnMatch = name.match(/^Pawn\s+(.+?)\s+C\s+\d+/i);
   if (pawnMatch) {
-    // Strip "Zombie " prefix when a specific subtype follows (Runner, Brute, etc.)
-    // but keep "Zombie" when it's the only type word
-    const pawnInner = pawnMatch[1].trim();
-    const stripped = pawnInner.replace(/^Zombie\s+/i, '');
-    name = stripped || pawnInner; // fall back to "Zombie" if nothing left
-    // CamelCase-split if needed, then return
+    const pawnInner = pawnMatch[1]?.trim() ?? '';
+    const stripped: string = pawnInner.replace(/^Zombie\s+/i, '');
+    name = stripped || pawnInner;
     if (/[a-z][A-Z]/.test(name)) {
       return name.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
     }
@@ -98,10 +90,9 @@ function cleanName(raw) {
 
   // Already clean (no underscores, no BP_ prefix, has spaces) — return as-is
   if (!name.includes('_') && !name.startsWith('BP_')) {
-    // Check BUILDING_NAMES for CamelCase building names (e.g. "WaterCatcher" → "Rain Collector")
-    if (BUILDING_NAMES[name]) return BUILDING_NAMES[name];
+    const buildingName = BUILDING_NAMES[name];
+    if (buildingName) return buildingName;
 
-    // But still CamelCase-split: "LockedMetalShutter" → "Locked Metal Shutter"
     if (/[a-z][A-Z]/.test(name)) {
       return name.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
     }
@@ -111,27 +102,22 @@ function cleanName(raw) {
   // Full blueprint path: /Game/.../BP_WoodWall.BP_WoodWall_C
   const pathMatch = name.match(/BP_([^.]+?)(?:_C)?$/);
   if (name.includes('/') && pathMatch) {
-    name = pathMatch[1];
+    name = pathMatch[1] as string;
   } else {
-    // Strip trailing instance IDs:  _C_CAT_2147206852, _C_2147206852
     name = name.replace(/_C_(?:CAT_)?\d+$/, '');
     name = name.replace(/_C_\d+$/, '');
-    // Strip trailing _C suffix
     name = name.replace(/_C$/, '');
   }
 
-  // Strip GEN_VARIABLE noise (can appear after any prefix or standalone)
-  // "Door_GEN_VARIABLE_BP_LockedMetalShutter" → "LockedMetalShutter"
-  // "ChildActor_GEN_VARIABLE_BP_VehicleStorage" → "VehicleStorage"
+  // Strip GEN_VARIABLE noise
   name = name.replace(/^.*?_GEN_VARIABLE_(?:BP_)?/, '');
 
   // Strip leading prefixes that survived
   name = name.replace(/^(?:ChildActor|Storage|Door|Window|Lamp|Light|Prop|Deco)_/i, '');
   name = name.replace(/^BP_/, '');
 
-  // Strip PawnZombie / Pawn prefix (e.g. PawnZombie_Runner → Runner, PawnZombie2 → Zombie)
+  // Strip PawnZombie / Pawn prefix
   name = name.replace(/^Pawn(?:Zombie\d*)?_?/i, '');
-  // If stripping left nothing (was just "PawnZombie") → Zombie
   if (!name) return 'Zombie';
 
   // BuildContainer_NNN → Container
@@ -141,7 +127,8 @@ function cleanName(raw) {
   name = name.replace(/_\d+$/, '');
 
   // Check BUILDING_NAMES for authoritative display name
-  if (BUILDING_NAMES[name]) return BUILDING_NAMES[name];
+  const buildingDisplayName = BUILDING_NAMES[name];
+  if (buildingDisplayName) return buildingDisplayName;
 
   // Check container aliases on the cleaned intermediate
   for (const [pattern, alias] of CONTAINER_ALIASES) {
@@ -151,25 +138,23 @@ function cleanName(raw) {
   // Underscores → spaces
   name = name.replace(/_/g, ' ');
 
-  // CamelCase → spaced: "LockedMetalShutter" → "Locked Metal Shutter"
+  // CamelCase → spaced
   name = name.replace(/([a-z])([A-Z])/g, '$1 $2');
 
   // Collapse multiple spaces
   name = name.replace(/\s{2,}/g, ' ').trim();
 
-  // Check NPC aliases for damage source names that generic cleanup can't fix
+  // Check NPC aliases
   const npcAlias = NPC_ALIASES.get(name.toLowerCase());
   if (npcAlias) return npcAlias;
 
-  return name || raw;
+  return name || rawStr;
 }
 
 // ─── Manual item name aliases ────────────────────────────────────────────────
-// Catches known item names that generic cleanup can't fix.
-// Keys are lowercase for case-insensitive matching.
-const ITEM_ALIASES = new Map([
+const ITEM_ALIASES = new Map<string, string>([
   // Weapons & ammo
-  ['tacticalmachette', 'Tactical Machete'], // game data: TacticalMachette (double-t)
+  ['tacticalmachette', 'Tactical Machete'],
   ['tacticalmachete', 'Tactical Machete'],
   ['22ammo', '.22 Ammo'],
   ['9mmammo', '9mm Ammo'],
@@ -245,25 +230,16 @@ const ITEM_ALIASES = new Map([
 
 /**
  * Clean a raw item name from save data.
- * Handles all known patterns from UE4:
- *   - Blueprint paths: /Game/.../BP_ItemName.BP_ItemName_C
- *   - Blueprint names: BP_ItemName_C
- *   - Concatenated names: tacticalmachette, 22ammo, drillkit
- *   - Attachment names: Att_Mag_Extended_Uzi
- *   - Trailing duplicates: Energy Drink2, Item_3
- *   - Hex GUIDs: 92b0cc283720f24098060a59425d8394 (filtered)
- *
- * @param {string} raw - The raw item name
- * @returns {string} Human-readable item name
  */
-function cleanItemName(raw) {
+function cleanItemName(raw: unknown): string {
   if (!raw) return 'Unknown';
-  let name = String(raw);
+  const rawStr = typeof raw === 'string' ? raw : String(raw as number);
+  let name = rawStr;
 
   // Full path: strip to last segment
   if (name.includes('/')) {
-    const seg = name.split('/').pop() || name;
-    name = seg.replace(/\.[^.]+$/, ''); // strip .ClassName extension
+    const seg = name.split('/').pop() ?? name;
+    name = seg.replace(/\.[^.]+$/, '');
   }
 
   // Strip BP_ prefix and _C suffix
@@ -273,59 +249,61 @@ function cleanItemName(raw) {
   name = name.replace(/_\d{5,}$/, '');
 
   // Check authoritative ITEM_NAMES from game data (718 items)
-  if (ITEM_NAMES[name]) return ITEM_NAMES[name];
+  const itemDisplayName = ITEM_NAMES[name];
+  if (itemDisplayName) return itemDisplayName;
 
   // Check alias map (case-insensitive)
   const aliasKey = name.toLowerCase().trim();
-  if (ITEM_ALIASES.has(aliasKey)) return ITEM_ALIASES.get(aliasKey);
+  const aliasResult = ITEM_ALIASES.get(aliasKey);
+  if (aliasResult) return aliasResult;
 
   // Underscores → spaces
   name = name.replace(/_/g, ' ');
 
   // Check alias again after underscore removal
   const aliasKey2 = name.toLowerCase().trim();
-  if (ITEM_ALIASES.has(aliasKey2)) return ITEM_ALIASES.get(aliasKey2);
+  const aliasResult2 = ITEM_ALIASES.get(aliasKey2);
+  if (aliasResult2) return aliasResult2;
 
-  // Expand "Lv" abbreviation: "SwordLv3" → "Sword Lvl 3" (before trailing digit strip)
+  // Expand "Lv" abbreviation: "SwordLv3" → "Sword Lvl 3"
   name = name.replace(/Lv(\d)/g, 'Lvl $1');
 
-  // Strip trailing digit-only duplicate markers stuck to words: "Energy Drink2" → "Energy Drink"
-  // But NOT standalone numbers after spaces: "Lvl 3" stays "Lvl 3"
+  // Strip trailing digit-only duplicate markers stuck to words
   name = name.replace(/([a-zA-Z])(\d)$/, '$1');
 
-  // CamelCase → spaced: "TacticalMachette" → "Tactical Machette"
+  // CamelCase → spaced
   name = name.replace(/([a-z])([A-Z])/g, '$1 $2');
 
   // Consecutive uppercase then lowercase: "ABCDef" → "ABC Def"
   name = name.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
 
-  // Title case: each word gets capitalised first letter
-  name = name.replace(/\b([a-z])/g, (_, c) => c.toUpperCase());
+  // Title case
+  name = name.replace(/\b([a-z])/g, (_, c: string) => c.toUpperCase());
 
   // Collapse multiple spaces
   name = name.replace(/\s{2,}/g, ' ').trim();
 
-  return name || raw;
+  return name || rawStr;
 }
 
 /**
  * Test whether a string is a hex GUID (used for unique item IDs).
- * These are internal tracking IDs, not meaningful to display.
- *
- * @param {string} str
- * @returns {boolean}
  */
-function isHexGuid(str) {
+function isHexGuid(str: string): boolean {
   if (!str || typeof str !== 'string') return false;
   return /^[0-9a-f]{24,}$/i.test(str.trim());
 }
 
+interface ItemObject {
+  item?: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
 /**
  * Clean an array of items, removing hex GUIDs and cleaning names.
- * @param {Array} items - Array of strings or objects with .item/.name
- * @returns {Array} Cleaned array with GUIDs removed
  */
-function cleanItemArray(items) {
+function cleanItemArray(items: unknown[]): unknown[] {
   if (!Array.isArray(items)) return [];
   return items
     .map((item) => {
@@ -334,13 +312,20 @@ function cleanItemArray(items) {
         return cleanItemName(item);
       }
       if (item && typeof item === 'object') {
-        const name = item.item || item.name || '';
+        const obj = item as ItemObject;
+        const name = obj.item ?? obj.name ?? '';
         if (isHexGuid(name)) return null;
-        return { ...item, item: cleanItemName(name) };
+        return { ...obj, item: cleanItemName(name) };
       }
       return item;
     })
     .filter(Boolean);
 }
 
-module.exports = { cleanName, cleanItemName, cleanItemArray, isHexGuid, CONTAINER_ALIASES, ITEM_ALIASES };
+export { cleanName, cleanItemName, cleanItemArray, isHexGuid, CONTAINER_ALIASES, ITEM_ALIASES };
+
+// CJS compatibility — .js consumers use require('./ue4-names')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { cleanName, cleanItemName, cleanItemArray, isHexGuid, CONTAINER_ALIASES, ITEM_ALIASES };
