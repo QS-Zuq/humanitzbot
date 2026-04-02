@@ -2,11 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { LogEntry, Transport } from './types.js';
 
-/** Console transport — writes structured JSON to stdout/stderr. */
+/** Console transport — human-readable format with timestamps. */
 export class ConsoleTransport implements Transport {
   write(entry: LogEntry): void {
-    const line = JSON.stringify(entry);
-    if (entry.level === 'error' || entry.level === 'warn') {
+    const time = entry.timestamp.slice(11, 19); // HH:MM:SS from ISO string
+    const prefix = `[${time}] [${entry.category}]`;
+    const line = entry.data ? `${prefix} ${entry.message} ${JSON.stringify(entry.data)}` : `${prefix} ${entry.message}`;
+    if (entry.level === 'error') {
+      process.stderr.write(line + '\n');
+    } else if (entry.level === 'warn') {
       process.stderr.write(line + '\n');
     } else {
       process.stdout.write(line + '\n');

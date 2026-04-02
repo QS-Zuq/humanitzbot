@@ -1,16 +1,14 @@
 /**
- * Shared logger helper — prevents log injection (CWE-117) by ensuring the
- * format string passed to console.log/warn/error is always a constant.
+ * Shared logger helper — creates category-scoped loggers that output to both
+ * the console (human-readable) and structured JSON log files (daily rotation).
  *
- * In Node.js, console.log uses util.format internally. If the first argument
- * contains %s/%d and additional arguments follow, they get substituted.
- * By using `console.log('[%s]', label, ...args)` the label is always in the
- * second position, never interpreted as a format directive.
+ * Delegates to the structured logger system (src/logger/) for file output
+ * while preserving the simple createLogger() API used throughout the codebase.
  *
- * The label is sanitized: CR/LF/tab removed (prevents log forging),
- * non-word characters stripped (prevents format-string injection via %),
- * and length capped at 40 characters.
+ * Labels are sanitized to prevent log injection (CWE-117).
  */
+
+import { createStructuredLogger } from '../logger/logger.js';
 
 export interface Logger {
   label: string;
@@ -36,20 +34,22 @@ export function sanitizeLabel(raw: unknown, fallback?: string): string {
 
 /**
  * Create a logger instance with a fixed label prefix.
- * The format string is always a constant — label goes into %s slot.
+ * Writes to both console (human-readable) and structured JSON log files.
  */
 export function createLogger(rawLabel: unknown, fallback?: string): Logger {
   const label = sanitizeLabel(rawLabel, fallback);
+  const structured = createStructuredLogger(label);
+
   return {
     label,
     info: (...args: unknown[]) => {
-      console.log('[%s]', label, ...args);
+      structured.info(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
     },
     warn: (...args: unknown[]) => {
-      console.warn('[%s]', label, ...args);
+      structured.warn(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
     },
     error: (...args: unknown[]) => {
-      console.error('[%s]', label, ...args);
+      structured.error(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
     },
   };
 }

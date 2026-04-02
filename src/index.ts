@@ -11,31 +11,11 @@ import { getDirname } from './utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
 
-// ── Timestamped console logging ──────────────────────────────
-// Patches console globally so every module gets [HH:MM:SS] prefixes
-const _origLog = console.log;
-const _origError = console.error;
-const _origWarn = console.warn;
-function _ts() {
-  return new Date().toLocaleTimeString('en-GB', { hour12: false });
-}
-// Prepend timestamp to console output. If the first arg is a format string
-// (contains %s/%d/%j/%o), merge the timestamp into it so util.format still works.
-console.log = (...args: unknown[]) => {
-  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
-  else args.unshift(`[${_ts()}]`);
-  _origLog(...args);
-};
-console.error = (...args: unknown[]) => {
-  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
-  else args.unshift(`[${_ts()}]`);
-  _origError(...args);
-};
-console.warn = (...args: unknown[]) => {
-  if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
-  else args.unshift(`[${_ts()}]`);
-  _origWarn(...args);
-};
+// ── Structured logging system ──────────────────────────────
+// Initializes the global logger with console (human-readable) + file (JSON) transports.
+// All modules using createLogger() automatically write to both outputs.
+import { initLogger, shutdownLogger } from './logger/logger.js';
+initLogger();
 
 const config: any = require('./config');
 const { isAdminView } = require('./config') as { isAdminView: (member: any) => boolean };
@@ -1317,6 +1297,7 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   }
 
   await rcon.disconnect();
+  shutdownLogger();
   client.destroy();
   process.exit(0);
 }
