@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
 /**
  * Session store factory for express-session.
  *
@@ -5,21 +8,18 @@
  *   - 'memory'  — express-session built-in MemoryStore (dev/testing only)
  *   - 'sqlite'  — SQLite via better-sqlite3 (default, zero extra deps)
  *   - 'redis'   — Redis via connect-redis + redis (optional, user installs)
- *
- * @param {object} config - Bot config object (sessionStore, sessionTtl, sessionRedisUrl)
- * @param {import('better-sqlite3').Database} [db] - SQLite database instance (for sqlite store)
- * @returns {import('express-session').Store|undefined} Store instance, or undefined for MemoryStore
  */
 
-'use strict';
+import type { Store } from 'express-session';
+import { createLogger } from '../utils/log.js';
 
-const { createLogger } = require('../utils/log');
 const _log = createLogger(null, 'SESSION');
 
-function createSessionStore(config, db) {
-  const storeType = (config.sessionStore || 'sqlite').toLowerCase();
+function createSessionStore(config: any, db?: any): Store | undefined {
+  const storeType = ((config.sessionStore as string) || 'sqlite').toLowerCase();
 
   switch (storeType) {
+    // @ts-expect-error — intentional fallthrough from redis to sqlite
     case 'redis': {
       try {
         // Lazy require — only loaded if redis + connect-redis are installed
@@ -27,34 +27,35 @@ function createSessionStore(config, db) {
         const RedisStore = connectRedis.RedisStore || connectRedis.default || connectRedis;
         const { createClient } = require('redis');
 
-        const redisClient = createClient({ url: config.sessionRedisUrl || 'redis://localhost:6379' });
+        const redisClient = createClient({ url: (config.sessionRedisUrl as string) || 'redis://localhost:6379' });
 
-        redisClient.on('error', (err) => {
+        redisClient.on('error', (err: Error) => {
           _log.error('Redis client error:', err.message);
         });
 
         // connect-redis handles connect asynchronously; connect and log
-        redisClient
-          .connect()
-          .then(() => _log.info('Redis connected'))
-          .catch((err) => {
-            _log.error('Redis connect failed:', err.message);
+        (redisClient.connect() as Promise<void>)
+          .then(() => {
+            _log.info('Redis connected');
+          })
+          .catch((err: unknown) => {
+            _log.error('Redis connect failed:', (err as Error).message);
             _log.error('Sessions will fail until Redis is available');
           });
 
         const store = new RedisStore({
           client: redisClient,
           prefix: 'hmz:sess:',
-          ttl: config.sessionTtl || 604800,
+          ttl: (config.sessionTtl as number) || 604800,
         });
 
         // Attach redis client for graceful shutdown
         store._redisClient = redisClient;
 
         _log.info('Using Redis session store');
-        return store;
-      } catch (err) {
-        if (err.code === 'MODULE_NOT_FOUND') {
+        return store as Store;
+      } catch (err: unknown) {
+        if ((err as any).code === 'MODULE_NOT_FOUND') {
           _log.error('Redis packages not installed. Run: npm install redis connect-redis');
           _log.info('Falling back to SQLite store');
           // Fall through to sqlite
@@ -72,7 +73,7 @@ function createSessionStore(config, db) {
       const { SqliteSessionStore } = require('./session-stores/sqlite-store');
       const store = new SqliteSessionStore(db, { table: 'web_sessions' });
       _log.info('Using SQLite session store');
-      return store;
+      return store as Store;
     }
     default: {
       // 'memory' or any unrecognized value
@@ -85,4 +86,9 @@ function createSessionStore(config, db) {
   }
 }
 
-module.exports = { createSessionStore };
+export { createSessionStore };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { createSessionStore };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

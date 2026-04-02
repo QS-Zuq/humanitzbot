@@ -6,17 +6,14 @@
  * coupling — returns plain objects / strings consumable by Discord embeds,
  * web panel, RCON messages, and anywhere else.
  *
- * Consumers:
- *   - ServerStatus (Discord embed)
- *   - Web panel (admin dashboard)
- *   - AutoMessages (RCON welcome / broadcast)
- *   - Web panel API (dashboard, status cards)
- *   - RecapService, DidYouKnow, etc.
- *
  * @module server/server-display
  */
 
-const { getDayOffset, getRotatedProfileIndex } = require('../modules/schedule-utils');
+/* eslint-disable @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any,
+   @typescript-eslint/restrict-template-expressions */
+
+import { getDayOffset, getRotatedProfileIndex } from '../modules/schedule-utils.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Label constants
@@ -32,122 +29,69 @@ const AI_EVENT_LABELS = ['Off', 'Low', 'Default', 'High', 'Insane'];
 //  Value formatters
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Format a time string from RCON (e.g. "8:5" → "8:05").
- * @param {string} timeStr
- * @returns {string|null}
- */
-function formatTime(timeStr) {
+function formatTime(timeStr: string | null | undefined): string | null {
   if (!timeStr) return null;
   const match = timeStr.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (match) return `${match[1]}:${match[2].padStart(2, '0')}`;
+  if (match) return `${match[1]}:${match[2]?.padStart(2, '0')}`;
   return timeStr;
 }
 
-/**
- * Spawn/amount multiplier display.  0 → "None", otherwise "x{val}".
- * These are float multipliers in the V35 INI (e.g. 0.5, 1, 1.5, 3).
- * @param {string|number} val
- * @returns {string|null}
- */
-function spawnLabel(val) {
+function spawnLabel(val: string | number | null | undefined): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(val);
+  const num = parseFloat(String(val));
   if (isNaN(num)) return String(val);
   if (num === 0) return 'None';
   if (num === 1) return 'x1 (Default)';
-  return `x${num}`;
+  return `x${String(num)}`;
 }
 
-/**
- * Difficulty index (0–5) → label string.
- * @param {string|number} val
- * @returns {string|null}
- */
-function difficultyLabel(val) {
+function difficultyLabel(val: string | number | null | undefined): string | null {
   if (val === undefined || val === null) return null;
-  const idx = Math.round(parseFloat(val));
+  const idx = Math.round(parseFloat(String(val)));
   if (isNaN(idx)) return String(val);
   return DIFFICULTY_LABELS[idx] || String(val);
 }
 
-/**
- * Difficulty index → compact bar + label: "▓░░░░ V.Easy".
- * @param {string|number} val
- * @returns {string|null}
- */
-function difficultyBar(val) {
+function difficultyBar(val: string | number | null | undefined): string | null {
   if (val === undefined || val === null) return null;
-  const idx = Math.round(parseFloat(val));
+  const idx = Math.round(parseFloat(String(val)));
   if (isNaN(idx)) return String(val);
   const label = DIFFICULTY_LABELS[idx] || String(val);
   const bar = progressBar((idx + 1) / DIFFICULTY_LABELS.length, 5);
   return `${bar} ${label}`;
 }
 
-/**
- * Boolean setting value → "On" / "Off".
- * @param {string} val
- * @returns {string|null}
- */
-function settingBool(val) {
+function settingBool(val: string | null | undefined): string | null {
   if (val === undefined || val === null) return null;
-  return val === '1' || String(val).toLowerCase() === 'true' ? 'On' : 'Off';
+  return val === '1' || val.toLowerCase() === 'true' ? 'On' : 'Off';
 }
 
-/**
- * Numeric setting → label from a provided array.
- * @param {string|number} val
- * @param {string[]} labels
- * @returns {string|null}
- */
-function settingLabel(val, labels) {
+function settingLabel(val: string | number | null | undefined, labels: string[]): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(val);
+  const num = parseFloat(String(val));
   if (isNaN(num)) return String(val);
   const idx = Math.round(num);
   return labels[idx] || String(val);
 }
 
-/**
- * Float multiplier setting → human-readable display.
- * V35 INI: 0 = "Off", 1 = "Default", other = "{val}x".
- * Used for FoodDecay, GenFuel, etc.
- * @param {string|number} val
- * @returns {string|null}
- */
-function settingMultiplier(val) {
+function settingMultiplier(val: string | number | null | undefined): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(val);
+  const num = parseFloat(String(val));
   if (isNaN(num)) return String(val);
   if (num === 0) return 'Off';
   if (num === 1) return 'Default';
-  return `${num}x`;
+  return `${String(num)}x`;
 }
 
-/**
- * Numeric days/duration setting → human-readable display.
- * V35 INI: 0 = "Off", positive N = "{N} days".
- * Used for BuildingDecay, Decay (spawn point), etc.
- * @param {string|number} val
- * @param {string} [unit='days']
- * @returns {string|null}
- */
-function settingDays(val, unit = 'days') {
+function settingDays(val: string | number | null | undefined, unit = 'days'): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(val);
+  const num = parseFloat(String(val));
   if (isNaN(num)) return String(val);
   if (num === 0) return 'Off';
-  return `${num} ${unit}`;
+  return `${String(num)} ${unit}`;
 }
 
-/**
- * PermaDeath — V32 used 0/1/2 enum, V35 uses true/false boolean.
- * Handle both formats gracefully.
- * @param {string|number} val
- * @returns {string|null}
- */
-function settingPermaDeath(val) {
+function settingPermaDeath(val: string | number | null | undefined): string | null {
   if (val === undefined || val === null) return null;
   const s = String(val).toLowerCase();
   if (s === 'true') return 'On';
@@ -159,89 +103,70 @@ function settingPermaDeath(val) {
 //  Visual helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Unicode progress bar. Default style uses ▓░ (thin); pass chars for other styles.
- * @param {number} ratio - 0–1
- * @param {number} [width=10]
- * @param {string} [filledChar='▓']
- * @param {string} [emptyChar='░']
- * @returns {string}
- */
-function progressBar(ratio, width = 10, filledChar = '▓', emptyChar = '░') {
+function progressBar(ratio: number, width = 10, filledChar = '\u2593', emptyChar = '\u2591'): string {
   const r = Math.max(0, Math.min(1, ratio));
   const filled = Math.round(r * width);
   return filledChar.repeat(filled) + emptyChar.repeat(width - filled);
 }
 
-/**
- * Block-style progress bar (█░) used by server status displays.
- * @param {number} ratio - 0–1
- * @param {number} [width=12]
- * @returns {string}
- */
-function blockBar(ratio, width = 12) {
-  return progressBar(ratio, width, '█', '░');
+function blockBar(ratio: number, width = 12): string {
+  return progressBar(ratio, width, '\u2588', '\u2591');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Emoji helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Map in-game weather string to an emoji. */
-function weatherEmoji(weather) {
+function weatherEmoji(weather: string | null | undefined): string {
   if (!weather) return '';
   const w = weather.toLowerCase();
-  if (w.includes('thunder')) return '⛈️ ';
-  if (w.includes('blizzard')) return '🌪️ ';
-  if (w.includes('heavy') && w.includes('snow')) return '❄️ ';
-  if (w.includes('snow')) return '🌨️ ';
-  if (w.includes('heavy') && w.includes('rain')) return '🌧️ ';
-  if (w.includes('rain')) return '🌦️ ';
-  if (w.includes('fog')) return '🌫️ ';
-  if (w.includes('cloud') || w.includes('overcast')) return '☁️ ';
-  if (w.includes('sun') || w.includes('clear')) return '☀️ ';
-  return '🌤️ ';
+  if (w.includes('thunder')) return '\u26C8\uFE0F ';
+  if (w.includes('blizzard')) return '\uD83C\uDF2A\uFE0F ';
+  if (w.includes('heavy') && w.includes('snow')) return '\u2744\uFE0F ';
+  if (w.includes('snow')) return '\uD83C\uDF28\uFE0F ';
+  if (w.includes('heavy') && w.includes('rain')) return '\uD83C\uDF27\uFE0F ';
+  if (w.includes('rain')) return '\uD83C\uDF26\uFE0F ';
+  if (w.includes('fog')) return '\uD83C\uDF2B\uFE0F ';
+  if (w.includes('cloud') || w.includes('overcast')) return '\u2601\uFE0F ';
+  if (w.includes('sun') || w.includes('clear')) return '\u2600\uFE0F ';
+  return '\uD83C\uDF24\uFE0F ';
 }
 
-/** Map in-game season string to an emoji. */
-function seasonEmoji(season) {
+function seasonEmoji(season: string | null | undefined): string {
   if (!season) return '';
   const s = season.toLowerCase();
-  if (s.includes('summer')) return '☀️ ';
-  if (s.includes('autumn') || s.includes('fall')) return '🍂 ';
-  if (s.includes('winter')) return '❄️ ';
-  if (s.includes('spring')) return '🌱 ';
+  if (s.includes('summer')) return '\u2600\uFE0F ';
+  if (s.includes('autumn') || s.includes('fall')) return '\uD83C\uDF42 ';
+  if (s.includes('winter')) return '\u2744\uFE0F ';
+  if (s.includes('spring')) return '\uD83C\uDF31 ';
   return '';
 }
 
-/** Map game time (HH:MM) to a time-of-day emoji. */
-function timeEmoji(timeStr) {
+function timeEmoji(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
   const match = timeStr.match(/^(\d{1,2})/);
   if (!match) return '';
-  const hour = parseInt(match[1], 10);
-  if (hour >= 6 && hour < 8) return '🌅 '; // dawn
-  if (hour >= 8 && hour < 17) return '☀️ '; // day
-  if (hour >= 17 && hour < 19) return '🌇 '; // dusk
-  return '🌙 '; // night
+  const hour = parseInt(match[1] || '0', 10);
+  if (hour >= 6 && hour < 8) return '\uD83C\uDF05 '; // dawn
+  if (hour >= 8 && hour < 17) return '\u2600\uFE0F '; // day
+  if (hour >= 17 && hour < 19) return '\uD83C\uDF07 '; // dusk
+  return '\uD83C\uDF19 '; // night
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Compound field builders (return plain objects, not EmbedBuilder fields)
+//  Compound field builders
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Build server settings as an array of { name, value, inline } objects.
- * Each section becomes its own column in a Discord embed grid (3 per row).
- *
- * @param {object} s - Server settings (flat key→value from GameServerSettings.ini)
- * @param {object} [cfg] - Config object with SHOW_* toggles
- * @returns {Array<{name: string, value: string, inline: boolean}>}
- */
-function buildSettingsFields(s, cfg = {}) {
-  const fields = [];
+interface FieldEntry {
+  name: string;
+  value: string;
+  inline: boolean;
+}
 
-  function section(emoji, title, entries) {
+function buildSettingsFields(s: Record<string, any>, cfg: Record<string, any> = {}): FieldEntry[] {
+  const fields: FieldEntry[] = [];
+
+  function section(emoji: string, title: string, entries: [string, string | null][]): void {
     const rows = entries.filter(([, val]) => val != null).map(([label, val]) => `**${label}:** ${val}`);
     if (rows.length > 0) {
       fields.push({ name: `${emoji} ${title}`, value: rows.join('\n'), inline: true });
@@ -250,102 +175,102 @@ function buildSettingsFields(s, cfg = {}) {
 
   // ── General ──
   if (cfg.showSettingsGeneral !== false) {
-    section('⚔️', 'General', [
+    section('\u2694\uFE0F', 'General', [
       ['PvP', settingBool(s.PVP)],
-      ['Max Players', s.MaxPlayers],
+      ['Max Players', s.MaxPlayers as string | null],
       ['On Death', settingLabel(s.OnDeath, ON_DEATH_LABELS)],
       ['Perma Death', settingPermaDeath(s.PermaDeath)],
       ['Vital Drain', settingLabel(s.VitalDrain, VITAL_DRAIN_LABELS)],
-      ['XP Multiplier', s.XpMultiplier != null ? `${s.XpMultiplier}x` : null],
+      ['XP Multiplier', s.XpMultiplier != null ? `${s.XpMultiplier as string}x` : null],
     ]);
   }
 
   // ── Time & Seasons ──
   if (cfg.showSettingsTime !== false) {
-    section('🕐', 'Time & Seasons', [
-      ['Day Length', s.DayDur != null ? `${s.DayDur} min` : null],
-      ['Night Length', s.NightDur != null ? `${s.NightDur} min` : null],
-      ['Season Length', s.DaysPerSeason != null ? `${s.DaysPerSeason} days` : null],
+    section('\uD83D\uDD50', 'Time & Seasons', [
+      ['Day Length', s.DayDur != null ? `${s.DayDur as string} min` : null],
+      ['Night Length', s.NightDur != null ? `${s.NightDur as string} min` : null],
+      ['Season Length', s.DaysPerSeason != null ? `${s.DaysPerSeason as string} days` : null],
       ['Start Season', settingLabel(s.StartingSeason, ['Summer', 'Autumn', 'Winter', 'Spring'])],
     ]);
   }
 
   // ── Zombies ──
   if (cfg.showSettingsZombies !== false) {
-    section('🧟', 'Zombies', [
+    section('\uD83E\uDDDF', 'Zombies', [
       ['Health', difficultyLabel(s.ZombieDiffHealth)],
       ['Speed', difficultyLabel(s.ZombieDiffSpeed)],
       ['Damage', difficultyLabel(s.ZombieDiffDamage)],
       ['Spawns', spawnLabel(s.ZombieAmountMulti)],
-      ['Respawn', s.ZombieRespawnTimer != null ? `${s.ZombieRespawnTimer} min` : null],
+      ['Respawn', s.ZombieRespawnTimer != null ? `${s.ZombieRespawnTimer as string} min` : null],
       ['Dogs', spawnLabel(s.ZombieDogMulti)],
     ]);
   }
 
   // ── Items ──
   if (cfg.showSettingsItems !== false) {
-    const itemEntries = [
+    const itemEntries: [string, string | null][] = [
       ['Weapon Break', settingBool(s.WeaponBreak)],
       ['Food Decay', settingMultiplier(s.FoodDecay)],
-      ['Loot Respawn', s.LootRespawnTimer != null ? `${s.LootRespawnTimer} min` : null],
+      ['Loot Respawn', s.LootRespawnTimer != null ? `${s.LootRespawnTimer as string} min` : null],
       ['Air Drops', settingBool(s.AirDrop)],
     ];
     if (s.AirDrop === '1' || s.AirDrop === 'true') {
       itemEntries.push([
         '  Interval',
-        s.AirDropInterval != null ? `Every ${s.AirDropInterval} day${s.AirDropInterval === '1' ? '' : 's'}` : null,
+        s.AirDropInterval != null
+          ? `Every ${s.AirDropInterval as string} day${s.AirDropInterval === '1' ? '' : 's'}`
+          : null,
       ]);
     }
-    section('🎒', 'Items', itemEntries);
+    section('\uD83C\uDF92', 'Items', itemEntries);
   }
 
   // ── Extended settings (toggled) ──
   if (cfg.showExtendedSettings !== false) {
-    // Bandits
     if (cfg.showSettingsBandits !== false) {
-      section('🔫', 'Bandits', [
+      section('\uD83D\uDD2B', 'Bandits', [
         ['Health', difficultyLabel(s.HumanHealth)],
         ['Speed', difficultyLabel(s.HumanSpeed)],
         ['Damage', difficultyLabel(s.HumanDamage)],
         ['Spawns', spawnLabel(s.HumanAmountMulti)],
-        ['Respawn', s.HumanRespawnTimer != null ? `${s.HumanRespawnTimer} min` : null],
+        ['Respawn', s.HumanRespawnTimer != null ? `${s.HumanRespawnTimer as string} min` : null],
         ['AI Events', settingLabel(s.AIEvent, AI_EVENT_LABELS)],
       ]);
     }
 
-    // Companions
     if (cfg.showSettingsCompanions !== false) {
-      section('🐕', 'Companions', [
+      section('\uD83D\uDC15', 'Companions', [
         ['Dog Companion', settingBool(s.DogEnabled)],
         ['Companion HP', settingLabel(s.CompanionHealth, ['Low', 'Default', 'High'])],
         ['Companion Dmg', settingLabel(s.CompanionDmg, ['Low', 'Default', 'High'])],
       ]);
     }
 
-    // Building & Territory
     if (cfg.showSettingsBuilding !== false) {
-      section('🏗️', 'Building', [
+      section('\uD83C\uDFD7\uFE0F', 'Building', [
         ['Building HP', settingMultiplier(s.BuildingHealth)],
         ['Building Decay', settingDays(s.BuildingDecay)],
-        ['Gen Fuel Rate', s.GenFuel != null ? `${s.GenFuel}x` : null],
+        ['Gen Fuel Rate', s.GenFuel != null ? `${s.GenFuel as string}x` : null],
         ['Territory', settingBool(s.Territory)],
         ['Dismantle Own', settingBool(s.AllowDismantle)],
         ['Dismantle House', settingBool(s.AllowHouseDismantle)],
       ]);
     }
 
-    // Vehicles
     if (cfg.showSettingsVehicles !== false) {
-      section('🚗', 'Vehicles', [
-        ['Max Cars', s.MaxOwnedCars != null ? (s.MaxOwnedCars === '0' ? 'Disabled' : s.MaxOwnedCars) : null],
+      section('\uD83D\uDE97', 'Vehicles', [
+        [
+          'Max Cars',
+          s.MaxOwnedCars != null ? (s.MaxOwnedCars === '0' ? 'Disabled' : (s.MaxOwnedCars as string)) : null,
+        ],
       ]);
     }
 
-    // Animals
     if (cfg.showSettingsAnimals !== false) {
-      section('🦌', 'Animals', [
+      section('\uD83E\uDD8C', 'Animals', [
         ['Animal Spawns', spawnLabel(s.AnimalMulti)],
-        ['Animal Respawn', s.AnimalRespawnTimer != null ? `${s.AnimalRespawnTimer} min` : null],
+        ['Animal Respawn', s.AnimalRespawnTimer != null ? `${s.AnimalRespawnTimer as string} min` : null],
       ]);
     }
   }
@@ -353,118 +278,99 @@ function buildSettingsFields(s, cfg = {}) {
   return fields;
 }
 
-/**
- * Build loot scarcity lines from server settings.
- * @param {object} s - Server settings
- * @returns {string|null} Formatted multi-line string, or null if no data
- */
-function buildLootScarcity(s) {
-  // Legacy fallback: old INIs may have a single LootRarity key instead of per-category
+function buildLootScarcity(s: Record<string, any>): string | null {
   const fb = s.LootRarity ?? undefined;
-  const map = [
-    ['🍖', 'Food', s.RarityFood ?? fb],
-    ['🥤', 'Drink', s.RarityDrink ?? fb],
-    ['🔪', 'Melee', s.RarityMelee ?? fb],
-    ['🔫', 'Ranged', s.RarityRanged ?? fb],
-    ['🛡️', 'Armor', s.RarityArmor ?? fb],
-    ['🧱', 'Resources', s.RarityResources ?? fb],
-    ['🎯', 'Ammo', s.RarityAmmo ?? fb],
-    ['📦', 'Other', s.RarityOther ?? fb],
+  const map: [string, string, any][] = [
+    ['\uD83C\uDF56', 'Food', s.RarityFood ?? fb],
+    ['\uD83E\uDD64', 'Drink', s.RarityDrink ?? fb],
+    ['\uD83D\uDD2A', 'Melee', s.RarityMelee ?? fb],
+    ['\uD83D\uDD2B', 'Ranged', s.RarityRanged ?? fb],
+    ['\uD83D\uDEE1\uFE0F', 'Armor', s.RarityArmor ?? fb],
+    ['\uD83E\uDDF1', 'Resources', s.RarityResources ?? fb],
+    ['\uD83C\uDFAF', 'Ammo', s.RarityAmmo ?? fb],
+    ['\uD83D\uDCE6', 'Other', s.RarityOther ?? fb],
   ];
 
   const rows = map
     .filter(([, , val]) => val != null)
     .map(([emoji, label, val]) => {
-      const idx = Math.round(parseFloat(val)) || 0;
-      const name = SCARCITY_LABELS[idx] || val;
+      const idx = Math.round(parseFloat(String(val))) || 0;
+      const name = SCARCITY_LABELS[idx] || String(val);
       return `${emoji} **${label}:** ${name}`;
     });
 
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-/**
- * Build weather odds lines from server settings.
- * @param {object} s - Server settings
- * @returns {string|null} Formatted multi-line string, or null if no data
- */
-function buildWeatherOdds(s) {
-  const weatherKeys = [
-    ['☀️', 'Clear Sky', s.Weather_ClearSky],
-    ['☁️', 'Cloudy', s.Weather_Cloudy],
-    ['🌫️', 'Foggy', s.Weather_Foggy],
-    ['🌦️', 'Light Rain', s.Weather_LightRain],
-    ['🌧️', 'Rain', s.Weather_Rain],
-    ['⛈️', 'Thunderstorm', s.Weather_Thunderstorm],
-    ['🌨️', 'Light Snow', s.Weather_LightSnow],
-    ['❄️', 'Snow', s.Weather_Snow],
-    ['🌪️', 'Blizzard', s.Weather_Blizzard],
+function buildWeatherOdds(s: Record<string, any>): string | null {
+  const weatherKeys: [string, string, any][] = [
+    ['\u2600\uFE0F', 'Clear Sky', s.Weather_ClearSky],
+    ['\u2601\uFE0F', 'Cloudy', s.Weather_Cloudy],
+    ['\uD83C\uDF2B\uFE0F', 'Foggy', s.Weather_Foggy],
+    ['\uD83C\uDF26\uFE0F', 'Light Rain', s.Weather_LightRain],
+    ['\uD83C\uDF27\uFE0F', 'Rain', s.Weather_Rain],
+    ['\u26C8\uFE0F', 'Thunderstorm', s.Weather_Thunderstorm],
+    ['\uD83C\uDF28\uFE0F', 'Light Snow', s.Weather_LightSnow],
+    ['\u2744\uFE0F', 'Snow', s.Weather_Snow],
+    ['\uD83C\uDF2A\uFE0F', 'Blizzard', s.Weather_Blizzard],
   ];
 
   const rows = weatherKeys
     .filter(([, , val]) => val != null)
     .map(([emoji, label, val]) => {
-      const num = parseFloat(val);
-      const pct = isNaN(num) ? val : `${Math.round(num * 100)}%`;
+      const num = parseFloat(String(val));
+      const pct = isNaN(num) ? String(val) : `${String(Math.round(num * 100))}%`;
       return `${emoji} **${label}:** ${pct}`;
     });
 
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-/**
- * Build host resource metrics as an array of { name, value, inline } objects.
- * @param {object} res - { cpu, memUsed, memTotal, memPercent, diskUsed, diskTotal, diskPercent }
- * @param {Function} [fmtBytes] - Byte formatter (defaults to server-resources.formatBytes)
- * @returns {Array<{name: string, value: string, inline: boolean}>}
- */
-function buildResourceField(res, fmtBytes) {
+function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => string): FieldEntry[] {
   if (!fmtBytes) {
     try {
-      fmtBytes = require('./server-resources').formatBytes;
-    } catch (_) {
-      fmtBytes = (v) => `${v}`;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      fmtBytes = (require('./server-resources') as { formatBytes: (v: number) => string }).formatBytes;
+    } catch {
+      fmtBytes = (v: number) => String(v);
     }
   }
-  const parts = [];
-  if (res.cpu != null) parts.push(`🖥️ CPU: **${res.cpu}%**`);
+  const parts: string[] = [];
+  if (res.cpu != null) parts.push(`\uD83D\uDDA5\uFE0F CPU: **${res.cpu as number}%**`);
   if (res.memUsed != null && res.memTotal != null) {
-    parts.push(`🧠 RAM: **${fmtBytes(res.memUsed)}** / ${fmtBytes(res.memTotal)} (${res.memPercent ?? '?'}%)`);
+    parts.push(
+      `\uD83E\uDDE0 RAM: **${fmtBytes(res.memUsed as number)}** / ${fmtBytes(res.memTotal as number)} (${(res.memPercent as number | undefined) ?? '?'}%)`,
+    );
   } else if (res.memPercent != null) {
-    parts.push(`🧠 RAM: **${res.memPercent}%**`);
+    parts.push(`\uD83E\uDDE0 RAM: **${res.memPercent as number}%**`);
   }
   if (res.diskUsed != null && res.diskTotal != null) {
-    parts.push(`💾 Disk: **${fmtBytes(res.diskUsed)}** / ${fmtBytes(res.diskTotal)} (${res.diskPercent ?? '?'}%)`);
+    parts.push(
+      `\uD83D\uDCBE Disk: **${fmtBytes(res.diskUsed as number)}** / ${fmtBytes(res.diskTotal as number)} (${(res.diskPercent as number | undefined) ?? '?'}%)`,
+    );
   } else if (res.diskPercent != null) {
-    parts.push(`💾 Disk: **${res.diskPercent}%**`);
+    parts.push(`\uD83D\uDCBE Disk: **${res.diskPercent as number}%**`);
   }
   if (parts.length === 0) return [];
-  return [{ name: '📡 Host Resources', value: parts.join('\n'), inline: false }];
+  return [{ name: '\uD83D\uDCE1 Host Resources', value: parts.join('\n'), inline: false }];
 }
 
-/**
- * Build a difficulty schedule field from config.
- * Returns { name, value } or null if scheduler is disabled.
- *
- * @param {object} cfg - Config with enableServerScheduler, restartTimes, etc.
- * @returns {{ name: string, value: string }|null}
- */
-function buildScheduleField(cfg) {
+function buildScheduleField(cfg: Record<string, any>): { name: string; value: string } | null {
   if (!cfg.enableServerScheduler) return null;
-  const timesStr = cfg.restartTimes || process.env.RESTART_TIMES || '';
-  const profilesStr = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
+  const timesStr = (cfg.restartTimes as string) || process.env.RESTART_TIMES || '';
+  const profilesStr = (cfg.restartProfiles as string) || process.env.RESTART_PROFILES || '';
   const times = timesStr
     .split(',')
-    .map((s) => s.trim())
+    .map((s: string) => s.trim())
     .filter(Boolean);
   const profiles = profilesStr
     .split(',')
-    .map((s) => s.trim().toLowerCase())
+    .map((s: string) => s.trim().toLowerCase())
     .filter(Boolean);
   if (times.length === 0 || profiles.length === 0) return null;
 
   // Daily rotation offset
-  const dayOffset = getDayOffset(cfg.botTimezone, profiles.length, cfg.restartRotateDaily);
+  const dayOffset = getDayOffset(cfg.botTimezone as string, profiles.length, cfg.restartRotateDaily as boolean);
 
   // Determine active time slot
   const now = new Date();
@@ -472,52 +378,54 @@ function buildScheduleField(cfg) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: cfg.botTimezone,
+    timeZone: cfg.botTimezone as string,
   });
   const [h, m] = timeStr.split(':').map(Number);
-  const nowMin = h * 60 + m;
-  const timeMins = times.map((t) => {
+  const nowMin = (h ?? 0) * 60 + (m ?? 0);
+  const timeMins = times.map((t: string) => {
     const [th, tm] = t.split(':').map(Number);
-    return th * 60 + (tm || 0);
+    return (th ?? 0) * 60 + (tm ?? 0);
   });
   let activeSlot = 0;
   for (let i = timeMins.length - 1; i >= 0; i--) {
-    if (nowMin >= timeMins[i]) {
+    if (nowMin >= (timeMins[i] ?? 0)) {
       activeSlot = i;
       break;
     }
   }
 
   // Build schedule lines
-  const lines = times.map((startTime, slotIdx) => {
+  const lines = times.map((startTime: string, slotIdx: number) => {
     const profileIdx = getRotatedProfileIndex(slotIdx, profiles.length, dayOffset);
-    const name = profiles[profileIdx];
+    const name = profiles[profileIdx] ?? '';
     const envKey = `RESTART_PROFILE_${name.toUpperCase()}`;
-    let settings = {};
+    let settings: Record<string, string> = {};
     try {
-      settings = JSON.parse(process.env[envKey] || '{}');
-    } catch {}
+      settings = JSON.parse(process.env[envKey] || '{}') as Record<string, string>;
+    } catch {
+      // ignore parse errors
+    }
     const endTime = times[(slotIdx + 1) % times.length] || times[0];
-    const desc = [];
-    const zombieAmt = parseFloat(settings.ZombieAmountMulti);
-    const xp = parseFloat(settings.XpMultiplier);
-    if (!isNaN(zombieAmt)) desc.push(`${zombieAmt}x zombies`);
-    if (!isNaN(xp) && xp > 1) desc.push(`${xp}x XP`);
-    const loot = parseInt(settings.RarityMelee || settings.RarityFood, 10);
+    const desc: string[] = [];
+    const zombieAmt = parseFloat(settings.ZombieAmountMulti ?? '');
+    const xp = parseFloat(settings.XpMultiplier ?? '');
+    if (!isNaN(zombieAmt)) desc.push(`${String(zombieAmt)}x zombies`);
+    if (!isNaN(xp) && xp > 1) desc.push(`${String(xp)}x XP`);
+    const loot = parseInt(settings.RarityMelee || settings.RarityFood || '', 10);
     if (!isNaN(loot) && loot > 2) desc.push('better loot');
     const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-    const marker = slotIdx === activeSlot ? ' ◀' : '';
-    return `${startTime}–${endTime} · **${displayName}**${desc.length ? ' — ' + desc.join(', ') : ''}${marker}`;
+    const marker = slotIdx === activeSlot ? ' \u25C0' : '';
+    return `${startTime}\u2013${endTime as string} \u00B7 **${displayName}**${desc.length ? ' \u2014 ' + desc.join(', ') : ''}${marker}`;
   });
 
-  return { name: '🔄 Difficulty Schedule', value: lines.join('\n') };
+  return { name: '\uD83D\uDD04 Difficulty Schedule', value: lines.join('\n') };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Exports
 // ═══════════════════════════════════════════════════════════════════════════
 
-module.exports = {
+export {
   // Label constants
   DIFFICULTY_LABELS,
   SCARCITY_LABELS,
@@ -546,6 +454,35 @@ module.exports = {
   timeEmoji,
 
   // Compound builders
+  buildSettingsFields,
+  buildLootScarcity,
+  buildWeatherOdds,
+  buildResourceField,
+  buildScheduleField,
+};
+
+const _mod = module as { exports: any };
+
+_mod.exports = {
+  DIFFICULTY_LABELS,
+  SCARCITY_LABELS,
+  ON_DEATH_LABELS,
+  VITAL_DRAIN_LABELS,
+  AI_EVENT_LABELS,
+  formatTime,
+  spawnLabel,
+  difficultyLabel,
+  difficultyBar,
+  settingBool,
+  settingLabel,
+  settingMultiplier,
+  settingDays,
+  settingPermaDeath,
+  progressBar,
+  blockBar,
+  weatherEmoji,
+  seasonEmoji,
+  timeEmoji,
   buildSettingsFields,
   buildLootScarcity,
   buildWeatherOdds,

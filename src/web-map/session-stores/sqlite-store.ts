@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-explicit-any,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unsafe-return */
 /**
  * SQLite session store for express-session.
  *
@@ -8,28 +12,27 @@
  * Background cleanup runs every 15 minutes to prune expired rows.
  */
 
-'use strict';
+import { Store } from 'express-session';
+import util from 'util';
+import { createLogger } from '../../utils/log.js';
 
-const { Store } = require('express-session');
-const util = require('util');
-const { createLogger } = require('../../utils/log');
 const _log = createLogger(null, 'SESSION:SQLite');
 
 // ── SqliteSessionStore ──────────────────────────────────────────────────────
 
-/**
- * @param {import('better-sqlite3').Database} db - better-sqlite3 database instance
- * @param {object} [opts]
- * @param {string} [opts.table='web_sessions'] - table name
- * @param {number} [opts.cleanupInterval=900000] - cleanup interval in ms (default 15 min)
- */
-function SqliteSessionStore(db, opts = {}) {
-  Store.call(this, opts);
+interface SqliteStoreOptions {
+  table?: string;
+  cleanupInterval?: number;
+  ttlMs?: number;
+}
+
+function SqliteSessionStore(this: any, db: any, opts: SqliteStoreOptions = {}) {
+  (Store as any).call(this, opts);
 
   this._db = db;
   this._table = opts.table || 'web_sessions';
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(this._table)) {
-    throw new Error(`[SESSION] Invalid table name: ${this._table}`);
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(this._table as string)) {
+    throw new Error(`[SESSION] Invalid table name: ${this._table as string}`);
   }
   this._cleanupInterval = opts.cleanupInterval ?? 15 * 60 * 1000;
   this._cleanupTimer = null;
@@ -44,23 +47,23 @@ util.inherits(SqliteSessionStore, Store);
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
-SqliteSessionStore.prototype._ensureTable = function () {
-  this._db.exec(`
-    CREATE TABLE IF NOT EXISTS ${this._table} (
+SqliteSessionStore.prototype._ensureTable = function (this: any) {
+  const ddl = `
+    CREATE TABLE IF NOT EXISTS ${this._table as string} (
       sid TEXT PRIMARY KEY,
       sess TEXT NOT NULL,
       expired INTEGER NOT NULL
     )
-  `);
-  this._db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_${this._table}_expired ON ${this._table} (expired)
-  `);
+  `;
+  this._db.exec(ddl);
+  const idx = `CREATE INDEX IF NOT EXISTS idx_${this._table as string}_expired ON ${this._table as string} (expired)`;
+  this._db.exec(idx);
 };
 
 // ── Prepared Statements ─────────────────────────────────────────────────────
 
-SqliteSessionStore.prototype._prepareStatements = function () {
-  const t = this._table;
+SqliteSessionStore.prototype._prepareStatements = function (this: any) {
+  const t = this._table as string;
   this._stmtGet = this._db.prepare(`SELECT sess FROM ${t} WHERE sid = ? AND expired > ?`);
   this._stmtSet = this._db.prepare(`INSERT OR REPLACE INTO ${t} (sid, sess, expired) VALUES (?, ?, ?)`);
   this._stmtDestroy = this._db.prepare(`DELETE FROM ${t} WHERE sid = ?`);
@@ -73,120 +76,139 @@ SqliteSessionStore.prototype._prepareStatements = function () {
 
 // ── Store Interface ─────────────────────────────────────────────────────────
 
-SqliteSessionStore.prototype.get = function (sid, callback) {
+SqliteSessionStore.prototype.get = function (
+  this: any,
+  sid: string,
+  callback: (err: Error | null, session?: any) => void,
+) {
   try {
     const now = Date.now();
     const row = this._stmtGet.get(sid, now);
-    if (!row) return callback(null, null);
+    if (!row) {
+      callback(null, null);
+      return;
+    }
     const sess = JSON.parse(row.sess);
     callback(null, sess);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.set = function (sid, session, callback) {
+SqliteSessionStore.prototype.set = function (
+  this: any,
+  sid: string,
+  session: any,
+  callback: (err: Error | null) => void,
+) {
   try {
     const expired = this._getExpireTime(session);
     const sess = JSON.stringify(session);
     this._stmtSet.run(sid, sess, expired);
     callback(null);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.destroy = function (sid, callback) {
+SqliteSessionStore.prototype.destroy = function (this: any, sid: string, callback?: (err: Error | null) => void) {
   try {
     this._stmtDestroy.run(sid);
     if (callback) callback(null);
   } catch (err) {
-    if (callback) callback(err);
+    if (callback) callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.touch = function (sid, session, callback) {
+SqliteSessionStore.prototype.touch = function (
+  this: any,
+  sid: string,
+  session: any,
+  callback: (err: Error | null) => void,
+) {
   try {
     const expired = this._getExpireTime(session);
     this._stmtTouch.run(expired, sid);
     callback(null);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.length = function (callback) {
+SqliteSessionStore.prototype.length = function (this: any, callback: (err: Error | null, length?: number) => void) {
   try {
     const row = this._stmtLength.get(Date.now());
     callback(null, row.cnt);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.clear = function (callback) {
+SqliteSessionStore.prototype.clear = function (this: any, callback: (err: Error | null) => void) {
   try {
     this._stmtClear.run();
     callback(null);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
-SqliteSessionStore.prototype.all = function (callback) {
+SqliteSessionStore.prototype.all = function (this: any, callback: (err: Error | null, sessions?: any[]) => void) {
   try {
     const rows = this._stmtAll.all(Date.now());
-    const sessions = rows.map((r) => JSON.parse(r.sess));
+    const sessions = rows.map((r: any) => JSON.parse(r.sess));
     callback(null, sessions);
   } catch (err) {
-    callback(err);
+    callback(err as Error);
   }
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-SqliteSessionStore.prototype._getExpireTime = function (session) {
+SqliteSessionStore.prototype._getExpireTime = function (this: any, session: any) {
   if (session && session.cookie) {
-    // 1. Absolute expiry (set by express-session from maxAge)
     if (session.cookie.expires) {
       const t = new Date(session.cookie.expires).getTime();
       if (!isNaN(t)) return t;
     }
-    // 2. Relative maxAge (rolling sessions update this on each request)
     if (typeof session.cookie.maxAge === 'number' && session.cookie.maxAge > 0) {
       return Date.now() + session.cookie.maxAge;
     }
-    // 3. Original maxAge (initial value before countdown)
     if (typeof session.cookie.originalMaxAge === 'number' && session.cookie.originalMaxAge > 0) {
       return Date.now() + session.cookie.originalMaxAge;
     }
   }
-  // 4. Fallback: configured TTL (default 7 days, matching auth.js SESSION_TTL)
-  return Date.now() + (this._ttlMs || 7 * 24 * 60 * 60 * 1000);
+  return Date.now() + ((this._ttlMs as number) || 7 * 24 * 60 * 60 * 1000);
 };
 
 // ── Background Cleanup ──────────────────────────────────────────────────────
 
-SqliteSessionStore.prototype._startCleanup = function () {
-  if (this._cleanupInterval <= 0) return;
+SqliteSessionStore.prototype._startCleanup = function (this: any) {
+  if ((this._cleanupInterval as number) <= 0) return;
   this._cleanupTimer = setInterval(() => {
     try {
       const result = this._stmtPrune.run(Date.now());
       if (result.changes > 0) {
         _log.info('Pruned %d expired session(s)', result.changes);
       }
-    } catch (err) {
-      _log.error('Cleanup error:', err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      _log.error('Cleanup error:', msg);
     }
-  }, this._cleanupInterval);
+  }, this._cleanupInterval as number);
   this._cleanupTimer.unref();
 };
 
-SqliteSessionStore.prototype.stopCleanup = function () {
+SqliteSessionStore.prototype.stopCleanup = function (this: any) {
   if (this._cleanupTimer) {
     clearInterval(this._cleanupTimer);
     this._cleanupTimer = null;
   }
 };
 
-module.exports = { SqliteSessionStore };
+export { SqliteSessionStore };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { SqliteSessionStore };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

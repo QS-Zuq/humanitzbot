@@ -1,3 +1,5 @@
+import type { Response } from 'express';
+
 const API_ERRORS = {
   RATE_LIMITED: 'RATE_LIMITED',
   PLAYER_NOT_FOUND: 'PLAYER_NOT_FOUND',
@@ -73,9 +75,9 @@ const API_ERRORS = {
   BOT_CONTROL_NOT_AVAILABLE: 'BOT_CONTROL_NOT_AVAILABLE',
   CONFIRM_NUKE_REQUIRED: 'CONFIRM_NUKE_REQUIRED',
   BOT_ACTION_PENDING: 'BOT_ACTION_PENDING',
-};
+} as const;
 
-const EN_MESSAGES = {
+const EN_MESSAGES: Record<string, string> = {
   [API_ERRORS.RATE_LIMITED]: 'Too many requests, try again later',
   [API_ERRORS.PLAYER_NOT_FOUND]: 'Player not found',
   [API_ERRORS.INVALID_BOUNDS]: 'Invalid bounds — need xMin, xMax, yMin, yMax as numbers',
@@ -152,7 +154,7 @@ const EN_MESSAGES = {
   [API_ERRORS.BOT_ACTION_PENDING]: 'Another bot action is already in progress',
 };
 
-function sendError(res, code, status = 400, details) {
+function sendError(res: Response, code: string, status = 400, details?: Record<string, unknown> | string): void {
   let msg = EN_MESSAGES[code] || code;
   // Interpolate {key} placeholders in error message
   if (details && typeof details === 'object') {
@@ -171,8 +173,13 @@ function sendError(res, code, status = 400, details) {
   });
 }
 
-function sendOk(res, data = {}) {
+function sendOk(res: Response, data: Record<string, unknown> = {}): void {
   res.json({ ok: true, ...data });
 }
 
-module.exports = { API_ERRORS, EN_MESSAGES, sendError, sendOk };
+export { API_ERRORS, EN_MESSAGES, sendError, sendOk };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { API_ERRORS, EN_MESSAGES, sendError, sendOk };

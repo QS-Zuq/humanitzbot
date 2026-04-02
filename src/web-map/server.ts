@@ -1,3 +1,12 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
+   @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
+   @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
+   @typescript-eslint/no-require-imports, @typescript-eslint/no-unnecessary-type-assertion */
 /**
  * Web Map Server — Interactive Leaflet-based player map served via Express.
  *
@@ -11,35 +20,43 @@
  * Integrates with: save-parser, player-stats, playtime-tracker, rcon
  */
 
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const config = require('../config');
-const { parseSave, PERK_MAP } = require('../parsers/save-parser');
-const { AFFLICTION_MAP } = require('../parsers/game-data');
-const { cleanName: cleanActorName, cleanItemName, cleanItemArray } = require('../parsers/ue4-names');
-const playerStats = require('../tracking/player-stats');
-const playtime = require('../tracking/playtime-tracker');
-const rcon = require('../rcon/rcon');
-const { setupAuth, requireTier } = require('./auth');
-const { API_ERRORS, sendError, sendOk } = require('./api-errors');
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import config from '../config/index.js';
+import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
+import { AFFLICTION_MAP } from '../parsers/game-data.js';
+import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
+import playerStats from '../tracking/player-stats.js';
+import playtime from '../tracking/playtime-tracker.js';
+import rcon from '../rcon/rcon.js';
+import { setupAuth, requireTier } from './auth.js';
+import { API_ERRORS, sendError, sendOk } from './api-errors.js';
+
 const serverResources = require('../server/server-resources');
-const { formatBytes, formatUptime } = require('../server/server-resources');
-const { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } = require('../modules/panel-constants');
-const { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } = require('../db/config-migration');
-const { readPrivateKey } = require('../utils/security');
+const { formatBytes, formatUptime } = serverResources as {
+  formatBytes: (b: number | null | undefined) => string;
+  formatUptime: (s: number | null | undefined) => string | null;
+};
+import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
+import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
+import { readPrivateKey } from '../utils/security.js';
+import { getDirname } from '../utils/paths.js';
+
+const __dirname = getDirname(import.meta.url);
 
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
-const expressRateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = expressRateLimit;
-function rateLimit(windowMs, maxReqs) {
+import expressRateLimit from 'express-rate-limit';
+function rateLimit(windowMs: number, maxReqs: number) {
   return expressRateLimit({
     windowMs,
     max: maxReqs,
     standardHeaders: false,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip) + ':' + req.path,
-    handler: (_req, res) => sendError(res, API_ERRORS.RATE_LIMITED, 429),
+    keyGenerator: (req) => (req.ip || 'unknown') + ':' + req.path,
+    handler: (_req, res) => {
+      sendError(res, API_ERRORS.RATE_LIMITED, 429);
+    },
   });
 }
 
@@ -53,13 +70,13 @@ setInterval(() => {
 }, 300000).unref();
 
 /** Sanitize error messages for client responses — strip file paths and stack traces */
-function safeError(err) {
+function safeError(err: any): string {
   const msg = (err && err.message) || 'Internal server error';
   // Strip absolute paths
   return msg.replace(/\/[\w/.-]+/g, '[path]').substring(0, 200);
 }
 
-function stripControlChars(value) {
+function stripControlChars(value: any): string {
   const input = String(value ?? '');
   let out = '';
   for (let i = 0; i < input.length; i++) {
@@ -72,13 +89,13 @@ function stripControlChars(value) {
   return out;
 }
 
-function sendErrorWithData(res, code, data, status = 400, details) {
+function sendErrorWithData(res: any, code: string, data: any, status = 400, details?: any): void {
   const originalJson = res.json.bind(res);
-  res.json = (payload) => {
+  res.json = (payload: any) => {
     res.json = originalJson;
     return originalJson({ ...payload, ...data });
   };
-  return sendError(res, code, status, details);
+  sendError(res, code, status, details);
 }
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -93,13 +110,13 @@ const CALIBRATION_FILE = path.join(DATA_DIR, 'map-calibration.json');
  * @param {object} ss — Full server_settings object from bot_state
  * @returns {object} Curated settings for frontend rendering
  */
-function _extractLandingSettings(ss) {
+function _extractLandingSettings(ss: any): any {
   if (!ss || typeof ss !== 'object') return null;
-  const n = (k, fb) => {
+  const n = (k: string, fb: number) => {
     const v = parseFloat(ss[k]);
     return isNaN(v) ? fb : v;
   };
-  const i = (k, fb) => {
+  const i = (k: string, fb: number) => {
     const v = parseInt(ss[k], 10);
     return isNaN(v) ? fb : v;
   };
@@ -148,7 +165,8 @@ function _extractLandingSettings(ss) {
 }
 
 class WebMapServer {
-  constructor(client, opts = {}) {
+  [key: string]: any;
+  constructor(client: any, opts: any = {}) {
     this._client = client;
     this._app = express();
     // Trust proxy — 'loopback' for local reverse proxy (Caddy/nginx),
@@ -157,7 +175,7 @@ class WebMapServer {
     const trustProxy = config.webMapTrustProxy;
     this._app.set('trust proxy', /^\d+$/.test(trustProxy) ? parseInt(trustProxy, 10) : trustProxy);
     this._server = null;
-    this._port = parseInt(process.env.WEB_MAP_PORT, 10) || 3000;
+    this._port = parseInt(process.env.WEB_MAP_PORT || '', 10) || 3000;
     this._db = opts.db || null;
     this._scheduler = opts.scheduler || null;
     this._saveService = opts.saveService || null;
@@ -170,23 +188,23 @@ class WebMapServer {
 
     // Setter methods — allow late-binding of dependencies that start after the web panel
     /** @param {object} scheduler ServerScheduler instance */
-    this.setScheduler = (scheduler) => {
+    this.setScheduler = (scheduler: any) => {
       this._scheduler = scheduler;
     };
     /** @param {object} saveService SaveService instance */
-    this.setSaveService = (saveService) => {
+    this.setSaveService = (saveService: any) => {
       this._saveService = saveService;
     };
     /** @param {object} msm MultiServerManager instance */
-    this.setMultiServerManager = (msm) => {
+    this.setMultiServerManager = (msm: any) => {
       this._multiServerManager = msm;
     };
     /** @param {import('../server/bot-control')} bc BotControlService instance */
-    this.setBotControl = (bc) => {
+    this.setBotControl = (bc: any) => {
       this._botControl = bc;
     };
     /** @param {object} status Module status map { moduleName: statusString } */
-    this.setModuleStatus = (status) => {
+    this.setModuleStatus = (status: any) => {
       this._moduleStatus = status;
     };
 
@@ -196,10 +214,10 @@ class WebMapServer {
     // Cache: last parsed save data
     this._playerCache = new Map();
     this._lastParse = 0;
-    this._idMap = {};
+    this._idMap = {} as Record<string, string>;
 
     // Security headers
-    this._app.use((_req, res, next) => {
+    this._app.use((_req: any, res: any, next: any) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('X-XSS-Protection', '0'); // Disabled — modern browsers don't need it, can cause XSS in old ones
@@ -231,14 +249,14 @@ class WebMapServer {
   }
 
   /** Load calibration data from file, or return defaults. */
-  _loadCalibration() {
+  _loadCalibration(): any {
     try {
       if (fs.existsSync(CALIBRATION_FILE)) {
         const data = JSON.parse(fs.readFileSync(CALIBRATION_FILE, 'utf8'));
         console.log('[WEB MAP] Loaded calibration from file');
         return data;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[WEB MAP] Failed to load calibration:', err.message);
     }
 
@@ -256,12 +274,12 @@ class WebMapServer {
   }
 
   /** Save calibration to file. */
-  _saveCalibration(bounds) {
+  _saveCalibration(bounds: any): void {
     this._worldBounds = bounds;
     try {
       fs.writeFileSync(CALIBRATION_FILE, JSON.stringify(bounds, null, 2));
       console.log('[WEB MAP] Saved calibration:', JSON.stringify(bounds));
-    } catch (err) {
+    } catch (err: any) {
       console.error('[WEB MAP] Failed to save calibration:', err.message);
     }
   }
@@ -270,7 +288,7 @@ class WebMapServer {
    * Server-side response cache — prevents repeated RCON/DB/file hits for the same data.
    * Keyed by "endpoint:serverId". Returns cached JSON or null if expired/missing.
    */
-  _getCached(endpoint, serverId, maxAgeMs = 15000) {
+  _getCached(endpoint: string, serverId: string, maxAgeMs = 15000): any {
     const key = `${endpoint}:${serverId || 'primary'}`;
     const entry = this._responseCache.get(key);
     if (entry && Date.now() - entry.ts < maxAgeMs) return entry.data;
@@ -278,7 +296,7 @@ class WebMapServer {
   }
 
   /** Store a response in the cache. */
-  _setCache(endpoint, serverId, data) {
+  _setCache(endpoint: string, serverId: string, data: any): void {
     const key = `${endpoint}:${serverId || 'primary'}`;
     this._responseCache.set(key, { data, ts: Date.now() });
   }
@@ -288,14 +306,14 @@ class WebMapServer {
    * Private modules (e.g. howyagarn/web-plugin) call this to extend the panel.
    * @param {object} plugin — { name, css[], js[], dashboardHtml, registerRoutes(app, helpers), getLandingData() }
    */
-  registerPlugin(plugin) {
+  registerPlugin(plugin: any): void {
     if (!plugin || !plugin.name) return;
     this._plugins.push(plugin);
     // If the server is already running, register routes immediately
     if (this._server && typeof plugin.registerRoutes === 'function') {
       try {
         plugin.registerRoutes(this._app, { rateLimit, requireTier });
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[WEB MAP] Plugin ${plugin.name} late route registration failed:`, err.message);
       }
     }
@@ -303,16 +321,16 @@ class WebMapServer {
   }
 
   /** Load player ID map from file. */
-  _loadIdMap() {
+  _loadIdMap(): void {
     try {
       const raw = fs.readFileSync(path.join(DATA_DIR, 'logs', 'PlayerIDMapped.txt'), 'utf8');
-      const map = {};
+      const map: Record<string, string> = {};
       for (const line of raw.split('\n')) {
         const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m) map[m[1]] = m[2].trim();
+        if (m?.[1] && m[2]) map[m[1]] = m[2].trim();
       }
       this._idMap = map;
-    } catch (err) {
+    } catch (err: any) {
       console.error('[WEB MAP] Failed to load ID map:', err.message);
     }
   }
@@ -320,7 +338,7 @@ class WebMapServer {
   // ── Multi-server helpers ──────────────────────────────────
 
   /** Load the list of additional (managed) servers. DB-first, fallback to servers.json. */
-  _loadServerList() {
+  _loadServerList(): any[] {
     // DB-backed: read from config_documents
     if (this._configRepo) {
       try {
@@ -331,7 +349,7 @@ class WebMapServer {
           if (data && data.id) servers.push(data);
         }
         return servers;
-      } catch (err) {
+      } catch (err: any) {
         console.error('[WEB MAP] Failed to load servers from DB:', err.message);
       }
     }
@@ -340,14 +358,14 @@ class WebMapServer {
       if (fs.existsSync(SERVERS_FILE)) {
         return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[WEB MAP] Failed to load servers.json:', err.message);
     }
     return [];
   }
 
   /** Get data directory for a server id (or primary). */
-  _getServerDataDir(serverId) {
+  _getServerDataDir(serverId: string): string | null {
     if (!serverId || serverId === 'primary') return DATA_DIR;
     // Sanitize to prevent path traversal
     const safe = serverId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -360,7 +378,7 @@ class WebMapServer {
    * Returns { db, rcon, config, playerStats, playtime, getPlayerList, getServerInfo,
    *           scheduler, dataDir, isPrimary, serverId } or null if server not found.
    */
-  _resolveServer(serverId) {
+  _resolveServer(serverId: string): any {
     const isPrimary = !serverId || serverId === 'primary';
     if (isPrimary) {
       return {
@@ -403,13 +421,13 @@ class WebMapServer {
   }
 
   /** Load player ID map from a specific data directory, falling back to DB names. */
-  _loadIdMapFrom(dataDir, db) {
-    const map = {};
+  _loadIdMapFrom(dataDir: string, db: any): Record<string, string> {
+    const map: Record<string, string> = {};
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'logs', 'PlayerIDMapped.txt'), 'utf8');
       for (const line of raw.split('\n')) {
         const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m) map[m[1]] = m[2].trim();
+        if (m?.[1] && m?.[2]) map[m[1]] = m[2].trim();
       }
     } catch {
       /* file may not exist for this server */
@@ -419,8 +437,8 @@ class WebMapServer {
     if (Object.keys(map).length === 0 && db) {
       try {
         const rows = db._db.prepare("SELECT steam_id, name FROM players WHERE name != ''").all();
-        for (const row of rows) {
-          if (row.steam_id && row.name) map[row.steam_id] = row.name;
+        for (const row of rows as any[]) {
+          if (row.steam_id && row.name) map[row.steam_id as string] = row.name as string;
         }
       } catch {
         /* DB may not have players yet */
@@ -433,16 +451,16 @@ class WebMapServer {
    * Load player-stats.json from a data directory.
    * Returns a { getStats(steamId), getStatsByName(name) } interface.
    */
-  _loadLogStatsFrom(dataDir) {
+  _loadLogStatsFrom(dataDir: string): any {
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'player-stats.json'), 'utf8');
       const data = JSON.parse(raw);
-      const players = data.players || {};
+      const players: Record<string, any> = data.players || {};
       return {
-        getStats(steamId) {
-          return players[steamId] || null;
+        getStats(steamId: string) {
+          return (players as any)[steamId] || null;
         },
-        getStatsByName(name) {
+        getStatsByName(name: string) {
           const lower = (name || '').toLowerCase();
           for (const rec of Object.values(players)) {
             if ((rec.name || '').toLowerCase() === lower) return rec;
@@ -452,10 +470,10 @@ class WebMapServer {
       };
     } catch {
       return {
-        getStats() {
+        getStats(_steamId?: string) {
           return null;
         },
-        getStatsByName() {
+        getStatsByName(_name?: string) {
           return null;
         },
       };
@@ -463,13 +481,13 @@ class WebMapServer {
   }
 
   /** Load playtime.json from a data directory. */
-  _loadPlaytimeFrom(dataDir) {
+  _loadPlaytimeFrom(dataDir: string): any {
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'playtime.json'), 'utf8');
       const data = JSON.parse(raw);
-      const players = data.players || {};
+      const players: Record<string, any> = data.players || {};
       return {
-        getPlaytime(steamId) {
+        getPlaytime(steamId: string) {
           const p = players[steamId];
           if (!p) return null;
           return { totalMs: p.totalMs || 0, lastSeen: p.lastSeen || null };
@@ -477,7 +495,7 @@ class WebMapServer {
       };
     } catch {
       return {
-        getPlaytime() {
+        getPlaytime(_steamId?: string) {
           return null;
         },
       };
@@ -488,7 +506,7 @@ class WebMapServer {
    * Parse save data for a specific server.
    * Tries (in order): save-cache.json, humanitz-cache.json, raw .sav files.
    */
-  _parseSaveDataForServer(dataDir) {
+  _parseSaveDataForServer(dataDir: string): Map<string, any> {
     // 1. Try save-cache.json (written by PlayerStatsChannel)
     try {
       const cachePath = path.join(dataDir, 'save-cache.json');
@@ -543,7 +561,7 @@ class WebMapServer {
   }
 
   /** Parse save file and cache results. Uses save-cache.json when available. */
-  _parseSaveData() {
+  _parseSaveData(): Map<string, any> {
     const now = Date.now();
     // Cache for 30s
     if (now - this._lastParse < 30000 && this._playerCache.size > 0) {
@@ -574,7 +592,7 @@ class WebMapServer {
         this._lastParse = now;
         this._loadIdMap();
         return this._playerCache;
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[WEB MAP] Failed to parse ${path.basename(savePath)}:`, err.message);
       }
     }
@@ -582,7 +600,7 @@ class WebMapServer {
   }
 
   /** Convert world coords to Leaflet [lat, lng] for CRS.Simple. */
-  _worldToLeaflet(worldX, worldY) {
+  _worldToLeaflet(worldX: number, worldY: number): [number, number] {
     const b = this._worldBounds;
     // lat (vertical) = maps UE4 X (north/south) — X+ is up
     const lat = ((worldX - b.xMin) / (b.xMax - b.xMin)) * 4096;
@@ -592,7 +610,7 @@ class WebMapServer {
   }
 
   /** Return SHOW_* toggles for the frontend to conditionally display sections. */
-  _getToggles() {
+  _getToggles(): Record<string, any> {
     return {
       showVitals: config.showVitals,
       showHealth: config.showHealth,
@@ -623,7 +641,7 @@ class WebMapServer {
   }
 
   /** Set up Express routes. */
-  _setupRoutes() {
+  _setupRoutes(): void {
     const app = this._app;
     const configRepo = this._configRepo;
 
@@ -634,7 +652,8 @@ class WebMapServer {
 
     // ── Root page → panel.html (must come before static middleware) ──
     // If plugins are registered, inject their CSS/JS/HTML before serving
-    app.get('/', (req, res) => {
+
+    app.get('/', (_req: any, res: any) => {
       if (!this._plugins.length) {
         return res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
       }
@@ -646,13 +665,13 @@ class WebMapServer {
         return res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
       }
       const cssLinks = this._plugins
-        .flatMap((p) => (p.css || []).map((href) => `<link rel="stylesheet" href="${href}"`))
+        .flatMap((p: any) => ((p.css || []) as string[]).map((href: string) => `<link rel="stylesheet" href="${href}"`))
         .join('\n    ');
       const jsScripts = this._plugins
-        .flatMap((p) => (p.js || []).map((src) => `<script src="${src}"></script>`))
+        .flatMap((p: any) => ((p.js || []) as string[]).map((src: string) => `<script src="${src}"></script>`))
         .join('\n    ');
       const dashHtml = this._plugins
-        .map((p) => p.dashboardHtml || '')
+        .map((p: any) => p.dashboardHtml || '')
         .filter(Boolean)
         .join('\n            ');
       if (cssLinks) html = html.replace('</head>', `    ${cssLinks}\n  </head>`);
@@ -671,15 +690,15 @@ class WebMapServer {
     // ── Multi-server context middleware ──
     // Resolves ?server=<id> query param into a server context object on req.srv
     // Falls back to primary server if not specified or not found
-    app.use('/api', (req, _res, next) => {
+    app.use('/api', (req: any, _res: any, next: any) => {
       const serverId = req.query.server || req.body?.server || 'primary';
       req.srv = this._resolveServer(serverId) || this._resolveServer('primary');
       next();
     });
 
     // ── API: List available servers (multi-server support) ──
-    app.get('/api/servers', requireTier('survivor'), (req, res) => {
-      const servers = [{ id: 'primary', name: config.serverName || 'Primary Server' }];
+    app.get('/api/servers', requireTier('survivor'), (_req: any, res: any) => {
+      const servers = [{ id: 'primary', name: (config as any).serverName || 'Primary Server' }];
       const additional = this._loadServerList();
       for (const s of additional) {
         const dir = this._getServerDataDir(s.id);
@@ -689,7 +708,7 @@ class WebMapServer {
     });
 
     // ── API: Calibration data — all entity positions for map alignment ──
-    app.get('/api/calibration-data', requireTier('admin'), (req, res) => {
+    app.get('/api/calibration-data', requireTier('admin'), (req: any, res: any) => {
       try {
         const srv = req.srv;
         const cachePath = path.join(srv.dataDir, 'save-cache.json');
@@ -697,7 +716,7 @@ class WebMapServer {
         const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
 
         const points = [];
-        const add = (arr, type) => {
+        const add = (arr: any, type: string) => {
           if (!arr) return;
           for (const item of arr) {
             const x = item.x ?? item.worldX ?? null;
@@ -707,7 +726,7 @@ class WebMapServer {
         };
 
         // Players
-        for (const [, p] of Object.entries(data.players || {})) {
+        for (const [, p] of Object.entries(data.players || {}) as [string, any][]) {
           if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x, p.y, 'P']);
         }
 
@@ -722,35 +741,35 @@ class WebMapServer {
 
         // LOD pickups (positions extracted)
         if (ws.lodPickups) {
-          for (const p of ws.lodPickups) {
+          for (const p of ws.lodPickups as any[]) {
             if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x, p.y, 'l']);
           }
         }
 
         // Houses
         if (ws.houses) {
-          for (const h of ws.houses) {
+          for (const h of ws.houses as any[]) {
             if (h.x != null && !(h.x === 0 && h.y === 0)) points.push([h.x, h.y, 'H']);
           }
         }
 
         // Global containers
         if (ws.globalContainers) {
-          for (const c of ws.globalContainers) {
+          for (const c of ws.globalContainers as any[]) {
             if (c.x != null && !(c.x === 0 && c.y === 0)) points.push([c.x, c.y, 'c']);
           }
         }
 
         console.log(`[WEB MAP] Calibration data: ${points.length} positions`);
         res.json(points);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[WEB MAP] Calibration data error:', err.message);
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Get all player positions ──
-    app.get('/api/players', requireTier('survivor'), rateLimit(10000, 10), async (req, res) => {
+    app.get('/api/players', requireTier('survivor'), rateLimit(10000, 10), async (req: any, res: any) => {
       const srv = req.srv;
 
       // Resolve data sources based on server
@@ -772,7 +791,7 @@ class WebMapServer {
       }
 
       // Build clan membership lookup from DB
-      const clanLookup = {}; // steamId → { clanName, rank }
+      const clanLookup: Record<string, any> = {}; // steamId → { clanName, rank }
       if (srv.db) {
         try {
           const clans = srv.db.getAllClans?.() || [];
@@ -822,7 +841,7 @@ class WebMapServer {
           male: data.male,
           profession: professionName,
           affliction: AFFLICTION_MAP[data.affliction] || 'Unknown',
-          unlockedProfessions: (data.unlockedProfessions || []).map((p) => PERK_MAP[p] || p),
+          unlockedProfessions: (data.unlockedProfessions || []).map((p: any) => PERK_MAP[p] || p),
 
           // Current-life kill stats
           zeeksKilled: data.zeeksKilled || 0,
@@ -873,8 +892,8 @@ class WebMapServer {
           infectionBuildup: data.infectionBuildup,
 
           // Status effects (cleaned)
-          playerStates: (data.playerStates || []).map((s) => cleanItemName(s)),
-          bodyConditions: (data.bodyConditions || []).map((s) => cleanItemName(s)),
+          playerStates: (data.playerStates || []).map((s: any) => cleanItemName(s)),
+          bodyConditions: (data.bodyConditions || []).map((s: any) => cleanItemName(s)),
 
           // Inventory (server-side cleaned)
           equipment: _cleanInventorySlots(data.equipment),
@@ -893,7 +912,7 @@ class WebMapServer {
           craftedUniques: cleanItemArray(data.craftedUniques || []),
 
           // Companions (cleaned)
-          companionData: (data.companionData || []).map((c) =>
+          companionData: (data.companionData || []).map((c: any) =>
             typeof c === 'object' ? { ...c, type: cleanItemName(c.type || '') } : cleanItemName(c),
           ),
           horses: data.horses || [],
@@ -928,11 +947,14 @@ class WebMapServer {
     });
 
     // ── API: Get single player detail ──
-    app.get('/api/players/:steamId', requireTier('survivor'), (req, res) => {
+    app.get('/api/players/:steamId', requireTier('survivor'), (req: any, res: any) => {
       const srv = req.srv;
       const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
       const data = players.get(req.params.steamId);
-      if (!data) return sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
+      if (!data) {
+        sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
+        return;
+      }
 
       const name = srv.idMap[req.params.steamId] || req.params.steamId;
       const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
@@ -958,7 +980,7 @@ class WebMapServer {
         worldZ: data.z,
         profession: professionName,
         affliction: AFFLICTION_MAP[data.affliction] || 'Unknown',
-        unlockedProfessions: (data.unlockedProfessions || []).map((p) => PERK_MAP[p] || p),
+        unlockedProfessions: (data.unlockedProfessions || []).map((p: any) => PERK_MAP[p] || p),
         ...data,
         // Override raw enum values with resolved names
         startingPerk: professionName,
@@ -980,26 +1002,29 @@ class WebMapServer {
     });
 
     // ── API: Get world bounds / calibration ──
-    app.get('/api/calibration', requireTier('admin'), (req, res) => {
+
+    app.get('/api/calibration', requireTier('admin'), (_req: any, res: any) => {
       res.json(this._worldBounds);
     });
 
     // ── API: Save calibration ──
-    app.post('/api/calibration', requireTier('admin'), (req, res) => {
+    app.post('/api/calibration', requireTier('admin'), (req: any, res: any) => {
       const { xMin, xMax, yMin, yMax } = req.body;
       if ([xMin, xMax, yMin, yMax].some((v) => typeof v !== 'number' || isNaN(v))) {
-        return sendError(res, API_ERRORS.INVALID_BOUNDS, 400);
+        sendError(res, API_ERRORS.INVALID_BOUNDS, 400);
+        return;
       }
       this._saveCalibration({ xMin, xMax, yMin, yMax });
       res.json({ ok: true, bounds: this._worldBounds });
     });
 
     // ── API: Calibrate from two reference points ──
-    app.post('/api/calibrate-from-points', requireTier('admin'), (req, res) => {
+    app.post('/api/calibrate-from-points', requireTier('admin'), (req: any, res: any) => {
       // Each point: { worldX, worldY, pixelX, pixelY } where pixel is 0-4096
       const { point1, point2 } = req.body;
       if (!point1 || !point2) {
-        return sendError(res, API_ERRORS.MISSING_POINTS, 400);
+        sendError(res, API_ERRORS.MISSING_POINTS, 400);
+        return;
       }
 
       // Solve: pixelLat = ((worldX - xMin) / (xMax - xMin)) * 4096
@@ -1020,7 +1045,8 @@ class WebMapServer {
       const lng2 = point2.pixelX;
 
       if (Math.abs(lat2 - lat1) < 1 || Math.abs(lng2 - lng1) < 1) {
-        return sendError(res, API_ERRORS.POINTS_TOO_CLOSE, 400);
+        sendError(res, API_ERRORS.POINTS_TOO_CLOSE, 400);
+        return;
       }
 
       const xSpan = (point2.worldX - point1.worldX) / ((lat2 - lat1) / 4096);
@@ -1043,42 +1069,63 @@ class WebMapServer {
     });
 
     // ── API: Admin action — kick ──
-    app.post('/api/admin/kick', requireTier('mod'), rateLimit(5000, 5), async (req, res) => {
+    app.post('/api/admin/kick', requireTier('mod'), rateLimit(5000, 5), async (req: any, res: any) => {
       const { steamId } = req.body;
-      if (!steamId || typeof steamId !== 'string') return sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
+      if (!steamId || typeof steamId !== 'string') {
+        sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
+        return;
+      }
       // Validate steam ID format
-      if (!/^\d{17}$/.test(steamId)) return sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
+      if (!/^\d{17}$/.test(steamId)) {
+        sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
+        return;
+      }
       try {
         const result = await req.srv.rcon.send(`kick ${steamId}`);
         res.json({ ok: true, result });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Admin action — ban ──
-    app.post('/api/admin/ban', requireTier('admin'), rateLimit(5000, 3), async (req, res) => {
+    app.post('/api/admin/ban', requireTier('admin'), rateLimit(5000, 3), async (req: any, res: any) => {
       const { steamId } = req.body;
-      if (!steamId || typeof steamId !== 'string') return sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
-      if (!/^\d{17}$/.test(steamId)) return sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
+      if (!steamId || typeof steamId !== 'string') {
+        sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
+        return;
+      }
+      if (!/^\d{17}$/.test(steamId)) {
+        sendError(res, API_ERRORS.INVALID_STEAM_ID_FORMAT, 400);
+        return;
+      }
       try {
         const result = await req.srv.rcon.send(`ban ${steamId}`);
         res.json({ ok: true, result });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: RCON send message ──
-    app.post('/api/admin/message', requireTier('mod'), rateLimit(3000, 5), async (req, res) => {
+    app.post('/api/admin/message', requireTier('mod'), rateLimit(3000, 5), async (req: any, res: any) => {
       const { message } = req.body;
-      if (!message || typeof message !== 'string') return sendError(res, API_ERRORS.MISSING_MESSAGE, 400);
-      if (message.length > 500) return sendError(res, API_ERRORS.MESSAGE_TOO_LONG, 400);
+      if (!message || typeof message !== 'string') {
+        sendError(res, API_ERRORS.MISSING_MESSAGE, 400);
+        return;
+      }
+      if (message.length > 500) {
+        sendError(res, API_ERRORS.MESSAGE_TOO_LONG, 400);
+        return;
+      }
       // Sanitize: strip control chars and collapse newlines to prevent RCON injection
       const safe = stripControlChars(message)
         .replace(/[\r\n]+/g, ' ')
         .trim();
-      if (!safe) return sendError(res, API_ERRORS.MESSAGE_EMPTY_AFTER_SANITIZATION, 400);
+      if (!safe) {
+        sendError(res, API_ERRORS.MESSAGE_EMPTY_AFTER_SANITIZATION, 400);
+        return;
+      }
       try {
         // Use 'admin' command — 'say' no longer returns a response as of game update March 2026.
         // Lead with </> to close default yellow, then <CL> for Discord-blue styling.
@@ -1100,13 +1147,13 @@ class WebMapServer {
         }
 
         res.json({ ok: true, result });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Get RCON player list (online status) ──
-    app.get('/api/online', requireTier('survivor'), async (req, res) => {
+    app.get('/api/online', requireTier('survivor'), async (req: any, res: any) => {
       // Serve from background-polled player cache — instant response
       const cached = this._getCached('online', req.srv.serverId, 30000);
       if (cached) return res.json({ players: cached });
@@ -1114,7 +1161,7 @@ class WebMapServer {
         const list = await req.srv.getPlayerList();
         this._setCache('online', req.srv.serverId, list);
         res.json({ players: list });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -1127,14 +1174,21 @@ class WebMapServer {
      * Returns server status, connect info, and multi-server data for the
      * public landing page. No authentication needed.
      */
-    app.get('/api/landing', rateLimit(30000, 20), async (req, res) => {
+    app.get('/api/landing', rateLimit(30000, 20), async (_req: any, res: any) => {
       // Serve from background-polled cache — instant response
       const cached = this._getCached('landing', 'global', 30000);
       if (cached) return res.json(cached);
       // First request before background poller has run — build on demand
       try {
-        const rconTimeout = (promise) =>
-          Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('RCON timeout')), 5000))]);
+        const rconTimeout = (promise: any) =>
+          Promise.race([
+            promise,
+            new Promise((_, rej) =>
+              setTimeout(() => {
+                rej(new Error('RCON timeout'));
+              }, 5000),
+            ),
+          ]);
         await this._buildLandingData(rconTimeout);
         const built = this._getCached('landing', 'global', 30000);
         if (built) return res.json(built);
@@ -1142,17 +1196,22 @@ class WebMapServer {
         /* build failed */
       }
       res.json({
-        primary: { name: config.serverName || 'HumanitZ Server', status: 'unknown', onlineCount: 0, totalPlayers: 0 },
+        primary: {
+          name: (config as any).serverName || 'HumanitZ Server',
+          status: 'unknown',
+          onlineCount: 0,
+          totalPlayers: 0,
+        },
         servers: [],
       });
     });
 
     // Plugin-registered routes
-    for (const plugin of this._plugins) {
+    for (const plugin of this._plugins as any[]) {
       if (typeof plugin.registerRoutes === 'function') {
         try {
           plugin.registerRoutes(app, { rateLimit, requireTier });
-        } catch (err) {
+        } catch (err: any) {
           console.error(`[WEB MAP] Plugin ${plugin.name} route registration failed:`, err.message);
         }
       }
@@ -1163,20 +1222,27 @@ class WebMapServer {
     // ═══════════════════════════════════════════════════════
 
     // ── Status: Module status ──
-    app.get('/api/status/modules', requireTier('admin'), (req, res) => {
+    app.get('/api/status/modules', requireTier('admin'), (_req: any, res: any) => {
       res.json({ modules: this._moduleStatus || {} });
     });
 
     // ── Panel: Server status (RCON info + resources) — served from background cache ──
-    app.get('/api/panel/status', requireTier('survivor'), async (req, res) => {
+    app.get('/api/panel/status', requireTier('survivor'), async (req: any, res: any) => {
       const srv = req.srv;
       // Serve from background-polled cache — instant response
       const cached = this._getCached('status', srv.serverId, 30000);
       if (cached) return res.json(cached);
       // Fallback: build on demand if background poller hasn't run yet
       try {
-        const rconTimeout = (promise) =>
-          Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('RCON timeout')), 5000))]);
+        const rconTimeout = (promise: any) =>
+          Promise.race([
+            promise,
+            new Promise((_, rej) =>
+              setTimeout(() => {
+                rej(new Error('RCON timeout'));
+              }, 5000),
+            ),
+          ]);
         await this._buildStatusCache(srv, rconTimeout);
         const built = this._getCached('status', srv.serverId, 30000);
         if (built) return res.json(built);
@@ -1187,15 +1253,22 @@ class WebMapServer {
     });
 
     // ── Panel: Quick stats — served from background cache ──
-    app.get('/api/panel/stats', requireTier('survivor'), async (req, res) => {
+    app.get('/api/panel/stats', requireTier('survivor'), async (req: any, res: any) => {
       const srv = req.srv;
       // Serve from background-polled cache — instant response
       const cached = this._getCached('stats', srv.serverId, 30000);
       if (cached) return res.json(cached);
       // Fallback: build on demand if background poller hasn't run yet
       try {
-        const rconTimeout = (promise) =>
-          Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('RCON timeout')), 5000))]);
+        const rconTimeout = (promise: any) =>
+          Promise.race([
+            promise,
+            new Promise((_, rej) =>
+              setTimeout(() => {
+                rej(new Error('RCON timeout'));
+              }, 5000),
+            ),
+          ]);
         await this._buildStatsCache(srv, rconTimeout);
         const built = this._getCached('stats', srv.serverId, 30000);
         if (built) return res.json(built);
@@ -1206,18 +1279,18 @@ class WebMapServer {
     });
 
     // ── Panel: Server capabilities — tells the client what this server has ──
-    app.get('/api/panel/capabilities', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/capabilities', requireTier('survivor'), (req: any, res: any) => {
       const srv = req.srv;
       const cached = this._getCached('caps', srv.serverId, 30000);
       if (cached) return res.json(cached);
 
-      const caps = {
+      const caps: any = {
         db: !!srv.db,
         rcon: !!srv.rcon,
         scheduler: !!(srv.scheduler && srv.scheduler.isActive?.()),
         saveService: srv.isPrimary ? !!this._saveService : !!srv.db,
         resources: srv.isPrimary && !!serverResources,
-        hasPlugin: this._plugins.some((p) => {
+        hasPlugin: this._plugins.some((p: any) => {
           // Check if this plugin is associated with this server
           if (srv.isPrimary) return false; // plugins are typically non-primary
           return !!p.name;
@@ -1227,7 +1300,7 @@ class WebMapServer {
         serverName: srv.config?.serverName || '',
       };
       // Check if this is the hzmod-enabled server
-      for (const plugin of this._plugins) {
+      for (const plugin of this._plugins as any[]) {
         if (plugin.name === 'hzmod') {
           // hzmod is registered with a serverId — only show on that server's dashboard
           const pluginSrv = plugin.serverId;
@@ -1249,11 +1322,11 @@ class WebMapServer {
     });
 
     // ── Panel: Activity feed from DB ──
-    app.get('/api/panel/activity', requireTier('survivor'), rateLimit(10000, 20), (req, res) => {
+    app.get('/api/panel/activity', requireTier('survivor'), rateLimit(10000, 20), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ events: [] });
 
-      const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 500);
       const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
       const type = req.query.type || '';
       const actor = req.query.actor || '';
@@ -1270,7 +1343,7 @@ class WebMapServer {
 
         // Resolve steam IDs to player names + clean UE4 blueprint names
         const idMap = srv.idMap || {};
-        const resolved = (events || []).map((e) => {
+        const resolved = (events || []).map((e: any) => {
           const out = { ...e };
           if (!out.actor_name && out.steam_id && idMap[out.steam_id]) {
             out.actor_name = idMap[out.steam_id];
@@ -1286,13 +1359,13 @@ class WebMapServer {
         });
 
         res.json({ events: resolved });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Activity stats (aggregated trends) ──
-    app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req, res) => {
+    app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ categories: {}, hourly: [], daily: [], types: {} });
 
@@ -1306,12 +1379,12 @@ class WebMapServer {
         const typeCounts = db
           .prepare('SELECT type, COUNT(*) as count FROM activity_log GROUP BY type ORDER BY count DESC')
           .all();
-        const types = {};
-        for (const r of typeCounts) types[r.type] = r.count;
+        const types: Record<string, number> = {};
+        for (const r of typeCounts as any[]) types[r.type] = r.count;
 
         // Count by category
-        const categories = {};
-        const catMap = {
+        const categories: Record<string, number> = {};
+        const catMap: Record<string, string[]> = {
           container: ['container_item_added', 'container_item_removed', 'container_loot', 'container_destroyed'],
           inventory: ['inventory_item_added', 'inventory_item_removed'],
           vehicle: [
@@ -1334,9 +1407,9 @@ class WebMapServer {
           horse: ['horse_appeared', 'horse_disappeared', 'horse_change'],
           admin: ['admin_access', 'anticheat_flag'],
         };
-        for (const [cat, types2] of Object.entries(catMap)) {
+        for (const [cat, typesList] of Object.entries(catMap)) {
           let sum = 0;
-          for (const t of types2) sum += types[t] || 0;
+          for (const t of typesList) sum += (types as any)[t] || 0;
           if (sum > 0) categories[cat] = sum;
         }
 
@@ -1390,7 +1463,7 @@ class WebMapServer {
 
         // Resolve actor names
         const idMap = srv.idMap || {};
-        for (const a of topActors) {
+        for (const a of topActors as any[]) {
           if (idMap[a.actor]) a.actor = idMap[a.actor];
           else a.actor = cleanActorName(a.actor);
         }
@@ -1410,13 +1483,13 @@ class WebMapServer {
           topActors,
           dateRange: { earliest: range?.earliest, latest: range?.latest },
         });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: DB table list with row counts ──
-    app.get('/api/panel/db/tables', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+    app.get('/api/panel/db/tables', requireTier('admin'), rateLimit(10000, 5), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ tables: [] });
 
@@ -1482,7 +1555,12 @@ class WebMapServer {
             tables.push({
               name: t.name,
               rowCount: row?.c || 0,
-              columns: cols.map((c) => ({ name: c.name, type: c.type, pk: c.pk === 1, nullable: c.notnull === 0 })),
+              columns: cols.map((c: any) => ({
+                name: c.name,
+                type: c.type,
+                pk: c.pk === 1,
+                nullable: c.notnull === 0,
+              })),
             });
           } catch {
             /* skip inaccessible tables */
@@ -1490,18 +1568,24 @@ class WebMapServer {
         }
 
         res.json({ tables });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Raw SQL query (SELECT only, admin) ──
-    app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+    app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req: any, res: any) => {
       const srv = req.srv;
-      if (!srv.db) return sendErrorWithData(res, API_ERRORS.NO_DATABASE, { rows: [], columns: [] });
+      if (!srv.db) {
+        sendErrorWithData(res, API_ERRORS.NO_DATABASE, { rows: [], columns: [] });
+        return;
+      }
 
       const sql = (req.body.sql || '').trim();
-      if (!sql) return sendError(res, API_ERRORS.NO_SQL_PROVIDED, 400);
+      if (!sql) {
+        sendError(res, API_ERRORS.NO_SQL_PROVIDED, 400);
+        return;
+      }
 
       // Only allow SELECT statements
       const upper = sql
@@ -1510,14 +1594,16 @@ class WebMapServer {
         .trim()
         .toUpperCase();
       if (!upper.startsWith('SELECT')) {
-        return sendError(res, API_ERRORS.ONLY_SELECT_ALLOWED, 400);
+        sendError(res, API_ERRORS.ONLY_SELECT_ALLOWED, 400);
+        return;
       }
       // Block dangerous keywords after SELECT
       if (/\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|ATTACH|DETACH|REPLACE|PRAGMA\s+\w+\s*=)\b/i.test(sql)) {
-        return sendError(res, API_ERRORS.QUERY_CONTAINS_DISALLOWED_KEYWORDS, 400);
+        sendError(res, API_ERRORS.QUERY_CONTAINS_DISALLOWED_KEYWORDS, 400);
+        return;
       }
 
-      const limit = Math.min(parseInt(req.body.limit, 10) || 200, 1000);
+      const limit = Math.min(parseInt(req.body.limit || '200', 10) || 200, 1000);
 
       try {
         const db = srv.db.db;
@@ -1531,32 +1617,32 @@ class WebMapServer {
         const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
         res.json({ rows, columns, count: rows.length });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 400, safeError(err));
       }
     });
 
     // ── Panel: Clans from DB ──
-    app.get('/api/panel/clans', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/clans', requireTier('survivor'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ clans: [] });
 
       try {
         const clans = srv.db.getAllClans?.() || [];
         res.json({ clans });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Map world data (structures, vehicles, containers, companions, dead bodies) ──
-    app.get('/api/panel/mapdata', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/mapdata', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ structures: [], vehicles: [], containers: [], companions: [], deadBodies: [] });
 
       const layers = (req.query.layers || 'all').split(',');
       const showAll = layers.includes('all');
-      const result = {};
+      const result: any = {};
 
       try {
         if (showAll || layers.includes('structures')) {
@@ -1565,12 +1651,12 @@ class WebMapServer {
               'SELECT id, display_name, actor_class, owner_steam_id, pos_x, pos_y, pos_z, current_health, max_health, upgrade_level, inventory FROM structures WHERE pos_x IS NOT NULL',
             )
             .all();
-          result.structures = rows.map((r) => {
+          result.structures = rows.map((r: any) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
             try {
               const items = JSON.parse(r.inventory || '[]');
-              itemCount = items.filter((i) => i && i !== 'Empty' && i !== 'None').length;
+              itemCount = items.filter((i: any) => i && i !== 'Empty' && i !== 'None').length;
             } catch {}
             return {
               id: r.id,
@@ -1592,7 +1678,7 @@ class WebMapServer {
               'SELECT id, display_name, class, pos_x, pos_y, pos_z, health, max_health, fuel FROM vehicles WHERE pos_x IS NOT NULL',
             )
             .all();
-          result.vehicles = rows.map((r) => {
+          result.vehicles = rows.map((r: any) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return {
               id: r.id,
@@ -1612,12 +1698,12 @@ class WebMapServer {
               'SELECT actor_name, pos_x, pos_y, pos_z, items, locked FROM containers WHERE pos_x IS NOT NULL AND pos_x != 0',
             )
             .all();
-          result.containers = rows.map((r) => {
+          result.containers = rows.map((r: any) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
             try {
               const items = JSON.parse(r.items || '[]');
-              itemCount = items.filter((i) => i && i.item && i.item !== 'None' && i.item !== 'Empty').length;
+              itemCount = items.filter((i: any) => i && i.item && i.item !== 'None' && i.item !== 'Empty').length;
             } catch {}
             return { name: cleanActorName(r.actor_name), lat, lng, locked: !!r.locked, itemCount };
           });
@@ -1629,7 +1715,7 @@ class WebMapServer {
               'SELECT id, type, actor_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra FROM companions WHERE pos_x IS NOT NULL',
             )
             .all();
-          result.companions = rows.map((r) => {
+          result.companions = rows.map((r: any) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { id: r.id, type: r.type, owner: r.owner_steam_id, lat, lng, health: r.health };
           });
@@ -1639,7 +1725,7 @@ class WebMapServer {
           const rows = srv.db.db
             .prepare('SELECT actor_name, pos_x, pos_y, pos_z FROM dead_bodies WHERE pos_x IS NOT NULL')
             .all();
-          result.deadBodies = rows.map((r) => {
+          result.deadBodies = rows.map((r: any) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { name: r.actor_name, lat, lng };
           });
@@ -1680,13 +1766,13 @@ class WebMapServer {
         }
 
         // Build steam_id → name lookup for owner resolution
-        const nameMap = {};
+        const nameMap: Record<string, string> = {};
         const nameRows = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-        for (const nr of nameRows) nameMap[nr.steam_id] = nr.name;
+        for (const nr of nameRows as any[]) nameMap[nr.steam_id] = nr.name;
         result.nameMap = nameMap;
 
         res.json(result);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -1694,14 +1780,14 @@ class WebMapServer {
     // ── Panel: Item Tracking API ──
 
     // GET /api/panel/items — All tracked items (instances + groups), with filters
-    app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
+    app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ instances: [], groups: [], total: 0 });
       try {
         const search = req.query.search || '';
         const locationType = req.query.locationType || '';
         const locationId = req.query.locationId || '';
-        const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+        const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 100, 500);
 
         let instances, groups;
 
@@ -1733,7 +1819,7 @@ class WebMapServer {
         }
 
         // Build location summary for sidebar
-        const locationSummary = {};
+        const locationSummary: Record<string, any> = {};
         for (const inst of instances) {
           const key = `${inst.location_type}|${inst.location_id}`;
           if (!locationSummary[key])
@@ -1770,35 +1856,41 @@ class WebMapServer {
             groups: srv.db.getItemGroupCount(),
           },
         });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/items/:id/movements — Movement history for an instance
-    app.get('/api/panel/items/:id/movements', requireTier('admin'), (req, res) => {
+    app.get('/api/panel/items/:id/movements', requireTier('admin'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ movements: [] });
       try {
         const id = parseInt(req.params.id, 10);
         const instance = srv.db.getItemInstance(id);
-        if (!instance) return sendError(res, API_ERRORS.INSTANCE_NOT_FOUND, 404);
+        if (!instance) {
+          sendError(res, API_ERRORS.INSTANCE_NOT_FOUND, 404);
+          return;
+        }
 
         const movements = srv.db.getItemMovements(id);
         res.json({ instance, movements });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/groups/:id — Group detail with movement history
-    app.get('/api/panel/groups/:id', requireTier('admin'), (req, res) => {
+    app.get('/api/panel/groups/:id', requireTier('admin'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ group: null, movements: [] });
       try {
         const id = parseInt(req.params.id, 10);
         const group = srv.db.getItemGroup(id);
-        if (!group) return sendError(res, API_ERRORS.GROUP_NOT_FOUND, 404);
+        if (!group) {
+          sendError(res, API_ERRORS.GROUP_NOT_FOUND, 404);
+          return;
+        }
         try {
           group.attachments = JSON.parse(group.attachments);
         } catch {
@@ -1807,17 +1899,17 @@ class WebMapServer {
 
         const movements = srv.db.getItemMovementsByGroup(id);
         res.json({ group, movements });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/movements — Recent item movements across all items
-    app.get('/api/panel/movements', requireTier('admin'), (req, res) => {
+    app.get('/api/panel/movements', requireTier('admin'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ movements: [] });
       try {
-        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+        const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 500);
         const steamId = req.query.steamId || '';
         const locationType = req.query.locationType || '';
         const locationId = req.query.locationId || '';
@@ -1832,19 +1924,22 @@ class WebMapServer {
         }
 
         res.json({ movements });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/items/lookup — Look up item instance/group by name + fingerprint data
     // Used by item popups across the entire UI to bridge save data → item tracking DB
-    app.get('/api/panel/items/lookup', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/items/lookup', requireTier('survivor'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ match: null, movements: [] });
       try {
         const { fingerprint, item: itemName, steamId } = req.query;
-        if (!fingerprint && !itemName) return sendError(res, API_ERRORS.NEED_FINGERPRINT_OR_ITEM_NAME, 400);
+        if (!fingerprint && !itemName) {
+          sendError(res, API_ERRORS.NEED_FINGERPRINT_OR_ITEM_NAME, 400);
+          return;
+        }
 
         let match = null;
         let movements = [];
@@ -1857,7 +1952,8 @@ class WebMapServer {
           if (instances.length > 0) {
             // If steamId provided, prefer the instance at that player's location
             if (steamId) {
-              match = instances.find((i) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
+              match =
+                instances.find((i: any) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
             } else {
               match = instances[0];
             }
@@ -1875,7 +1971,7 @@ class WebMapServer {
             const groups = srv.db.findActiveGroupsByFingerprint?.(fingerprint) || [];
             if (groups.length > 0) {
               if (steamId) {
-                match = groups.find((g) => g.location_type === 'player' && g.location_id === steamId) || groups[0];
+                match = groups.find((g: any) => g.location_type === 'player' && g.location_id === steamId) || groups[0];
               } else {
                 match = groups[0];
               }
@@ -1895,7 +1991,8 @@ class WebMapServer {
           const instances = srv.db.getItemInstancesByItem(itemName);
           if (instances.length > 0) {
             if (steamId) {
-              match = instances.find((i) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
+              match =
+                instances.find((i: any) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
             } else {
               match = instances[0];
             }
@@ -1910,8 +2007,8 @@ class WebMapServer {
         }
 
         // Resolve player names in movements
-        const nameCache = {};
-        const resolveName = (sid) => {
+        const nameCache: Record<string, string> = {};
+        const resolveName = (sid: string) => {
           if (!sid) return null;
           if (nameCache[sid]) return nameCache[sid];
           const name = srv.idMap[sid] || sid;
@@ -1920,7 +2017,7 @@ class WebMapServer {
         };
 
         // Enrich movement data with resolved names
-        const enrichedMovements = movements.map((m) => ({
+        const enrichedMovements = movements.map((m: any) => ({
           ...m,
           from_name: m.from_type === 'player' ? resolveName(m.from_id) : null,
           to_name: m.to_type === 'player' ? resolveName(m.to_id) : null,
@@ -1944,13 +2041,13 @@ class WebMapServer {
           ownershipChain,
           totalMovements: movements.length,
         });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Entity lookup (survivor+) — lightweight reference data for info popups ──
-    app.get('/api/panel/lookup/:type/:name', requireTier('survivor'), rateLimit(5000, 20), (req, res) => {
+    app.get('/api/panel/lookup/:type/:name', requireTier('survivor'), rateLimit(5000, 20), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ found: false });
       const type = req.params.type;
@@ -1958,7 +2055,7 @@ class WebMapServer {
       if (!name) return res.json({ found: false });
 
       const db = srv.db.db;
-      const result = { found: false, type, name, data: {} };
+      const result: any = { found: false, type, name, data: {} };
 
       try {
         // Route by type to appropriate reference/world table
@@ -2045,22 +2142,23 @@ class WebMapServer {
         result.activityCount = actCount?.c || 0;
 
         res.json(result);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Comprehensive DB query (admin only) ──
-    app.get('/api/panel/db/:table', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
+    app.get('/api/panel/db/:table', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ rows: [], columns: [] });
 
       const table = req.params.table;
       // Defense-in-depth: validate table name is alphanumeric + underscores only
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
-        return sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
+        sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
+        return;
       }
-      const limit = Math.min(parseInt(req.query.limit, 10) || 50, 1000);
+      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 1000);
       const search = req.query.search || '';
 
       // Whitelist of queryable tables
@@ -2113,11 +2211,13 @@ class WebMapServer {
       ]);
 
       if (!ALLOWED.has(table)) {
-        return sendError(res, API_ERRORS.TABLE_NOT_QUERYABLE, 400, table);
+        sendError(res, API_ERRORS.TABLE_NOT_QUERYABLE, 400, table);
+        return;
       }
       // Defense-in-depth: validate table name is a safe SQL identifier
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
-        return sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
+        sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
+        return;
       }
 
       try {
@@ -2125,7 +2225,7 @@ class WebMapServer {
 
         // Get column names
         const pragma = db.prepare(`PRAGMA table_info("${table}")`).all();
-        const columns = pragma.map((c) => c.name);
+        const columns = pragma.map((c: any) => c.name);
 
         // Build query with optional search
         let query = `SELECT * FROM "${table}"`;
@@ -2134,10 +2234,11 @@ class WebMapServer {
         if (search) {
           // Search across text columns
           const textCols = pragma.filter(
-            (c) => c.type.toUpperCase().includes('TEXT') || c.type === '' || c.type.toUpperCase().includes('VARCHAR'),
+            (c: any) =>
+              c.type.toUpperCase().includes('TEXT') || c.type === '' || c.type.toUpperCase().includes('VARCHAR'),
           );
           if (textCols.length > 0) {
-            const clauses = textCols.map((c) => `"${c.name}" LIKE ?`);
+            const clauses = textCols.map((c: any) => `"${c.name}" LIKE ?`);
             query += ` WHERE ${clauses.join(' OR ')}`;
             for (let i = 0; i < textCols.length; i++) params.push(`%${search}%`);
           }
@@ -2155,7 +2256,7 @@ class WebMapServer {
 
         // Resolve steam IDs in player-related tables
         if (columns.includes('steam_id') || columns.includes('owner_steam_id')) {
-          for (const row of rows) {
+          for (const row of rows as any[]) {
             const sid = row.steam_id || row.owner_steam_id;
             if (sid && srv.idMap[sid] && !row.name && !row.actor_name && !row.player_name) {
               row._resolved_name = srv.idMap[sid];
@@ -2164,17 +2265,17 @@ class WebMapServer {
         }
 
         res.json({ table, columns, rows, total: rows.length });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Chat log from DB ──
-    app.get('/api/panel/chat', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/chat', requireTier('survivor'), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ messages: [] });
 
-      const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
+      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 100, 1000);
       const search = (req.query.search || '').trim();
 
       try {
@@ -2185,22 +2286,31 @@ class WebMapServer {
           messages = srv.db.getRecentChat(limit);
         }
         res.json({ messages: messages || [] });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: RCON command execution ──
-    app.post('/api/panel/rcon', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
+    app.post('/api/panel/rcon', requireTier('admin'), rateLimit(10000, 10), async (req: any, res: any) => {
       const { command } = req.body;
-      if (!command || typeof command !== 'string') return sendError(res, API_ERRORS.MISSING_COMMAND, 400);
-      if (command.length > 500) return sendError(res, API_ERRORS.COMMAND_TOO_LONG, 400);
+      if (!command || typeof command !== 'string') {
+        sendError(res, API_ERRORS.MISSING_COMMAND, 400);
+        return;
+      }
+      if (command.length > 500) {
+        sendError(res, API_ERRORS.COMMAND_TOO_LONG, 400);
+        return;
+      }
 
       // Sanitize: strip control chars and newlines to prevent RCON protocol injection
       const sanitized = stripControlChars(command)
         .replace(/[\r\n]+/g, ' ')
         .trim();
-      if (!sanitized) return sendError(res, API_ERRORS.COMMAND_EMPTY_AFTER_SANITIZATION, 400);
+      if (!sanitized) {
+        sendError(res, API_ERRORS.COMMAND_EMPTY_AFTER_SANITIZATION, 400);
+        return;
+      }
 
       // Safety: block dangerous commands by first word (consolidated blocklist)
       const cmdWord = sanitized.toLowerCase().split(/\s+/)[0];
@@ -2216,21 +2326,25 @@ class WebMapServer {
         'quickrestart',
         'cancelrestart',
       ]);
-      if (BLOCKED_RCON.has(cmdWord)) {
-        return sendError(res, API_ERRORS.COMMAND_BLOCKED_FOR_SAFETY, 403, cmdWord);
+      if (cmdWord && BLOCKED_RCON.has(cmdWord)) {
+        sendError(res, API_ERRORS.COMMAND_BLOCKED_FOR_SAFETY, 403, cmdWord);
+        return;
       }
 
       try {
         const response = await req.srv.rcon.send(sanitized);
         res.json({ ok: true, response });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // POST /api/panel/refresh-snapshot — Force game save + re-poll save file + record fresh snapshot
-    app.post('/api/panel/refresh-snapshot', requireTier('mod'), rateLimit(30000, 2), async (req, res) => {
-      if (!this._saveService) return sendError(res, API_ERRORS.SAVE_SERVICE_NOT_AVAILABLE, 503);
+    app.post('/api/panel/refresh-snapshot', requireTier('mod'), rateLimit(30000, 2), async (req: any, res: any) => {
+      if (!this._saveService) {
+        sendError(res, API_ERRORS.SAVE_SERVICE_NOT_AVAILABLE, 503);
+        return;
+      }
 
       try {
         // Step 1: Tell the game server to save
@@ -2247,17 +2361,20 @@ class WebMapServer {
         await this._saveService._poll(true);
 
         sendOk(res, { message: 'Snapshot refreshed' });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Server power controls ──
     // Supports Docker CLI (VPS), Pterodactyl API, or SSH-based controls
-    app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
+    app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req: any, res: any) => {
       const { action } = req.body;
       const valid = ['start', 'stop', 'restart', 'backup', 'kill'];
-      if (!valid.includes(action)) return sendError(res, API_ERRORS.INVALID_ACTION, 400, action);
+      if (!valid.includes(action)) {
+        sendError(res, API_ERRORS.INVALID_ACTION, 400, action);
+        return;
+      }
 
       // Try Pterodactyl API first (per-server or primary singleton)
       const srvPanelApi = req.srv.panelApi;
@@ -2265,17 +2382,20 @@ class WebMapServer {
         try {
           if (action === 'backup') {
             await srvPanelApi.createBackup();
-            return sendOk(res, { message: 'Backup initiated via panel API' });
+            sendOk(res, { message: 'Backup initiated via panel API' });
+            return;
           }
           await srvPanelApi.sendPowerAction(action);
-          return sendOk(res, { message: `Server ${action} sent via panel API` });
-        } catch (err) {
-          return sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+          sendOk(res, { message: `Server ${action} sent via panel API` });
+          return;
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+          return;
         }
       }
 
       // Fall back to Docker CLI (VPS setup)
-      const { execFile } = require('child_process');
+      const { execFile } = require('child_process') as typeof import('child_process');
       // Use server-specific container name, fall back to env
       const dockerContainer = (req.srv.config.dockerContainer || process.env.DOCKER_CONTAINER || 'hzserver').replace(
         /[^a-zA-Z0-9_.-]/g,
@@ -2288,24 +2408,28 @@ class WebMapServer {
           'docker',
           ['cp', `${dockerContainer}:/home/steam/hzserver/serverfiles/HumanitZServer/Saved`, backupDir],
           { timeout: 30000 },
-          (err) => {
-            if (err) return sendError(res, API_ERRORS.BACKUP_FAILED, 500);
+          (err: any) => {
+            if (err) {
+              sendError(res, API_ERRORS.BACKUP_FAILED, 500);
+              return;
+            }
             sendOk(res, { message: 'Backup created' });
           },
         );
         return;
       }
 
-      execFile('docker', [action, dockerContainer], { timeout: 30000 }, (err, _stdout, _stderr) => {
+      execFile('docker', [action, dockerContainer], { timeout: 30000 }, (err: any, _stdout: any, _stderr: any) => {
         if (err) {
-          return sendError(res, API_ERRORS.DOCKER_COMMAND_FAILED, 500);
+          sendError(res, API_ERRORS.DOCKER_COMMAND_FAILED, 500);
+          return;
         }
         sendOk(res, { message: `Server ${action} executed` });
       });
     });
 
     // ── Panel: List backups ──
-    app.get('/api/panel/backups', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+    app.get('/api/panel/backups', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
       const backups = [];
 
       // Try Pterodactyl API first (per-server or primary singleton)
@@ -2347,7 +2471,9 @@ class WebMapServer {
               source: 'local',
             });
           }
-          backups.sort((a, b) => new Date(b.created) - new Date(a.created));
+          backups.sort(
+            (a: any, b: any) => new Date(b.created as string).getTime() - new Date(a.created as string).getTime(),
+          );
         }
       } catch (_e) {
         /* directory not readable */
@@ -2358,8 +2484,8 @@ class WebMapServer {
 
     // Sensitive keys that should never be exposed or written via API
     const HIDDEN_SETTINGS = new Set(['AdminPass', 'RCONPass', 'Password', 'RConPort', 'RCONEnabled']);
-    function filterSettings(settings) {
-      const filtered = {};
+    function filterSettings(settings: Record<string, any>): Record<string, any> {
+      const filtered: Record<string, any> = {};
       for (const [k, v] of Object.entries(settings)) {
         if (!HIDDEN_SETTINGS.has(k) && !k.startsWith('_')) filtered[k] = v;
       }
@@ -2367,7 +2493,7 @@ class WebMapServer {
     }
 
     // ── Panel: Game server settings (read) ──
-    app.get('/api/panel/settings', requireTier('admin'), async (req, res) => {
+    app.get('/api/panel/settings', requireTier('admin'), async (req: any, res: any) => {
       const srv = req.srv;
       // Try loading from cached file first
       const settingsFile = path.join(srv.dataDir, 'server-settings.json');
@@ -2389,7 +2515,7 @@ class WebMapServer {
           const content = await sftp.get(srv.config.sftpSettingsPath);
           await sftp.end();
 
-          const settings = {};
+          const settings: Record<string, string> = {};
           const lines = content.toString().split('\n');
           for (const line of lines) {
             const trimmed = line.trim();
@@ -2402,7 +2528,7 @@ class WebMapServer {
           // Cache for next time
           fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
           res.json({ settings: filterSettings(settings) });
-        } catch (err) {
+        } catch (err: any) {
           sendError(res, API_ERRORS.FAILED_TO_READ_SETTINGS, 500, safeError(err));
         }
       } else {
@@ -2411,27 +2537,31 @@ class WebMapServer {
     });
 
     // ── Panel: Game server settings (write) ──
-    app.post('/api/panel/settings', requireTier('admin'), rateLimit(30000, 5), async (req, res) => {
+    app.post('/api/panel/settings', requireTier('admin'), rateLimit(30000, 5), async (req: any, res: any) => {
       const { settings } = req.body;
       if (!settings || typeof settings !== 'object') {
-        return sendError(res, API_ERRORS.MISSING_SETTINGS_OBJECT, 400);
+        sendError(res, API_ERRORS.MISSING_SETTINGS_OBJECT, 400);
+        return;
       }
 
       // Block writes to sensitive keys — same set filtered on read, enforced on write
       const rejected = Object.keys(settings).filter((k) => HIDDEN_SETTINGS.has(k) || k.startsWith('_'));
       if (rejected.length > 0) {
-        return sendError(res, API_ERRORS.CANNOT_WRITE_PROTECTED_SETTINGS, 403, rejected.join(', '));
+        sendError(res, API_ERRORS.CANNOT_WRITE_PROTECTED_SETTINGS, 403, rejected.join(', '));
+        return;
       }
       // Validate values: no newlines, no INI section injection
       for (const [key, value] of Object.entries(settings)) {
         const v = String(value);
         if (/[\r\n]/.test(v) || /^\[/.test(v.trim())) {
-          return sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_ILLEGAL_CHARACTERS, 400, key);
+          sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_ILLEGAL_CHARACTERS, 400, key);
+          return;
         }
       }
 
       if (!req.srv.config.sftpHost || !req.srv.config.sftpUser) {
-        return sendError(res, API_ERRORS.SFTP_NOT_CONFIGURED, 400);
+        sendError(res, API_ERRORS.SFTP_NOT_CONFIGURED, 400);
+        return;
       }
 
       try {
@@ -2445,7 +2575,7 @@ class WebMapServer {
 
         // Update values in-place
         const updated = new Set();
-        const newLines = lines.map((line) => {
+        const newLines = lines.map((line: string) => {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith(';')) return line;
           const eq = trimmed.indexOf('=');
@@ -2465,7 +2595,7 @@ class WebMapServer {
         // Update local cache
         const settingsFile = path.join(req.srv.dataDir, 'server-settings.json');
         try {
-          let cached = {};
+          let cached: Record<string, string> = {};
           if (fs.existsSync(settingsFile)) cached = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
           Object.assign(cached, settings);
           fs.writeFileSync(settingsFile, JSON.stringify(cached, null, 2));
@@ -2474,13 +2604,13 @@ class WebMapServer {
         }
 
         res.json({ ok: true, updated: [...updated] });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_SETTINGS, 500, safeError(err));
       }
     });
 
     // ── API: Server scheduler status ──
-    app.get('/api/panel/scheduler', requireTier('survivor'), (req, res) => {
+    app.get('/api/panel/scheduler', requireTier('survivor'), (req: any, res: any) => {
       // This will be populated by the bot when it passes the scheduler instance
       if (req.srv.scheduler) {
         res.json(req.srv.scheduler.getStatus());
@@ -2490,36 +2620,41 @@ class WebMapServer {
     });
 
     // ── Schedule Editor: save restart times, profiles, and per-profile settings ──
-    app.post('/api/panel/scheduler', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+    app.post('/api/panel/scheduler', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
       const { restartTimes, profiles, profileSettings, rotateDaily, serverNameTemplate } = req.body;
       if (!restartTimes || !Array.isArray(restartTimes)) {
-        return sendError(res, API_ERRORS.RESTART_TIMES_INVALID, 400);
+        sendError(res, API_ERRORS.RESTART_TIMES_INVALID, 400);
+        return;
       }
       // Validate restart times format
       for (const t of restartTimes) {
         if (!/^\d{1,2}:\d{2}$/.test(t)) {
-          return sendError(res, API_ERRORS.INVALID_TIME_FORMAT, 400, t);
+          sendError(res, API_ERRORS.INVALID_TIME_FORMAT, 400, t);
+          return;
         }
       }
       // Validate profiles
-      const profileList = Array.isArray(profiles) ? profiles.filter((p) => typeof p === 'string' && p.trim()) : [];
-      const settings = profileSettings && typeof profileSettings === 'object' ? profileSettings : {};
+      const profileList = Array.isArray(profiles) ? profiles.filter((p: any) => typeof p === 'string' && p.trim()) : [];
+      const settings: Record<string, any> =
+        profileSettings && typeof profileSettings === 'object' ? profileSettings : {};
 
       // Validate profile settings are JSON-safe objects
       for (const [name, val] of Object.entries(settings)) {
         if (typeof val !== 'object' || Array.isArray(val)) {
-          return sendError(res, API_ERRORS.PROFILE_SETTINGS_MUST_BE_OBJECT, 400, name);
+          sendError(res, API_ERRORS.PROFILE_SETTINGS_MUST_BE_OBJECT, 400, name);
+          return;
         }
         // Ensure all values are strings (game server INI format)
         for (const [k, v] of Object.entries(val)) {
           if (typeof v !== 'string' && typeof v !== 'number') {
-            return sendError(res, API_ERRORS.INVALID_PROFILE_VALUE_TYPE, 400, `${name}.${k}`);
+            sendError(res, API_ERRORS.INVALID_PROFILE_VALUE_TYPE, 400, `${name}.${k}`);
+            return;
           }
         }
       }
 
       const timesStr = restartTimes.join(',');
-      const profilesStr = profileList.map((p) => p.trim().toLowerCase()).join(',');
+      const profilesStr = profileList.map((p: any) => p.trim().toLowerCase()).join(',');
 
       // ── Non-primary: write to servers.json ──
       if (!req.srv.isPrimary) {
@@ -2541,27 +2676,35 @@ class WebMapServer {
               delete serverDef.restartProfileSettings;
             }
           });
-          if (!ok) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-          return sendOk(res, {
+          if (!ok) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+            return;
+          }
+          sendOk(res, {
             restartRequired: true,
             message: 'Schedule saved. Restart the bot for changes to take effect.',
           });
-        } catch (err) {
-          return sendError(res, API_ERRORS.FAILED_TO_SAVE, 500, safeError(err));
+          return;
+        } catch (err: any) {
+          sendError(res, API_ERRORS.FAILED_TO_SAVE, 500, safeError(err));
+          return;
         }
       }
 
       // ── Primary: write to .env ──
       try {
         const envPath = path.join(__dirname, '..', '..', '.env');
-        if (!fs.existsSync(envPath)) return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+        if (!fs.existsSync(envPath)) {
+          sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+          return;
+        }
 
         const content = fs.readFileSync(envPath, 'utf8');
         const lines = content.split('\n');
         const updated = new Set();
 
         // Build the changes map
-        const changes = {
+        const changes: Record<string, any> = {
           ENABLE_SERVER_SCHEDULER: restartTimes.length > 0 ? 'true' : 'false',
           RESTART_TIMES: timesStr,
           RESTART_PROFILES: profilesStr,
@@ -2579,16 +2722,16 @@ class WebMapServer {
         }
 
         // Remove old RESTART_PROFILE_* that are no longer in the profile list
-        const activeProfileKeys = new Set(profileList.map((p) => `RESTART_PROFILE_${p.trim().toUpperCase()}`));
+        const activeProfileKeys = new Set(profileList.map((p: any) => `RESTART_PROFILE_${p.trim().toUpperCase()}`));
 
-        const newLines = lines.map((line) => {
+        const newLines = lines.map((line: string) => {
           const trimmed = line.trim();
           const eq = trimmed.indexOf('=');
           if (eq > 0 && !trimmed.startsWith('#') && !trimmed.startsWith(';')) {
             const key = trimmed.substring(0, eq).trim();
             if (key in changes) {
               updated.add(key);
-              return `${key}=${changes[key]}`;
+              return `${key}=${String(changes[key])}`;
             }
             // Comment out old profile keys that are no longer active
             if (key.startsWith('RESTART_PROFILE_') && !activeProfileKeys.has(key)) {
@@ -2599,9 +2742,9 @@ class WebMapServer {
           // Uncomment if it's a key we want to set
           if (trimmed.startsWith('#')) {
             const m = trimmed.match(/^#\s*([A-Z][A-Z0-9_]*)=(.*)/);
-            if (m && m[1] in changes) {
+            if (m?.[1] && m[1] in changes) {
               updated.add(m[1]);
-              return `${m[1]}=${changes[m[1]]}`;
+              return `${m[1]}=${String(changes[m[1]])}`;
             }
           }
           return line;
@@ -2624,7 +2767,7 @@ class WebMapServer {
           restartRequired: true,
           message: `Schedule saved (${updated.size} keys). Restart the bot for changes to take effect.`,
         });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_SCHEDULE, 500, safeError(err));
       }
     });
@@ -2655,7 +2798,7 @@ class WebMapServer {
      * Each entry: { jsonPath, sensitive?, readOnly?, label? }
      * jsonPath uses dot notation: 'rcon.host', 'channels.serverStatus', etc.
      */
-    const ENV_TO_SERVERDEF = {
+    const ENV_TO_SERVERDEF: Record<string, any> = {
       // Identity
       SERVER_NAME: { jsonPath: 'name' },
       PUBLIC_HOST: { jsonPath: 'publicHost' },
@@ -2716,29 +2859,30 @@ class WebMapServer {
     };
 
     /** Read a nested value from an object using dot-path: 'rcon.host' → obj.rcon.host */
-    function _getNestedValue(obj, dotPath) {
+    function _getNestedValue(obj: any, dotPath: string): any {
       const parts = dotPath.split('.');
       let cur = obj;
-      for (const p of parts) {
+      for (const pk of parts) {
         if (cur == null || typeof cur !== 'object') return undefined;
-        cur = cur[p];
+        cur = cur[pk];
       }
       return cur;
     }
 
     /** Set a nested value on an object using dot-path, creating intermediary objects. */
-    function _setNestedValue(obj, dotPath, value) {
+    function _setNestedValue(obj: any, dotPath: string, value: any): void {
       const parts = dotPath.split('.');
       let cur = obj;
       for (let i = 0; i < parts.length - 1; i++) {
-        if (cur[parts[i]] == null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
-        cur = cur[parts[i]];
+        const p = parts[i]!;
+        if (cur[p] == null || typeof cur[p] !== 'object') cur[p] = {};
+        cur = cur[p];
       }
-      cur[parts[parts.length - 1]] = value;
+      cur[parts[parts.length - 1]!] = value;
     }
 
     /** Build categorized bot-config sections from a servers.json serverDef entry. */
-    function _buildServerDefSections(serverDef) {
+    function _buildServerDefSections(serverDef: any): any[] {
       const categories = [
         { label: 'Server Identity', keys: ['SERVER_NAME', 'PUBLIC_HOST', 'GAME_PORT', 'ENABLED'] },
         { label: 'RCON', keys: ['RCON_HOST', 'RCON_PORT', 'RCON_PASSWORD'] },
@@ -2790,13 +2934,13 @@ class WebMapServer {
       ];
 
       const sections = [];
-      for (const cat of categories) {
-        const keys = [];
-        for (const envKey of cat.keys) {
+      for (const cat of categories as any[]) {
+        const keys: any[] = [];
+        for (const envKey of cat.keys as string[]) {
           const mapping = ENV_TO_SERVERDEF[envKey];
           if (!mapping) continue;
-          const raw = _getNestedValue(serverDef, mapping.jsonPath);
-          const value = raw != null ? String(raw) : '';
+          const raw: any = _getNestedValue(serverDef, mapping.jsonPath);
+          const value = raw != null ? String(raw as string) : '';
           const isSensitive = !!(mapping.sensitive || ENV_SENSITIVE_KEYS.has(envKey));
           keys.push({
             key: envKey,
@@ -2813,13 +2957,13 @@ class WebMapServer {
     }
 
     /** Find a server definition by id. DB-first, fallback to servers.json. */
-    function _getServerDef(serverId) {
+    function _getServerDef(serverId: string): any {
       // DB-backed: read from config_documents
       if (configRepo) {
         try {
           const data = configRepo.get(`server:${serverId}`);
           if (data) return { data, source: 'database' };
-        } catch (err) {
+        } catch (err: any) {
           console.warn('[WEB MAP] DB read failed for server, falling back to servers.json:', serverId, err.message);
         }
       }
@@ -2827,7 +2971,7 @@ class WebMapServer {
       try {
         if (!fs.existsSync(SERVERS_FILE)) return null;
         const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
-        const found = servers.find((s) => s.id === serverId) || null;
+        const found = servers.find((s: any) => s.id === serverId) || null;
         return found ? { data: found, source: 'servers.json' } : null;
       } catch {
         return null;
@@ -2835,7 +2979,7 @@ class WebMapServer {
     }
 
     /** Write an updated server definition. DB-first, fallback to servers.json. */
-    function _saveServerDef(serverId, updater) {
+    function _saveServerDef(serverId: string, updater: (def: any) => void): boolean {
       // DB-backed: read-update-write via configRepo
       if (configRepo) {
         try {
@@ -2845,7 +2989,7 @@ class WebMapServer {
           updater(data);
           configRepo.set(scope, data);
           return true;
-        } catch (err) {
+        } catch (err: any) {
           console.error('[WEB MAP] Failed to save server def to DB:', serverId, err.message);
           return false;
         }
@@ -2853,7 +2997,7 @@ class WebMapServer {
       // Legacy fallback: read/write servers.json
       if (!fs.existsSync(SERVERS_FILE)) return false;
       const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
-      const idx = servers.findIndex((s) => s.id === serverId);
+      const idx = servers.findIndex((s: any) => s.id === serverId);
       if (idx < 0) return false;
       updater(servers[idx]);
       const tmpPath = SERVERS_FILE + '.tmp';
@@ -2863,12 +3007,12 @@ class WebMapServer {
     }
 
     /** Parse a .env file into structured entries preserving comments and order */
-    function parseEnvFile(content) {
+    function parseEnvFile(content: string): any[] {
       const entries = [];
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
-        const trimmed = raw.trim();
+        const trimmed = (raw ?? '').trim();
 
         // Blank line
         if (!trimmed) {
@@ -2915,12 +3059,15 @@ class WebMapServer {
     }
 
     /** GET /api/panel/bot-config — read from DB (primary uses ENV_CATEGORIES, non-primary uses serverDef) */
-    app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
       try {
         // ── Non-primary: read from config_documents / servers.json ──
         if (!req.srv.isPrimary) {
           const result = _getServerDef(req.srv.serverId);
-          if (!result) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
+          if (!result) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
+            return;
+          }
           const sections = _buildServerDefSections(result.data);
           return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: result.source });
         }
@@ -2930,17 +3077,17 @@ class WebMapServer {
           const appData = configRepo.get('app') || {};
           const serverData = configRepo.get('server:primary') || {};
 
-          const sections = [];
-          for (const cat of ENV_CATEGORIES) {
-            const keys = [];
-            for (const field of cat.fields) {
+          const sections: any[] = [];
+          for (const cat of ENV_CATEGORIES as any[]) {
+            const keys: any[] = [];
+            for (const field of cat.fields as any[]) {
               const isSensitive = !!(field.sensitive || ENV_SENSITIVE_KEYS.has(field.env));
               const isReadOnly = ENV_READONLY_KEYS.has(field.env);
 
               // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
               let rawValue;
               if (field.cfg) {
-                rawValue = config[field.cfg];
+                rawValue = (config as any)[field.cfg];
               } else {
                 // Fields without cfg are stored under their env key in DB
                 const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
@@ -2966,15 +3113,16 @@ class WebMapServer {
         // ── Legacy fallback: read from .env ──
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
-          return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+          sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+          return;
         }
 
         const content = fs.readFileSync(envPath, 'utf8');
         const entries = parseEnvFile(content);
 
         // Build categorized output
-        const sections = [];
-        let currentSection = { label: 'General', keys: [] };
+        const sections: any[] = [];
+        let currentSection: any = { label: 'General', keys: [] };
 
         for (const entry of entries) {
           if (entry.type === 'section') {
@@ -3009,32 +3157,36 @@ class WebMapServer {
         if (currentSection.keys.length > 0) sections.push(currentSection);
 
         res.json({ sections, groups: ENV_CATEGORY_GROUPS });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.FAILED_TO_READ_BOT_CONFIG, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/bot-config — update config in DB (primary) or serverDef (non-primary) */
-    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
       const { changes } = req.body;
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
-        return sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
+        sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
+        return;
       }
 
       // Block read-only keys
       const blocked = Object.keys(changes).filter((k) => ENV_READONLY_KEYS.has(k));
       if (blocked.length > 0) {
-        return sendError(res, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS, 403, blocked.join(', '));
+        sendError(res, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS, 403, blocked.join(', '));
+        return;
       }
 
       // Validate values — no newlines, reasonable length
       for (const [key, value] of Object.entries(changes)) {
         const v = String(value);
         if (/[\r\n]/.test(v)) {
-          return sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_NEWLINE, 400, key);
+          sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_NEWLINE, 400, key);
+          return;
         }
         if (v.length > 2000) {
-          return sendError(res, API_ERRORS.VALUE_TOO_LONG, 400, key);
+          sendError(res, API_ERRORS.VALUE_TOO_LONG, 400, key);
+          return;
         }
       }
 
@@ -3049,7 +3201,7 @@ class WebMapServer {
               if (!mapping) continue; // ignore keys not in the mapping
               const val = String(value);
               // Convert booleans for boolean-like fields
-              let coerced = val;
+              let coerced: any = val;
               if (val === 'true') coerced = true;
               else if (val === 'false') coerced = false;
               else if (
@@ -3089,15 +3241,20 @@ class WebMapServer {
             }
           });
 
-          if (!ok) return sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
+          if (!ok) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
+            return;
+          }
 
-          return sendOk(res, {
+          sendOk(res, {
             updated: [...updated],
             restartRequired: true,
             message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
           });
-        } catch (err) {
-          return sendError(res, API_ERRORS.FAILED_TO_SAVE_SERVER_CONFIG, 500, safeError(err));
+          return;
+        } catch (err: any) {
+          sendError(res, API_ERRORS.FAILED_TO_SAVE_SERVER_CONFIG, 500, safeError(err));
+          return;
         }
       }
 
@@ -3108,10 +3265,10 @@ class WebMapServer {
           // Build envKey → restart lookup from ENV_CATEGORIES
           const restartByEnvKey = new Map();
           for (const cat of ENV_CATEGORIES) {
-            for (const f of cat.fields) restartByEnvKey.set(f.env, !!cat.restart);
+            for (const f of (cat as any).fields as any[]) restartByEnvKey.set(f.env, !!cat.restart);
           }
-          const appPatch = {};
-          const serverPatch = {};
+          const appPatch: Record<string, any> = {};
+          const serverPatch: Record<string, any> = {};
           const updated = new Set();
 
           for (const [envKey, rawValue] of Object.entries(changes)) {
@@ -3133,7 +3290,7 @@ class WebMapServer {
 
             // Only live-apply to config singleton if the field's category does NOT require restart
             if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
-              config[mapping.cfgKey] = coerced;
+              (config as any)[mapping.cfgKey] = coerced;
             }
 
             updated.add(envKey);
@@ -3142,13 +3299,15 @@ class WebMapServer {
           if (Object.keys(appPatch).length > 0) configRepo.update('app', appPatch);
           if (Object.keys(serverPatch).length > 0) configRepo.update('server:primary', serverPatch);
 
-          return sendOk(res, {
+          sendOk(res, {
             updated: [...updated],
             restartRequired: true,
             message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
           });
-        } catch (err) {
-          return sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
+          return;
+        } catch (err: any) {
+          sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
+          return;
         }
       }
 
@@ -3156,14 +3315,15 @@ class WebMapServer {
       try {
         const envPath = path.join(__dirname, '..', '..', '.env');
         if (!fs.existsSync(envPath)) {
-          return sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+          sendError(res, API_ERRORS.ENV_FILE_NOT_FOUND, 404);
+          return;
         }
 
         const content = fs.readFileSync(envPath, 'utf8');
         const lines = content.split('\n');
         const updated = new Set();
 
-        const newLines = lines.map((line) => {
+        const newLines = lines.map((line: string) => {
           const trimmed = line.trim();
 
           // Active key=value line
@@ -3172,14 +3332,14 @@ class WebMapServer {
             const key = trimmed.substring(0, eq).trim();
             if (key in changes) {
               updated.add(key);
-              return `${key}=${changes[key]}`;
+              return `${key}=${String(changes[key])}`;
             }
           }
 
           // Commented-out key — uncomment it if user is setting a value
           if (trimmed.startsWith('#')) {
             const commentedMatch = trimmed.match(/^#\s*([A-Z][A-Z0-9_]*)=(.*)/);
-            if (commentedMatch && commentedMatch[1] in changes) {
+            if (commentedMatch?.[1] && commentedMatch[1] in changes) {
               const key = commentedMatch[1];
               updated.add(key);
               const val = String(changes[key]);
@@ -3210,7 +3370,7 @@ class WebMapServer {
           restartRequired: true,
           message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
         });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
       }
     });
@@ -3220,7 +3380,7 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/panel/welcome-file — read current welcome file from SFTP (fallback to config) */
-    app.get('/api/panel/welcome-file', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
+    app.get('/api/panel/welcome-file', requireTier('admin'), rateLimit(10000, 10), async (req: any, res: any) => {
       const placeholders = [
         '{server_name}',
         '{day}',
@@ -3240,8 +3400,9 @@ class WebMapServer {
             await sftp.connect(req.srv.config.sftpConnectConfig());
             const buf = await sftp.get(welcomePath);
             const content = buf.toString('utf8');
-            return sendOk(res, { content, placeholders, source: 'sftp' });
-          } catch (sftpErr) {
+            sendOk(res, { content, placeholders, source: 'sftp' });
+            return;
+          } catch (sftpErr: any) {
             console.warn('[WelcomeFile] SFTP read failed, falling back to config:', sftpErr.message);
           } finally {
             await sftp.end().catch(() => {});
@@ -3251,18 +3412,26 @@ class WebMapServer {
         // Fallback: read from config (pipe-separated lines → newline-separated)
         const lines = req.srv.config.welcomeFileLines || [];
         const content = Array.isArray(lines) ? lines.join('\n') : String(lines);
-        return sendOk(res, { content, placeholders, source: content ? 'config' : 'empty' });
-      } catch (err) {
-        return sendError(res, 'WELCOME_FILE_READ_FAILED', 500, safeError(err));
+        sendOk(res, { content, placeholders, source: content ? 'config' : 'empty' });
+        return;
+      } catch (err: any) {
+        sendError(res, 'WELCOME_FILE_READ_FAILED', 500, safeError(err));
+        return;
       }
     });
 
     /** POST /api/panel/welcome-file — save welcome file content + trigger SFTP upload */
-    app.post('/api/panel/welcome-file', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
+    app.post('/api/panel/welcome-file', requireTier('admin'), rateLimit(30000, 3), async (req: any, res: any) => {
       try {
         const { content } = req.body;
-        if (typeof content !== 'string') return sendError(res, 'INVALID_CONTENT', 400);
-        if (content.length > 10000) return sendError(res, 'CONTENT_TOO_LARGE', 400);
+        if (typeof content !== 'string') {
+          sendError(res, 'INVALID_CONTENT', 400);
+          return;
+        }
+        if (content.length > 10000) {
+          sendError(res, 'CONTENT_TOO_LARGE', 400);
+          return;
+        }
 
         // Convert newlines to pipe-separated array
         const lines = content.split('\n');
@@ -3281,7 +3450,7 @@ class WebMapServer {
             const envLines = envContent.split('\n');
             const pipeValue = lines.join('|');
             let found = false;
-            const newEnvLines = envLines.map((l) => {
+            const newEnvLines = envLines.map((l: any) => {
               if (l.startsWith('WELCOME_FILE_LINES=')) {
                 found = true;
                 return `WELCOME_FILE_LINES=${pipeValue}`;
@@ -3303,24 +3472,27 @@ class WebMapServer {
             await sftp.put(Buffer.from(content, 'utf8'), welcomePath);
             await sftp.end().catch(() => {});
             console.log('[WelcomeFile] Uploaded WelcomeMessage.txt via panel editor');
-          } catch (sftpErr) {
+          } catch (sftpErr: any) {
             console.error('[WelcomeFile] SFTP upload failed:', sftpErr.message);
-            return sendOk(res, {
+            sendOk(res, {
               message: 'Welcome file saved to config but SFTP upload failed: ' + sftpErr.message,
               lineCount: lines.length,
               uploaded: false,
             });
+            return;
           }
         }
-        return sendOk(res, {
+        sendOk(res, {
           message: welcomePath
             ? 'Welcome file saved and uploaded'
             : 'Welcome file saved to config (no SFTP path configured)',
           lineCount: lines.length,
           uploaded: !!welcomePath,
         });
-      } catch (err) {
-        return sendError(res, 'WELCOME_FILE_SAVE_FAILED', 500, safeError(err));
+        return;
+      } catch (err: any) {
+        sendError(res, 'WELCOME_FILE_SAVE_FAILED', 500, safeError(err));
+        return;
       }
     });
 
@@ -3329,7 +3501,7 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/panel/anticheat/flags — list flags with optional filters */
-    app.get('/api/panel/anticheat/flags', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
+    app.get('/api/panel/anticheat/flags', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
       const srv = req.srv;
       if (!srv.db) return res.json([]);
       try {
@@ -3349,68 +3521,80 @@ class WebMapServer {
 
         // Apply severity filter client-side if both status and severity are set
         if (severity && flags) {
-          flags = flags.filter((f) => f.severity === severity);
+          flags = flags.filter((f: any) => f.severity === severity);
         }
 
         // Resolve player names from players table
-        const nameMap = {};
+        const nameMap: Record<string, any> = {};
         try {
-          const rows = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-          for (const r of rows) nameMap[r.steam_id] = r.name;
+          const rows: any[] = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
+          for (const r of rows) nameMap[r.steam_id as string] = r.name;
         } catch {
           /* */
         }
 
-        flags = (flags || []).map((f) => ({
+        flags = (flags || []).map((f: any) => ({
           ...f,
-          player_name: f.player_name || nameMap[f.steam_id] || f.steam_id,
+          player_name: f.player_name || (nameMap as any)[f.steam_id] || f.steam_id,
         }));
 
         res.json(flags);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/panel/anticheat/risk-scores — all player risk scores */
-    app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json([]);
       try {
         const scores = req.srv.db.getAllRiskScores() || [];
         res.json(scores);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/anticheat/flags/:id/review — confirm, dismiss, or whitelist a flag */
-    app.post('/api/panel/anticheat/flags/:id/review', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      if (!req.srv.db) return sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 500);
-      try {
-        const flagId = parseInt(req.params.id, 10);
-        if (isNaN(flagId)) return sendError(res, API_ERRORS.INVALID_FLAG_ID, 400);
-
-        const { status, notes } = req.body || {};
-        if (!status || !['confirmed', 'dismissed', 'whitelisted'].includes(status)) {
-          return sendError(res, API_ERRORS.INVALID_STATUS, 400);
+    app.post(
+      '/api/panel/anticheat/flags/:id/review',
+      requireTier('admin'),
+      rateLimit(10000, 10),
+      (req: any, res: any) => {
+        if (!req.srv.db) {
+          sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 500);
+          return;
         }
+        try {
+          const flagId = parseInt(req.params.id, 10);
+          if (isNaN(flagId)) {
+            sendError(res, API_ERRORS.INVALID_FLAG_ID, 400);
+            return;
+          }
 
-        // Get reviewer identity from session
-        const reviewedBy = req.session?.username || req.session?.discordId || 'admin';
+          const { status, notes } = req.body || {};
+          if (!status || !['confirmed', 'dismissed', 'whitelisted'].includes(status)) {
+            sendError(res, API_ERRORS.INVALID_STATUS, 400);
+            return;
+          }
 
-        req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes || '');
-        res.json({ ok: true, flagId, status });
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+          // Get reviewer identity from session
+          const reviewedBy = req.session?.username || req.session?.discordId || 'admin';
+
+          req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes || '');
+          res.json({ ok: true, flagId, status });
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+        }
+      },
+    );
 
     /** GET /api/panel/anticheat/stats — summary counts for dashboard */
-    app.get('/api/panel/anticheat/stats', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/anticheat/stats', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json({ open: 0, confirmed: 0, dismissed: 0, total: 0 });
       try {
         const srv = req.srv;
-        const countByStatus = (s) => {
+        const countByStatus = (s: string | null) => {
           try {
             if (s)
               return srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags WHERE status = ?').get(s).count;
@@ -3424,7 +3608,7 @@ class WebMapServer {
         const dismissed = countByStatus('dismissed');
         const total = countByStatus(null);
         res.json({ open, confirmed, dismissed, total });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -3434,7 +3618,7 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** Mask sensitive fields in a server definition for API responses. */
-    function _maskServerDef(def) {
+    function _maskServerDef(def: any): any {
       if (!def) return def;
       const masked = JSON.parse(JSON.stringify(def));
       if (masked.rcon?.password != null) masked.rcon.password = { hasValue: !!masked.rcon.password };
@@ -3445,7 +3629,12 @@ class WebMapServer {
     }
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
-    function _testRconAuth(host, port, password, timeout = 10000) {
+    function _testRconAuth(
+      host: string,
+      port: number | string,
+      password: string,
+      timeout = 10000,
+    ): Promise<{ ok: boolean; error?: string }> {
       // Validate host: must be hostname or IP, no URL schemes/paths/spaces
       if (typeof host !== 'string' || !/^[\w.:-]+$/.test(host) || host.includes('://')) {
         return Promise.resolve({ ok: false, error: 'Invalid host format' });
@@ -3460,19 +3649,21 @@ class WebMapServer {
         const socket = new net.Socket();
         let resolved = false;
         let buf = Buffer.alloc(0);
-        const done = (result) => {
+        const done = (result: { ok: boolean; error?: string }) => {
           if (resolved) return;
           resolved = true;
           clearTimeout(timer);
           try {
             socket.destroy();
-          } catch (cleanupErr) {
+          } catch (cleanupErr: any) {
             console.warn('[WebMap] RCON test socket cleanup error:', cleanupErr.message);
           }
           resolve(result);
         };
-        const timer = setTimeout(() => done({ ok: false, error: 'Connection timed out' }), timeout);
-        socket.connect(port, host, () => {
+        const timer = setTimeout(() => {
+          done({ ok: false, error: 'Connection timed out' });
+        }, timeout);
+        socket.connect(port as number, host, () => {
           const passLen = Buffer.byteLength(password, 'utf8');
           const bodyLen = 4 + 4 + passLen + 1 + 1;
           const pkt = Buffer.alloc(4 + bodyLen);
@@ -3482,7 +3673,7 @@ class WebMapServer {
           pkt.write(password, 12, 'utf8');
           socket.write(pkt);
         });
-        socket.on('data', (chunk) => {
+        socket.on('data', (chunk: any) => {
           buf = Buffer.concat([buf, chunk]);
           while (buf.length >= 12) {
             const pktSize = buf.readInt32LE(0);
@@ -3500,49 +3691,58 @@ class WebMapServer {
             }
           }
         });
-        socket.on('error', (err) => done({ ok: false, error: err.message }));
+        socket.on('error', (err: any) => {
+          done({ ok: false, error: err.message });
+        });
         socket.setTimeout(timeout);
-        socket.on('timeout', () => done({ ok: false, error: 'Connection timed out' }));
+        socket.on('timeout', () => {
+          done({ ok: false, error: 'Connection timed out' });
+        });
       });
     }
 
     /** Test SFTP auth + directory listing. Resolves { ok, error? }. */
-    async function _testSftpAuth(sftpCfg, timeout = 10000) {
+    async function _testSftpAuth(sftpCfg: any, timeout = 10000): Promise<{ ok: boolean; error?: string }> {
       const SftpClient = require('ssh2-sftp-client');
       const client = new SftpClient();
       try {
-        const opts = { host: sftpCfg.host, port: sftpCfg.port || 22, username: sftpCfg.user, readyTimeout: timeout };
+        const opts: any = {
+          host: sftpCfg.host,
+          port: sftpCfg.port || 22,
+          username: sftpCfg.user,
+          readyTimeout: timeout,
+        };
         if (sftpCfg.password) opts.password = sftpCfg.password;
         if (sftpCfg.privateKeyPath) {
           try {
             opts.privateKey = readPrivateKey(sftpCfg.privateKeyPath);
-          } catch (keyErr) {
+          } catch (keyErr: any) {
             return { ok: false, error: 'Cannot read private key: ' + keyErr.message };
           }
         }
         await client.connect(opts);
         await client.list('/');
         return { ok: true };
-      } catch (err) {
+      } catch (err: any) {
         return { ok: false, error: (err.message || 'Connection failed').substring(0, 200) };
       } finally {
         try {
           await client.end();
-        } catch (endErr) {
+        } catch (endErr: any) {
           console.warn('[WebMap] SFTP test client cleanup error:', endErr.message);
         }
       }
     }
 
     /** GET /api/panel/servers — List all servers with status */
-    app.get('/api/panel/servers', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/servers', requireTier('admin'), rateLimit(10000, 10), (_req: any, res: any) => {
       try {
         const servers = [];
 
         // ── Primary server ──
         const primaryInfo = {
           id: 'primary',
-          name: config.serverName || 'Primary Server',
+          name: (config as any).serverName || 'Primary Server',
           isPrimary: true,
           enabled: true,
           status: rcon.connected ? 'running' : 'offline',
@@ -3563,23 +3763,23 @@ class WebMapServer {
           primaryInfo.players.current = primaryStatusCache.onlineCount || 0;
           primaryInfo.players.max = primaryStatusCache.maxPlayers || null;
         }
-        const primaryMods = [];
+        const primaryMods: string[] = [];
         if (rcon.connected) primaryMods.push('rcon');
         if (this._db) primaryMods.push('db');
         if (this._saveService) primaryMods.push('sftp');
         if (this._scheduler?.isActive?.()) primaryMods.push('schedule');
-        primaryInfo.modules = primaryMods;
+        (primaryInfo as any).modules = primaryMods;
         servers.push(primaryInfo);
 
         // ── Managed servers ──
         const managed = this._loadServerList();
-        const statuses = this._multiServerManager?.getStatuses?.() || [];
-        const statusMap = new Map(statuses.map((s) => [s.id, s]));
+        const statuses: any[] = this._multiServerManager?.getStatuses?.() || [];
+        const statusMap = new Map(statuses.map((s: any) => [s.id, s]));
 
         for (const def of managed) {
           const st = statusMap.get(def.id);
           const inst = this._multiServerManager?.getInstance?.(def.id);
-          const info = {
+          const info: any = {
             id: def.id,
             name: def.name || def.id,
             isPrimary: false,
@@ -3596,7 +3796,7 @@ class WebMapServer {
               configured: !!(def.sftp?.host && def.sftp?.user),
             },
             lastSync: null,
-            modules: [],
+            modules: [] as string[],
           };
           const srvCache = this._getCached('status', def.id, 30000);
           if (srvCache) {
@@ -3604,7 +3804,7 @@ class WebMapServer {
             info.players.current = srvCache.onlineCount || 0;
             info.players.max = srvCache.maxPlayers || null;
           }
-          const mods = [];
+          const mods: string[] = [];
           if (inst?.rcon?.connected) mods.push('rcon');
           if (inst?.db) mods.push('db');
           if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
@@ -3616,30 +3816,33 @@ class WebMapServer {
         }
 
         sendOk(res, { servers });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers — Create a new managed server */
-    app.post('/api/panel/servers', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+    app.post('/api/panel/servers', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
       try {
         const { name, rcon: rconCfg, sftp, channels, enabled, startImmediately } = req.body || {};
         if (!name || typeof name !== 'string' || !name.trim()) {
-          return sendError(res, API_ERRORS.MISSING_SERVER_NAME, 400);
+          sendError(res, API_ERRORS.MISSING_SERVER_NAME, 400);
+          return;
         }
         if (!rconCfg || !rconCfg.host || !rconCfg.port || !rconCfg.password) {
-          return sendError(res, API_ERRORS.MISSING_RCON_CONFIG, 400);
+          sendError(res, API_ERRORS.MISSING_RCON_CONFIG, 400);
+          return;
         }
 
         // Check name uniqueness
         const existing = this._loadServerList();
-        if (existing.some((s) => s.name === name.trim())) {
-          return sendError(res, API_ERRORS.SERVER_NAME_EXISTS, 409);
+        if (existing.some((s: any) => s.name === name.trim())) {
+          sendError(res, API_ERRORS.SERVER_NAME_EXISTS, 409);
+          return;
         }
 
         const id = 'srv_' + Date.now().toString(36);
-        const serverDef = {
+        const serverDef: any = {
           id,
           name: name.trim(),
           enabled: enabled !== false,
@@ -3667,13 +3870,13 @@ class WebMapServer {
         }
 
         res.status(201).json({ ok: true, server: { id, name: serverDef.name, status: 'stopped' } });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers/discover — Start SFTP path discovery (202 + polling) */
-    app.post('/api/panel/servers/discover', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+    app.post('/api/panel/servers/discover', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
       let sftpCfg = (req.body || {}).sftp;
 
       // Allow using the server's existing SFTP config (for settings page discover button)
@@ -3684,9 +3887,10 @@ class WebMapServer {
         try {
           const srvCfg = req.srv?.config || config;
           connectOpts = srvCfg.sftpConnectConfig.call(srvCfg);
-        } catch (err) {
+        } catch (err: any) {
           console.error('[DISCOVER] Failed to build SFTP config:', err.message);
-          return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+          sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+          return;
         }
         sftpCfg = {
           host: connectOpts.host,
@@ -3699,10 +3903,12 @@ class WebMapServer {
       }
 
       if (!sftpCfg || !sftpCfg.host || !sftpCfg.user) {
-        return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+        sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+        return;
       }
       if (!sftpCfg.password && !sftpCfg.privateKeyPath && !sftpCfg.privateKey) {
-        return sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+        sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
+        return;
       }
 
       // Max 3 concurrent jobs
@@ -3711,7 +3917,8 @@ class WebMapServer {
         if (job.state === 'pending' || job.state === 'running') activeCount++;
       }
       if (activeCount >= 3) {
-        return sendError(res, API_ERRORS.MAX_CONCURRENT_DISCOVERIES, 429);
+        sendError(res, API_ERRORS.MAX_CONCURRENT_DISCOVERIES, 429);
+        return;
       }
 
       // Cleanup stale jobs (> 5 min)
@@ -3722,7 +3929,7 @@ class WebMapServer {
       }
 
       const jobId = 'disc_' + Date.now().toString(36);
-      const job = { state: 'running', startTime: now, result: null, error: null, currentStep: 'connecting' };
+      const job: any = { state: 'running', startTime: now, result: null, error: null, currentStep: 'connecting' };
       _discoveryJobs.set(jobId, job);
 
       // Run discovery in background
@@ -3747,7 +3954,7 @@ class WebMapServer {
         },
         'WEB_DISCOVER',
       )
-        .then((result) => {
+        .then((result: any) => {
           clearTimeout(timeoutHandle);
           if (job.state !== 'running') return;
           job.state = result ? 'completed' : 'failed';
@@ -3755,7 +3962,7 @@ class WebMapServer {
           if (!result) job.error = 'No game files found';
           job.currentStep = null;
         })
-        .catch((err) => {
+        .catch((err: any) => {
           clearTimeout(timeoutHandle);
           if (job.state !== 'running') return;
           job.state = 'failed';
@@ -3767,9 +3974,13 @@ class WebMapServer {
     });
 
     /** GET /api/panel/servers/discover/:jobId — Poll discovery job status */
-    app.get('/api/panel/servers/discover/:jobId', requireTier('admin'), rateLimit(5000, 20), (req, res) => {
+
+    app.get('/api/panel/servers/discover/:jobId', requireTier('admin'), rateLimit(5000, 20), (req: any, res: any) => {
       const job = _discoveryJobs.get(req.params.jobId);
-      if (!job) return sendError(res, API_ERRORS.DISCOVERY_JOB_NOT_FOUND, 404);
+      if (!job) {
+        sendError(res, API_ERRORS.DISCOVERY_JOB_NOT_FOUND, 404);
+        return;
+      }
       sendOk(res, {
         state: job.state,
         elapsed: Date.now() - job.startTime,
@@ -3780,49 +3991,56 @@ class WebMapServer {
     });
 
     /** POST /api/panel/servers/test-connection — Stateless connection validation */
-    app.post('/api/panel/servers/test-connection', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
-      try {
-        const { rcon: rconCfg, sftp: sftpCfg } = req.body || {};
-        if (!rconCfg && !sftpCfg) {
-          return sendError(res, API_ERRORS.MISSING_CONNECTION_CONFIG, 400);
-        }
+    app.post(
+      '/api/panel/servers/test-connection',
+      requireTier('admin'),
+      rateLimit(10000, 5),
+      async (req: any, res: any) => {
+        try {
+          const rconCfg = req.body?.rcon;
+          const sftpCfg = req.body?.sftp;
+          if (!rconCfg && !sftpCfg) {
+            sendError(res, API_ERRORS.MISSING_CONNECTION_CONFIG, 400);
+            return;
+          }
 
-        const result = {};
-        const promises = [];
+          const result = {};
+          const promises: Promise<void>[] = [];
 
-        if (rconCfg) {
-          promises.push(
-            _testRconAuth(rconCfg.host, parseInt(rconCfg.port, 10) || 27015, rconCfg.password || '', 10000).then(
-              (r) => {
-                result.rcon = r;
-              },
-            ),
-          );
-        }
-        if (sftpCfg) {
-          promises.push(
-            _testSftpAuth(sftpCfg, 10000).then((r) => {
-              result.sftp = r;
-            }),
-          );
-        }
+          if (rconCfg) {
+            promises.push(
+              _testRconAuth(rconCfg.host, parseInt(rconCfg.port, 10) || 27015, rconCfg.password || '', 10000).then(
+                (r: any) => {
+                  (result as any).rcon = r;
+                },
+              ),
+            );
+          }
+          if (sftpCfg) {
+            promises.push(
+              _testSftpAuth(sftpCfg, 10000).then((r: any) => {
+                (result as any).sftp = r;
+              }),
+            );
+          }
 
-        await Promise.all(promises);
-        sendOk(res, result);
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+          await Promise.all(promises);
+          sendOk(res, result);
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+        }
+      },
+    );
 
     /** GET /api/panel/servers/:id — Get server detail (passwords masked) */
-    app.get('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
       try {
         const { id } = req.params;
 
         if (id === 'primary') {
-          const def = {
+          const def: any = {
             id: 'primary',
-            name: config.serverName || 'Primary Server',
+            name: (config as any).serverName || 'Primary Server',
             isPrimary: true,
             enabled: true,
             rcon: {
@@ -3856,12 +4074,16 @@ class WebMapServer {
             def.status = rcon.connected ? 'running' : 'offline';
             def.players = { current: 0, max: null };
           }
-          return sendOk(res, { server: def });
+          sendOk(res, { server: def });
+          return;
         }
 
         // Managed server
         const raw = configRepo?.get(`server:${id}`);
-        if (!raw) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+        if (!raw) {
+          sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return;
+        }
 
         const masked = _maskServerDef(raw);
         const inst = this._multiServerManager?.getInstance?.(id);
@@ -3874,23 +4096,24 @@ class WebMapServer {
         }
 
         sendOk(res, { server: masked });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** PATCH /api/panel/servers/:id — Update server settings (partial) */
-    app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+    app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
       try {
         const { id } = req.params;
-        const updates = req.body;
+        const updates: any = req.body;
         if (!updates || typeof updates !== 'object') {
-          return sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
+          sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
+          return;
         }
 
         if (id === 'primary') {
           if (configRepo) {
-            const patch = { ...updates };
+            const patch: any = { ...updates };
             // Empty-string sensitive fields = "keep existing"
             if (patch.rcon) {
               patch.rcon = { ...patch.rcon };
@@ -3904,13 +4127,20 @@ class WebMapServer {
             configRepo.update('server:primary', patch);
           }
           const restartRequired = !!(updates.rcon || updates.sftp || updates.paths);
-          return sendOk(res, { restartRequired });
+          sendOk(res, { restartRequired });
+          return;
         }
 
         // Managed server
-        if (!configRepo) return sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
-        const existing = configRepo.get(`server:${id}`);
-        if (!existing) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+        if (!configRepo) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
+          return;
+        }
+        const existing: any = configRepo.get(`server:${id}`);
+        if (!existing) {
+          sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return;
+        }
 
         // Deep-merge sub-objects; empty-string sensitive fields = keep existing
         const patch = { ...updates };
@@ -3940,7 +4170,7 @@ class WebMapServer {
         if (this._multiServerManager?.getInstance?.(id)?.running) {
           try {
             await this._multiServerManager.updateServer(id, patch);
-          } catch (hotReloadErr) {
+          } catch (hotReloadErr: any) {
             console.warn(
               '[WebMap] Hot-reload for server %s failed, will apply on next start:',
               id,
@@ -3951,27 +4181,36 @@ class WebMapServer {
 
         const restartRequired = !!(updates.rcon || updates.sftp || updates.paths);
         sendOk(res, { restartRequired });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** DELETE /api/panel/servers/:id — Remove a managed server */
-    app.delete('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 3), async (req, res) => {
+    app.delete('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 3), async (req: any, res: any) => {
       try {
         const { id } = req.params;
-        if (id === 'primary') return sendError(res, API_ERRORS.CANNOT_DELETE_PRIMARY, 403);
-        if (req.query.confirm !== 'true') return sendError(res, API_ERRORS.CONFIRM_REQUIRED, 400);
+        if (id === 'primary') {
+          sendError(res, API_ERRORS.CANNOT_DELETE_PRIMARY, 403);
+          return;
+        }
+        if (req.query.confirm !== 'true') {
+          sendError(res, API_ERRORS.CONFIRM_REQUIRED, 400);
+          return;
+        }
 
         if (configRepo) {
-          const existing = configRepo.get(`server:${id}`);
-          if (!existing) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          const existing: any = configRepo.get(`server:${id}`);
+          if (!existing) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+            return;
+          }
         }
 
         if (this._multiServerManager) {
           try {
             await this._multiServerManager.removeServer(id);
-          } catch (removeErr) {
+          } catch (removeErr: any) {
             console.warn('[WebMap] removeServer(%s) cleanup warning:', id, removeErr.message);
           }
         }
@@ -3980,190 +4219,233 @@ class WebMapServer {
         }
 
         sendOk(res);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers/:id/actions/:action — Lifecycle control (start/stop/restart) */
-    app.post('/api/panel/servers/:id/actions/:action', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
-      try {
-        const { id, action } = req.params;
-        if (id === 'primary') {
-          return sendError(res, API_ERRORS.CANNOT_CONTROL_PRIMARY, 400);
-        }
-        if (!['start', 'stop', 'restart'].includes(action)) {
-          return sendError(res, API_ERRORS.INVALID_LIFECYCLE_ACTION, 400);
-        }
-        if (!this._multiServerManager) {
-          return sendError(res, API_ERRORS.MULTI_SERVER_NOT_AVAILABLE, 500);
-        }
+    app.post(
+      '/api/panel/servers/:id/actions/:action',
+      requireTier('admin'),
+      rateLimit(10000, 5),
+      async (req: any, res: any) => {
+        try {
+          const { id, action } = req.params;
+          if (id === 'primary') {
+            sendError(res, API_ERRORS.CANNOT_CONTROL_PRIMARY, 400);
+            return;
+          }
+          if (!['start', 'stop', 'restart'].includes(action)) {
+            sendError(res, API_ERRORS.INVALID_LIFECYCLE_ACTION, 400);
+            return;
+          }
+          if (!this._multiServerManager) {
+            sendError(res, API_ERRORS.MULTI_SERVER_NOT_AVAILABLE, 500);
+            return;
+          }
 
-        // Verify server definition exists
-        const def = configRepo?.get(`server:${id}`);
-        if (!def) return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          // Verify server definition exists
+          const def = configRepo?.get(`server:${id}`);
+          if (!def) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+            return;
+          }
 
-        const inst = this._multiServerManager.getInstance(id);
+          const inst = this._multiServerManager.getInstance(id);
 
-        if (action === 'start') {
-          if (inst?.running) return sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+          if (action === 'start') {
+            if (inst?.running) {
+              sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+              return;
+            }
+            await this._multiServerManager.startServer(id);
+            sendOk(res, { status: 'running' });
+            return;
+          }
+
+          if (action === 'stop') {
+            if (!inst?.running) {
+              sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+              return;
+            }
+            await this._multiServerManager.stopServer(id);
+            sendOk(res, { status: 'stopped' });
+            return;
+          }
+
+          // restart
+          if (inst?.running) {
+            await this._multiServerManager.stopServer(id);
+          }
           await this._multiServerManager.startServer(id);
-          return sendOk(res, { status: 'running' });
+          sendOk(res, { status: 'running' });
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
         }
-
-        if (action === 'stop') {
-          if (!inst?.running) return sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
-          await this._multiServerManager.stopServer(id);
-          return sendOk(res, { status: 'stopped' });
-        }
-
-        // restart
-        if (inst?.running) {
-          await this._multiServerManager.stopServer(id);
-        }
-        await this._multiServerManager.startServer(id);
-        sendOk(res, { status: 'running' });
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+      },
+    );
 
     // ── Panel: Settings Schema ──
     /** GET /api/panel/settings-schema — Return game settings category definitions */
-    app.get('/api/panel/settings-schema', requireTier('admin'), (req, res) => {
+
+    app.get('/api/panel/settings-schema', requireTier('admin'), (_req: any, res: any) => {
       res.json({ categories: GAME_SETTINGS_CATEGORIES });
     });
 
     // ── Panel: Per-Server Auto-Messages ──
     /** GET /api/panel/servers/:id/auto-messages — Read auto-messages config for a server */
-    app.get('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
-      try {
-        const { id } = req.params;
-        const defaults = {
-          enableWelcomeMsg: true,
-          enableWelcomeFile: false,
-          enableAutoMsgLink: true,
-          enableAutoMsgPromo: true,
-          linkText: '',
-          promoText: '',
-          discordLink: '',
-        };
-        if (!configRepo) {
-          return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+    app.get(
+      '/api/panel/servers/:id/auto-messages',
+      requireTier('admin'),
+      rateLimit(10000, 10),
+      (req: any, res: any) => {
+        try {
+          const { id } = req.params;
+          const defaults = {
+            enableWelcomeMsg: true,
+            enableWelcomeFile: false,
+            enableAutoMsgLink: true,
+            enableAutoMsgPromo: true,
+            linkText: '',
+            promoText: '',
+            discordLink: '',
+          };
+          if (!configRepo) {
+            sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+            return;
+          }
+          const scope = 'server:' + id;
+          if (id !== 'primary' && !configRepo.get(scope)) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+            return;
+          }
+          const serverData = configRepo.get(scope) || {};
+          const stored = serverData.autoMessages || null;
+          const data = Object.assign({}, defaults, stored || {});
+          sendOk(res, data);
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
         }
-        const scope = 'server:' + id;
-        if (id !== 'primary' && !configRepo.get(scope)) {
-          return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-        }
-        const serverData = configRepo.get(scope) || {};
-        const stored = serverData.autoMessages || null;
-        const data = Object.assign({}, defaults, stored || {});
-        sendOk(res, data);
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+      },
+    );
 
     /** POST /api/panel/servers/:id/auto-messages — Save auto-messages config for a server */
-    app.post('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
-      try {
-        const { id } = req.params;
-        const {
-          enableWelcomeMsg,
-          enableWelcomeFile,
-          enableAutoMsgLink,
-          enableAutoMsgPromo,
-          linkText,
-          promoText,
-          discordLink,
-        } = req.body || {};
+    app.post(
+      '/api/panel/servers/:id/auto-messages',
+      requireTier('admin'),
+      rateLimit(10000, 5),
+      (req: any, res: any) => {
+        try {
+          const { id } = req.params;
+          const {
+            enableWelcomeMsg,
+            enableWelcomeFile,
+            enableAutoMsgLink,
+            enableAutoMsgPromo,
+            linkText,
+            promoText,
+            discordLink,
+          } = req.body || {};
 
-        const data = {
-          enableWelcomeMsg: !!enableWelcomeMsg,
-          enableWelcomeFile: !!enableWelcomeFile,
-          enableAutoMsgLink: !!enableAutoMsgLink,
-          enableAutoMsgPromo: !!enableAutoMsgPromo,
-          linkText: typeof linkText === 'string' ? linkText.trim() : '',
-          promoText: typeof promoText === 'string' ? promoText.trim() : '',
-          discordLink: typeof discordLink === 'string' ? discordLink.trim() : '',
-        };
+          const data = {
+            enableWelcomeMsg: !!enableWelcomeMsg,
+            enableWelcomeFile: !!enableWelcomeFile,
+            enableAutoMsgLink: !!enableAutoMsgLink,
+            enableAutoMsgPromo: !!enableAutoMsgPromo,
+            linkText: typeof linkText === 'string' ? linkText.trim() : '',
+            promoText: typeof promoText === 'string' ? promoText.trim() : '',
+            discordLink: typeof discordLink === 'string' ? discordLink.trim() : '',
+          };
 
-        if (!configRepo) {
-          return sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+          if (!configRepo) {
+            sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+            return;
+          }
+          const scope = 'server:' + id;
+          if (id !== 'primary' && !configRepo.get(scope)) {
+            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+            return;
+          }
+          configRepo.update(scope, { autoMessages: data });
+          sendOk(res, { saved: true, requiresRestart: true });
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
         }
-        const scope = 'server:' + id;
-        if (id !== 'primary' && !configRepo.get(scope)) {
-          return sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-        }
-        configRepo.update(scope, { autoMessages: data });
-        sendOk(res, { saved: true, requiresRestart: true });
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+      },
+    );
 
     // ── Panel: Bot actions (restart, reimport, factory reset, env sync) ──
     /** POST /api/panel/bot-actions/:action — Bot lifecycle control */
-    app.post('/api/panel/bot-actions/:action', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
-      try {
-        const { action } = req.params;
-        const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
-        if (!validActions.includes(action)) {
-          return sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
-        }
-        if (!this._botControl) {
-          return sendError(res, API_ERRORS.BOT_CONTROL_NOT_AVAILABLE, 500);
-        }
-
-        const meta = { source: 'web', user: req.session?.username || 'unknown' };
-        let result;
-
-        switch (action) {
-          case 'restart':
-            result = this._botControl.restart(meta);
-            break;
-          case 'reimport':
-            result = this._botControl.reimport(meta);
-            break;
-          case 'factory_reset': {
-            const { confirm } = req.body;
-            if (confirm !== 'NUKE') {
-              return sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
-            }
-            result = this._botControl.factoryReset(meta);
-            break;
+    app.post(
+      '/api/panel/bot-actions/:action',
+      requireTier('admin'),
+      rateLimit(30000, 3),
+      async (req: any, res: any) => {
+        try {
+          const { action } = req.params;
+          const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
+          if (!validActions.includes(action)) {
+            sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
+            return;
           }
-          case 'env_sync':
-            result = this._botControl.envSync();
-            break;
-        }
+          if (!this._botControl) {
+            sendError(res, API_ERRORS.BOT_CONTROL_NOT_AVAILABLE, 500);
+            return;
+          }
 
-        sendOk(res, result);
-      } catch (err) {
-        if (err.code === 'BOT_ACTION_PENDING') {
-          return sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
+          const meta = { source: 'web', user: req.session?.username || 'unknown' };
+          let result;
+
+          switch (action) {
+            case 'restart':
+              result = this._botControl.restart(meta);
+              break;
+            case 'reimport':
+              result = this._botControl.reimport(meta);
+              break;
+            case 'factory_reset': {
+              const { confirm } = req.body;
+              if (confirm !== 'NUKE') {
+                sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
+                return;
+              }
+              result = this._botControl.factoryReset(meta);
+              break;
+            }
+            case 'env_sync':
+              result = this._botControl.envSync();
+              break;
+          }
+
+          sendOk(res, result);
+        } catch (err: any) {
+          if (err.code === 'BOT_ACTION_PENDING') {
+            sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
+            return;
+          }
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
         }
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+      },
+    );
 
     // ══════════════════════════════════════════════════════════════════
     //  Timeline API — time-scroll playback, entity history, death causes
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/timeline/bounds — earliest/latest snapshot timestamps + count */
-    app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json({ earliest: null, latest: null, count: 0 });
       try {
         const bounds = req.srv.db.getTimelineBounds();
         res.json(bounds || { earliest: null, latest: null, count: 0 });
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/snapshots?from=&to=&limit= — snapshot list (metadata only) */
-    app.get('/api/timeline/snapshots', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/timeline/snapshots', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { from, to, limit } = req.query;
@@ -4174,23 +4456,32 @@ class WebMapServer {
           snapshots = req.srv.db.getTimelineSnapshots(parseInt(limit, 10) || 50);
         }
         res.json(snapshots);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/snapshot/:id — full snapshot data (all entities with map coords) */
-    app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
-      if (!req.srv.db) return sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 404);
+    app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req: any, res: any) => {
+      if (!req.srv.db) {
+        sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 404);
+        return;
+      }
       try {
         const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) return sendError(res, API_ERRORS.INVALID_SNAPSHOT_ID, 400);
+        if (isNaN(id)) {
+          sendError(res, API_ERRORS.INVALID_SNAPSHOT_ID, 400);
+          return;
+        }
 
         const full = req.srv.db.getTimelineSnapshotFull(id);
-        if (!full) return sendError(res, API_ERRORS.SNAPSHOT_NOT_FOUND, 404);
+        if (!full) {
+          sendError(res, API_ERRORS.SNAPSHOT_NOT_FOUND, 404);
+          return;
+        }
 
         // Convert world coordinates to leaflet coordinates for all entities
-        const convert = (item) => {
+        const convert = (item: any) => {
           if (item.pos_x != null && item.pos_y != null && !(item.pos_x === 0 && item.pos_y === 0)) {
             const [lat, lng] = this._worldToLeaflet(item.pos_x, item.pos_y);
             return { ...item, lat, lng };
@@ -4209,59 +4500,70 @@ class WebMapServer {
         const nameMap = {};
         try {
           const rows = req.srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-          for (const r of rows) nameMap[r.steam_id] = r.name;
+          for (const r of rows) (nameMap as Record<string, string>)[r.steam_id as string] = r.name;
         } catch {
           /* */
         }
         full.nameMap = nameMap;
 
         res.json(full);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/player/:steamId/trail?from=&to= — player position history */
-    app.get('/api/timeline/player/:steamId/trail', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
-      if (!req.srv.db) return res.json([]);
-      try {
-        const { steamId } = req.params;
-        const { from, to } = req.query;
-        if (!from || !to) return sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
+    app.get(
+      '/api/timeline/player/:steamId/trail',
+      requireTier('survivor'),
+      rateLimit(10000, 10),
+      (req: any, res: any) => {
+        if (!req.srv.db) return res.json([]);
+        try {
+          const { steamId } = req.params;
+          const { from, to } = req.query;
+          if (!from || !to) {
+            sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
+            return;
+          }
 
-        const positions = req.srv.db.getPlayerPositionHistory(steamId, from, to);
-        // Convert to map coordinates
-        const trail = positions
-          .map((p) => {
-            if (p.pos_x != null && p.pos_y != null && !(p.pos_x === 0 && p.pos_y === 0)) {
-              const [lat, lng] = this._worldToLeaflet(p.pos_x, p.pos_y);
-              return { lat, lng, health: p.health, online: p.online, time: p.created_at, gameDay: p.game_day };
-            }
-            return null;
-          })
-          .filter(Boolean);
+          const positions = req.srv.db.getPlayerPositionHistory(steamId, from, to);
+          // Convert to map coordinates
+          const trail = positions
+            .map((p: any) => {
+              if (p.pos_x != null && p.pos_y != null && !(p.pos_x === 0 && p.pos_y === 0)) {
+                const [lat, lng] = this._worldToLeaflet(p.pos_x, p.pos_y);
+                return { lat, lng, health: p.health, online: p.online, time: p.created_at, gameDay: p.game_day };
+              }
+              return null;
+            })
+            .filter(Boolean);
 
-        res.json(trail);
-      } catch (err) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
-      }
-    });
+          res.json(trail);
+        } catch (err: any) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+        }
+      },
+    );
 
     /** GET /api/timeline/ai/population?from=&to= — AI population over time */
-    app.get('/api/timeline/ai/population', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/timeline/ai/population', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { from, to } = req.query;
-        if (!from || !to) return sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
+        if (!from || !to) {
+          sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
+          return;
+        }
         const data = req.srv.db.getAIPopulationHistory(from, to);
         res.json(data);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/deaths?limit=&player= — recent death causes */
-    app.get('/api/timeline/deaths', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
+    app.get('/api/timeline/deaths', requireTier('survivor'), rateLimit(10000, 15), (req: any, res: any) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { limit, player } = req.query;
@@ -4272,7 +4574,7 @@ class WebMapServer {
           deaths = req.srv.db.getDeathCauses(parseInt(limit, 10) || 50);
         }
         // Add map coordinates
-        deaths = deaths.map((d) => {
+        deaths = deaths.map((d: any) => {
           if (d.pos_x != null && d.pos_y != null && !(d.pos_x === 0 && d.pos_y === 0)) {
             const [lat, lng] = this._worldToLeaflet(d.pos_x, d.pos_y);
             return { ...d, lat, lng };
@@ -4280,27 +4582,28 @@ class WebMapServer {
           return { ...d, lat: null, lng: null };
         });
         res.json(deaths);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/deaths/stats — death cause breakdown */
-    app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+    app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
       if (!req.srv.db) return res.json([]);
       try {
         const stats = req.srv.db.getDeathCauseStats();
         res.json(stats);
-      } catch (err) {
+      } catch (err: any) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
   }
 
   /** Start the Express server. */
-  _addErrorHandler() {
+  _addErrorHandler(): void {
     // Global error handler — catch unhandled errors in routes
-    this._app.use((err, _req, res, _next) => {
+
+    this._app.use((err: any, _req: any, res: any, _next: any) => {
       console.error('[WEB MAP] Unhandled route error:', err.message);
       if (!res.headersSent) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
@@ -4313,13 +4616,20 @@ class WebMapServer {
    * Runs every 15s so client requests are always served from cache instantly.
    * All RCON calls for multiple servers run in parallel.
    */
-  _startBackgroundPolling() {
+  _startBackgroundPolling(): void {
     const POLL_INTERVAL = 15000;
     const RCON_TIMEOUT = 5000;
-    const rconTimeout = (promise) =>
-      Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('RCON timeout')), RCON_TIMEOUT))]);
+    const rconTimeout = (promise: any) =>
+      Promise.race([
+        promise,
+        new Promise((_, rej) =>
+          setTimeout(() => {
+            rej(new Error('RCON timeout'));
+          }, RCON_TIMEOUT),
+        ),
+      ]);
 
-    const poll = async () => {
+    const poll = async (): Promise<void> => {
       try {
         // ── Build landing data (all servers in parallel) ──
         await this._buildLandingData(rconTimeout);
@@ -4340,7 +4650,7 @@ class WebMapServer {
           }
         });
         await Promise.all(statusPromises);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[WEB MAP] Background poll error:', err.message);
       }
     };
@@ -4353,10 +4663,10 @@ class WebMapServer {
   }
 
   /** Build and cache the landing page data. All RCON calls parallelised. */
-  async _buildLandingData(rconTimeout) {
-    const result = {
+  async _buildLandingData(rconTimeout: any): Promise<void> {
+    const result: any = {
       primary: {
-        name: config.serverName || 'HumanitZ Server',
+        name: (config as any).serverName || 'HumanitZ Server',
         host: config.publicHost || '',
         gamePort: config.gamePort || '',
         status: 'unknown',
@@ -4393,10 +4703,10 @@ class WebMapServer {
       }
     })();
 
-    const serverRcons = additional.map(async (s) => {
+    const serverRcons = additional.map(async (s: any) => {
       const dir = this._getServerDataDir(s.id);
       if (!dir) return null;
-      const serverInfo = {
+      const serverInfo: any = {
         id: s.id,
         name: s.name || s.id,
         host: s.publicHost || s.host || config.publicHost || '',
@@ -4495,7 +4805,7 @@ class WebMapServer {
         }
       }
       if (srv) {
-        const mods = [];
+        const mods: string[] = [];
         if (srv.rcon?.connected) mods.push('rcon');
         if (srv.db) mods.push('db');
         const inst = this._multiServerManager?.getInstance(s.id);
@@ -4505,7 +4815,9 @@ class WebMapServer {
         if (inst?._modules?.chatRelay) mods.push('chat');
         if (inst?._modules?.anticheat?.available) mods.push('anticheat');
         if (
-          this._plugins.some((p) => p.name === 'hzmod' && (p.serverId === s.id || (!p.serverId && s.id === 'vps_dev')))
+          this._plugins.some(
+            (p: any) => p.name === 'hzmod' && (p.serverId === s.id || (!p.serverId && s.id === 'vps_dev')),
+          )
         )
           mods.push('hzmod');
         serverInfo.modules = mods;
@@ -4596,16 +4908,16 @@ class WebMapServer {
       }
     }
     {
-      const mods = [];
+      const mods: string[] = [];
       if (rcon?.connected) mods.push('rcon');
       if (this._db) mods.push('db');
       if (this._saveService) mods.push('sftp');
       if (this._scheduler && this._scheduler.isActive()) mods.push('schedule');
-      if (this._plugins.some((p) => p.name === 'hzmod')) mods.push('hzmod');
+      if (this._plugins.some((p: any) => p.name === 'hzmod')) mods.push('hzmod');
       result.primary.modules = mods;
     }
     result.primary.discordInvite = config.discordInviteLink || '';
-    for (const plugin of this._plugins) {
+    for (const plugin of this._plugins as any[]) {
       if (typeof plugin.getLandingData === 'function') {
         try {
           Object.assign(result, plugin.getLandingData() || {});
@@ -4618,8 +4930,8 @@ class WebMapServer {
   }
 
   /** Build and cache status data for a single server. */
-  async _buildStatusCache(srv, rconTimeout) {
-    const result = {
+  async _buildStatusCache(srv: any, rconTimeout: any): Promise<void> {
+    const result: any = {
       serverState: 'unknown',
       uptime: null,
       maxPlayers: null,
@@ -4726,8 +5038,8 @@ class WebMapServer {
   }
 
   /** Build and cache stats data for a single server. */
-  async _buildStatsCache(srv, rconTimeout) {
-    const result = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
+  async _buildStatsCache(srv: any, rconTimeout: any): Promise<void> {
+    const result: any = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
     const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
     result.totalPlayers = players.size;
     if (!result.totalPlayers && srv.db) {
@@ -4758,7 +5070,7 @@ class WebMapServer {
         const todayMidnight = new Date(`${nowStr}T00:00:00`);
         const tzDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: 'UTC' }));
         const localDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: tz }));
-        const offsetMs = tzDate - localDate;
+        const offsetMs = tzDate.getTime() - localDate.getTime();
         const todayIso = new Date(todayMidnight.getTime() + offsetMs).toISOString();
         const activities = srv.db.getActivitySince?.(todayIso) || [];
         result.eventsToday = activities.length;
@@ -4771,7 +5083,7 @@ class WebMapServer {
     this._setCache('stats', srv.serverId, result);
   }
 
-  start() {
+  start(): Promise<void> {
     this._addErrorHandler();
     return new Promise((resolve, reject) => {
       this._server = this._app.listen(this._port, () => {
@@ -4779,7 +5091,7 @@ class WebMapServer {
         this._startBackgroundPolling();
         resolve();
       });
-      this._server.on('error', (err) => {
+      this._server.on('error', (err: any) => {
         console.error('[WEB MAP] Server error:', err.message);
         reject(err);
       });
@@ -4787,7 +5099,7 @@ class WebMapServer {
   }
 
   /** Stop the server. */
-  stop() {
+  stop(): void {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
@@ -4800,7 +5112,7 @@ class WebMapServer {
   }
 }
 
-const { generateFingerprint } = require('../db/item-fingerprint');
+import { generateFingerprint } from '../db/item-fingerprint.js';
 
 /**
  * Clean inventory slot items — applies cleanItemName to each item object.
@@ -4809,7 +5121,7 @@ const { generateFingerprint } = require('../db/item-fingerprint');
  * @param {Array} slots - Array of { item, amount, durability, ammo } or strings
  * @returns {Array}
  */
-function _cleanInventorySlots(slots) {
+function _cleanInventorySlots(slots: any[]): any[] {
   if (!Array.isArray(slots)) return [];
   return slots.map((slot) => {
     if (!slot) return slot;
@@ -4830,4 +5142,9 @@ function _cleanInventorySlots(slots) {
   });
 }
 
-module.exports = WebMapServer;
+export default WebMapServer;
+
+const _mod = module as { exports: any };
+
+_mod.exports = WebMapServer;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

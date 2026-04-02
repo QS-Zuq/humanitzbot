@@ -1,51 +1,34 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions */
 /**
  * Discord OAuth2 middleware for the web panel.
- *
- * Four access tiers:
- *   1. public   — No login required: landing page, Discord link, basic server stats
- *   2. survivor — Discord guild member with survivor role: community stats, leaderboards
- *   3. mod      — Mod role: kick, player locations, send messages
- *   4. admin    — Admin role or Administrator permission: everything (power, RCON, settings, DB)
- *
- * Role configuration via .env:
- *   WEB_PANEL_SURVIVOR_ROLES=role_id_1,role_id_2   (if empty, any guild member gets survivor)
- *   WEB_PANEL_MOD_ROLES=role_id_3
- *   WEB_PANEL_ADMIN_ROLES=role_id_4                 (if empty, falls back to Administrator permission)
- *
- * Session management via express-session with pluggable stores (memory/sqlite/redis).
- *
- * Flow:
- *   1. Unauthenticated request → public tier (landing page)
- *   2. User clicks "Login with Discord" → Discord OAuth2
- *   3. Server checks guild membership + roles → assigns highest tier
- *   4. Session managed by express-session (cookie: hmz_session)
- *   5. API routes check req.tier for access control
  */
 
-const crypto = require('crypto');
-const expressSession = require('express-session');
-const { doubleCsrf } = require('csrf-csrf');
-const cookieParser = require('cookie-parser');
-const config = require('../config');
-const { createSessionStore } = require('./session-store-factory');
+import crypto from 'crypto';
+import expressSession from 'express-session';
+import { doubleCsrf } from 'csrf-csrf';
+import cookieParser from 'cookie-parser';
+import _defaultConfig from '../config/index.js';
+import { createSessionStore } from './session-store-factory.js';
+
+import type { Express, Request, Response, NextFunction } from 'express';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const DISCORD_API = 'https://discord.com/api/v10';
 const OAUTH_SCOPES = 'identify guilds guilds.members.read';
 
-// Access tier levels (higher = more access)
-const TIER = { public: 0, survivor: 1, mod: 2, admin: 3 };
+const TIER: Record<string, number> = { public: 0, survivor: 1, mod: 2, admin: 3 };
 
 const COOKIE_NAME = 'hmz_session';
-const ROLE_REFRESH_INTERVAL = 5 * 60 * 1000; // Re-check Discord roles every 5 minutes
+const ROLE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Persistent session secret — generated once per process lifetime if not configured.
-// Falls back to env var, then generates a stable random secret for this process.
-let _cachedSessionSecret;
-function getSessionSecret() {
+let _cachedSessionSecret: string | undefined;
+function getSessionSecret(): string {
   if (_cachedSessionSecret) return _cachedSessionSecret;
   if (process.env.WEB_MAP_SESSION_SECRET) {
     _cachedSessionSecret = process.env.WEB_MAP_SESSION_SECRET;
@@ -58,19 +41,29 @@ function getSessionSecret() {
   return _cachedSessionSecret;
 }
 
-function getAuthConfig() {
+interface AuthConfig {
+  clientId: string;
+  clientSecret: string;
+  guildId: string;
+  callbackUrl: string;
+  sessionSecret: string;
+  allowedRoles: string[];
+  survivorRoles: string[];
+  modRoles: string[];
+  adminRoles: string[];
+}
+
+function getAuthConfig(): AuthConfig {
   return {
-    clientId: config.clientId,
+    clientId: (_defaultConfig as any).clientId,
     clientSecret: process.env.DISCORD_OAUTH_SECRET || '',
-    guildId: config.guildId,
+    guildId: (_defaultConfig as any).guildId,
     callbackUrl: process.env.WEB_MAP_CALLBACK_URL || '',
     sessionSecret: getSessionSecret(),
-    // Legacy single-tier role list (backwards compat)
     allowedRoles: (process.env.WEB_MAP_ALLOWED_ROLES || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    // Multi-tier role lists
     survivorRoles: (process.env.WEB_PANEL_SURVIVOR_ROLES || '')
       .split(',')
       .map((s) => s.trim())
@@ -88,7 +81,7 @@ function getAuthConfig() {
 
 // ── Discord API helpers ──────────────────────────────────────────────────────
 
-async function exchangeCode(code, authCfg) {
+async function exchangeCode(code: string, authCfg: AuthConfig): Promise<any> {
   const body = new URLSearchParams({
     client_id: authCfg.clientId,
     client_secret: authCfg.clientSecret,
@@ -105,75 +98,59 @@ async function exchangeCode(code, authCfg) {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Token exchange failed (${res.status}): ${text}`);
+    throw new Error(`Token exchange failed (${String(res.status)}): ${text}`);
   }
 
   return res.json();
 }
 
-async function getUser(accessToken) {
+async function getUser(accessToken: string): Promise<any> {
   const res = await fetch(`${DISCORD_API}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Failed to fetch user (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch user (${String(res.status)})`);
   return res.json();
 }
 
-async function getGuildMember(accessToken, guildId) {
+async function getGuildMember(accessToken: string, guildId: string): Promise<any> {
   const res = await fetch(`${DISCORD_API}/users/@me/guilds/${guildId}/member`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to fetch guild member (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch guild member (${String(res.status)})`);
   return res.json();
 }
 
 // ── Tier Resolution ──────────────────────────────────────────────────────────
 
-/**
- * Determine the highest access tier for a guild member.
- *
- * Priority: admin > mod > survivor > public
- *
- * - Admin: has adminRoles OR Administrator permission (0x8)
- * - Mod: has modRoles
- * - Survivor: has survivorRoles, OR if no survivorRoles configured, any guild member
- * - Public: not in guild or no qualifying roles
- */
-function resolveTier(member, authCfg) {
+function resolveTier(member: any, authCfg: AuthConfig): string {
   if (!member) return 'public';
 
-  const memberRoles = member.roles || [];
+  const memberRoles: string[] = member.roles || [];
   const permissions = BigInt(member.permissions || '0');
   const isDiscordAdmin = (permissions & 0x8n) !== 0n;
 
-  // Check admin tier
   if (isDiscordAdmin) return 'admin';
   if (authCfg.adminRoles.length > 0 && memberRoles.some((r) => authCfg.adminRoles.includes(r))) {
     return 'admin';
   }
 
-  // Check mod tier
   if (authCfg.modRoles.length > 0 && memberRoles.some((r) => authCfg.modRoles.includes(r))) {
     return 'mod';
   }
 
-  // Check survivor tier
   if (authCfg.survivorRoles.length > 0) {
     if (memberRoles.some((r) => authCfg.survivorRoles.includes(r))) return 'survivor';
-    // Has specific survivor roles configured but user doesn't have them
     return 'public';
   }
 
-  // No survivor roles configured — any guild member gets survivor
   return 'survivor';
 }
 
-// Legacy compatibility
-function isAuthorised(member, allowedRoles) {
+function isAuthorised(member: any, allowedRoles: string[]): boolean {
   if (!member) return false;
   if (allowedRoles.length > 0) {
-    return member.roles.some((roleId) => allowedRoles.includes(roleId));
+    return (member.roles as string[]).some((roleId: string) => allowedRoles.includes(roleId));
   }
   const permissions = BigInt(member.permissions || '0');
   return (permissions & 0x8n) !== 0n;
@@ -181,37 +158,25 @@ function isAuthorised(member, allowedRoles) {
 
 // ── Middleware & Routes ──────────────────────────────────────────────────────
 
-function isEnabled() {
+function isEnabled(): boolean {
   return !!(process.env.DISCORD_OAUTH_SECRET && process.env.WEB_MAP_CALLBACK_URL);
 }
 
-/**
- * HTML-escape a string to prevent XSS in error pages.
- */
-function escapeHtml(str) {
-  return (str || 'Unknown error').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+function escapeHtml(str: string | undefined): string {
+  const lookup: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return (str || 'Unknown error').replace(/[&<>"']/g, (c) => lookup[c] || c);
 }
 
-/**
- * Register auth routes and return the tier-aware middleware.
- * Public routes (landing page, basic stats) are always accessible.
- * Higher-tier routes require authentication + appropriate role.
- *
- * @param {object} app - Express app
- * @param {object} [client] - Discord.js client (for role refresh from guild cache)
- * @param {object} [opts] - Options
- * @param {import('better-sqlite3').Database} [opts.db] - SQLite DB instance for session store
- */
-function setupAuth(app, client, opts = {}) {
+function setupAuth(
+  app: Express,
+  client: any,
+  opts: { db?: any } = {},
+): (req: Request, res: Response, next: NextFunction) => void {
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
     console.warn('[AUTH] Discord OAuth not configured — all routes UNPROTECTED');
-    // Still register /auth/me so the frontend can boot
-    app.get('/auth/me', (_req, res) => {
+    app.get('/auth/me', (_req: Request, res: Response) => {
       res.json({
         authenticated: true,
         tier: 'admin',
@@ -220,19 +185,23 @@ function setupAuth(app, client, opts = {}) {
         devMode: true,
       });
     });
-    app.get('/auth/login', (_req, res) => res.redirect('/'));
-    app.get('/auth/logout', (_req, res) => res.redirect('/'));
-    return (_req, _res, next) => {
-      _req.tier = 'admin'; // no auth = full access (dev mode)
-      _req.tierLevel = TIER.admin;
+    app.get('/auth/login', (_req: Request, res: Response) => {
+      res.redirect('/');
+    });
+    app.get('/auth/logout', (_req: Request, res: Response) => {
+      res.redirect('/');
+    });
+    return (_req: Request, _res: Response, next: NextFunction) => {
+      (_req as any).tier = 'admin';
+      (_req as any).tierLevel = TIER.admin;
       next();
     };
   }
 
   // ── express-session setup ──
-  const sessionTtl = config.sessionTtl || 604800; // seconds (default 7 days)
+  const sessionTtl = (_defaultConfig as any).sessionTtl || 604800;
   const isSecure = authCfg.callbackUrl.startsWith('https');
-  const store = createSessionStore(config, opts.db);
+  const store = createSessionStore(_defaultConfig, opts.db);
 
   app.use(
     expressSession({
@@ -246,19 +215,28 @@ function setupAuth(app, client, opts = {}) {
         httpOnly: true,
         secure: isSecure,
         sameSite: 'lax',
-        maxAge: sessionTtl * 1000, // convert seconds → ms
+        maxAge: (sessionTtl as number) * 1000,
         path: '/',
       },
     }),
   );
 
-  // Same-origin enforcement for mutating requests (CSRF protection via Origin/Referer check)
-  app.use((req, res, next) => {
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
-    if (req.path === '/auth/callback') return next();
+  // Same-origin enforcement for mutating requests
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      next();
+      return;
+    }
+    if (req.path === '/auth/callback') {
+      next();
+      return;
+    }
 
     const origin = req.get('origin') || req.get('referer');
-    if (!origin) return next();
+    if (!origin) {
+      next();
+      return;
+    }
 
     try {
       const requestOrigin = new URL(origin).origin;
@@ -266,21 +244,18 @@ function setupAuth(app, client, opts = {}) {
       if (requestOrigin !== appOrigin) {
         return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Cross-origin request blocked' });
       }
-    } catch (_) {
+    } catch {
       return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid origin header' });
     }
     next();
   });
 
-  // CSRF protection (csrf-csrf, double-submit cookie pattern)
-  // Origin/Referer check above (L255-273) is the PRIMARY CSRF defense;
-  // this double-submit cookie layer is defense-in-depth.
+  // CSRF protection
   app.use(cookieParser(authCfg.sessionSecret));
-  // Derive a separate CSRF signing key from the session secret (key separation)
   const csrfSigningSecret = crypto.createHmac('sha256', authCfg.sessionSecret).update('csrf-signing-key').digest('hex');
   const { doubleCsrfProtection } = doubleCsrf({
     getSecret: () => csrfSigningSecret,
-    getSessionIdentifier: (req) => req.sessionID || req.session?.id || '',
+    getSessionIdentifier: (req: Request) => (req as any).sessionID || (req as any).session?.id || '',
     cookieName: isSecure ? '__Host-hmz.csrf' : 'hmz.csrf',
     cookieOptions: {
       sameSite: 'strict',
@@ -290,15 +265,16 @@ function setupAuth(app, client, opts = {}) {
     },
     size: 32,
     ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
-    getCsrfTokenFromRequest: (req) => req.headers['x-csrf-token'],
+    getCsrfTokenFromRequest: (req: Request) => req.headers['x-csrf-token'] as string,
   });
-  // Skip CSRF validation for OAuth callback (cross-origin redirect from Discord)
-  app.use((req, res, next) => {
-    if (req.path === '/auth/callback') return next();
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path === '/auth/callback') {
+      next();
+      return;
+    }
     doubleCsrfProtection(req, res, next);
   });
-  // CSRF validation error handler
-  app.use((err, req, res, next) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     if (err.code === 'EBADCSRFTOKEN') {
       console.warn(`[AUTH] CSRF rejected: ${req.method} ${req.originalUrl}`);
       return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid or missing CSRF token' });
@@ -307,18 +283,17 @@ function setupAuth(app, client, opts = {}) {
   });
 
   console.log(`[AUTH] Discord OAuth enabled — callback: ${authCfg.callbackUrl}`);
-  console.log(`[AUTH] Session store: ${config.sessionStore || 'sqlite'}, TTL: ${sessionTtl}s`);
+  console.log(
+    `[AUTH] Session store: ${(_defaultConfig as any).sessionStore || 'sqlite'}, TTL: ${sessionTtl as number}s`,
+  );
   if (authCfg.adminRoles.length > 0) console.log(`[AUTH] Admin roles: ${authCfg.adminRoles.join(', ')}`);
   if (authCfg.modRoles.length > 0) console.log(`[AUTH] Mod roles: ${authCfg.modRoles.join(', ')}`);
   if (authCfg.survivorRoles.length > 0) console.log(`[AUTH] Survivor roles: ${authCfg.survivorRoles.join(', ')}`);
   else console.log(`[AUTH] No survivor roles set — any guild member gets survivor access`);
 
-  // ── Auth routes (always accessible) ──
-
-  app.get('/auth/login', (req, res) => {
-    // Generate CSRF state parameter and store in session
+  // ── Auth routes ──
+  app.get('/auth/login', (_req: Request, res: Response) => {
     const state = crypto.randomBytes(16).toString('hex');
-    // Store state in a short-lived cookie (separate from session, works before session exists)
     res.setHeader('Set-Cookie', `hmz_oauth_state=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=300`);
     const url =
       `${DISCORD_API}/oauth2/authorize?` +
@@ -332,23 +307,20 @@ function setupAuth(app, client, opts = {}) {
     res.redirect(url);
   });
 
-  app.get('/auth/callback', async (req, res) => {
+  app.get('/auth/callback', async (req: Request, res: Response) => {
     const { code, state, error, error_description } = req.query;
 
-    // Handle OAuth errors (e.g. user denied access, expired link)
     if (error) {
-      // Clear state cookie on error
       res.setHeader('Set-Cookie', 'hmz_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
       if (error === 'access_denied') {
-        // User clicked "Cancel" on Discord's authorization page — just redirect home
-        return res.redirect('/');
+        res.redirect('/');
+        return;
       }
-      const safeDesc = escapeHtml(error_description || error);
+      const safeDesc = escapeHtml(error_description as string | undefined);
       return res.status(400).send(`<h2>Authorization Error</h2><p>${safeDesc}</p><a href="/auth/login">Try again</a>`);
     }
     if (!code) return res.status(400).send('Missing authorization code');
 
-    // Verify CSRF state parameter (timing-safe comparison)
     const cookies = _parseCookies(req.headers.cookie);
     const expectedState = cookies['hmz_oauth_state'];
     if (
@@ -363,23 +335,23 @@ function setupAuth(app, client, opts = {}) {
         .status(403)
         .send('<h2>Invalid OAuth State</h2><p>Please try logging in again.</p><a href="/auth/login">Login</a>');
     }
-    // Clear state cookie
     res.setHeader('Set-Cookie', 'hmz_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
 
     try {
-      const tokenData = await exchangeCode(code, authCfg);
+      const tokenData = await exchangeCode(code as string, authCfg);
       const accessToken = tokenData.access_token;
-      const user = await getUser(accessToken);
-      const member = await getGuildMember(accessToken, authCfg.guildId);
+      const user = await getUser(accessToken as string);
+      const member = await getGuildMember(accessToken as string, authCfg.guildId);
 
       const tier = resolveTier(member, authCfg);
 
-      // Store user data in express-session (no Discord tokens stored — security)
-      req.session.user = {
+      (req as any).session.user = {
         userId: user.id,
         username: user.username,
         displayName: user.global_name || user.username,
-        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
+        avatar: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.id as string}/${user.avatar as string}.png`
+          : null,
         roles: member?.roles || [],
         tier,
         tierLevel: TIER[tier],
@@ -387,32 +359,32 @@ function setupAuth(app, client, opts = {}) {
         lastRoleCheck: Date.now(),
       };
 
-      // Explicitly save before redirect to ensure persistent stores have flushed
-      req.session.save((err) => {
+      (req as any).session.save((err: Error | null) => {
         if (err) console.error('[AUTH] Session save error after OAuth:', err.message);
         res.redirect('/');
       });
-    } catch (err) {
-      console.error('[AUTH] OAuth callback error:', err.message);
-      const safeMsg = escapeHtml(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[AUTH] OAuth callback error:', msg);
+      const safeMsg = escapeHtml(msg);
       res.status(500).send(`<h2>Authentication Error</h2><p>${safeMsg}</p><a href="/auth/login">Try again</a>`);
     }
   });
 
-  app.get('/auth/logout', (req, res) => {
-    req.session.destroy((err) => {
+  app.get('/auth/logout', (req: Request, res: Response) => {
+    (req as any).session.destroy((err: Error | null) => {
       if (err) console.error('[AUTH] Session destroy error:', err.message);
-      const cookieOpts = { httpOnly: true, sameSite: 'lax', secure: isSecure, path: '/' };
+      const cookieOpts = { httpOnly: true, sameSite: 'lax' as const, secure: isSecure, path: '/' };
       res.clearCookie(COOKIE_NAME, cookieOpts);
       res.clearCookie('hmz_oauth_state', cookieOpts);
       res.redirect('/');
     });
   });
 
-  app.get('/auth/me', (req, res) => {
-    const user = req.session?.user;
+  app.get('/auth/me', (req: Request, res: Response) => {
+    const user = (req as any).session?.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: req.csrfToken() });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: (req as any).csrfToken() });
     }
     res.json({
       authenticated: true,
@@ -423,27 +395,23 @@ function setupAuth(app, client, opts = {}) {
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
-      csrfToken: req.csrfToken(),
+      csrfToken: (req as any).csrfToken(),
     });
   });
 
-  // Re-check guild membership via the bot client (no re-auth needed).
-  // Used by the frontend to detect when a non-guild user joins the Discord server.
-  app.get('/auth/refresh', async (req, res) => {
-    const user = req.session?.user;
+  app.get('/auth/refresh', async (req: Request, res: Response) => {
+    const user = (req as any).session?.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: req.csrfToken() });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: (req as any).csrfToken() });
     }
-    // Only attempt refresh if we have the bot client and a guild ID
     if (client && authCfg.guildId && user.userId) {
       try {
         const guild = client.guilds?.cache?.get(authCfg.guildId);
         if (guild) {
           const member = await guild.members.fetch(user.userId).catch(() => null);
           if (member) {
-            // Convert to the format resolveTier expects
             const memberData = {
-              roles: member.roles.cache.map((r) => r.id),
+              roles: member.roles.cache.map((r: any) => r.id),
               permissions: member.permissions.bitfield.toString(),
             };
             const newTier = resolveTier(memberData, authCfg);
@@ -452,19 +420,18 @@ function setupAuth(app, client, opts = {}) {
             user.inGuild = true;
             user.roles = memberData.roles;
           } else {
-            // Member left the server
             user.tier = 'public';
             user.tierLevel = TIER.public;
             user.inGuild = false;
           }
           user.lastRoleCheck = Date.now();
-          // Save mutated session for persistent stores
-          req.session.save((err) => {
+          (req as any).session.save((err: Error | null) => {
             if (err) console.error('[AUTH] Session save error after refresh:', err.message);
           });
         }
-      } catch (err) {
-        console.warn('[AUTH] Refresh guild check failed:', err.message);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[AUTH] Refresh guild check failed:', msg);
       }
     }
     res.json({
@@ -476,78 +443,73 @@ function setupAuth(app, client, opts = {}) {
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
-      csrfToken: req.csrfToken(),
+      csrfToken: (req as any).csrfToken(),
     });
   });
 
   // ── Tier-aware middleware ──
-  // Sets req.tier and req.tierLevel on every request.
-  // Does NOT block public routes — individual routes check tier.
-  // Re-checks Discord roles every ROLE_REFRESH_INTERVAL via bot guild cache.
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/auth/')) {
+      next();
+      return;
+    }
 
-  return (req, _res, next) => {
-    // Skip auth routes
-    if (req.path.startsWith('/auth/')) return next();
-
-    const user = req.session?.user;
+    const user = (req as any).session?.user;
     if (user) {
-      // Periodically re-validate roles from the bot's guild cache (no Discord API call)
       if (client && authCfg.guildId && user.userId && Date.now() - (user.lastRoleCheck || 0) > ROLE_REFRESH_INTERVAL) {
         const guild = client.guilds?.cache?.get(authCfg.guildId);
         const member = guild?.members?.cache?.get(user.userId);
         if (member) {
           const memberData = {
-            roles: member.roles.cache.map((r) => r.id),
+            roles: member.roles.cache.map((r: any) => r.id),
             permissions: member.permissions.bitfield.toString(),
           };
           const newTier = resolveTier(memberData, authCfg);
           if (newTier !== user.tier) {
-            console.log(`[AUTH] Role change detected for ${user.username}: ${user.tier} → ${newTier}`);
+            console.log(
+              `[AUTH] Role change detected for ${user.username as string}: ${user.tier as string} → ${newTier}`,
+            );
           }
           user.tier = newTier;
           user.tierLevel = TIER[newTier];
           user.roles = memberData.roles;
         } else if (guild) {
-          // Member not in guild cache — they may have left the server
           user.tier = 'public';
           user.tierLevel = TIER.public;
           user.inGuild = false;
         }
         user.lastRoleCheck = Date.now();
-        // Save mutated session for persistent stores
-        req.session.save((err) => {
+        (req as any).session.save((err: Error | null) => {
           if (err) console.error('[AUTH] Session save error after role check:', err.message);
         });
       }
-      req.tier = user.tier;
-      req.tierLevel = user.tierLevel;
+      (req as any).tier = user.tier;
+      (req as any).tierLevel = user.tierLevel;
     } else {
-      req.tier = 'public';
-      req.tierLevel = TIER.public;
+      (req as any).tier = 'public';
+      (req as any).tierLevel = TIER.public;
     }
     next();
   };
 }
 
-/**
- * Express middleware factory: require minimum tier for a route.
- * Usage: app.get('/api/admin/kick', requireTier('mod'), handler)
- */
-function requireTier(minTier) {
+function requireTier(minTier: string): (req: Request, res: Response, next: NextFunction) => void {
   const minLevel = TIER[minTier] || 0;
-  return (req, res, next) => {
-    const level = req.tierLevel || 0;
-    if (level >= minLevel) return next();
+  return (req: Request, res: Response, next: NextFunction) => {
+    const level = (req as any).tierLevel || 0;
+    if (level >= minLevel) {
+      next();
+      return;
+    }
 
-    if (req.tier === 'public') {
-      // Not logged in
+    if ((req as any).tier === 'public') {
       if (req.path.startsWith('/api/')) {
         return res.status(401).json({ error: 'Authentication required', login: '/auth/login' });
       }
-      return res.redirect('/auth/login');
+      res.redirect('/auth/login');
+      return;
     }
 
-    // Logged in but insufficient tier
     if (req.path.startsWith('/api/')) {
       return res.status(403).json({ error: `Requires ${minTier} access or higher` });
     }
@@ -557,11 +519,10 @@ function requireTier(minTier) {
   };
 }
 
-// ── Internal: cookie parsing for CSRF state cookie ──────────────────────────
-// express-session handles the session cookie, but we still parse the CSRF state cookie manually.
+// ── Internal: cookie parsing ──────────────────────────────────────────────
 
-function _parseCookies(header) {
-  const cookies = {};
+function _parseCookies(header: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
   if (!header) return cookies;
   for (const pair of header.split(';')) {
     const [name, ...rest] = pair.trim().split('=');
@@ -570,12 +531,13 @@ function _parseCookies(header) {
   return cookies;
 }
 
-module.exports = {
-  setupAuth,
-  requireTier,
-  isEnabled,
-  isAuthorised,
-  resolveTier,
-  TIER,
-  _test: { getSessionSecret, _parseCookies, getAuthConfig },
-};
+export { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER };
+
+// Exported for testing
+const _test = { getSessionSecret, _parseCookies, getAuthConfig };
+export { _test };
+
+const _mod = module as { exports: any };
+
+_mod.exports = { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER, _test };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/restrict-plus-operands,
+   @typescript-eslint/no-require-imports */
 /**
  * Multi-Server Manager — manages additional game server instances.
  *
@@ -11,20 +16,24 @@
  * Primary server (from .env) is NOT managed here — only additional servers.
  */
 
-const fs = require('fs');
-const path = require('path');
-const SftpClient = require('ssh2-sftp-client');
-const _defaultConfig = require('../config');
-const { RconManager } = require('../rcon/rcon');
-const { PanelRcon } = require('../rcon/panel-rcon');
-const { createPanelApi } = require('./panel-api');
-const { PlayerStats } = require('../tracking/player-stats');
-const { PlaytimeTracker } = require('../tracking/playtime-tracker');
-const { getServerInfo, getPlayerList, sendAdminMessage } = require('../rcon/server-info');
-const { createLogger } = require('../utils/log');
-const { readPrivateKey } = require('../utils/security');
+import fs from 'fs';
+import path from 'path';
+// @ts-expect-error — no type declarations for ssh2-sftp-client
+import SftpClient from 'ssh2-sftp-client';
+import _defaultConfig from '../config/index.js';
+import { RconManager } from '../rcon/rcon.js';
+import { PanelRcon } from '../rcon/panel-rcon.js';
+import { createPanelApi } from './panel-api.js';
+import { PlayerStats } from '../tracking/player-stats.js';
+import { PlaytimeTracker } from '../tracking/playtime-tracker.js';
+import { getServerInfo, getPlayerList, sendAdminMessage } from '../rcon/server-info.js';
+import { createLogger } from '../utils/log.js';
+import { readPrivateKey } from '../utils/security.js';
+import { getDirname } from '../utils/paths.js';
 
-// Module classes
+const __dirname = getDirname(import.meta.url);
+
+// Module classes (require for CJS-only modules)
 const HumanitZDB = require('../db/database');
 const gameReference = require('../parsers/game-reference');
 const SaveService = require('../parsers/save-service');
@@ -38,7 +47,7 @@ const PlayerStatsChannel = require('../modules/player-stats-channel');
 const PvpScheduler = require('../modules/pvp-scheduler');
 const ServerScheduler = require('../modules/server-scheduler');
 const ActivityLog = require('../modules/activity-log');
-let AnticheatIntegration;
+let AnticheatIntegration: any;
 try {
   AnticheatIntegration = require('../modules/anticheat-integration');
 } catch {
@@ -52,28 +61,28 @@ const SERVERS_DIR = path.join(__dirname, '..', '..', 'data', 'servers');
 // Server config persistence
 // ═════════════════════════════════════════════════════════════
 
-function loadServers() {
+function loadServers(): any[] {
   try {
     if (fs.existsSync(SERVERS_FILE)) {
       return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('[MULTI] Failed to load servers.json:', err.message);
   }
   return [];
 }
 
-function saveServers(servers) {
+function saveServers(servers: any[]): void {
   try {
     const dir = path.dirname(SERVERS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(SERVERS_FILE, JSON.stringify(servers, null, 2), 'utf8');
-  } catch (err) {
+  } catch (err: any) {
     console.error('[MULTI] Failed to save servers.json:', err.message);
   }
 }
 
-function generateId() {
+function generateId(): string {
   return `srv_${Date.now().toString(36)}`;
 }
 
@@ -86,9 +95,9 @@ function generateId() {
  * Returns the value (e.g. 'DedicatedSaveMP') or null if not found.
  * The game uses this to construct the save filename: Save_{SaveName}.sav
  */
-function _extractSaveName(iniText) {
+function _extractSaveName(iniText: string): string | null {
   const match = iniText.match(/^\s*SaveName\s*=\s*"?([^"\r\n]+)"?\s*$/im);
-  return match ? match[1].trim() : null;
+  return match?.[1] ? match[1].trim() : null;
 }
 
 /** Target filenames to discover on the SFTP server. */
@@ -121,9 +130,15 @@ const MAX_DISCOVERIES = DISCOVERY_TARGETS.length + 1 + DISCOVERY_DIR_TARGETS.len
  * @param {number} maxDepth - max recursion depth
  * @param {Map<string,string>} found - results map (filename → remotePath)
  */
-async function _discoverFiles(sftp, dir, depth, maxDepth, found) {
+async function _discoverFiles(
+  sftp: any,
+  dir: string,
+  depth: number,
+  maxDepth: number,
+  found: Map<string, string>,
+): Promise<void> {
   if (depth >= maxDepth) return;
-  let items;
+  let items: any[];
   try {
     items = await sftp.list(dir);
   } catch {
@@ -162,7 +177,7 @@ async function _discoverFiles(sftp, dir, depth, maxDepth, found) {
  * @param {string} label - server name for logging
  * @returns {Promise<object|null>} paths object or null if discovery fails
  */
-async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
+async function discoverPaths(sftpConfig: any, rawLabel = 'DISCOVER'): Promise<Record<string, string> | null> {
   if (
     !sftpConfig?.host ||
     !sftpConfig?.user ||
@@ -174,7 +189,7 @@ async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
 
   const sftp = new SftpClient();
   try {
-    const connectOpts = {
+    const connectOpts: Record<string, any> = {
       host: sftpConfig.host,
       port: sftpConfig.port || 22,
       username: sftpConfig.user,
@@ -211,8 +226,8 @@ async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
           const iniDir = found.get('GameServerSettings.ini').replace(/[/\\][^/\\]+$/, '');
           const saveDir = iniDir + '/Saved/SaveGames/SaveList/Default';
           try {
-            const items = await sftp.list(saveDir);
-            const saveFile = items.find((f) => f.name === `Save_${saveName}.sav`);
+            const items: any[] = await sftp.list(saveDir);
+            const saveFile = items.find((f: any) => f.name === `Save_${saveName}.sav`);
             if (saveFile) {
               found.set('__save_file__', `${saveDir}/${saveFile.name}`);
               log.info('Found custom save:', `Save_${saveName}.sav`, '(from GameServerSettings.ini SaveName)');
@@ -229,7 +244,7 @@ async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
     await sftp.end().catch(() => {});
 
     // Build paths object
-    const paths = {};
+    const paths: Record<string, string> = {};
     if (found.has('HMZLog.log')) paths.logPath = found.get('HMZLog.log');
     if (found.has('PlayerConnectedLog.txt')) paths.connectLogPath = found.get('PlayerConnectedLog.txt');
     if (found.has('PlayerIDMapped.txt')) paths.idMapPath = found.get('PlayerIDMapped.txt');
@@ -247,10 +262,10 @@ async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
     }
 
     const foundCount = Object.keys(paths).length;
-    const fileNames = Object.values(paths).map((p) => path.basename(p));
+    const fileNames = Object.values(paths).map((p: string) => path.basename(p));
     log.info('Discovered', foundCount, 'file(s):', fileNames.join(', '));
     return paths;
-  } catch (err) {
+  } catch (err: any) {
     log.info('SFTP auto-discovery failed:', err.message);
     try {
       await sftp.end();
@@ -267,7 +282,7 @@ async function discoverPaths(sftpConfig, rawLabel = 'DISCOVER') {
  * Create a config-like object that inherits from the primary config
  * but overrides server-specific values.
  */
-function createServerConfig(serverDef) {
+function createServerConfig(serverDef: any): any {
   // Prototype inherit all methods and defaults from primary config
   const merged = Object.create(_defaultConfig);
 
@@ -387,7 +402,8 @@ function createServerConfig(serverDef) {
 // ═════════════════════════════════════════════════════════════
 
 class ServerInstance {
-  constructor(client, serverDef, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, serverDef: any, deps: any = {}) {
     this.client = client;
     this.id = serverDef.id;
     this.name = serverDef.name;
@@ -412,7 +428,7 @@ class ServerInstance {
     this.db.init();
     try {
       gameReference.seed(this.db);
-    } catch (err) {
+    } catch (err: any) {
       this._log.warn('Game reference seed failed:', err.message);
     }
 
@@ -466,7 +482,7 @@ class ServerInstance {
     // Bound server-info functions using this rcon
     this.getServerInfo = () => getServerInfo(this.rcon);
     this.getPlayerList = () => getPlayerList(this.rcon);
-    this.sendAdminMessage = (msg) => sendAdminMessage(msg, this.rcon);
+    this.sendAdminMessage = (msg: any) => sendAdminMessage(msg, this.rcon);
 
     // Module instances (created on start)
     this._modules = {};
@@ -503,7 +519,7 @@ class ServerInstance {
     };
   }
 
-  async start() {
+  async start(): Promise<void> {
     if (this.running) return;
     this._log.info('Starting server');
 
@@ -531,14 +547,14 @@ class ServerInstance {
           } else {
             // Legacy fallback: write to servers.json
             const servers = loadServers();
-            const idx = servers.findIndex((s) => s.id === this.id);
+            const idx = servers.findIndex((s: any) => s.id === this.id);
             if (idx !== -1) {
               servers[idx].paths = discovered;
               saveServers(servers);
               this._log.info('Paths saved to servers.json');
             }
           }
-        } catch (err) {
+        } catch (err: any) {
           this._log.info('Could not persist paths:', err.message);
         }
       }
@@ -572,7 +588,7 @@ class ServerInstance {
           dataDir: this.dataDir,
           label: 'SAVE:' + this._log.label,
         });
-        this.saveService.on('sync', (result) => {
+        this.saveService.on('sync', (result: any) => {
           this._log.info(
             'Save sync:',
             result.playerCount,
@@ -582,12 +598,12 @@ class ServerInstance {
             `(${result.mode}, ${result.elapsed}ms)`,
           );
         });
-        this.saveService.on('error', (err) => {
+        this.saveService.on('error', (err: any) => {
           this._log.error('Save error:', err.message);
         });
         await this.saveService.start();
         this._log.info('SaveService active', `(${this.saveService.stats?.mode || 'direct'} mode)`);
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('SaveService failed:', err.message);
         this.saveService = null;
       }
@@ -600,7 +616,7 @@ class ServerInstance {
         await mod.start();
         this._modules.serverStatus = mod;
         this._log.info('ServerStatus active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('ServerStatus failed:', err.message);
       }
     }
@@ -613,7 +629,7 @@ class ServerInstance {
         await mod.start();
         this._modules.logWatcher = mod;
         this._log.info('LogWatcher active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('LogWatcher failed:', err.message);
       }
     }
@@ -621,7 +637,7 @@ class ServerInstance {
     // ── Wire LogWatcher → SaveService ID map sharing ──
     // Without this, SaveService has no player names and the DB players table stays empty.
     if (this._modules.logWatcher && this.saveService) {
-      this._modules.logWatcher._onIdMapRefresh = (idMap) => this.saveService.setIdMap(idMap);
+      this._modules.logWatcher._onIdMapRefresh = (idMap: any) => this.saveService.setIdMap(idMap);
     }
 
     // Chat Relay (needs RCON — can run headless without Discord channel for DB-only data collection)
@@ -641,7 +657,7 @@ class ServerInstance {
         await mod.start();
         this._modules.chatRelay = mod;
         this._log.info('ChatRelay active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('ChatRelay failed:', err.message);
       }
     }
@@ -653,7 +669,7 @@ class ServerInstance {
         await mod.start();
         this._modules.playerStatsChannel = mod;
         this._log.info('PlayerStatsChannel active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('PlayerStatsChannel failed:', err.message);
       }
     }
@@ -666,7 +682,7 @@ class ServerInstance {
         await mod.start();
         this._modules.statusChannels = mod;
         this._log.info('StatusChannels active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('StatusChannels failed:', err.message);
       }
     }
@@ -682,7 +698,7 @@ class ServerInstance {
         await mod.start();
         this._modules.presenceTracker = mod;
         this._log.info('PresenceTracker active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('PresenceTracker failed:', err.message);
       }
     }
@@ -696,7 +712,7 @@ class ServerInstance {
         await mod.start();
         this._modules.autoMessages = mod;
         this._log.info('AutoMessages active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('AutoMessages failed:', err.message);
       }
     } else if (!hasAnyAutoMsg) {
@@ -710,7 +726,7 @@ class ServerInstance {
         await mod.start();
         this._modules.pvpScheduler = mod;
         this._log.info('PvpScheduler active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('PvpScheduler failed:', err.message);
       }
     }
@@ -722,7 +738,7 @@ class ServerInstance {
         await mod.start();
         this._modules.serverScheduler = mod;
         this._log.info('ServerScheduler active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('ServerScheduler failed:', err.message);
       }
     }
@@ -739,7 +755,7 @@ class ServerInstance {
         await mod.start();
         this._modules.activityLog = mod;
         this._log.info('ActivityLog active');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('ActivityLog failed:', err.message);
       }
     }
@@ -754,15 +770,15 @@ class ServerInstance {
         });
         await mod.start();
         if (mod.available && this.saveService) {
-          this.saveService.on('sync', (result) => {
-            mod.onSaveSync(result).catch((err) => {
+          this.saveService.on('sync', (result: any) => {
+            mod.onSaveSync(result).catch((err: any) => {
               this._log.error('Anticheat save sync error:', err.message);
             });
           });
         }
         this._modules.anticheat = mod;
         this._log.info('Anticheat', mod.available ? 'active' : 'shim only (package not installed)');
-      } catch (err) {
+      } catch (err: any) {
         this._log.error('Anticheat failed:', err.message);
       }
     }
@@ -779,13 +795,13 @@ class ServerInstance {
     this._log.info('Server started with', Object.keys(this._modules).length, 'module(s)');
   }
 
-  async stop() {
+  async stop(): Promise<void> {
     this._log.info('Stopping server');
 
     for (const [name, mod] of Object.entries(this._modules)) {
       try {
-        if (typeof mod.stop === 'function') mod.stop();
-      } catch (err) {
+        if (typeof (mod as any).stop === 'function') (mod as any).stop();
+      } catch (err: any) {
         this._log.error('Error stopping', name + ':', err.message);
       }
     }
@@ -817,7 +833,7 @@ class ServerInstance {
   }
 
   /** Get status summary for display. */
-  getStatus() {
+  getStatus(): any {
     return {
       id: this.id,
       name: this.name,
@@ -834,7 +850,8 @@ class ServerInstance {
 // ═════════════════════════════════════════════════════════════
 
 class MultiServerManager {
-  constructor(client, deps = {}) {
+  [key: string]: any;
+  constructor(client: any, deps: any = {}) {
     this.client = client;
     this._instances = new Map(); // id → ServerInstance
     this._configRepo = deps.configRepo || null;
@@ -857,7 +874,7 @@ class MultiServerManager {
           }
         }
         if (defs.length > 0) return defs;
-      } catch (err) {
+      } catch (err: any) {
         console.error('[MULTI] Failed to load servers from DB:', err.message);
       }
     }
@@ -870,7 +887,7 @@ class MultiServerManager {
    * @param {string} id - server ID
    * @param {object} serverDef - full server definition
    */
-  _persistServer(id, serverDef) {
+  _persistServer(id: string, serverDef: any) {
     if (this._configRepo) {
       this._configRepo.set('server:' + id, serverDef);
       return;
@@ -890,21 +907,21 @@ class MultiServerManager {
    * Remove a server definition: DB first, then legacy JSON fallback.
    * @param {string} id - server ID to remove
    */
-  _removeServerDef(id) {
+  _removeServerDef(id: string) {
     if (this._configRepo) {
       this._configRepo.delete('server:' + id);
       return;
     }
     // Legacy fallback
     const servers = loadServers();
-    const filtered = servers.filter((s) => s.id !== id);
+    const filtered = servers.filter((s: any) => s.id !== id);
     saveServers(filtered);
   }
 
   /** Load configs and start all enabled servers. */
   async startAll() {
     const servers = this._loadServerDefs();
-    const enabled = servers.filter((s) => s.enabled !== false);
+    const enabled = servers.filter((s: any) => s.enabled !== false);
 
     if (enabled.length === 0) {
       console.log('[MULTI] No additional servers configured');
@@ -918,7 +935,7 @@ class MultiServerManager {
         const instance = new ServerInstance(this.client, serverDef, { configRepo: this._configRepo });
         this._instances.set(serverDef.id, instance);
         await instance.start();
-      } catch (err) {
+      } catch (err: any) {
         console.error('[MULTI] Failed to start %s: %s', serverDef.name, err.message);
       }
     }
@@ -929,7 +946,7 @@ class MultiServerManager {
     for (const [, instance] of this._instances) {
       try {
         await instance.stop();
-      } catch (err) {
+      } catch (err: any) {
         console.error('[MULTI] Error stopping %s: %s', instance.name, err.message);
       }
     }
@@ -937,7 +954,7 @@ class MultiServerManager {
   }
 
   /** Add a new server definition, save it, and optionally start it. */
-  async addServer(serverDef, autoStart = true) {
+  async addServer(serverDef: any, autoStart = true) {
     // Assign ID if not present
     if (!serverDef.id) serverDef.id = generateId();
     serverDef.enabled = serverDef.enabled !== false;
@@ -954,9 +971,9 @@ class MultiServerManager {
   }
 
   /** Update an existing server definition. Restarts if running. */
-  async updateServer(id, updates) {
+  async updateServer(id: string, updates: any) {
     const servers = this._loadServerDefs();
-    const existing = servers.find((s) => s.id === id);
+    const existing = servers.find((s: any) => s.id === id);
     if (!existing) throw new Error(`Server "${id}" not found`);
 
     // Deep merge updates
@@ -988,7 +1005,7 @@ class MultiServerManager {
   }
 
   /** Remove a server and stop it if running. */
-  async removeServer(id) {
+  async removeServer(id: string) {
     // Stop if running
     const instance = this._instances.get(id);
     if (instance) {
@@ -1005,7 +1022,7 @@ class MultiServerManager {
       try {
         fs.rmSync(dataDir, { recursive: true, force: true });
         console.log('[MULTI] Deleted data directory for %s', id);
-      } catch (err) {
+      } catch (err: any) {
         console.warn('[MULTI] Could not delete data directory for %s: %s', id, err.message);
       }
     }
@@ -1014,9 +1031,9 @@ class MultiServerManager {
   }
 
   /** Start a specific server by ID. */
-  async startServer(id) {
+  async startServer(id: string) {
     const servers = this._loadServerDefs();
-    const serverDef = servers.find((s) => s.id === id);
+    const serverDef = servers.find((s: any) => s.id === id);
     if (!serverDef) throw new Error(`Server "${id}" not found`);
 
     // Stop existing if running
@@ -1029,14 +1046,14 @@ class MultiServerManager {
   }
 
   /** Stop a specific server by ID. */
-  async stopServer(id) {
+  async stopServer(id: string) {
     const instance = this._instances.get(id);
     if (!instance) throw new Error(`Server "${id}" not running`);
     await instance.stop();
   }
 
   /** Get instance by ID. */
-  getInstance(id) {
+  getInstance(id: string) {
     return this._instances.get(id);
   }
 
@@ -1048,7 +1065,7 @@ class MultiServerManager {
   /** Get status of all instances. */
   getStatuses() {
     const servers = this._loadServerDefs();
-    return servers.map((s) => {
+    return servers.map((s: any) => {
       const instance = this._instances.get(s.id);
       return {
         ...s,
@@ -1059,12 +1076,27 @@ class MultiServerManager {
   }
 }
 
-module.exports = MultiServerManager;
-module.exports.ServerInstance = ServerInstance;
-module.exports.loadServers = loadServers;
-module.exports.saveServers = saveServers;
-module.exports.createServerConfig = createServerConfig;
-module.exports.discoverPaths = discoverPaths;
-module.exports.SERVERS_FILE = SERVERS_FILE;
-module.exports._extractSaveName = _extractSaveName;
-module.exports.SAVE_FILE_PATTERN = SAVE_FILE_PATTERN;
+export default MultiServerManager;
+export {
+  ServerInstance,
+  loadServers,
+  saveServers,
+  createServerConfig,
+  discoverPaths,
+  SERVERS_FILE,
+  _extractSaveName,
+  SAVE_FILE_PATTERN,
+};
+
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = MultiServerManager;
+_mod.exports.ServerInstance = ServerInstance;
+_mod.exports.loadServers = loadServers;
+_mod.exports.saveServers = saveServers;
+_mod.exports.createServerConfig = createServerConfig;
+_mod.exports.discoverPaths = discoverPaths;
+_mod.exports.SERVERS_FILE = SERVERS_FILE;
+_mod.exports._extractSaveName = _extractSaveName;
+_mod.exports.SAVE_FILE_PATTERN = SAVE_FILE_PATTERN;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

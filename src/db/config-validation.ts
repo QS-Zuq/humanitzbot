@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-type-conversion */
 /**
  * Field-level config validation for bot configuration values.
  *
@@ -12,7 +13,13 @@
 // ── Individual field validators ──────────────────────────────
 // Each returns { valid, value, error?, warning? }
 
-const FIELD_VALIDATORS = {
+type ValidResult = { valid: true; value: unknown; warning?: string };
+type InvalidResult = { valid: false; value: unknown; error: string };
+type ValidationResult = ValidResult | InvalidResult;
+
+type FieldValidator = (v: string, arg?: unknown) => ValidationResult;
+
+const FIELD_VALIDATORS: Record<string, FieldValidator> = {
   /**
    * Port number: integer 1–65535.
    */
@@ -41,13 +48,12 @@ const FIELD_VALIDATORS = {
 
   /**
    * Enum — value must be in the allowed set.
-   * @param {string} v
-   * @param {string[]} options - Allowed values
    */
   enum(v, options) {
     const trimmed = typeof v === 'string' ? v.trim() : String(v);
-    if (!options || !options.includes(trimmed)) {
-      return { valid: false, value: v, error: `Must be one of: ${(options || []).join(', ')}` };
+    const opts = options as string[] | undefined;
+    if (!opts || !opts.includes(trimmed)) {
+      return { valid: false, value: v, error: `Must be one of: ${(opts ?? []).join(', ')}` };
     }
     return { valid: true, value: trimmed };
   },
@@ -87,8 +93,8 @@ const FIELD_VALIDATORS = {
     if (!match) {
       return { valid: false, value: v, error: 'Time must be in HH:MM format (e.g. 08:30)' };
     }
-    const h = parseInt(match[1], 10);
-    const m = parseInt(match[2], 10);
+    const h = parseInt(match[1] ?? '0', 10);
+    const m = parseInt(match[2] ?? '0', 10);
     if (h > 23 || m > 59) {
       return { valid: false, value: v, error: `Invalid time: hours must be 00-23, minutes 00-59` };
     }
@@ -106,22 +112,21 @@ const FIELD_VALIDATORS = {
       JSON.parse(v);
       return { valid: true, value: v.trim() };
     } catch (e) {
-      return { valid: false, value: v, error: `Invalid JSON: ${e.message}` };
+      return { valid: false, value: v, error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` };
     }
   },
 
   /**
    * Interval — integer >= min. Returns clamped value + warning if below min.
-   * @param {string|number} v
-   * @param {number} min - Minimum allowed value
    */
   interval(v, min) {
     const n = parseInt(v, 10);
     if (isNaN(n)) {
       return { valid: false, value: v, error: 'Interval must be an integer (milliseconds)' };
     }
-    if (typeof min === 'number' && n < min) {
-      return { valid: true, value: min, warning: `Value ${n} is below minimum ${min}, clamped to ${min}` };
+    const minVal = min as number | undefined;
+    if (typeof minVal === 'number' && n < minVal) {
+      return { valid: true, value: minVal, warning: `Value ${n} is below minimum ${minVal}, clamped to ${minVal}` };
     }
     return { valid: true, value: n };
   },
@@ -171,7 +176,12 @@ const FIELD_VALIDATORS = {
 // ── Map env keys → validator type ────────────────────────────
 // Keys needing special validation beyond basic bool/string/int type checking.
 
-const ENV_KEY_VALIDATORS = {
+type KeyValidatorDef =
+  | { type: 'port' | 'timezone' | 'snowflake' | 'time' | 'json' | 'url' | 'host' | 'path' }
+  | { type: 'enum'; options: string[] }
+  | { type: 'interval'; min: number };
+
+const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
   // Ports
   RCON_PORT: { type: 'port' },
   SFTP_PORT: { type: 'port' },
@@ -254,12 +264,15 @@ const ENV_KEY_VALIDATORS = {
  * 2. Otherwise, apply basic type checks based on fieldDef.type ('bool', 'int', 'string').
  * 3. Generic string guard: no newlines, max 2000 chars.
  *
- * @param {string} envKey - The env key name (e.g. 'RCON_PORT')
- * @param {string|number|boolean} value - The value to validate
- * @param {{ type?: string }} [fieldDef] - Optional field definition from ENV_CATEGORIES
- * @returns {{ valid: boolean, value: *, error?: string, warning?: string }}
+ * @param envKey - The env key name (e.g. 'RCON_PORT')
+ * @param value - The value to validate
+ * @param fieldDef - Optional field definition from ENV_CATEGORIES
  */
-function validateField(envKey, value, fieldDef) {
+function validateField(
+  envKey: string,
+  value: string | number | boolean | null | undefined,
+  fieldDef?: { type?: string },
+): ValidationResult {
   // Allow empty strings for optional fields (skip validation)
   if (value === '' || value === null || value === undefined) {
     return { valid: true, value: '' };
@@ -280,7 +293,9 @@ function validateField(envKey, value, fieldDef) {
   if (keyValidator) {
     const fn = FIELD_VALIDATORS[keyValidator.type];
     if (fn) {
-      return fn(strValue, keyValidator.options || keyValidator.min);
+      const arg =
+        'options' in keyValidator ? keyValidator.options : 'min' in keyValidator ? keyValidator.min : undefined;
+      return fn(strValue, arg);
     }
   }
 
@@ -304,5 +319,12 @@ function validateField(envKey, value, fieldDef) {
   return { valid: true, value: strValue };
 }
 
-module.exports = { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS };
-module.exports._test = { validateField, FIELD_VALIDATORS };
+export { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS };
+export type { ValidationResult };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+_mod.exports = { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS };
+_mod.exports._test = { validateField, FIELD_VALIDATORS };
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

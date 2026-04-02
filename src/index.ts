@@ -1,13 +1,15 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Collection,
-  Events,
-  REST,
-  Routes,
-  EmbedBuilder,
-  MessageFlags,
-} = require('discord.js');
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/restrict-template-expressions,
+   @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-type-assertion */
+
+import { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilder, MessageFlags } from 'discord.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDirname } from './utils/paths.js';
+
+const __dirname = getDirname(import.meta.url);
 
 // ── Timestamped console logging ──────────────────────────────
 // Patches console globally so every module gets [HH:MM:SS] prefixes
@@ -19,73 +21,79 @@ function _ts() {
 }
 // Prepend timestamp to console output. If the first arg is a format string
 // (contains %s/%d/%j/%o), merge the timestamp into it so util.format still works.
-console.log = (...args) => {
+console.log = (...args: unknown[]) => {
   if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
   else args.unshift(`[${_ts()}]`);
   _origLog(...args);
 };
-console.error = (...args) => {
+console.error = (...args: unknown[]) => {
   if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
   else args.unshift(`[${_ts()}]`);
   _origError(...args);
 };
-console.warn = (...args) => {
+console.warn = (...args: unknown[]) => {
   if (typeof args[0] === 'string') args[0] = `[${_ts()}] ${args[0]}`;
   else args.unshift(`[${_ts()}]`);
   _origWarn(...args);
 };
 
-const fs = require('fs');
-const path = require('path');
-const config = require('./config');
-const { isAdminView } = require('./config');
-const rcon = require('./rcon/rcon');
-const { getServerInfo, getPlayerList, sendAdminMessage } = require('./rcon/server-info');
-const ChatRelay = require('./modules/chat-relay');
-const StatusChannels = require('./modules/status-channels');
-const ServerStatus = require('./modules/server-status');
-const PlayerPresenceTracker = require('./modules/player-presence');
-const AutoMessages = require('./modules/auto-messages');
-const LogWatcher = require('./modules/log-watcher');
-const playtime = require('./tracking/playtime-tracker');
-const playerStats = require('./tracking/player-stats');
-const PlayerStatsChannel = require('./modules/player-stats-channel');
-const PvpScheduler = require('./modules/pvp-scheduler');
-const ServerScheduler = require('./modules/server-scheduler');
-const panelApi = require('./server/panel-api');
+const config: any = require('./config');
+const { isAdminView } = require('./config') as { isAdminView: (member: any) => boolean };
+const rcon: any = require('./rcon/rcon');
+const { getServerInfo, getPlayerList, sendAdminMessage } = require('./rcon/server-info') as {
+  getServerInfo: () => Promise<any>;
+  getPlayerList: () => Promise<any>;
+  sendAdminMessage: (...args: any[]) => Promise<any>;
+};
+const ChatRelay: any = require('./modules/chat-relay');
+const StatusChannels: any = require('./modules/status-channels');
+const ServerStatus: any = require('./modules/server-status');
+const PlayerPresenceTracker: any = require('./modules/player-presence');
+const AutoMessages: any = require('./modules/auto-messages');
+const LogWatcher: any = require('./modules/log-watcher');
+const playtime: any = require('./tracking/playtime-tracker');
+const playerStats: any = require('./tracking/player-stats');
+const PlayerStatsChannel: any = require('./modules/player-stats-channel');
+const PvpScheduler: any = require('./modules/pvp-scheduler');
+const ServerScheduler: any = require('./modules/server-scheduler');
+const panelApi: any = require('./server/panel-api');
 
-const MultiServerManager = require('./server/multi-server');
-const { postAdminAlert } = require('./utils/admin-alert');
-const ActivityLog = require('./modules/activity-log');
-const MilestoneTracker = require('./modules/milestone-tracker');
-const RecapService = require('./modules/recap-service');
-let AnticheatIntegration;
+const MultiServerManager: any = require('./server/multi-server');
+const { postAdminAlert } = require('./utils/admin-alert') as {
+  postAdminAlert: (client: any, embed: any, opts: any) => Promise<void>;
+};
+const ActivityLog: any = require('./modules/activity-log');
+const MilestoneTracker: any = require('./modules/milestone-tracker');
+const RecapService: any = require('./modules/recap-service');
+let AnticheatIntegration: any;
 try {
   AnticheatIntegration = require('./modules/anticheat-integration');
 } catch {
   /* optional module */
 }
-const HumanitZDB = require('./db/database');
-const SaveService = require('./parsers/save-service');
-const gameReference = require('./parsers/game-reference');
-const { writeAgent } = require('./parsers/agent-builder');
-const WebMapServer = require('./web-map/server');
-const SnapshotService = require('./tracking/snapshot-service');
-const StdinConsole = require('./stdin-console');
-const { createBotStatusManager } = require('./utils/status');
-let hzmodWebPlugin;
+const HumanitZDB: any = require('./db/database');
+const SaveService: any = require('./parsers/save-service');
+const gameReference: any = require('./parsers/game-reference');
+const { writeAgent } = require('./parsers/agent-builder') as { writeAgent: () => void };
+const WebMapServer: any = require('./web-map/server');
+const SnapshotService: any = require('./tracking/snapshot-service');
+const StdinConsole: any = require('./stdin-console');
+const { createBotStatusManager } = require('./utils/status') as {
+  createBotStatusManager: (client: any, opts?: any) => any;
+};
+let hzmodWebPlugin: any;
 try {
   hzmodWebPlugin = require('./modules/howyagarn/web-plugin');
 } catch {
   /* optional module */
 }
-let HowyagarnManager;
+let HowyagarnManager: any;
 try {
-  ({ HowyagarnManager } = require('./modules/howyagarn/howyagarn-manager'));
+  ({ HowyagarnManager } = require('./modules/howyagarn/howyagarn-manager') as { HowyagarnManager: any });
 } catch {
   /* optional module */
 }
-let HzmodIpcClient;
+let HzmodIpcClient: any;
 try {
   HzmodIpcClient = require('./modules/howyagarn/ipc-client');
 } catch {
@@ -93,7 +101,7 @@ try {
 }
 
 // ── Create Discord client ───────────────────────────────────
-const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
+const intents: GatewayIntentBits[] = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
 // Privileged intents — only request when needed (must be enabled in Developer Portal)
 if (config.enableChatRelay) {
   intents.push(GatewayIntentBits.MessageContent); // needed for Discord → game chat bridge
@@ -104,14 +112,14 @@ if (config.adminRoleIds.length > 0) {
 const client = new Client({ intents });
 
 // ── Load slash commands ─────────────────────────────────────
-client.commands = new Collection();
+(client as any).commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith('.js'));
 
 for (const file of commandFiles) {
-  const command = require(path.join(commandsPath, file));
+  const command: any = require(path.join(commandsPath, file));
   if (command.data && command.execute) {
-    client.commands.set(command.data.name, command);
+    (client as any).commands.set(command.data.name, command);
     console.log(`[BOT] Loaded command: /${command.data.name}`);
   }
 }
@@ -122,9 +130,9 @@ for (const entry of fs.readdirSync(commandsPath, { withFileTypes: true })) {
   const subDir = path.join(commandsPath, entry.name);
   const subFiles = fs.readdirSync(subDir).filter((f) => f.endsWith('.js'));
   for (const file of subFiles) {
-    const command = require(path.join(subDir, file));
+    const command: any = require(path.join(subDir, file));
     if (command.data && command.execute) {
-      client.commands.set(command.data.name, command);
+      (client as any).commands.set(command.data.name, command);
       console.log(`[BOT] Loaded command: /${command.data.name} (${entry.name})`);
     }
   }
@@ -135,23 +143,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── Persistent select menu on the player-stats channel ──
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_player_select')) {
     try {
-      await interaction.deferReply({ flags: 64 });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (_deferErr) {
       // Interaction token expired (10062) or already acknowledged — skip silently
       console.log('[BOT] Player select interaction expired, ignoring');
       return;
     }
 
-    const serverId = interaction.customId.split(':')[1] || '';
+    const serverId = interaction.customId.split(':')[1] ?? '';
     const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
     if (!psc) {
-      await interaction.editReply({ content: 'Player stats module is currently disabled.', flags: 64 });
+      await interaction.editReply({ content: 'Player stats module is currently disabled.' });
       return;
     }
 
-    const selectedId = interaction.values[0];
-    const isAdmin = isAdminView(interaction.member);
-    const embed = psc.buildFullPlayerEmbed(selectedId, { isAdmin });
+    const selectedId = interaction.values[0] ?? '';
+    const isAdmin = isAdminView((interaction as any).member);
+    const embed: any = psc.buildFullPlayerEmbed(selectedId, { isAdmin });
     await interaction.editReply({ embeds: [embed] });
     return;
   }
@@ -159,23 +167,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── Clan select menu on the player-stats channel ──
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith('playerstats_clan_select')) {
     try {
-      await interaction.deferReply({ flags: 64 });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (_deferErr) {
       // Interaction token expired (10062) or already acknowledged — skip silently
       console.log('[BOT] Clan select interaction expired, ignoring');
       return;
     }
 
-    const serverId = interaction.customId.split(':')[1] || '';
+    const serverId = interaction.customId.split(':')[1] ?? '';
     const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
     if (!psc) {
-      await interaction.editReply({ content: 'Player stats module is currently disabled.', flags: 64 });
+      await interaction.editReply({ content: 'Player stats module is currently disabled.' });
       return;
     }
 
-    const clanName = interaction.values[0].replace(/^clan:/, '');
-    const isAdmin = isAdminView(interaction.member);
-    const embed = psc.buildClanEmbed(clanName, { isAdmin });
+    const clanName = (interaction.values[0] ?? '').replace(/^clan:/, '');
+    const isAdmin = isAdminView((interaction as any).member);
+    const embed: any = psc.buildClanEmbed(clanName, { isAdmin });
     await interaction.editReply({ embeds: [embed] });
     return;
   }
@@ -183,92 +191,71 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── Slash commands ──
   if (!interaction.isChatInputCommand()) return;
 
-  const command = client.commands.get(interaction.commandName);
+  const command: any = (client as any).commands.get(interaction.commandName);
   if (!command) return;
 
   try {
     await command.execute(interaction);
   } catch (err) {
     console.error(`[BOT] Error in /${interaction.commandName}:`, err);
-    const reply = { content: '❌ Something went wrong running that command.', flags: MessageFlags.Ephemeral };
+    const replyOpts = {
+      content: '❌ Something went wrong running that command.',
+      flags: MessageFlags.Ephemeral,
+    } as const;
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(reply);
+      await interaction.followUp(replyOpts);
     } else {
-      await interaction.reply(reply);
+      await interaction.reply(replyOpts);
     }
   }
 });
 
 // ── Bot ready ───────────────────────────────────────────────
-let chatRelay;
-let statusChannels;
-let serverStatus;
-let autoMessages;
-let presenceTracker;
-let logWatcher;
-let playerStatsChannel;
-let pvpScheduler;
-let serverScheduler;
+let chatRelay: any;
+let statusChannels: any;
+let serverStatus: any;
+let autoMessages: any;
+let presenceTracker: any;
+let logWatcher: any;
+let playerStatsChannel: any;
+let pvpScheduler: any;
+let serverScheduler: any;
 
-let multiServerManager;
-let webMapServer; // Web map server instance
-let hzmodPlugin; // Howyagarn web plugin result (for cleanup)
-let db; // HumanitZDB instance
-let configRepo; // ConfigRepository instance (DB-backed config)
-let saveService; // SaveService instance
-let playtimeFlushTimer; // periodic playtime → DB flush
-let snapshotService; // SnapshotService — timeline recording
-let activityLog; // ActivityLog instance
-let milestoneTracker; // MilestoneTracker instance
-let recapService; // RecapService instance
-let anticheatIntegration; // AnticheatIntegration instance
-let botStatusManager; // Discord profile presence/status rotation
-let howyagarnManager; // HowyagarnManager instance (MMO system)
-let hzmodIpc; // Shared IPC client for hzmod plugin (used by manager + web plugin)
+let multiServerManager: any;
+let webMapServer: any; // Web map server instance
+let hzmodPlugin: any; // Howyagarn web plugin result (for cleanup)
+let db: any; // HumanitZDB instance
+let configRepo: any; // ConfigRepository instance (DB-backed config)
+let saveService: any; // SaveService instance
+let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
+let snapshotService: any; // SnapshotService — timeline recording
+let activityLog: any; // ActivityLog instance
+let milestoneTracker: any; // MilestoneTracker instance
+let recapService: any; // RecapService instance
+let anticheatIntegration: any; // AnticheatIntegration instance
+let botStatusManager: any; // Discord profile presence/status rotation
+let howyagarnManager: any; // HowyagarnManager instance (MMO system)
+let hzmodIpc: any; // Shared IPC client for hzmod plugin (used by manager + web plugin)
 // Bot lifecycle embeds (online/offline) go to panel channel — game server status goes to activity thread
-let stdinConsole; // interactive stdin console for headless hosts
+let stdinConsole: any; // interactive stdin console for headless hosts
 const startedAt = new Date();
 
-const moduleStatus = {};
+const moduleStatus: Record<string, string> = {};
 
-function setStatus(name, status) {
+function setStatus(name: string, status: string): void {
   moduleStatus[name] = status;
   if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
 }
 
-function hasSftp() {
+function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
-/**
- * Find a module instance from an additional server by channel ID.
- * Returns the module if the channel belongs to an additional server, or null.
- */
-function _findMultiServerModule(channelId, moduleName) {
-  if (!multiServerManager) return null;
-  for (const [, instance] of multiServerManager._instances) {
-    const mod = instance._modules[moduleName];
-    if (!mod) continue;
-    // Check if this channel belongs to this server's config
-    const ch = instance.config;
-    if (
-      channelId === ch.playerStatsChannelId ||
-      channelId === ch.serverStatusChannelId ||
-      channelId === ch.logChannelId ||
-      channelId === ch.chatChannelId ||
-      channelId === ch.adminChannelId
-    ) {
-      return mod;
-    }
-  }
-  return null;
-}
-
 /** Find a multi-server module by server ID (used for select menu routing). */
-function _findMultiServerModuleById(serverId, moduleName) {
+function _findMultiServerModuleById(serverId: string, moduleName: string): any {
   if (!multiServerManager) return null;
   const instance = multiServerManager._instances.get(serverId);
-  return instance?._modules[moduleName] || null;
+  return instance?._modules[moduleName] ?? null;
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -277,7 +264,12 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Auto-sync .env with .env.example on startup
   try {
-    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('./env-sync');
+    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('./env-sync') as {
+      needsSync: () => boolean;
+      syncEnv: () => { added: number; deprecated: number; updated: number; backupPath?: string };
+      getVersion: () => string;
+      getExampleVersion: () => string;
+    };
     if (needsSync()) {
       const currentVersion = getVersion();
       const exampleVersion = getExampleVersion();
@@ -290,17 +282,17 @@ client.once(Events.ClientReady, async (readyClient) => {
         console.log(`[BOT] Backup saved: ${result.backupPath}`);
       }
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('[BOT] .env auto-sync failed:', err.message);
   }
 
   // Auto-deploy slash commands on startup
   try {
     const rest = new REST({ version: '10' }).setToken(config.discordToken);
-    const commandData = [...client.commands.values()].map((c) => c.data.toJSON());
+    const commandData = [...(client as any).commands.values()].map((c: any) => c.data.toJSON());
     await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commandData });
     console.log(`[BOT] Registered ${commandData.length} slash commands with Discord`);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[BOT] Failed to register slash commands:', err.message);
   }
 
@@ -312,12 +304,16 @@ client.once(Events.ClientReady, async (readyClient) => {
   gameReference.seed(db);
 
   // ── One-time config migration (.env + servers.json → config_documents) ──
-  const ConfigRepository = require('./db/config-repository');
+  const ConfigRepository: any = require('./db/config-repository');
   configRepo = new ConfigRepository(db);
 
   if (!db.getState('config_migration_done')) {
     try {
-      const { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } = require('./db/config-migration');
+      const { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } = require('./db/config-migration') as {
+        migrateEnvToDb: (env: any, repo: any) => { appKeys: number; serverKeys: number };
+        migrateServersJsonToDb: (defs: any[], repo: any) => number;
+        migrateDisplaySettings: (db: any, repo: any) => number;
+      };
 
       // 1. Migrate .env values → DB (read from process.env, NOT the file —
       //    env-sync may have already commented out non-bootstrap keys)
@@ -328,11 +324,11 @@ client.once(Events.ClientReady, async (readyClient) => {
       const serversPath = path.join(__dirname, '..', 'data', 'servers.json');
       if (fs.existsSync(serversPath)) {
         try {
-          const serverDefs = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
+          const serverDefs: unknown = JSON.parse(fs.readFileSync(serversPath, 'utf8'));
           if (Array.isArray(serverDefs)) {
             serverCount = migrateServersJsonToDb(serverDefs, configRepo);
           }
-        } catch (parseErr) {
+        } catch (parseErr: any) {
           console.error('[BOT] CRITICAL: servers.json migration failed:', parseErr.message);
           throw parseErr; // Prevent marking migration as done
         }
@@ -346,7 +342,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       console.log(
         `[BOT] Config migrated to DB: ${envResult.appKeys} app, ${envResult.serverKeys} server, ${serverCount} managed servers, ${displayCount} display settings`,
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('[BOT] Config migration failed:', err.message);
       // Non-fatal — continue with .env
     }
@@ -373,14 +369,16 @@ client.once(Events.ClientReady, async (readyClient) => {
   playtimeFlushTimer = setInterval(() => {
     try {
       playtime.flushActiveSessions();
-    } catch (_) {}
+    } catch {
+      // ignore
+    }
   }, 60000);
 
   // Connect to RCON (non-fatal — auto-reconnect handles recovery)
   if (!config.needsSetup) {
     try {
       await rcon.connect();
-    } catch (err) {
+    } catch (err: any) {
       console.warn(`[BOT] Initial RCON connection failed: ${err.message} — will auto-reconnect`);
     }
   } else {
@@ -388,7 +386,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   // ── RCON lifecycle events — log game server restarts ──
-  rcon.on('disconnect', ({ reason }) => {
+  rcon.on('disconnect', ({ reason }: { reason: string }) => {
     console.log(`[BOT] Game server disconnected: ${reason}`);
     if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
     if (logWatcher) {
@@ -399,7 +397,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       logWatcher.sendToThread(embed).catch(() => {});
     }
   });
-  rcon.on('reconnect', ({ downtime }) => {
+  rcon.on('reconnect', ({ downtime }: { downtime?: number }) => {
     const downtimeStr = downtime ? _formatUptime(downtime) : 'unknown';
     console.log(`[BOT] Game server reconnected (downtime: ${downtimeStr})`);
     if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
@@ -414,10 +412,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Bot profile status (presence/activity) — rotates live players + feature highlights
   botStatusManager = createBotStatusManager(readyClient, {
-    refreshMs: parseInt(process.env.BOT_PROFILE_STATUS_INTERVAL, 10) || 30000,
+    refreshMs: parseInt(process.env['BOT_PROFILE_STATUS_INTERVAL'] ?? '', 10) || 30000,
     getHasSftp: () => hasSftp(),
     getPanelAvailable: () => panelApi.available,
-    getWebMapEnabled: () => !!parseInt(process.env.WEB_MAP_PORT, 10),
+    getWebMapEnabled: () => !!parseInt(process.env['WEB_MAP_PORT'] ?? '', 10),
     getModuleStatus: () => moduleStatus,
   });
   botStatusManager.start();
@@ -425,14 +423,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   // Generate/update the standalone agent script so it's always fresh
   try {
     writeAgent();
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[BOT] Could not generate humanitz-agent.js:', err.message);
   }
 
   // ── Web panel — start EARLY so it's reachable while modules initialise ──
-  const webMapPort = parseInt(process.env.WEB_MAP_PORT, 10);
+  const webMapPort = parseInt(process.env['WEB_MAP_PORT'] ?? '', 10);
   if (webMapPort) {
-    if (!config.discordClientSecret && !process.env.WEB_PANEL_ALLOW_NO_AUTH) {
+    if (!config.discordClientSecret && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
       setStatus('WebMap', '⚠️ Requires Discord OAuth (set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL)');
       console.warn(
         '[BOT] Web panel requires Discord OAuth — set DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL in .env',
@@ -447,7 +445,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         await webMapServer.start();
         setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
         console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
-      } catch (err) {
+      } catch (err: any) {
         setStatus('WebMap', `⚠️ Failed to start: ${err.message}`);
         console.error('[BOT] Web panel failed to start:', err.message);
       }
@@ -478,7 +476,9 @@ client.once(Events.ClientReady, async (readyClient) => {
       for (const key of transientKeys) {
         try {
           db.deleteState(key);
-        } catch (_) {}
+        } catch {
+          // ignore
+        }
       }
       console.log('[BOT] Cleared bot_state transient keys (FIRST_RUN)');
     }
@@ -499,7 +499,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     // Also clear per-server message IDs and orphaned server data directories
     const serversDir = path.join(dataDir, 'servers');
     if (fs.existsSync(serversDir)) {
-      const { loadServers } = require('./server/multi-server');
+      const { loadServers } = require('./server/multi-server') as { loadServers: () => Array<{ id: string }> };
       const knownIds = new Set(loadServers().map((s) => s.id));
       for (const entry of fs.readdirSync(serversDir)) {
         const dir = path.join(serversDir, entry);
@@ -536,12 +536,12 @@ client.once(Events.ClientReady, async (readyClient) => {
       envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
       fs.writeFileSync(envPath, envContent, 'utf8');
       console.log('[NUKE] NUKE_BOT set to false in .env (prevents repeat nuke on crash)');
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[NUKE] Could not update .env:', err.message);
     }
 
     console.log('[NUKE] Wiping all bot content from Discord channels...');
-    const channelsToClean = new Set();
+    const channelsToClean = new Set<string>();
     // Primary server channels
     if (config.logChannelId) channelsToClean.add(config.logChannelId);
     if (config.adminChannelId) channelsToClean.add(config.adminChannelId);
@@ -551,15 +551,17 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     if (config.activityLogChannelId) channelsToClean.add(config.activityLogChannelId);
     // Additional server channels (including any from removed servers still in servers.json)
-    const { loadServers } = require('./server/multi-server');
+    const { loadServers } = require('./server/multi-server') as {
+      loadServers: () => Array<{ channels?: Record<string, string | undefined> }>;
+    };
     const servers = loadServers();
     for (const sd of servers) {
-      if (sd.channels?.log) channelsToClean.add(sd.channels.log);
-      if (sd.channels?.chat) channelsToClean.add(sd.channels.chat);
-      if (sd.channels?.admin) channelsToClean.add(sd.channels.admin);
-      if (sd.channels?.status) channelsToClean.add(sd.channels.status);
-      if (sd.channels?.stats) channelsToClean.add(sd.channels.stats);
-      if (sd.channels?.panel) channelsToClean.add(sd.channels.panel);
+      if (sd.channels?.['log']) channelsToClean.add(sd.channels['log']);
+      if (sd.channels?.['chat']) channelsToClean.add(sd.channels['chat']);
+      if (sd.channels?.['admin']) channelsToClean.add(sd.channels['admin']);
+      if (sd.channels?.['status']) channelsToClean.add(sd.channels['status']);
+      if (sd.channels?.['stats']) channelsToClean.add(sd.channels['stats']);
+      if (sd.channels?.['panel']) channelsToClean.add(sd.channels['panel']);
     }
 
     const botId = readyClient.user?.id;
@@ -573,7 +575,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // Status Channels — voice channel dashboard
   if (config.enableStatusChannels) {
-    const categoryHint = config.serverName || '';
+    const categoryHint = config.serverName ?? '';
     statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
     await statusChannels.start();
     setStatus('Status Channels', '🟢 Active');
@@ -634,7 +636,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         logWatcher._dayRolloverCb = async () => {
           try {
             await chatRelay.createDailyThread();
-          } catch (e) {
+          } catch (e: any) {
             console.warn('[BOT] Day-rollover chat thread error:', e.message);
           }
         };
@@ -656,7 +658,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   });
   try {
     await presenceTracker.start();
-  } catch (err) {
+  } catch (err: any) {
     console.error('[PRESENCE] Failed to start player presence tracker:', err.message);
   }
 
@@ -719,13 +721,13 @@ client.once(Events.ClientReady, async (readyClient) => {
       agentPanelDelay: config.agentPanelDelay,
       panelApi: panelApi.available ? panelApi : null,
     });
-    saveService.on('sync', (result) => {
+    saveService.on('sync', (result: any) => {
       console.log(
         `[BOT] Save sync: ${result.playerCount} players, ${result.structureCount} structures (${result.mode}, ${result.elapsed}ms)`,
       );
       // save-cache.json is now written inside SaveService._syncParsedData()
     });
-    saveService.on('error', (err) => {
+    saveService.on('error', (err: any) => {
       console.error('[BOT] Save service error:', err.message);
     });
     await saveService.start();
@@ -735,27 +737,29 @@ client.once(Events.ClientReady, async (readyClient) => {
 
     // Wire LogWatcher → SaveService ID map sharing
     if (logWatcher) {
-      logWatcher._onIdMapRefresh = (idMap) => saveService.setIdMap(idMap);
+      logWatcher._onIdMapRefresh = (idMap: any) => saveService.setIdMap(idMap);
     }
 
     // ── Snapshot Service — timeline recording on every save sync ──
     snapshotService = new SnapshotService(db, {
-      retentionDays: parseInt(process.env.TIMELINE_RETENTION_DAYS, 10) || 14,
-      trackStructures: process.env.TIMELINE_TRACK_STRUCTURES !== 'false',
-      trackHouses: process.env.TIMELINE_TRACK_HOUSES !== 'false',
-      trackBackpacks: process.env.TIMELINE_TRACK_BACKPACKS !== 'false',
+      retentionDays: parseInt(process.env['TIMELINE_RETENTION_DAYS'] ?? '', 10) || 14,
+      trackStructures: process.env['TIMELINE_TRACK_STRUCTURES'] !== 'false',
+      trackHouses: process.env['TIMELINE_TRACK_HOUSES'] !== 'false',
+      trackBackpacks: process.env['TIMELINE_TRACK_BACKPACKS'] !== 'false',
     });
-    saveService.on('sync', async (result) => {
+    saveService.on('sync', async (result: any) => {
       if (!result.parsed) return;
       try {
         // Build online player set from RCON if available
-        const onlinePlayers = new Set();
+        const onlinePlayers = new Set<string>();
         try {
-          const { getPlayerList } = require('./rcon/server-info');
-          const list = await getPlayerList();
-          const arr = list?.players || (Array.isArray(list) ? list : []);
+          const { getPlayerList: _getPlayerList } = require('./rcon/server-info') as {
+            getPlayerList: () => Promise<any>;
+          };
+          const list: any = await _getPlayerList();
+          const arr: any[] = list?.players ?? (Array.isArray(list) ? list : []);
           for (const p of arr) {
-            if (p.name) onlinePlayers.add(p.name.toLowerCase());
+            if (p.name) onlinePlayers.add(String(p.name).toLowerCase());
           }
         } catch {
           /* RCON unavailable — online player set will be empty for this snapshot */
@@ -773,7 +777,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           },
           { onlinePlayers },
         );
-      } catch (err) {
+      } catch (err: any) {
         console.error('[BOT] Snapshot recording error:', err.message);
       }
     });
@@ -804,8 +808,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       milestoneTracker = new MilestoneTracker(readyClient, { db, logWatcher, config });
       // Check milestones on every save sync
       if (saveService) {
-        saveService.on('sync', (result) => {
-          milestoneTracker.check(result).catch((err) => {
+        saveService.on('sync', (result: any) => {
+          milestoneTracker.check(result).catch((err: any) => {
             console.error('[BOT] Milestone check error:', err.message);
           });
         });
@@ -813,7 +817,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       // Wire death events from LogWatcher to reset survival streaks
       if (logWatcher) {
         const origOnDeath = logWatcher._onDeath.bind(logWatcher);
-        logWatcher._onDeath = function (playerName, timestamp) {
+        logWatcher._onDeath = function (playerName: string, timestamp: string) {
           origOnDeath(playerName, timestamp);
           const steamId = playerStats.getSteamId(playerName);
           if (steamId) milestoneTracker.onPlayerDeath(steamId);
@@ -834,10 +838,10 @@ client.once(Events.ClientReady, async (readyClient) => {
       recapService = new RecapService(readyClient, { db, logWatcher, config, playtime });
       // Chain into LogWatcher day-rollover callback
       if (logWatcher) {
-        const prevCb = logWatcher._dayRolloverCb;
+        const prevCb: (() => Promise<void>) | undefined = logWatcher._dayRolloverCb;
         logWatcher._dayRolloverCb = async () => {
           if (typeof prevCb === 'function') await prevCb();
-          const yesterday = recapService._getYesterday();
+          const yesterday: string = recapService._getYesterday();
           await recapService.onDayRollover(yesterday);
         };
       }
@@ -858,8 +862,8 @@ client.once(Events.ClientReady, async (readyClient) => {
       if (anticheatIntegration.available) {
         // Wire into save sync for real-time analysis
         if (saveService) {
-          saveService.on('sync', (result) => {
-            anticheatIntegration.onSaveSync(result).catch((err) => {
+          saveService.on('sync', (result: any) => {
+            anticheatIntegration.onSaveSync(result).catch((err: any) => {
               console.error('[BOT] Anticheat save sync error:', err.message);
             });
           });
@@ -886,7 +890,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
           hzmodIpc.on('connect', () => console.log('[BOT] hzmod IPC connected'));
           hzmodIpc.on('disconnect', () => console.log('[BOT] hzmod IPC disconnected — will reconnect'));
-          hzmodIpc.on('error', (err) => console.error('[BOT] hzmod IPC error:', err.message));
+          hzmodIpc.on('error', (err: any) => console.error('[BOT] hzmod IPC error:', err.message));
           hzmodIpc.connect();
           console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
         }
@@ -897,39 +901,39 @@ client.once(Events.ClientReady, async (readyClient) => {
           rcon,
           chatRelay,
           config,
-          ipc: hzmodIpc || null,
+          ipc: hzmodIpc ?? null,
         });
         howyagarnManager.init();
 
         // Expose on client so slash commands can access it via interaction.client._howyagarnManager
-        readyClient._howyagarnManager = howyagarnManager;
+        (readyClient as any)._howyagarnManager = howyagarnManager;
 
         // Wire save-sync events
         if (saveService) {
-          saveService.on('sync', (result) => {
+          saveService.on('sync', (result: any) => {
             try {
               if (!result.parsed) return;
-              const players = [];
-              const playerMap =
+              const players: any[] = [];
+              const playerMap: Map<string, any> =
                 result.parsed.players instanceof Map
                   ? result.parsed.players
-                  : new Map(Object.entries(result.parsed.players || {}));
+                  : new Map(Object.entries(result.parsed.players ?? {}));
               for (const [steamId, pData] of playerMap) {
                 players.push({
                   steamId,
-                  name: pData.name || pData.playerName || '',
-                  x: pData.posX || pData.x || 0,
-                  y: pData.posY || pData.y || 0,
-                  deltaZeeksKilled: pData.deltaZeeksKilled || 0,
-                  deltaNpcKills: pData.deltaNpcKills || 0,
-                  deltaAnimalKills: pData.deltaAnimalKills || 0,
-                  deltaFishCaught: pData.deltaFishCaught || 0,
-                  deltaDaysSurvived: pData.deltaDaysSurvived || 0,
+                  name: pData.name ?? pData.playerName ?? '',
+                  x: pData.posX ?? pData.x ?? 0,
+                  y: pData.posY ?? pData.y ?? 0,
+                  deltaZeeksKilled: pData.deltaZeeksKilled ?? 0,
+                  deltaNpcKills: pData.deltaNpcKills ?? 0,
+                  deltaAnimalKills: pData.deltaAnimalKills ?? 0,
+                  deltaFishCaught: pData.deltaFishCaught ?? 0,
+                  deltaDaysSurvived: pData.deltaDaysSurvived ?? 0,
                 });
               }
-              const structures = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
+              const structures: any[] = Array.isArray(result.parsed.structures) ? result.parsed.structures : [];
               howyagarnManager.onSaveSync({ players, structures });
-            } catch (err) {
+            } catch (err: any) {
               console.error('[BOT] HOWYAGARN save sync error:', err.message);
             }
           });
@@ -939,11 +943,11 @@ client.once(Events.ClientReady, async (readyClient) => {
         if (logWatcher) {
           const origLogEvent = logWatcher._logEvent?.bind(logWatcher);
           if (origLogEvent) {
-            logWatcher._logEvent = function (type, data) {
+            logWatcher._logEvent = function (type: string, data: any) {
               origLogEvent(type, data);
               try {
                 howyagarnManager.onLogEvent(type, data);
-              } catch (err) {
+              } catch (err: any) {
                 console.error('[BOT] howyagarnManager.onLogEvent error:', err.message);
               }
             };
@@ -951,11 +955,11 @@ client.once(Events.ClientReady, async (readyClient) => {
           // Wire connect events
           const origOnConnect = logWatcher._onPlayerConnect?.bind(logWatcher);
           if (origOnConnect) {
-            logWatcher._onPlayerConnect = function (playerName, steamId) {
+            logWatcher._onPlayerConnect = function (playerName: string, steamId: string) {
               origOnConnect(playerName, steamId);
               try {
                 howyagarnManager.onPlayerConnect(steamId, playerName);
-              } catch (err) {
+              } catch (err: any) {
                 console.error('[BOT] howyagarnManager.onPlayerConnect error:', err.message);
               }
             };
@@ -964,7 +968,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
         setStatus('HOWYAGARN', '🟢 Active');
         console.log('[BOT] HOWYAGARN MMO system active');
-      } catch (err) {
+      } catch (err: any) {
         setStatus('HOWYAGARN', `⚠️ Failed: ${err.message}`);
         console.error('[BOT] HOWYAGARN init failed:', err.message);
       }
@@ -1045,18 +1049,18 @@ client.once(Events.ClientReady, async (readyClient) => {
     // Register hzmod web plugin now that multiServerManager is available
     if (hzmodWebPlugin) {
       try {
-        hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc || null });
+        hzmodPlugin = hzmodWebPlugin.register(webMapServer, config, { ipc: hzmodIpc ?? null });
         // Pass HowyagarnManager to web plugin for MMO API endpoints
         if (howyagarnManager) hzmodWebPlugin.setManager(howyagarnManager);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[BOT] hzmod plugin registration failed:', err.message);
       }
     }
   }
 
   // ── BotControlService (used by both Panel and Web) ───────
-  const BotControlService = require('./server/bot-control');
-  const botControl = new BotControlService({ exit: (code) => process.exit(code) });
+  const BotControlService: any = require('./server/bot-control');
+  const botControl = new BotControlService({ exit: (code: number) => process.exit(code) });
   if (webMapServer) webMapServer.setBotControl(botControl);
   if (webMapServer) webMapServer.setModuleStatus(moduleStatus);
 
@@ -1081,39 +1085,42 @@ client.once(Events.ClientReady, async (readyClient) => {
     if (db) {
       try {
         db.setStateJSON('bot_running', { startedAt: startedAt.toISOString() });
-      } catch (_) {}
+      } catch {
+        // ignore
+      }
     }
 
     // Clean previous lifecycle embeds from admin alert channels
-    let alertIds = config.adminAlertChannelIds;
-    if (typeof alertIds === 'string')
-      alertIds = alertIds
+    let alertIds: string[] = config.adminAlertChannelIds;
+    if (typeof alertIds === 'string') {
+      alertIds = (alertIds as string)
         .split(',')
-        .map((s) => s.trim())
+        .map((s: string) => s.trim())
         .filter(Boolean);
+    }
     if (!alertIds?.length) alertIds = config.adminChannelId ? [config.adminChannelId] : [];
     for (const chId of alertIds) {
       try {
-        const ch = await readyClient.channels.fetch(chId);
+        const ch: any = await readyClient.channels.fetch(chId);
         if (!ch) continue;
-        const messages = await ch.messages.fetch({ limit: 30 });
+        const messages: any = await ch.messages.fetch({ limit: 30 });
         const botId = readyClient.user?.id;
-        const toDelete = messages.filter(
-          (m) =>
+        const toDelete: any = messages.filter(
+          (m: any) =>
             m.author.id === botId &&
             m.embeds.length > 0 &&
-            m.embeds.some((e) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online'),
+            m.embeds.some((e: any) => e.title === '🔴 Bot Offline' || e.title === '🟢 Bot Online'),
         );
         if (toDelete.size > 0) {
           try {
             await ch.bulkDelete(toDelete, true);
           } catch {
             for (const msg of toDelete.values()) {
-              await msg.delete().catch(() => {});
+              await (msg as any).delete().catch(() => {});
             }
           }
         }
-      } catch (cleanErr) {
+      } catch (cleanErr: any) {
         console.warn(`[BOT] Could not clean lifecycle embeds in ${chId}:`, cleanErr.message);
       }
     }
@@ -1127,7 +1134,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       adminAlertChannelIds: config.adminAlertChannelIds,
       fallbackChannelId: config.adminChannelId,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[BOT] Failed to post online notification:', err.message);
   }
 
@@ -1135,9 +1142,11 @@ client.once(Events.ClientReady, async (readyClient) => {
   if (config.nukeBot) {
     console.log('[NUKE] Rebuilding activity threads from log history...');
     try {
-      const { rebuildThreads } = require('./commands/threads');
+      const { rebuildThreads } = require('./commands/threads') as {
+        rebuildThreads: (client: any, a?: any, b?: any) => Promise<any>;
+      };
       // Primary server
-      const result = await rebuildThreads(readyClient);
+      const result: any = await rebuildThreads(readyClient);
       if (result.error) {
         console.error('[NUKE] Thread rebuild failed:', result.error);
       } else {
@@ -1146,17 +1155,20 @@ client.once(Events.ClientReady, async (readyClient) => {
         );
       }
       // Additional servers
-      const { loadServers, createServerConfig } = require('./server/multi-server');
-      const servers = loadServers();
-      for (const serverDef of servers) {
-        const label = serverDef.name || serverDef.id;
+      const { loadServers: _loadServers, createServerConfig } = require('./server/multi-server') as {
+        loadServers: () => any[];
+        createServerConfig: (def: any) => any;
+      };
+      const additionalServers: any[] = _loadServers();
+      for (const serverDef of additionalServers) {
+        const label: string = serverDef.name ?? serverDef.id;
         if (!serverDef.channels?.log) {
           console.log('[NUKE] Skipping %s thread rebuild (no log channel)', label);
           continue;
         }
-        const serverConfig = createServerConfig(serverDef);
+        const serverConfig: any = createServerConfig(serverDef);
         console.log('[NUKE] Rebuilding threads for %s...', label);
-        const srvResult = await rebuildThreads(readyClient, null, serverConfig);
+        const srvResult: any = await rebuildThreads(readyClient, null, serverConfig);
         if (srvResult.error) {
           console.error('[NUKE] Thread rebuild for %s failed:', label, srvResult.error);
         } else {
@@ -1165,7 +1177,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           );
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[NUKE] Thread rebuild error:', err.message);
     }
 
@@ -1175,8 +1187,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       logWatcher._nukeActive = false;
       logWatcher.resetThreadCache();
       // Send the startup notification that was deferred during nuke
-      const thread = await logWatcher._getOrCreateDailyThread();
-      const { EmbedBuilder } = require('discord.js');
+      const thread: any = await logWatcher._getOrCreateDailyThread();
       const startEmbed = new EmbedBuilder()
         .setDescription('Log watcher connected. Monitoring game server activity.')
         .setColor(0x3498db)
@@ -1191,7 +1202,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       if (typeof chatRelay._getOrCreateChatThread === 'function') {
         await chatRelay
           ._getOrCreateChatThread()
-          .catch((e) => console.warn('[NUKE] Could not re-create chat thread:', e.message));
+          .catch((e: any) => console.warn('[NUKE] Could not re-create chat thread:', e.message));
       }
       console.log('[NUKE] ChatRelay thread cache reset + recreated');
     }
@@ -1200,7 +1211,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         if (instance._modules?.logWatcher) {
           instance._modules.logWatcher._nukeActive = false;
           instance._modules.logWatcher.resetThreadCache();
-          console.log(`[NUKE] ${instance.name || instance.id} LogWatcher thread cache reset`);
+          console.log(`[NUKE] ${instance.name ?? instance.id} LogWatcher thread cache reset`);
         }
         if (instance._modules?.chatRelay && typeof instance._modules.chatRelay.resetThreadCache === 'function') {
           instance._modules.chatRelay._nukeActive = false;
@@ -1208,7 +1219,7 @@ client.once(Events.ClientReady, async (readyClient) => {
           if (typeof instance._modules.chatRelay._getOrCreateChatThread === 'function') {
             await instance._modules.chatRelay._getOrCreateChatThread().catch(() => {});
           }
-          console.log(`[NUKE] ${instance.name || instance.id} ChatRelay thread cache reset + recreated`);
+          console.log(`[NUKE] ${instance.name ?? instance.id} ChatRelay thread cache reset + recreated`);
         }
       }
     }
@@ -1225,7 +1236,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       envContent = envContent.replace(/^FIRST_RUN\s*=\s*true$/m, 'FIRST_RUN=false');
       fs.writeFileSync(envPath, envContent, 'utf8');
       console.log('[BOT] FIRST_RUN set back to false in .env');
-    } catch (_err) {
+    } catch {
       console.warn('[BOT] Could not update .env — please manually set FIRST_RUN=false');
     }
   }
@@ -1237,7 +1248,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 // ── Graceful shutdown ───────────────────────────────────────
 let shuttingDown = false;
-async function shutdown(reason = 'Manual shutdown') {
+async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (shuttingDown) return; // prevent double-shutdown
   shuttingDown = true;
   console.log('\n[BOT] Shutting down...');
@@ -1272,7 +1283,7 @@ async function shutdown(reason = 'Manual shutdown') {
   if (db) {
     try {
       db.deleteState('bot_running');
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[BOT] Could not clear bot_running flag:', err.message);
     }
     db.close();
@@ -1299,9 +1310,9 @@ async function shutdown(reason = 'Manual shutdown') {
         adminAlertChannelIds: config.adminAlertChannelIds,
         fallbackChannelId: config.adminChannelId,
       }),
-      new Promise((resolve) => setTimeout(resolve, 5000)),
+      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
     ]);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[BOT] Failed to post offline notification:', err.message);
   }
 
@@ -1310,21 +1321,25 @@ async function shutdown(reason = 'Manual shutdown') {
   process.exit(0);
 }
 
-function _formatUptime(ms) {
+function _formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const days = Math.floor(s / 86400);
   const hours = Math.floor((s % 86400) / 3600);
   const mins = Math.floor((s % 3600) / 60);
-  const parts = [];
+  const parts: string[] = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   parts.push(`${mins}m`);
   return parts.join(' ');
 }
 
-process.on('SIGINT', () => shutdown('SIGINT received'));
-process.on('SIGTERM', () => shutdown('SIGTERM received'));
-process.on('uncaughtException', (err) => {
+process.on('SIGINT', () => {
+  void shutdown('SIGINT received');
+});
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM received');
+});
+process.on('uncaughtException', (err: any) => {
   console.error('[BOT] Uncaught exception:', err);
 
   // Discord API errors that are safe to ignore (don't crash)
@@ -1345,7 +1360,7 @@ process.on('uncaughtException', (err) => {
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[BOT] Unhandled rejection:', reason);
-  _postErrorEmbed('Unhandled Rejection', reason);
+  void _postErrorEmbed('Unhandled Rejection', reason);
   // Log but don't crash — unhandled rejections are often recoverable
 });
 
@@ -1353,10 +1368,10 @@ process.on('unhandledRejection', (reason) => {
  * Post a hard-error embed to admin alert channels for visibility.
  * Silently ignores failures (client may not be ready yet).
  */
-async function _postErrorEmbed(title, err) {
+async function _postErrorEmbed(title: string, err: unknown): Promise<void> {
   if (!client?.isReady()) return;
   try {
-    const raw = err instanceof Error ? err.stack?.slice(0, 1000) || err.message : String(err).slice(0, 1000);
+    const raw = err instanceof Error ? (err.stack?.slice(0, 1000) ?? err.message) : String(err).slice(0, 1000);
     const embed = new EmbedBuilder()
       .setTitle(`\uD83D\uDD25 ${title}`)
       .setDescription(`\`\`\`\n${raw}\n\`\`\``)
@@ -1366,7 +1381,7 @@ async function _postErrorEmbed(title, err) {
       adminAlertChannelIds: config.adminAlertChannelIds,
       fallbackChannelId: config.adminChannelId,
     });
-  } catch (embedErr) {
+  } catch (embedErr: any) {
     console.warn('[BOT] Failed to post error embed:', embedErr.message);
   }
 }
@@ -1377,59 +1392,61 @@ async function _postErrorEmbed(title, err) {
  * Delete all bot-authored threads and messages from a channel.
  * Used by NUKE_BOT to factory-reset Discord state before modules start.
  */
-async function _nukeChannel(client, channelId, botId) {
+async function _nukeChannel(discordClient: any, channelId: string, botId: string | undefined): Promise<void> {
   try {
-    const ch = await client.channels.fetch(channelId).catch(() => null);
+    const ch: any = await discordClient.channels.fetch(channelId).catch(() => null);
     if (!ch) return;
 
     // Handle bot-authored threads (active + archived)
     // Delete ALL bot threads for a clean slate during nuke.
     if (ch.threads) {
-      const active = await ch.threads.fetchActive().catch(() => ({ threads: new Map() }));
-      const archived = await ch.threads.fetchArchived({ limit: 100 }).catch(() => ({ threads: new Map() }));
-      const allThreads = [...active.threads.values(), ...archived.threads.values()];
+      const active: any = await ch.threads.fetchActive().catch(() => ({ threads: new Map() }));
+      const archived: any = await ch.threads.fetchArchived({ limit: 100 }).catch(() => ({ threads: new Map() }));
+      const allThreads: any[] = [...active.threads.values(), ...archived.threads.values()];
       for (const thread of allThreads) {
         if (thread.ownerId !== botId) continue;
         await thread.delete('NUKE_BOT factory reset').catch(() => {});
-        console.log(`[NUKE] Deleted thread "${thread.name}" from #${ch.name || channelId}`);
+        console.log(`[NUKE] Deleted thread "${thread.name}" from #${ch.name ?? channelId}`);
       }
     }
 
     // Delete bot-authored messages (scan up to 1000)
-    let lastId;
+    let lastId: string | undefined;
     let deleted = 0;
     for (let page = 0; page < 10; page++) {
-      const opts = { limit: 100 };
+      const opts: any = { limit: 100 };
       if (lastId) opts.before = lastId;
-      const batch = await ch.messages?.fetch(opts).catch(() => new Map());
+      const batch: any = await ch.messages?.fetch(opts).catch(() => new Map());
       if (!batch || batch.size === 0) break;
       lastId = batch.last().id;
       for (const [, msg] of batch) {
-        if (msg.author?.id !== botId) continue;
-        await msg.delete().catch(() => {});
+        if ((msg as any).author?.id !== botId) continue;
+        await (msg as any).delete().catch(() => {});
         deleted++;
       }
       if (batch.size < 100) break;
     }
-    if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${ch.name || channelId}`);
-  } catch (err) {
+    if (deleted > 0) console.log(`[NUKE] Deleted ${deleted} message(s) from #${ch.name ?? channelId}`);
+  } catch (err: any) {
     console.warn(`[NUKE] Could not clean channel ${channelId}:`, err.message);
   }
 }
 
-(async () => {
+void (async () => {
   // NUKE_BOT implies FIRST_RUN — wipe local data files first, then re-import
   // Log raw .env value for debugging — track unexpected NUKE_BOT=true
-  const _nukeAuditMsg = `[${new Date().toISOString()}] STARTUP: NUKE_BOT=${process.env.NUKE_BOT}, config.nukeBot=${config.nukeBot}, NUKE_THREADS=${process.env.NUKE_THREADS}\n`;
+  const _nukeAuditMsg = `[${new Date().toISOString()}] STARTUP: NUKE_BOT=${process.env['NUKE_BOT']}, config.nukeBot=${config.nukeBot}, NUKE_THREADS=${process.env['NUKE_THREADS']}\n`;
   console.log(
     '[NUKE-AUDIT] process.env.NUKE_BOT=%s, config.nukeBot=%s, process.env.NUKE_THREADS=%s',
-    process.env.NUKE_BOT,
+    process.env['NUKE_BOT'],
     config.nukeBot,
-    process.env.NUKE_THREADS,
+    process.env['NUKE_THREADS'],
   );
   try {
     fs.appendFileSync(path.join(__dirname, '..', 'data', 'nuke-audit.log'), _nukeAuditMsg);
-  } catch (_) {}
+  } catch {
+    // ignore
+  }
   if (config.nukeBot) {
     console.log('[NUKE] NUKE_BOT=true — factory reset starting...');
     const dataDir = path.join(__dirname, '..', 'data');
@@ -1476,26 +1493,26 @@ async function _nukeChannel(client, channelId, botId) {
   // Run setup/import if FIRST_RUN=true or NUKE_BOT=true
   if (config.firstRun || config.nukeBot) {
     console.log(`[BOT] ${config.nukeBot ? 'NUKE_BOT' : 'FIRST_RUN'}=true — running data import...`);
-    const setupPath = require('path').join(__dirname, '..', 'setup.js');
+    const setupPath = path.join(__dirname, '..', 'setup.js');
     try {
-      require('fs').accessSync(setupPath);
+      fs.accessSync(setupPath);
     } catch {
       console.error(`[BOT] setup.js not found at: ${setupPath}`);
       console.error('[BOT] Upload setup.js to the root of your bot folder (next to package.json).');
       console.error('[BOT] Continuing with existing data files...');
     }
     try {
-      const { main: runSetup } = require(setupPath);
+      const { main: runSetup } = require(setupPath) as { main: () => Promise<void> };
       await runSetup();
       console.log('[BOT] Data import complete.');
-    } catch (err) {
+    } catch (err: any) {
       console.error('[BOT] Setup failed:', err.message);
       console.error('[BOT] Continuing with existing/empty data files...');
     }
   }
-  client.login(config.discordToken).catch((err) => {
+  client.login(config.discordToken).catch((err: any) => {
     if (/disallowed intents/i.test(err.message) || err.code === 4014) {
-      const requested = [];
+      const requested: string[] = [];
       if (config.enableChatRelay) requested.push('Message Content (ENABLE_CHAT_RELAY=true)');
       if (config.adminRoleIds.length > 0) requested.push('Server Members (ADMIN_ROLE_IDS set)');
       console.error('');
@@ -1527,3 +1544,8 @@ async function _nukeChannel(client, channelId, botId) {
     process.exit(1);
   });
 })();
+
+const _mod = module as { exports: any };
+
+_mod.exports = {};
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -1,27 +1,87 @@
-'use strict';
+/* eslint-disable @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-conversion */
+import { ActivityType, type Client } from 'discord.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const config = require('../config') as {
+  publicHost?: string;
+  gamePort?: string | number;
+  enableStatusChannels?: boolean;
+  enableServerStatus?: boolean;
+  enablePlayerStats?: boolean;
+  enableChatRelay?: boolean;
+  enableLogWatcher?: boolean;
+  enableAutoMsgLink?: boolean;
+  enableAutoMsgPromo?: boolean;
+  enablePvpScheduler?: boolean;
+  enableServerScheduler?: boolean;
+  enableRecaps?: boolean;
+  enableMilestones?: boolean;
+  enableActivityLog?: boolean;
+  enableAnticheat?: boolean;
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const panelApi = require('../server/panel-api') as { available: boolean };
+import { getServerInfo as _getServerInfo } from '../rcon/server-info.js';
 
-const { ActivityType } = require('discord.js');
-const config = require('../config');
-const panelApi = require('../server/panel-api');
-const { getServerInfo } = require('../rcon/server-info');
+interface ActivityItem {
+  type: ActivityType;
+  name: string;
+}
 
-function _toInt(value) {
-  const n = Number.parseInt(value, 10);
+interface PresenceBase {
+  mode: 'online' | 'offline' | 'degraded' | 'unknown';
+  status: 'online' | 'idle' | 'dnd';
+  activity: ActivityItem;
+}
+
+interface ServerInfo {
+  players?: unknown;
+  maxPlayers?: unknown;
+  fields?: Record<string, unknown>;
+  name?: unknown;
+  day?: unknown;
+  time?: unknown;
+  season?: unknown;
+  weather?: unknown;
+  fps?: unknown;
+  ai?: unknown;
+  version?: unknown;
+}
+
+interface BotStatusManagerOptions {
+  refreshMs?: number;
+  staleInfoMs?: number;
+  rotationIntervalMs?: number;
+  getServerInfo?: () => Promise<ServerInfo | null>;
+  getHasSftp?: () => boolean;
+  getPanelAvailable?: () => boolean;
+  getWebMapEnabled?: () => boolean;
+  getModuleStatus?: () => Record<string, string>;
+  getNow?: () => number;
+}
+
+interface BotStatusManager {
+  start: () => void;
+  stop: () => void;
+  refreshNow: (forceRotate?: boolean) => Promise<void>;
+}
+
+function _toInt(value: unknown): number | null {
+  const n = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(n) ? n : null;
 }
 
-function _limitActivityName(name, max = 128) {
-  const text = String(name || '');
+function _limitActivityName(name: unknown, max = 128): string {
+  const text = String(name ?? '');
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
 }
 
-function _hasValue(value) {
+function _hasValue(value: unknown): boolean {
   return value !== undefined && value !== null && String(value).trim() !== '';
 }
 
-function _moduleState(rawStatus) {
-  const text = String(rawStatus || '').toLowerCase();
+function _moduleState(rawStatus: unknown): 'active' | 'disabled' | 'warning' | 'unknown' {
+  const text = String(rawStatus ?? '').toLowerCase();
   if (!text) return 'unknown';
   if (/(active|running|online|healthy|ok)\b/.test(text)) return 'active';
   if (/(disabled|off|inactive|not set)\b/.test(text)) return 'disabled';
@@ -31,12 +91,12 @@ function _moduleState(rawStatus) {
   return 'unknown';
 }
 
-function _isModuleActive(moduleStatus, moduleName) {
-  const state = moduleStatus && moduleStatus[moduleName];
+function _isModuleActive(moduleStatus: Record<string, string> | null | undefined, moduleName: string): boolean {
+  const state = moduleStatus?.[moduleName];
   return _moduleState(state) === 'active';
 }
 
-function _extractPlayers(info) {
+function _extractPlayers(info: ServerInfo | null | undefined): { players: number | null; maxPlayers: number | null } {
   if (!info || typeof info !== 'object') {
     return { players: null, maxPlayers: null };
   }
@@ -64,15 +124,15 @@ function _extractPlayers(info) {
   return { players, maxPlayers };
 }
 
-function _activityKey(activity) {
-  return `${activity.type}|${activity.name}`;
+function _activityKey(activity: ActivityItem): string {
+  return `${String(activity.type)}|${activity.name}`;
 }
 
-function _uniqueActivities(activities) {
-  const unique = [];
-  const seen = new Set();
+function _uniqueActivities(activities: (ActivityItem | null | undefined)[] | null | undefined): ActivityItem[] {
+  const unique: ActivityItem[] = [];
+  const seen = new Set<string>();
 
-  for (const item of activities || []) {
+  for (const item of activities ?? []) {
     if (!item || !_hasValue(item.name)) continue;
     const key = _activityKey(item);
     if (seen.has(key)) continue;
@@ -83,8 +143,8 @@ function _uniqueActivities(activities) {
   return unique;
 }
 
-function _buildModuleSummaryActivity(moduleStatus) {
-  const entries = Object.entries(moduleStatus || {});
+function _buildModuleSummaryActivity(moduleStatus: Record<string, string> | null | undefined): ActivityItem | null {
+  const entries = Object.entries(moduleStatus ?? {});
   if (entries.length === 0) return null;
 
   let active = 0;
@@ -111,9 +171,9 @@ function _buildModuleSummaryActivity(moduleStatus) {
   };
 }
 
-function _buildWorldActivities(info) {
+function _buildWorldActivities(info: ServerInfo | null | undefined): ActivityItem[] {
   if (!info || typeof info !== 'object') return [];
-  const activities = [];
+  const activities: ActivityItem[] = [];
 
   if (_hasValue(info.name)) {
     activities.push({
@@ -122,7 +182,7 @@ function _buildWorldActivities(info) {
     });
   }
 
-  const worldParts = [];
+  const worldParts: string[] = [];
   if (_hasValue(info.day)) worldParts.push(`Day ${String(info.day).trim()}`);
   if (_hasValue(info.time)) worldParts.push(String(info.time).trim());
   if (_hasValue(info.season)) worldParts.push(String(info.season).trim());
@@ -137,7 +197,7 @@ function _buildWorldActivities(info) {
   const fps = _toInt(info.fps);
   const ai = _toInt(info.ai);
   if (fps !== null || ai !== null) {
-    const perf = [];
+    const perf: string[] = [];
     if (fps !== null) perf.push(`FPS ${fps}`);
     if (ai !== null) perf.push(`AI ${ai}`);
     activities.push({
@@ -156,11 +216,11 @@ function _buildWorldActivities(info) {
   return activities;
 }
 
-function _buildConnectActivity() {
-  const host = String(config.publicHost || '').trim();
+function _buildConnectActivity(): ActivityItem | null {
+  const host = String(config.publicHost ?? '').trim();
   if (!host) return null;
 
-  const port = String(config.gamePort || '').trim();
+  const port = String(config.gamePort ?? '').trim();
   const endpoint = port ? `${host}:${port}` : host;
 
   return {
@@ -169,7 +229,7 @@ function _buildConnectActivity() {
   };
 }
 
-function _buildPlayerActivity(info, lastPlayers) {
+function _buildPlayerActivity(info: ServerInfo | null | undefined, lastPlayers: number | null): ActivityItem | null {
   const { players, maxPlayers } = _extractPlayers(info);
   if (players === null) return null;
 
@@ -187,7 +247,7 @@ function _buildPlayerActivity(info, lastPlayers) {
   };
 }
 
-function _buildRecoveryActivity(lastInfo) {
+function _buildRecoveryActivity(lastInfo: ServerInfo | null): ActivityItem {
   const playerActivity = _buildPlayerActivity(lastInfo, null);
   if (!playerActivity) {
     return { type: ActivityType.Playing, name: 'Reconnecting RCON...' };
@@ -199,28 +259,36 @@ function _buildRecoveryActivity(lastInfo) {
   };
 }
 
-function createBotStatusManager(client, opts = {}) {
-  const refreshMs = Math.max(parseInt(opts.refreshMs, 10) || 30000, 15000);
-  const staleInfoMs = Math.max(parseInt(opts.staleInfoMs, 10) || Math.max(refreshMs * 4, 90000), refreshMs);
-  const rotationIntervalMs = Math.max(parseInt(opts.rotationIntervalMs, 10) || refreshMs, 5000);
-  const getServerInfoFn = opts.getServerInfo || getServerInfo;
-  const getHasSftp = opts.getHasSftp || (() => false);
-  const getPanelAvailable = opts.getPanelAvailable || (() => false);
-  const getWebMapEnabled = opts.getWebMapEnabled || (() => false);
-  const getModuleStatus = opts.getModuleStatus || (() => ({}));
-  const getNow = opts.getNow || (() => Date.now());
+function createBotStatusManager(client: Client, opts: BotStatusManagerOptions = {}): BotStatusManager {
+  const refreshMs = Math.max(parseInt(String(opts.refreshMs ?? ''), 10) || 30000, 15000);
+  const staleInfoMs = Math.max(
+    parseInt(String(opts.staleInfoMs ?? ''), 10) || Math.max(refreshMs * 4, 90000),
+    refreshMs,
+  );
+  const rotationIntervalMs = Math.max(parseInt(String(opts.rotationIntervalMs ?? ''), 10) || refreshMs, 5000);
+  const getServerInfoFn = opts.getServerInfo ?? _getServerInfo;
+  const getHasSftp = opts.getHasSftp ?? (() => false);
+  const getPanelAvailable = opts.getPanelAvailable ?? (() => false);
+  const getWebMapEnabled = opts.getWebMapEnabled ?? (() => false);
+  const getModuleStatus = opts.getModuleStatus ?? (() => ({}));
+  const getNow = opts.getNow ?? (() => Date.now());
 
-  let timer = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
   let rotationIndex = 0;
   let lastRotationAt = 0;
   let lastActivityKey = '';
   let lastPresenceKey = '';
-  let lastInfo = null;
+  let lastInfo: ServerInfo | null = null;
   let lastInfoAt = 0;
-  let lastPlayers = null;
-  let inFlight = null;
+  let lastPlayers: number | null = null;
+  let inFlight: Promise<void> | null = null;
 
-  function _buildBasePresence(info, err, now, usedCachedInfo) {
+  function _buildBasePresence(
+    info: ServerInfo | null,
+    err: unknown,
+    now: number,
+    usedCachedInfo: boolean,
+  ): PresenceBase {
     if (err && usedCachedInfo && lastInfo && now - lastInfoAt <= staleInfoMs) {
       return {
         mode: 'degraded',
@@ -253,11 +321,11 @@ function createBotStatusManager(client, opts = {}) {
     };
   }
 
-  function _buildFeatureActivities() {
-    const moduleStatus = getModuleStatus() || {};
-    const features = [];
+  function _buildFeatureActivities(): ActivityItem[] {
+    const moduleStatus = getModuleStatus() ?? {};
+    const features: ActivityItem[] = [];
 
-    const isOn = (moduleName, cfgValue) => {
+    const isOn = (moduleName: string, cfgValue: unknown): boolean => {
       if (Object.prototype.hasOwnProperty.call(moduleStatus, moduleName)) {
         return _isModuleActive(moduleStatus, moduleName);
       }
@@ -322,7 +390,12 @@ function createBotStatusManager(client, opts = {}) {
     return _uniqueActivities(features);
   }
 
-  function _pickActivity(baseActivity, extraActivities, now, forceRotate = false) {
+  function _pickActivity(
+    baseActivity: ActivityItem,
+    extraActivities: ActivityItem[],
+    now: number,
+    forceRotate = false,
+  ): ActivityItem {
     const extras = _uniqueActivities(extraActivities);
     if (extras.length === 0) {
       lastActivityKey = _activityKey(baseActivity);
@@ -337,14 +410,14 @@ function createBotStatusManager(client, opts = {}) {
       if (reused) return reused;
     }
 
-    let chosen = pool[rotationIndex % pool.length];
+    let chosen = pool[rotationIndex % pool.length] ?? baseActivity;
     rotationIndex += 1;
     lastRotationAt = now;
 
     if (pool.length > 1) {
       let guard = 0;
       while (_activityKey(chosen) === lastActivityKey && guard < pool.length) {
-        chosen = pool[rotationIndex % pool.length];
+        chosen = pool[rotationIndex % pool.length] ?? baseActivity;
         rotationIndex += 1;
         guard += 1;
       }
@@ -354,33 +427,34 @@ function createBotStatusManager(client, opts = {}) {
     return chosen;
   }
 
-  function _presenceKey(status, activity) {
-    return `${status}|${activity.type}|${activity.name}`;
+  function _presenceKey(status: string, activity: ActivityItem): string {
+    return `${status}|${String(activity.type)}|${activity.name}`;
   }
 
-  async function _refresh(forceRotate = false) {
+  async function _refresh(forceRotate = false): Promise<void> {
     if (!client || !client.user) return;
 
     const now = getNow();
-    let info = null;
-    let error = null;
+    let info: ServerInfo | null = null;
+    let error: unknown = null;
 
     try {
-      info = await getServerInfoFn();
-      if (info && typeof info === 'object') {
-        lastInfo = info;
+      const result = await getServerInfoFn();
+      if (result && typeof result === 'object') {
+        info = result;
+        lastInfo = result;
         lastInfoAt = now;
       }
     } catch (err) {
       error = err;
     }
 
-    const effectiveInfo = info || (now - lastInfoAt <= staleInfoMs ? lastInfo : null);
+    const effectiveInfo = info ?? (now - lastInfoAt <= staleInfoMs ? lastInfo : null);
     const usedCachedInfo = !info && !!effectiveInfo;
     const base = _buildBasePresence(effectiveInfo, error, now, usedCachedInfo);
     const features = _buildFeatureActivities();
     const world = _buildWorldActivities(effectiveInfo).slice(0, 2);
-    const moduleSummary = _buildModuleSummaryActivity(getModuleStatus() || {});
+    const moduleSummary = _buildModuleSummaryActivity(getModuleStatus() ?? {});
     const extra = moduleSummary ? [moduleSummary, ...world, ...features] : [...world, ...features];
 
     let chosen = base.activity;
@@ -391,7 +465,7 @@ function createBotStatusManager(client, opts = {}) {
       chosen = _pickActivity(base.activity, degradedExtras, now, forceRotate);
     }
 
-    const activity = {
+    const activity: ActivityItem = {
       type: chosen.type,
       name: _limitActivityName(chosen.name),
     };
@@ -411,7 +485,7 @@ function createBotStatusManager(client, opts = {}) {
     }
   }
 
-  async function refreshNow(forceRotate = false) {
+  async function refreshNow(forceRotate = false): Promise<void> {
     if (inFlight) return inFlight;
 
     inFlight = _refresh(forceRotate).finally(() => {
@@ -421,7 +495,7 @@ function createBotStatusManager(client, opts = {}) {
     return inFlight;
   }
 
-  function start() {
+  function start(): void {
     if (timer) return;
     refreshNow().catch(() => {});
     timer = setInterval(() => {
@@ -429,7 +503,7 @@ function createBotStatusManager(client, opts = {}) {
     }, refreshMs);
   }
 
-  function stop() {
+  function stop(): void {
     if (!timer) return;
     clearInterval(timer);
     timer = null;
@@ -442,6 +516,10 @@ function createBotStatusManager(client, opts = {}) {
   };
 }
 
-module.exports = {
-  createBotStatusManager,
-};
+export { createBotStatusManager };
+export type { BotStatusManager, BotStatusManagerOptions };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+
+_mod.exports = { createBotStatusManager };
