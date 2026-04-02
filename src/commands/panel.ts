@@ -498,7 +498,3 @@ async function _schedules(interaction: import('discord.js').ChatInputCommandInte
     });
   }
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { data, execute };

@@ -207,8 +207,3 @@ SqliteSessionStore.prototype.stopCleanup = function (this: any) {
 };
 
 export { SqliteSessionStore };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { SqliteSessionStore };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -697,8 +697,3 @@ class ServerScheduler {
 }
 
 export default ServerScheduler;
-
-const _mod = module as { exports: any };
-
-_mod.exports = ServerScheduler;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

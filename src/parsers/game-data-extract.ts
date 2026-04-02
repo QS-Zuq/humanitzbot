@@ -1261,7 +1261,44 @@ function cached<T>(key: string, fn: () => T): T {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Direct exports (non-lazy)
-export { cleanKey, cleanRow, deepClean, resolveEnum, ENUM_MAPS, getTable, getTableCleaned };
+export {
+  cleanKey,
+  cleanRow,
+  deepClean,
+  resolveEnum,
+  ENUM_MAPS,
+  getTable,
+  getTableCleaned,
+  getITEMS,
+  getITEM_NAMES,
+  getLOOT_TABLES,
+  getBUILDINGS,
+  getBUILDING_NAMES,
+  getRECIPES,
+  getSKILLS,
+  getPROFESSIONS,
+  getSTATISTICS,
+  getSTAT_CONFIG,
+  getCROPS,
+  getVEHICLES,
+  getVEHICLE_NAMES,
+  getCAR_UPGRADES,
+  getAMMO_DAMAGE,
+  getREPAIR_DATA,
+  getFURNITURE,
+  getTRAPS,
+  getANIMALS,
+  getXP_DATA,
+  getSPAWN_LOCATIONS,
+  getLORE,
+  getQUESTS,
+  getAFFLICTIONS,
+  getLOADING_TIPS,
+  getSPRAYS,
+  getFOLIAGE,
+  getCHARACTERS,
+  getTABLE_SUMMARY,
+};
 
 // Lazy getters need to go through the module.exports CJS compat layer.
 // For TS ESM consumers, provide accessor functions.

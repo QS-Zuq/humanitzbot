@@ -550,8 +550,3 @@ function stripAnsi(str: string): string {
 }
 
 export { PanelRcon };
-
-// CJS compatibility — non-migrated .js files require() this module
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { PanelRcon };

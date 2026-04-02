@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 /**
  * Config constants — env categories and game settings definitions.
  *
@@ -971,7 +969,3 @@ const ENV_CATEGORY_GROUPS = [
 ];
 
 export { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { ENV_CATEGORY_GROUPS, ENV_CATEGORIES, GAME_SETTINGS_CATEGORIES };

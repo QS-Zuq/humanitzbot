@@ -44,8 +44,3 @@ void (async () => {
     console.error('[DEPLOY] Failed:', err);
   }
 })();
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = {};

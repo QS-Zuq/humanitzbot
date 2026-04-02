@@ -441,17 +441,3 @@ export {
   resetThreadCache,
   _sendToThread,
 };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  _checkDayRollover,
-  _getOrCreateDailyThread,
-  _postDailySummary,
-  sendToThread,
-  getRecentContainerAccess,
-  sendToDateThread,
-  resetThreadCache,
-  _sendToThread,
-};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

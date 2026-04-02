@@ -101,7 +101,3 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
     await interaction.editReply(t('commands:playtime.reply.fetch_failed', locale));
   }
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { data, execute };

@@ -682,6 +682,4 @@ class PvpScheduler {
 export default PvpScheduler;
 
 const _mod = module as { exports: any };
-
 _mod.exports = PvpScheduler;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

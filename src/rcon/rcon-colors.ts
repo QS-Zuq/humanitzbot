@@ -70,8 +70,3 @@ export function white(text: string): string {
 export function stripColorTags(text: string): string {
   return text.replace(/<(?:PN|PR|SP|FO|CL|\/)>/g, '');
 }
-
-// CJS compatibility — non-migrated .js files require() this module
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { COLOR, color, rconColor, colorOpen, white, stripColorTags };

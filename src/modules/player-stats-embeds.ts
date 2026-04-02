@@ -1267,15 +1267,3 @@ function buildFullPlayerEmbed(this: any, steamId: any, { isAdmin = false } = {})
 // ─── Exports ─────────────────────────────────────────────────────────
 
 export { _buildOverviewEmbed, _buildRoster, _buildPlayerRow, _buildClanRow, buildClanEmbed, buildFullPlayerEmbed };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  _buildOverviewEmbed,
-  _buildRoster,
-  _buildPlayerRow,
-  _buildClanRow,
-  buildClanEmbed,
-  buildFullPlayerEmbed,
-};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

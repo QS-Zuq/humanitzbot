@@ -321,10 +321,3 @@ function validateField(
 
 export { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS };
 export type { ValidationResult };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS };
-_mod.exports._test = { validateField, FIELD_VALIDATORS };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

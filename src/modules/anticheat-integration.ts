@@ -271,8 +271,3 @@ class AnticheatIntegration {
 }
 
 export default AnticheatIntegration;
-
-const _mod = module as { exports: any };
-
-_mod.exports = AnticheatIntegration;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

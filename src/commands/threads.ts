@@ -32,7 +32,7 @@ const HMZ_LINE_RE = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2
 const CONNECT_LINE_RE =
   /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/;
 
-function _dateKey(ts: Date): string {
+export function _dateKey(ts: Date): string {
   // Return 'YYYY-MM-DD' in BOT_TIMEZONE
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -627,18 +627,3 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
 
   await interaction.editReply(parts.join('\n'));
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = {
-  data,
-  execute,
-  rebuildThreads,
-  _fetchThreadMessages,
-  _findMatchingThreads,
-  _parseHmzLog,
-  _parseConnectLog,
-  _mergeDays,
-  _buildSummaryEmbed,
-  _dateKey,
-};

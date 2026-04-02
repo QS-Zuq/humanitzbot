@@ -409,9 +409,3 @@ function seedSpraysData(db: GameDB): void {
 }
 
 export { seed };
-
-// CJS compatibility — .js consumers use require('./game-reference')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { seed };

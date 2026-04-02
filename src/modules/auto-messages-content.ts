@@ -604,20 +604,3 @@ export {
   _difficultyText,
   _pvpScheduleText,
 };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  fileColor,
-  _colorLink,
-  _rconColorLink,
-  loadCachedSettings,
-  loadWelcomeStats,
-  formatMs,
-  pvpScheduleLabel,
-  difficultyScheduleLines,
-  buildWelcomeContent,
-  _difficultyText,
-  _pvpScheduleText,
-};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -265,17 +265,3 @@ export {
   _coerce,
   _isServerScoped,
 };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = {
-  BOOTSTRAP_KEYS,
-  SERVER_SCOPED_KEYS,
-  buildMigrationMap,
-  migrateEnvToDb,
-  migrateServersJsonToDb,
-  migrateDisplaySettings,
-  FALLBACK_MIGRATION_ENTRIES,
-  _coerce,
-  _isServerScoped,
-};

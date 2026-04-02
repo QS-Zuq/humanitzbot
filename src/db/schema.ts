@@ -1566,7 +1566,3 @@ const ALL_TABLES = [
 ];
 
 export { SCHEMA_VERSION, ALL_TABLES, CONFIG_DOCUMENTS };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { SCHEMA_VERSION, ALL_TABLES, CONFIG_DOCUMENTS };

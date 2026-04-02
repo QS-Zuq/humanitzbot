@@ -577,6 +577,4 @@ class RecapService {
 export default RecapService;
 
 const _mod = module as { exports: any };
-
 _mod.exports = RecapService;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -1099,12 +1099,3 @@ Object.assign(PlayerStatsChannel.prototype, require('./player-stats-embeds'));
 export default PlayerStatsChannel;
 
 export { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave };
-
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = PlayerStatsChannel;
-_mod.exports._parseIni = _parseIni;
-_mod.exports._cleanItemName = _cleanItemName;
-_mod.exports._resolveUdsWeather = _resolveUdsWeather;
-_mod.exports._dbRowToSave = _dbRowToSave;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

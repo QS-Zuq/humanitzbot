@@ -349,11 +349,3 @@ class RconManager extends EventEmitter {
 const _singleton = new RconManager();
 export default _singleton;
 export { RconManager };
-
-// CJS compatibility — non-migrated .js files require() this module
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = _singleton;
-_mod.exports.RconManager = RconManager;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

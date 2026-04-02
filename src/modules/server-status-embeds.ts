@@ -360,8 +360,3 @@ async function _buildOfflineEmbed(this: any) {
 }
 
 export { _buildEmbed, _buildOfflineEmbed };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { _buildEmbed, _buildOfflineEmbed };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

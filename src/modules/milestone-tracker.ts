@@ -490,6 +490,4 @@ class MilestoneTracker {
 export default MilestoneTracker;
 
 const _mod = module as { exports: any };
-
 _mod.exports = MilestoneTracker;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

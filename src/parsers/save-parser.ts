@@ -1970,19 +1970,3 @@ export {
   SEASON_MAP,
   STAT_TAG_MAP,
 };
-
-// CJS compatibility — .js consumers use require('./save-parser')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  parseSave,
-  parseClanData,
-  createPlayerData,
-  simplifyBlueprint,
-  PERK_MAP,
-  PERK_INDEX_MAP,
-  CLAN_RANK_MAP,
-  SEASON_MAP,
-  STAT_TAG_MAP,
-};

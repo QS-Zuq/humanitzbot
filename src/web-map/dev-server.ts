@@ -370,8 +370,3 @@ app.listen(PORT, () => {
   console.log('  Calibration:', JSON.stringify(bounds));
   console.log('===========================================');
 });
-
-const _mod = module as { exports: any };
-
-_mod.exports = {};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

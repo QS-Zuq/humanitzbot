@@ -161,9 +161,3 @@ Object.assign(AutoMessages.prototype, {
 export default AutoMessages;
 
 export { buildWelcomeContent };
-
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = AutoMessages;
-_mod.exports.buildWelcomeContent = buildWelcomeContent;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

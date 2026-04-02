@@ -250,8 +250,3 @@ class ServerStatus {
 Object.assign(ServerStatus.prototype, statusEmbeds);
 
 export default ServerStatus;
-
-const _mod = module as { exports: any };
-
-_mod.exports = ServerStatus;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -584,9 +584,8 @@ export class SnapshotService {
   }
 }
 
-// CJS compat — consumed by non-migrated .js modules via require()
+export default SnapshotService;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _mod = module as { exports: any };
 _mod.exports = SnapshotService;
-
-export default SnapshotService;

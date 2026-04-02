@@ -5145,6 +5145,4 @@ function _cleanInventorySlots(slots: any[]): any[] {
 export default WebMapServer;
 
 const _mod = module as { exports: any };
-
 _mod.exports = WebMapServer;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

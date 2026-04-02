@@ -218,25 +218,3 @@ export {
   _sanitize,
   _sanitizeRcon,
 };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  CHAT_RE,
-  JOIN_RE,
-  LEFT_RE,
-  DIED_RE,
-  BOT_ADMIN_RE,
-  PLAIN_CHAT_RE,
-  TIMESTAMP_RE,
-  RICH_TEXT_RE,
-  stripAdminPrefix,
-  stripTimestamp,
-  stripRichText,
-  _parseLine,
-  _formatLine,
-  _diff,
-  _sanitize,
-  _sanitizeRcon,
-};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

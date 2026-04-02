@@ -125,8 +125,6 @@ class BotControlService {
 }
 
 export default BotControlService;
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _mod = module as { exports: any };
-
 _mod.exports = BotControlService;

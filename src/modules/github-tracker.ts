@@ -439,6 +439,4 @@ class GitHubTracker {
 export default GitHubTracker;
 
 const _mod = module as { exports: any };
-
 _mod.exports = GitHubTracker;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

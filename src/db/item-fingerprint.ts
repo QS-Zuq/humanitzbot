@@ -188,12 +188,3 @@ function buildFingerprintMap(items: NormalizedItem[]): Map<string, NormalizedIte
 
 export { generateFingerprint, normalizeSlot, normalizeInventory, buildFingerprintMap };
 export type { NormalizedItem, ItemInput, RawSlotProperty };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = {
-  generateFingerprint,
-  normalizeSlot,
-  normalizeInventory,
-  buildFingerprintMap,
-};

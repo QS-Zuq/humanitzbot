@@ -120,8 +120,3 @@ export function isNpcDamageSource(source: string): boolean {
     source,
   );
 }
-
-// CJS compat — consumed by non-migrated .js modules via require()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { classifyDamageSource, classifyDamageLabel, isNpcDamageSource };

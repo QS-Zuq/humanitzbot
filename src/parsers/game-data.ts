@@ -365,13 +365,13 @@ const SPRAYS = extract['SPRAYS'] as Record<string, Record<string, unknown>>;
 const FOLIAGE = extract['FOLIAGE'] as Record<string, Record<string, unknown>>;
 const CHARACTERS = extract['CHARACTERS'] as Record<string, Record<string, unknown>>;
 const TABLE_SUMMARY = extract['TABLE_SUMMARY'] as Record<string, number>;
-const ENUM_MAPS = extract['ENUM_MAPS'] as Record<string, Record<string, string>>;
-const cleanKey = extract['cleanKey'] as (key: string) => string;
-const cleanRow = extract['cleanRow'] as (row: Record<string, unknown>) => Record<string, unknown>;
 const deepClean = extract['deepClean'] as (val: unknown) => unknown;
 const resolveEnum = extract['resolveEnum'] as (value: unknown) => unknown;
 const getTable = extract['getTable'] as (name: string) => Record<string, Record<string, unknown>>;
 const getTableCleaned = extract['getTableCleaned'] as (name: string) => Record<string, Record<string, unknown>>;
+const ENUM_MAPS = extract['ENUM_MAPS'] as Record<string, Record<string, string>>;
+const cleanKey = extract['cleanKey'] as (key: string) => string;
+const cleanRow = extract['cleanRow'] as (row: Record<string, unknown>) => Record<string, unknown>;
 
 // ─── Challenges (from extracted STATISTICS + STAT_CONFIG) ───────────────────
 
@@ -486,62 +486,6 @@ export {
   SKILL_CATEGORY_NAMES,
   ENUM_MAPS,
   // Utilities (re-exported)
-  cleanKey,
-  cleanRow,
-  deepClean,
-  resolveEnum,
-  getTable,
-  getTableCleaned,
-};
-
-// CJS compatibility — .js consumers use require('./game-data')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  AFFLICTION_MAP,
-  AFFLICTION_DETAILS,
-  PROFESSION_DETAILS,
-  CHALLENGE_DESCRIPTIONS,
-  SKILL_EFFECTS,
-  SERVER_SETTING_DESCRIPTIONS,
-  STAT_DISPLAY_NAMES,
-  CHALLENGES,
-  LOADING_TIPS,
-  ITEM_DATABASE,
-  ITEM_NAMES,
-  BUILDINGS,
-  BUILDING_NAMES,
-  VEHICLE_NAMES,
-  CRAFTING_RECIPES,
-  LOOT_TABLES,
-  SKILL_DETAILS,
-  EXTRACTED_PROFESSIONS,
-  STATISTICS,
-  STAT_CONFIG,
-  CROP_DATA,
-  VEHICLES,
-  CAR_UPGRADES,
-  AMMO_DAMAGE,
-  REPAIR_RECIPES,
-  FURNITURE_DROPS,
-  TRAPS,
-  ANIMALS,
-  XP_DATA,
-  SPAWN_LOCATIONS,
-  LORE_ENTRIES,
-  QUEST_DATA,
-  EXTRACTED_AFFLICTIONS,
-  SPRAYS,
-  FOLIAGE,
-  CHARACTERS,
-  TABLE_SUMMARY,
-  CRAFTING_STATION_NAMES,
-  ITEM_TYPE_NAMES,
-  BUILD_CATEGORY_NAMES,
-  CHALLENGE_CATEGORY_NAMES,
-  SKILL_CATEGORY_NAMES,
-  ENUM_MAPS,
   cleanKey,
   cleanRow,
   deepClean,

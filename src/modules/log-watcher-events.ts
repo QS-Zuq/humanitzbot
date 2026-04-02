@@ -441,17 +441,3 @@ function _flushRaidBatch(this: any) {
 // ─── Exports ─────────────────────────────────────────────────────────
 
 export { _onBuild, _onDeath, _flushDeathLoop, _onRaid, _batchLoot, _flushLootBatch, _flushBuildBatch, _flushRaidBatch };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  _onBuild,
-  _onDeath,
-  _flushDeathLoop,
-  _onRaid,
-  _batchLoot,
-  _flushLootBatch,
-  _flushBuildBatch,
-  _flushRaidBatch,
-};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

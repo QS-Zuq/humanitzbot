@@ -1544,8 +1544,3 @@ void (async () => {
     process.exit(1);
   });
 })();
-
-const _mod = module as { exports: any };
-
-_mod.exports = {};
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

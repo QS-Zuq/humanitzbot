@@ -460,32 +460,3 @@ export {
   buildResourceField,
   buildScheduleField,
 };
-
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  DIFFICULTY_LABELS,
-  SCARCITY_LABELS,
-  ON_DEATH_LABELS,
-  VITAL_DRAIN_LABELS,
-  AI_EVENT_LABELS,
-  formatTime,
-  spawnLabel,
-  difficultyLabel,
-  difficultyBar,
-  settingBool,
-  settingLabel,
-  settingMultiplier,
-  settingDays,
-  settingPermaDeath,
-  progressBar,
-  blockBar,
-  weatherEmoji,
-  seasonEmoji,
-  timeEmoji,
-  buildSettingsFields,
-  buildLootScarcity,
-  buildWeatherOdds,
-  buildResourceField,
-  buildScheduleField,
-};

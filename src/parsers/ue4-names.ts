@@ -323,9 +323,3 @@ function cleanItemArray(items: unknown[]): unknown[] {
 }
 
 export { cleanName, cleanItemName, cleanItemArray, isHexGuid, CONTAINER_ALIASES, ITEM_ALIASES };
-
-// CJS compatibility — .js consumers use require('./ue4-names')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { cleanName, cleanItemName, cleanItemArray, isHexGuid, CONTAINER_ALIASES, ITEM_ALIASES };

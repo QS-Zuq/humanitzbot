@@ -125,8 +125,8 @@ interface SnapshotData {
   worldState?: Record<string, unknown>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface HumanitZDBLike {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -654,7 +654,3 @@ function _attributeMovement(
 }
 
 export { reconcileItems };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { reconcileItems };

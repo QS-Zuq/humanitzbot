@@ -178,8 +178,3 @@ function sendOk(res: Response, data: Record<string, unknown> = {}): void {
 }
 
 export { API_ERRORS, EN_MESSAGES, sendError, sendOk };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { API_ERRORS, EN_MESSAGES, sendError, sendOk };

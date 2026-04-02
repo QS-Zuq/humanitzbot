@@ -155,8 +155,3 @@ class PlayerPresenceTracker extends EventEmitter {
 }
 
 export default PlayerPresenceTracker;
-
-const _mod = module as { exports: any };
-
-_mod.exports = PlayerPresenceTracker;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

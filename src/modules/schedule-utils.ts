@@ -105,8 +105,3 @@ function getActiveProfileIndex(timeMins: any, nowMin: any, profileCount: any, da
 }
 
 export { getDayOfYear, getDayOffset, getRotatedProfileIndex, getTodaySchedule, getActiveProfileIndex };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { getDayOfYear, getDayOffset, getRotatedProfileIndex, getTodaySchedule, getActiveProfileIndex };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

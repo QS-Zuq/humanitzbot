@@ -154,8 +154,3 @@ function buildPlayerEmbed(stats: any, opts: any = {}) {
 }
 
 export { buildPlayerEmbed };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { buildPlayerEmbed };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

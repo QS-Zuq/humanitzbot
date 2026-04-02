@@ -393,9 +393,3 @@ function writeAgent(outputPath?: string): string {
 }
 
 export { buildAgentScript, writeAgent, AGENT_VERSION };
-
-// CJS compatibility — .js consumers use require('./agent-builder')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { buildAgentScript, writeAgent, AGENT_VERSION };

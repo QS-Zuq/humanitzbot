@@ -1087,16 +1087,3 @@ export {
   _extractSaveName,
   SAVE_FILE_PATTERN,
 };
-
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = MultiServerManager;
-_mod.exports.ServerInstance = ServerInstance;
-_mod.exports.loadServers = loadServers;
-_mod.exports.saveServers = saveServers;
-_mod.exports.createServerConfig = createServerConfig;
-_mod.exports.discoverPaths = discoverPaths;
-_mod.exports.SERVERS_FILE = SERVERS_FILE;
-_mod.exports._extractSaveName = _extractSaveName;
-_mod.exports.SAVE_FILE_PATTERN = SAVE_FILE_PATTERN;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

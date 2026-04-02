@@ -536,8 +536,3 @@ export { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER };
 // Exported for testing
 const _test = { getSessionSecret, _parseCookies, getAuthConfig };
 export { _test };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER, _test };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

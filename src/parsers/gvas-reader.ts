@@ -775,9 +775,3 @@ function recoverForward(r: GvasReader, startPos: number, maxScan = 500000): bool
 }
 
 export { createReader, cleanName, parseHeader, readProperty, recoverForward, MAP_CAPTURE };
-
-// CJS compatibility — .js consumers use require('./gvas-reader')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { createReader, cleanName, parseHeader, readProperty, recoverForward, MAP_CAPTURE };

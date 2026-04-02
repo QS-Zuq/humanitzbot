@@ -152,8 +152,3 @@ function modalTitle(prefix: any, name: any, suffix: any) {
 }
 
 export { cleanOwnMessages, embedContentKey, safeEditMessage, modalTitle };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { cleanOwnMessages, embedContentKey, safeEditMessage, modalTitle };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

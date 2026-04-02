@@ -71,7 +71,3 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
     });
   }
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = { data, execute };

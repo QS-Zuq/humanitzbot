@@ -903,20 +903,3 @@ export {
   _normalizeItems,
   _buildItemBag,
 };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = {
-  diffSaveState,
-  diffContainers,
-  diffHorses,
-  diffPlayerInventories,
-  diffWorldState,
-  diffVehicleInventories,
-  diffVehicleState,
-  diffStructures,
-  _crossReferenceContainerAccess,
-  _diffItemLists,
-  _normalizeItems,
-  _buildItemBag,
-};

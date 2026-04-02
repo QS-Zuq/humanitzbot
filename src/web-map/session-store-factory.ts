@@ -87,8 +87,3 @@ function createSessionStore(config: any, db?: any): Store | undefined {
 }
 
 export { createSessionStore };
-
-const _mod = module as { exports: any };
-
-_mod.exports = { createSessionStore };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

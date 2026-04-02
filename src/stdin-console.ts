@@ -653,6 +653,4 @@ Available commands:
 export default StdinConsole;
 
 const _mod = module as { exports: any };
-
 _mod.exports = StdinConsole;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */
