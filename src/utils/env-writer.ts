@@ -8,30 +8,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from './paths.js';
+import { createLogger } from './log.js';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS module not yet migrated
 const { BOOTSTRAP_KEYS } = require('../db/config-migration') as { BOOTSTRAP_KEYS: Set<string> };
 
+const _auditLog = createLogger(null, 'NUKE-AUDIT');
+
 const __dirname = getDirname(import.meta.url);
 const _defaultEnvPath = path.join(__dirname, '..', '..', '.env');
-const _defaultAuditPath = path.join(__dirname, '..', '..', 'data', 'nuke-audit.log');
-
 let _envPath = _defaultEnvPath;
-let _auditPath = _defaultAuditPath;
 
 /** Current .env path (overridable for tests). */
 export const ENV_PATH = _defaultEnvPath;
 
-/** Override file paths for testing — prevents writes to real .env and audit log. */
-export function _setTestPaths(envPath: string, auditPath: string): void {
+/** Override .env path for testing — prevents writes to real .env. */
+export function _setTestPaths(envPath: string): void {
   _envPath = envPath;
-  _auditPath = auditPath;
 }
 
-/** Reset to default paths (call in afterEach). */
+/** Reset to default path (call in afterEach). */
 export function _resetPaths(): void {
   _envPath = _defaultEnvPath;
-  _auditPath = _defaultAuditPath;
 }
 
 let _envWriteLock = false;
@@ -45,17 +43,9 @@ export function writeEnvValues(updates: Record<string, string>): void {
     updates = Object.fromEntries(Object.entries(updates).filter(([k]) => BOOTSTRAP_KEYS.has(k)));
     if (Object.keys(updates).length === 0) return;
   }
-  // Track dangerous .env writes with stack trace — write to file since console may scroll
+  // Track dangerous .env writes via structured logger
   if (updates.NUKE_BOT ?? updates.FIRST_RUN) {
-    const stack = new Error().stack ?? 'no stack';
-    const msg = `[${new Date().toISOString()}] CRITICAL ENV WRITE: ${JSON.stringify(updates)}\nStack: ${stack}\n\n`;
-    console.warn('[ENV-WRITER] ⚠ Writing critical key:', JSON.stringify(updates));
-    try {
-      fs.appendFileSync(_auditPath, msg);
-    } catch (auditErr) {
-      const errMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
-      console.error('[ENV-WRITER] CRITICAL: Failed to write nuke audit log:', errMsg);
-    }
+    _auditLog.warn(`CRITICAL ENV WRITE: ${JSON.stringify(updates)} | Stack: ${new Error().stack ?? 'no stack'}`);
   }
   if (_envWriteLock) throw new Error('.env write already in progress');
   _envWriteLock = true;

@@ -37,13 +37,12 @@ describe('BotControlService', () => {
     delete process.env.NUKE_BOT;
     delete process.env.FIRST_RUN;
 
-    // Create temp directory for .env and audit log
+    // Create temp directory for .env writes
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-control-test-'));
     const tmpEnv = path.join(tmpDir, '.env');
-    const tmpAudit = path.join(tmpDir, 'nuke-audit.log');
     // Seed temp .env with minimal content
     fs.writeFileSync(tmpEnv, 'NUKE_BOT=false\nFIRST_RUN=false\n', 'utf8');
-    _setTestPaths(tmpEnv, tmpAudit);
+    _setTestPaths(tmpEnv);
 
     exitSpy = spyExit();
     svc = new BotControlService({ exit: exitSpy });

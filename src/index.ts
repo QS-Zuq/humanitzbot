@@ -19,6 +19,7 @@ const __dirname = getDirname(import.meta.url);
 // Initializes the global logger with console (human-readable) + file (JSON) transports.
 // All modules using createLogger() automatically write to both outputs.
 import { initLogger, shutdownLogger } from './logger/logger.js';
+import { createLogger } from './utils/log.js';
 initLogger();
 
 import config from './config/index.js';
@@ -1444,18 +1445,10 @@ async function _nukeChannel(discordClient: any, channelId: string, botId: string
 void (async () => {
   // NUKE_BOT implies FIRST_RUN — wipe local data files first, then re-import
   // Log raw .env value for debugging — track unexpected NUKE_BOT=true
-  const _nukeAuditMsg = `[${new Date().toISOString()}] STARTUP: NUKE_BOT=${process.env['NUKE_BOT']}, config.nukeBot=${config.nukeBot}, NUKE_THREADS=${process.env['NUKE_THREADS']}\n`;
-  console.log(
-    '[NUKE-AUDIT] process.env.NUKE_BOT=%s, config.nukeBot=%s, process.env.NUKE_THREADS=%s',
-    process.env['NUKE_BOT'],
-    config.nukeBot,
-    process.env['NUKE_THREADS'],
+  const _nukeLog = createLogger(null, 'NUKE-AUDIT');
+  _nukeLog.info(
+    `STARTUP: NUKE_BOT=${String(process.env['NUKE_BOT'])}, config.nukeBot=${String(config.nukeBot)}, NUKE_THREADS=${String(process.env['NUKE_THREADS'])}`,
   );
-  try {
-    fs.appendFileSync(path.join(__dirname, '..', 'data', 'nuke-audit.log'), _nukeAuditMsg);
-  } catch {
-    // ignore
-  }
   if (config.nukeBot) {
     console.log('[NUKE] NUKE_BOT=true — factory reset starting...');
     const dataDir = path.join(__dirname, '..', 'data');
