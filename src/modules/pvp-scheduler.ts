@@ -5,13 +5,13 @@
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
    @typescript-eslint/no-floating-promises,
    @typescript-eslint/prefer-promise-reject-errors,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
 
 import { EmbedBuilder } from 'discord.js';
 // @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
 import _defaultConfig from '../config/index.js';
-import _defaultRcon from '../rcon/rcon.js';
+const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
 import { createLogger } from '../utils/log.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
@@ -422,7 +422,6 @@ class PvpScheduler {
     // Falls back to docker stop+start if LinuxGSM fails.
     if (container) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { exec } = require('child_process');
         await new Promise<void>((resolve, reject) => {
           exec(
@@ -442,7 +441,6 @@ class PvpScheduler {
       } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
           await new Promise<void>((resolve, reject) => {
             exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
@@ -512,7 +510,6 @@ class PvpScheduler {
         clearInterval(timer);
         this._log.warn(`RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`);
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
           // Try LinuxGSM first, fall back to docker stop+start
           await new Promise<void>((resolve, reject) => {
@@ -679,7 +676,7 @@ class PvpScheduler {
   }
 }
 
-export default PvpScheduler;
+export { PvpScheduler };
 
 const _mod = module as { exports: any };
 _mod.exports = PvpScheduler;

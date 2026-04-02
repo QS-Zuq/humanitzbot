@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-explicit-any,
-   @typescript-eslint/prefer-promise-reject-errors */
+   @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-require-imports */
 /**
  * Server resource monitoring — CPU, RAM, disk usage.
  *
@@ -10,7 +10,7 @@
  */
 
 import _defaultConfig from '../config/index.js';
-import panelApi from './panel-api.js';
+const panelApi = require('./panel-api') as import('./panel-api.js').PanelApi;
 
 // ── Result shape ────────────────────────────────────────────
 
@@ -149,7 +149,6 @@ function parseSshOutput(output: string): ResourceResult {
 }
 
 async function _fetchSsh(): Promise<ResourceResult> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Client } = require('ssh2') as { Client: any };
 
   return new Promise((resolve, reject) => {
@@ -254,7 +253,6 @@ class ServerResources {
 
 const instance = new ServerResources();
 
-export default instance;
 export { ServerResources, parseSshOutput, formatBytes, formatUptime, _fetchPterodactyl, _emptyResult };
 
 const _mod = module as { exports: any };

@@ -35,6 +35,7 @@ module.exports = defineConfig([
     'dist/',
     'src/web-map/public/tailwind.css',
     'src/web-map/public/tiles/',
+    'src/game-server/humanitz-agent.js',
     'qs-anticheat/',
     '.dev/',
     '_*.js',

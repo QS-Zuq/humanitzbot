@@ -27,9 +27,9 @@ import config from '../config/index.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
-import playerStats from '../tracking/player-stats.js';
-import playtime from '../tracking/playtime-tracker.js';
-import rcon from '../rcon/rcon.js';
+const playerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+const rcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
 import { setupAuth, requireTier } from './auth.js';
 import { API_ERRORS, sendError, sendOk } from './api-errors.js';
 
@@ -5142,7 +5142,7 @@ function _cleanInventorySlots(slots: any[]): any[] {
   });
 }
 
-export default WebMapServer;
+export { WebMapServer };
 
 const _mod = module as { exports: any };
 _mod.exports = WebMapServer;

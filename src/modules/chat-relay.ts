@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion */
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
 
 import { Events, EmbedBuilder } from 'discord.js';
 import _defaultConfig from '../config/index.js';
-import _defaultRcon from '../rcon/rcon.js';
+const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
 import { t, getLocale } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
 
@@ -454,7 +454,7 @@ Object.assign(ChatRelay.prototype, {
   _sanitizeRcon: chatParser._sanitizeRcon,
 });
 
-export default ChatRelay;
+export { ChatRelay };
 
 const _mod = module as { exports: any };
 

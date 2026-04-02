@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises */
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/no-require-imports */
 
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey, safeEditMessage } from './discord-utils.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
-import _defaultPlayerStats from '../tracking/player-stats.js';
-import _defaultServerResources from '../server/server-resources.js';
+const _defaultPlaytime =
+  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+const _defaultServerResources =
+  require('../server/server-resources') as import('../server/server-resources.js').ServerResources;
 import { createLogger } from '../utils/log.js';
 
 // Embed builders — presentation layer (mixed into prototype below)
@@ -20,11 +22,11 @@ class ServerStatus {
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._serverResources = deps.serverResources || _defaultServerResources;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     this._getServerInfo = deps.getServerInfo || require('../rcon/server-info').getServerInfo;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     this._getPlayerList = deps.getPlayerList || require('../rcon/server-info').getPlayerList;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     this._sendAdminMessage = deps.sendAdminMessage || require('../rcon/server-info').sendAdminMessage;
     this._db = deps.db || null;
     this._log = createLogger(deps.label, 'STATUS');
@@ -249,4 +251,8 @@ class ServerStatus {
 // Mix in embed builders (presentation layer)
 Object.assign(ServerStatus.prototype, statusEmbeds);
 
-export default ServerStatus;
+export { ServerStatus };
+
+const _mod = module as { exports: any };
+_mod.exports = ServerStatus;
+_mod.exports.ServerStatus = ServerStatus;

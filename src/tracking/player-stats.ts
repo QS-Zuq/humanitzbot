@@ -737,7 +737,6 @@ export class PlayerStats {
 }
 
 const _singleton = new PlayerStats();
-export default _singleton;
 
 // CJS compat — consumed by non-migrated .js modules via require()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

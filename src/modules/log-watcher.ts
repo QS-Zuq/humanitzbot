@@ -3,7 +3,7 @@
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
    @typescript-eslint/restrict-template-expressions,
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-confusing-void-expression */
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-require-imports */
 
 import { EmbedBuilder } from 'discord.js';
 // @ts-expect-error — no type declarations for ssh2-sftp-client
@@ -11,8 +11,9 @@ import SftpClient from 'ssh2-sftp-client';
 import path from 'path';
 import _defaultConfig from '../config/index.js';
 import { cleanName } from '../parsers/ue4-names.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
-import _defaultPlayerStats from '../tracking/player-stats.js';
+const _defaultPlaytime =
+  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
 import { classifyDamageSource, isNpcDamageSource } from '../tracking/damage-classifier.js';
 import { createLogger } from '../utils/log.js';
 
@@ -1302,7 +1303,7 @@ class LogWatcher {
         if (this._dataDir) {
           try {
             const logsDir = path.join(this._dataDir, 'logs');
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
+
             const fs = require('fs') as typeof import('fs');
             if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
             fs.writeFileSync(path.join(logsDir, 'PlayerIDMapped.txt'), text, 'utf8');
@@ -1342,12 +1343,11 @@ class LogWatcher {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 Object.assign(LogWatcher.prototype, require('./log-watcher-threads'));
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 Object.assign(LogWatcher.prototype, require('./log-watcher-events'));
 
-export default LogWatcher;
+export { LogWatcher };
 
 const _mod = module as { exports: any };
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * /players — Show online players with playtime context.
  *
@@ -7,7 +8,7 @@
 
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getPlayerList } from '../rcon/server-info.js';
-import playtime from '../tracking/playtime-tracker.js';
+const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
 import { t, getLocalizations } from '../i18n/index.js';
 
 export const data = new SlashCommandBuilder()

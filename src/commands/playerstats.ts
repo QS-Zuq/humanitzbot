@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * /playerstats — View player activity stats from the log.
  *
@@ -13,12 +14,11 @@ import {
   ComponentType,
   type StringSelectMenuInteraction,
 } from 'discord.js';
-import playerStats from '../tracking/player-stats.js';
-import playtime from '../tracking/playtime-tracker.js';
+const playerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
 import { t, getLocalizations } from '../i18n/index.js';
 import config from '../config/index.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { buildPlayerEmbed } = require('../modules/player-embed') as {
   buildPlayerEmbed: (stats: unknown, opts: { isAdmin: boolean }) => EmbedBuilder;
 };

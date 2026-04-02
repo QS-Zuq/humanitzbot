@@ -388,7 +388,6 @@ function createPanelApi(opts?: { serverUrl?: string; apiKey?: string }): PanelAp
 
 const instance = new PanelApi();
 
-export default instance;
 export { PanelApi, createPanelApi };
 
 const _mod = module as { exports: any };

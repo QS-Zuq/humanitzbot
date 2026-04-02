@@ -5,7 +5,7 @@
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
    @typescript-eslint/no-floating-promises,
    @typescript-eslint/prefer-promise-reject-errors,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
 
 /**
  * Server Scheduler — Timed server restarts with dynamic settings profiles.
@@ -33,8 +33,8 @@ import { EmbedBuilder } from 'discord.js';
 // @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
 import _defaultConfig from '../config/index.js';
-import _defaultRcon from '../rcon/rcon.js';
-import _defaultPanelApi from '../server/panel-api.js';
+const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+const _defaultPanelApi = require('../server/panel-api') as import('../server/panel-api.js').PanelApi;
 import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
 import { createLogger } from '../utils/log.js';
 
@@ -432,7 +432,6 @@ class ServerScheduler {
     // Falls back to docker stop+start if LinuxGSM restart fails.
     if (container) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { exec } = require('child_process');
         await new Promise<void>((resolve, reject) => {
           exec(
@@ -452,7 +451,6 @@ class ServerScheduler {
       } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { exec } = require('child_process');
           await new Promise<void>((resolve, reject) => {
             exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
@@ -562,7 +560,6 @@ class ServerScheduler {
         // Try Docker first (if configured)
         if (container) {
           try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { exec } = require('child_process');
             await new Promise<void>((resolve, reject) => {
               exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err: any) => {
@@ -696,4 +693,8 @@ class ServerScheduler {
   }
 }
 
-export default ServerScheduler;
+export { ServerScheduler };
+
+const _mod = module as { exports: any };
+_mod.exports = ServerScheduler;
+_mod.exports.ServerScheduler = ServerScheduler;

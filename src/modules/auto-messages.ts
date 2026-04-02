@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await */
+   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await, @typescript-eslint/no-require-imports */
 
 import _defaultConfig from '../config/index.js';
 import { sendAdminMessage, getServerInfo } from '../rcon/server-info.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
-import _defaultPlayerStats from '../tracking/player-stats.js';
+const _defaultPlaytime =
+  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
 import { createLogger } from '../utils/log.js';
 
 // Content layer: text generation, color helpers, welcome file builder
@@ -158,6 +159,11 @@ Object.assign(AutoMessages.prototype, {
   _pvpScheduleText: content._pvpScheduleText,
 });
 
-export default AutoMessages;
+export { AutoMessages };
 
 export { buildWelcomeContent };
+
+const _mod = module as { exports: any };
+_mod.exports = AutoMessages;
+_mod.exports.AutoMessages = AutoMessages;
+_mod.exports.buildWelcomeContent = buildWelcomeContent;

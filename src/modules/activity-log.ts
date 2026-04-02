@@ -497,7 +497,7 @@ function _formatLocation(event: any) {
 
 // ── Test escape hatch ────────────────────────────────────────────────────────
 
-export default ActivityLog;
+export { ActivityLog };
 
 const _test = {
   _filterEvents: ActivityLog.prototype._filterEvents,

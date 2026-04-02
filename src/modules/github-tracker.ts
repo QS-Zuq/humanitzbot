@@ -436,7 +436,7 @@ class GitHubTracker {
   }
 }
 
-export default GitHubTracker;
+export { GitHubTracker };
 
 const _mod = module as { exports: any };
 _mod.exports = GitHubTracker;

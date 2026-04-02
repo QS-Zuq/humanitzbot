@@ -2,7 +2,7 @@
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
    @typescript-eslint/restrict-template-expressions,
-   @typescript-eslint/restrict-plus-operands */
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-require-imports */
 
 /**
  * player-embed.js — Log-based player stats embed (for /playerstats command).
@@ -19,7 +19,8 @@
  */
 
 import { EmbedBuilder } from 'discord.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
+const _defaultPlaytime =
+  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
 import _defaultConfig from '../config/index.js';
 import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
 

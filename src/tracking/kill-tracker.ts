@@ -1067,5 +1067,3 @@ const _mod = module as { exports: any };
 _mod.exports = KillTracker;
 _mod.exports.resolvePlayer = resolvePlayer;
 /* eslint-enable @typescript-eslint/no-unsafe-member-access */
-
-export default KillTracker;

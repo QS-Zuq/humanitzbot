@@ -154,7 +154,7 @@ class StatusChannels {
   }
 }
 
-export default StatusChannels;
+export { StatusChannels };
 
 const _mod = module as { exports: any };
 

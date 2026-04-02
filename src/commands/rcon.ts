@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import rcon from '../rcon/rcon.js';
+const rcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
 import { t, getLocalizations } from '../i18n/index.js';
 
 // Commands that could disrupt the server — blocked from Discord execution
