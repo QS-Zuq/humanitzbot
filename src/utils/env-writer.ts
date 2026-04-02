@@ -5,17 +5,20 @@
  * Only bootstrap keys (not DB-managed) are written.
  */
 
-'use strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDirname } from './paths.js';
 
-const fs = require('fs');
-const path = require('path');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS module not yet migrated
+const { BOOTSTRAP_KEYS } = require('../db/config-migration') as { BOOTSTRAP_KEYS: Set<string> };
 
-const { BOOTSTRAP_KEYS } = require('../db/config-migration');
-const ENV_PATH = path.join(__dirname, '..', '..', '.env');
+const __dirname = getDirname(import.meta.url);
+export const ENV_PATH = path.join(__dirname, '..', '..', '.env');
+
+let _envWriteLock = false;
 
 /** Write key=value pairs to .env, preserving comments and formatting. */
-let _envWriteLock = false;
-function writeEnvValues(updates) {
+export function writeEnvValues(updates: Record<string, string>): void {
   // Filter out DB-managed keys — only bootstrap keys should be written to .env
   const dbKeys = Object.keys(updates).filter((k) => !BOOTSTRAP_KEYS.has(k));
   if (dbKeys.length > 0) {
@@ -24,31 +27,34 @@ function writeEnvValues(updates) {
     if (Object.keys(updates).length === 0) return;
   }
   // Track dangerous .env writes with stack trace — write to file since console may scroll
-  if (updates.NUKE_BOT || updates.FIRST_RUN) {
-    const msg = `[${new Date().toISOString()}] CRITICAL ENV WRITE: ${JSON.stringify(updates)}\nStack: ${new Error().stack}\n\n`;
+  if (updates.NUKE_BOT ?? updates.FIRST_RUN) {
+    const stack = new Error().stack ?? 'no stack';
+    const msg = `[${new Date().toISOString()}] CRITICAL ENV WRITE: ${JSON.stringify(updates)}\nStack: ${stack}\n\n`;
     console.warn('[ENV-WRITER] ⚠ Writing critical key:', JSON.stringify(updates));
     try {
       fs.appendFileSync(path.join(__dirname, '..', '..', 'data', 'nuke-audit.log'), msg);
     } catch (auditErr) {
-      console.error('[ENV-WRITER] CRITICAL: Failed to write nuke audit log:', auditErr.message);
+      const errMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
+      console.error('[ENV-WRITER] CRITICAL: Failed to write nuke audit log:', errMsg);
     }
   }
   if (_envWriteLock) throw new Error('.env write already in progress');
   _envWriteLock = true;
   try {
-    let content;
+    let content: string;
     try {
       content = fs.readFileSync(ENV_PATH, 'utf8');
     } catch (readErr) {
-      if (readErr.code === 'ENOENT') {
+      if ((readErr as NodeJS.ErrnoException).code === 'ENOENT') {
         content = '';
       } else {
-        throw new Error(`.env read failed (${readErr.code}): ${readErr.message}`, { cause: readErr });
+        const err = readErr as NodeJS.ErrnoException;
+        throw new Error(`.env read failed (${err.code ?? 'UNKNOWN'}): ${err.message}`, { cause: readErr });
       }
     }
     for (const [key, rawValue] of Object.entries(updates)) {
       // Sanitize: strip newlines/carriage returns to prevent env injection
-      const value = String(rawValue).replace(/[\r\n]+/g, ' ');
+      const value = rawValue.replace(/[\r\n]+/g, ' ');
       const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`^(#\\s*)?${escapedKey}\\s*=.*$`, 'm');
       if (regex.test(content)) {
@@ -63,8 +69,3 @@ function writeEnvValues(updates) {
     _envWriteLock = false;
   }
 }
-
-module.exports = {
-  ENV_PATH,
-  writeEnvValues,
-};
