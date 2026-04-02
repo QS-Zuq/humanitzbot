@@ -1,14 +1,28 @@
-const _cfgFs = require('fs');
-const _cfgPath = require('path');
-const { createLogger } = require('./utils/log');
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
+import { createLogger } from '../utils/log.js';
+import { getDirname } from '../utils/paths.js';
+import { envBool, envTime, tzOffsetMs } from './helpers.js';
+import {
+  canShow as _canShow,
+  isAdminView as _isAdminView,
+  addAdminMembers as _addAdminMembers,
+} from './access-control.js';
+
+export { envBool as _envBool, envTime as _envTime } from './helpers.js';
+export { tzOffsetMs as _tzOffsetMs } from './helpers.js';
+export { canShow, isAdminView, addAdminMembers } from './access-control.js';
+
+const __dirname = getDirname(import.meta.url);
 const _cfgLog = createLogger(null, 'CONFIG');
 
 // ── Bootstrap: generate .env from template if missing ────────
-const _envPath = _cfgPath.join(__dirname, '..', '.env');
-const _examplePath = _cfgPath.join(__dirname, '..', '.env.example');
-if (!_cfgFs.existsSync(_envPath)) {
-  if (_cfgFs.existsSync(_examplePath)) {
-    _cfgFs.copyFileSync(_examplePath, _envPath);
+const _envPath = path.join(__dirname, '..', '..', '.env');
+const _examplePath = path.join(__dirname, '..', '..', '.env.example');
+if (!fs.existsSync(_envPath)) {
+  if (fs.existsSync(_examplePath)) {
+    fs.copyFileSync(_examplePath, _envPath);
   }
   console.log('');
   console.log('══════════════════════════════════════════════════════════');
@@ -22,7 +36,7 @@ if (!_cfgFs.existsSync(_envPath)) {
   process.exit(0);
 }
 
-require('dotenv').config();
+dotenv.config();
 
 // ── Deprecation: ENABLE_AUTO_MESSAGES → individual sub-toggles ──
 // If the old master toggle is explicitly set to 'false', cascade to sub-toggles
@@ -36,85 +50,320 @@ if (process.env.ENABLE_AUTO_MESSAGES === 'false') {
   if (!process.env.ENABLE_WELCOME_MSG) process.env.ENABLE_WELCOME_MSG = 'false';
 }
 
-function envBool(key, defaultValue) {
-  const val = process.env[key];
-  if (val === undefined || val === '') return defaultValue;
-  return val === 'true';
+// ── Types ──────────────────────────────────────────────────────
+
+interface SftpConnectConfig {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: Buffer;
+  passphrase?: string;
 }
 
-function envTime(key) {
-  const val = process.env[key];
-  if (val === undefined || val === '') return NaN;
-  const parts = val.split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
-  if (isNaN(h) || isNaN(m)) return NaN;
-  return h * 60 + m;
+interface Config {
+  // Discord
+  discordToken: string | undefined;
+  clientId: string | undefined;
+  discordClientSecret: string;
+  guildId: string | undefined;
+  adminChannelId: string | undefined;
+  chatChannelId: string;
+  serverStatusChannelId: string | undefined;
+  adminUserIds: string[];
+  adminRoleIds: string[];
+  adminAlertChannelIds: string[];
+  adminViewPermissions: string[];
+
+  // RCON
+  rconHost: string | undefined;
+  rconPort: number;
+  rconPassword: string | undefined;
+
+  publicHost: string | undefined;
+  gamePort: string;
+  serverName: string;
+  botTimezone: string;
+  logTimezone: string;
+  botLocale: string;
+
+  // Behavior
+  chatPollInterval: number;
+  statusCacheTtl: number;
+  statusChannelInterval: number;
+  serverStatusInterval: number;
+
+  // Auto-messages
+  discordInviteLink: string;
+  autoMsgLinkInterval: number;
+  autoMsgPromoInterval: number;
+  autoMsgJoinCheckInterval: number;
+  autoMsgLinkText: string;
+  autoMsgPromoText: string;
+
+  // SFTP
+  sftpHost: string;
+  sftpPort: number;
+  sftpUser: string;
+  sftpPassword: string;
+  sftpPrivateKeyPath: string;
+  sftpBasePath: string;
+  sftpLogPath: string;
+  sftpConnectLogPath: string;
+  sftpIdMapPath: string;
+  sftpSavePath: string;
+  sftpSettingsPath: string;
+  sftpWelcomePath: string;
+  logPollInterval: number;
+  logChannelId: string;
+
+  // Panel
+  panelServerUrl: string;
+  panelApiKey: string;
+
+  enableGameSettingsEditor: boolean;
+  enableSshResources: boolean;
+  sshPort: number;
+
+  webMapTrustProxy: string;
+  sessionStore: string;
+  sessionTtl: number;
+  sessionRedisUrl: string;
+
+  enableStdinConsole: boolean;
+  stdinConsoleWritable: boolean;
+  resourceCacheTtl: number;
+  savePollInterval: number;
+
+  // Agent
+  agentMode: string;
+  agentNodePath: string;
+  agentRemoteDir: string;
+  agentCachePath: string;
+  agentTimeout: number;
+  agentTrigger: string;
+  agentPanelCommand: string;
+  agentPanelDelay: number;
+  agentPollInterval: number;
+
+  playerStatsChannelId: string;
+
+  // Feature toggles — major modules
+  enableStatusChannels: boolean;
+  enableServerStatus: boolean;
+  enableChatRelay: boolean;
+  /** @deprecated Use enableAutoMsgLink, enableAutoMsgPromo, enableWelcomeMsg instead */
+  enableAutoMessages: boolean;
+  enableLogWatcher: boolean;
+  enablePlayerStats: boolean;
+  enablePlaytime: boolean;
+  enableMilestones: boolean;
+  enableRecaps: boolean;
+  enableAnticheat: boolean;
+  enableGithubTracker: boolean;
+
+  // GitHub Tracker
+  githubToken: string;
+  githubRepos: string[];
+  githubChannelId: string;
+  githubPollInterval: number;
+  anticheatAnalyzeInterval: number;
+  anticheatBaselineInterval: number;
+
+  // Howyagarn
+  enableDidYouKnow: boolean;
+  enablePlayerCards: boolean;
+  enableNewspaper: boolean;
+  enableHowyagarn: boolean;
+  howyagarnChannelId: string;
+
+  // hzmod
+  hzmodServerId: string;
+  hzmodSocketPath: string;
+  hzmodStatusPath: string;
+
+  // Thread mode
+  useChatThreads: boolean;
+  useActivityThreads: boolean;
+
+  // PvP scheduler
+  enablePvpScheduler: boolean;
+
+  // Server scheduler
+  enableServerScheduler: boolean;
+  restartTimes: string;
+  restartProfiles: string;
+  restartDelay: number;
+  restartRotateDaily: boolean;
+  dockerContainer: string;
+  serverNameTemplate: string;
+
+  // Activity log
+  enableActivityLog: boolean;
+  activityLogChannelId: string;
+  enableContainerLog: boolean;
+  enableHorseLog: boolean;
+  enableVehicleLog: boolean;
+  showInventoryLog: boolean;
+  showInventoryLogAdminOnly: boolean;
+
+  pvpStartMinutes: number;
+  pvpEndMinutes: number;
+  pvpRestartDelay: number;
+  pvpUpdateServerName: boolean;
+  pvpDays: Set<number> | null;
+  pvpSettingsOverrides: Record<string, string> | null;
+  pvpDayHours: Map<number, { start: number; end: number }> | null;
+
+  firstRun: boolean;
+  nukeBot: boolean;
+
+  // Log watcher sub-features
+  enableKillFeed: boolean;
+  enablePvpKillFeed: boolean;
+  pvpKillWindow: number;
+
+  // Save-based activity feeds
+  enableFishingFeed: boolean;
+  enableRecipeFeed: boolean;
+  enableSkillFeed: boolean;
+  enableProfessionFeed: boolean;
+  enableLoreFeed: boolean;
+  enableUniqueFeed: boolean;
+  enableCompanionFeed: boolean;
+  enableChallengeFeed: boolean;
+  enableWorldEventFeed: boolean;
+
+  // Auto-message sub-features
+  enableAutoMsgLink: boolean;
+  enableAutoMsgPromo: boolean;
+  enableWelcomeMsg: boolean;
+  enableWelcomeFile: boolean;
+  welcomeFileLines: string[];
+
+  // Player stats embed sections
+  showRaidStats: boolean;
+  showPvpKills: boolean;
+  showVitals: boolean;
+  showStatusEffects: boolean;
+  showInventory: boolean;
+  showRecipes: boolean;
+  showLore: boolean;
+  showSkills: boolean;
+  showConnections: boolean;
+
+  // Vitals sub-stats
+  showHealth: boolean;
+  showHunger: boolean;
+  showThirst: boolean;
+  showStamina: boolean;
+  showImmunity: boolean;
+  showBattery: boolean;
+
+  // Status effects sub-sections
+  showPlayerStates: boolean;
+  showBodyConditions: boolean;
+  showInfectionBuildup: boolean;
+  showFatigue: boolean;
+
+  // Inventory sub-sections
+  showEquipment: boolean;
+  showQuickSlots: boolean;
+  showPockets: boolean;
+  showBackpack: boolean;
+
+  // Recipes sub-sections
+  showCraftingRecipes: boolean;
+  showBuildingRecipes: boolean;
+
+  // Connections sub-sections
+  showConnectCount: boolean;
+  showAdminAccess: boolean;
+
+  // Raid sub-sections
+  showRaidsOut: boolean;
+  showRaidsIn: boolean;
+
+  // Coordinates
+  showCoordinates: boolean;
+  showCoordinatesAdminOnly: boolean;
+
+  // Container / horse display flags
+  showContainers: boolean;
+  showContainersAdminOnly: boolean;
+  showHorses: boolean;
+  showHorsesAdminOnly: boolean;
+
+  // Admin-only flags
+  showVitalsAdminOnly: boolean;
+  showStatusEffectsAdminOnly: boolean;
+  showInventoryAdminOnly: boolean;
+  showRecipesAdminOnly: boolean;
+  showLoreAdminOnly: boolean;
+  showSkillsAdminOnly: boolean;
+  showConnectionsAdminOnly: boolean;
+  showRaidStatsAdminOnly: boolean;
+  showChallengeDescriptionsAdminOnly: boolean;
+
+  // Server status embed sections
+  showServerSettings: boolean;
+  showExtendedSettings: boolean;
+  showSettingsGeneral: boolean;
+  showSettingsTime: boolean;
+  showSettingsZombies: boolean;
+  showSettingsItems: boolean;
+  showSettingsBandits: boolean;
+  showSettingsCompanions: boolean;
+  showSettingsBuilding: boolean;
+  showSettingsVehicles: boolean;
+  showSettingsAnimals: boolean;
+  showLootScarcity: boolean;
+  showWeatherOdds: boolean;
+  showServerVersion: boolean;
+  showServerPerformance: boolean;
+  showHostResources: boolean;
+  showServerDay: boolean;
+  showSeasonProgress: boolean;
+  showWorldStats: boolean;
+
+  showChallengeDescriptions: boolean;
+
+  // Death loop detection
+  enableDeathLoopDetection: boolean;
+  deathLoopThreshold: number;
+  deathLoopWindow: number;
+
+  // Overview embed leaderboards
+  showMostBitten: boolean;
+  showMostFish: boolean;
+  showWeeklyStats: boolean;
+  weeklyResetDay: number;
+
+  // Internal — set by hydrate()
+  _configRepo?: unknown;
+
+  // Derived — read-only property
+  needsSetup: boolean;
 }
 
-/**
- * Check whether a section is visible for a given user.
- * Returns true when the toggle is enabled AND either the admin-only flag is off
- * or the user is a Discord admin.
- *
- * @param {string} toggleKey  - Config key for the section toggle (e.g. 'showVitals')
- * @param {boolean} isAdmin   - Whether the requesting user passes isAdminView()
- * @returns {boolean}
- */
-function canShow(toggleKey, isAdmin = false) {
-  if (!config[toggleKey]) return false;
-  const adminOnlyKey = toggleKey + 'AdminOnly';
-  if (config[adminOnlyKey] && !isAdmin) return false;
-  return true;
+interface ConfigMethods {
+  getToday(): string;
+  getDateLabel(date?: Date): string;
+  formatTime(date: Date): string;
+  parseLogTimestamp(year: string, month: string, day: string, hour: string, min: string): Date;
+  sftpConnectConfig(this: Partial<Config> & { sftpHost?: string }): SftpConnectConfig;
+  getEffectiveSavePollInterval(): number;
+
+  hydrate(configRepo: ReturnType<typeof require>): void;
+  loadDisplayOverrides(_db: unknown): void;
+  saveDisplaySetting(db: unknown, cfgKey: string, value: unknown): void;
+  saveDisplaySettings(db: unknown, settings: Record<string, unknown>): void;
+  canShow(toggleKey: string, isAdmin?: boolean): boolean;
+  isAdminView(member: import('discord.js').GuildMember | null): boolean;
+  addAdminMembers(thread: import('discord.js').ThreadChannel, guild: import('discord.js').Guild): Promise<void>;
 }
 
-/**
- * Check whether a Discord GuildMember has admin-view access.
- * Returns true if the member has ANY of the permissions listed in ADMIN_VIEW_PERMISSIONS.
- * Uses Discord's built-in permission system — no manual role config needed.
- *
- * @param {import('discord.js').GuildMember|null} member
- * @returns {boolean}
- */
-function isAdminView(member) {
-  if (!member?.permissions) return false;
-  return config.adminViewPermissions.some((p) => member.permissions.has(p));
-}
-
-/**
- * Add all configured admin users and role members to a Discord thread.
- * Resolves ADMIN_USER_IDS (explicit) + ADMIN_ROLE_IDS (fetches role members).
- * Requires GuildMembers intent for role member resolution.
- *
- * @param {import('discord.js').ThreadChannel} thread
- * @param {import('discord.js').Guild} guild
- */
-async function addAdminMembers(thread, guild) {
-  // Explicit user IDs
-  for (const uid of config.adminUserIds) {
-    thread.members.add(uid).catch(() => {});
-  }
-  // Role-based — requires GuildMembers privileged intent
-  for (const roleId of config.adminRoleIds) {
-    try {
-      const role = guild.roles.cache.get(roleId) || (await guild.roles.fetch(roleId));
-      if (!role) continue;
-      // Ensure members are cached
-      if (guild.members.cache.size <= 1) await guild.members.fetch();
-      for (const [uid] of role.members) {
-        thread.members.add(uid).catch(() => {});
-      }
-    } catch (e) {
-      if (e.code === 50001 || /disallowed intents|privileged/i.test(e.message)) {
-        console.error(
-          `[CONFIG] ADMIN_ROLE_IDS requires the "Server Members Intent" to be enabled in the Discord Developer Portal (Bot → Privileged Gateway Intents).`,
-        );
-      } else {
-        console.warn(`[CONFIG] Could not resolve role ${roleId}:`, e.message);
-      }
-    }
-  }
-}
+// ── Config object ──────────────────────────────────────────────
 
 const config = {
   // Discord
@@ -148,7 +397,7 @@ const config = {
 
   // RCON
   rconHost: process.env.RCON_HOST,
-  rconPort: parseInt(process.env.RCON_PORT, 10) || 27015,
+  rconPort: parseInt(process.env.RCON_PORT ?? '', 10) || 27015,
   rconPassword: process.env.RCON_PASSWORD,
 
   // Public IP for server-status embed (if different from rconHost for localhost setups)
@@ -172,22 +421,22 @@ const config = {
   botLocale: process.env.BOT_LOCALE || 'en',
 
   // Behavior
-  chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL, 10) || 10000, 5000),
-  statusCacheTtl: Math.max(parseInt(process.env.STATUS_CACHE_TTL, 10) || 30000, 10000),
-  statusChannelInterval: Math.max(parseInt(process.env.STATUS_CHANNEL_INTERVAL, 10) || 300000, 60000), // min 1 min
-  serverStatusInterval: Math.max(parseInt(process.env.SERVER_STATUS_INTERVAL, 10) || 30000, 15000),
+  chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL ?? '', 10) || 10000, 5000),
+  statusCacheTtl: Math.max(parseInt(process.env.STATUS_CACHE_TTL ?? '', 10) || 30000, 10000),
+  statusChannelInterval: Math.max(parseInt(process.env.STATUS_CHANNEL_INTERVAL ?? '', 10) || 300000, 60000), // min 1 min
+  serverStatusInterval: Math.max(parseInt(process.env.SERVER_STATUS_INTERVAL ?? '', 10) || 30000, 15000),
 
   // Auto-messages
   discordInviteLink: process.env.DISCORD_INVITE_LINK || '',
-  autoMsgLinkInterval: Math.max(parseInt(process.env.AUTO_MSG_LINK_INTERVAL, 10) || 1800000, 60000), // min 1 min
-  autoMsgPromoInterval: Math.max(parseInt(process.env.AUTO_MSG_PROMO_INTERVAL, 10) || 2700000, 60000), // min 1 min
-  autoMsgJoinCheckInterval: Math.max(parseInt(process.env.AUTO_MSG_JOIN_CHECK, 10) || 10000, 5000), // min 5 sec
+  autoMsgLinkInterval: Math.max(parseInt(process.env.AUTO_MSG_LINK_INTERVAL ?? '', 10) || 1800000, 60000), // min 1 min
+  autoMsgPromoInterval: Math.max(parseInt(process.env.AUTO_MSG_PROMO_INTERVAL ?? '', 10) || 2700000, 60000), // min 1 min
+  autoMsgJoinCheckInterval: Math.max(parseInt(process.env.AUTO_MSG_JOIN_CHECK ?? '', 10) || 10000, 5000), // min 5 sec
   autoMsgLinkText: process.env.AUTO_MSG_LINK_TEXT || '', // custom discord link broadcast (blank = default)
   autoMsgPromoText: process.env.AUTO_MSG_PROMO_TEXT || '', // custom promo broadcast (blank = default)
 
   // SFTP file paths
   sftpHost: process.env.SFTP_HOST || process.env.FTP_HOST || '',
-  sftpPort: parseInt(process.env.SFTP_PORT || process.env.FTP_PORT, 10) || 2022,
+  sftpPort: parseInt(process.env.SFTP_PORT || process.env.FTP_PORT || '', 10) || 2022,
   sftpUser: process.env.SFTP_USER || process.env.FTP_USER || '',
   sftpPassword: process.env.SFTP_PASSWORD || process.env.FTP_PASSWORD || '',
   sftpPrivateKeyPath: process.env.SFTP_PRIVATE_KEY_PATH || process.env.FTP_PRIVATE_KEY_PATH || '', // path to SSH private key (optional, replaces password auth)
@@ -204,7 +453,7 @@ const config = {
     process.env.SFTP_SETTINGS_PATH || process.env.FTP_SETTINGS_PATH || '/HumanitZServer/GameServerSettings.ini',
   sftpWelcomePath:
     process.env.SFTP_WELCOME_PATH || process.env.FTP_WELCOME_PATH || '/HumanitZServer/WelcomeMessage.txt',
-  logPollInterval: Math.max(parseInt(process.env.LOG_POLL_INTERVAL, 10) || 30000, 10000), // min 10 sec
+  logPollInterval: Math.max(parseInt(process.env.LOG_POLL_INTERVAL ?? '', 10) || 30000, 10000), // min 10 sec
   logChannelId: process.env.LOG_CHANNEL_ID || '',
 
   // Pterodactyl / panel API (CPU, RAM, disk monitoring)
@@ -221,7 +470,7 @@ const config = {
 
   // SSH resource monitoring (reuses SFTP_HOST/SFTP_USER/SFTP_PASSWORD)
   enableSshResources: envBool('ENABLE_SSH_RESOURCES', false),
-  sshPort: parseInt(process.env.SSH_PORT, 10) || 0, // 0 = use SFTP_PORT
+  sshPort: parseInt(process.env.SSH_PORT ?? '', 10) || 0, // 0 = use SFTP_PORT
 
   // Trust proxy setting for the web panel Express app.
   // Default 'loopback' trusts Caddy/nginx on localhost.
@@ -232,7 +481,7 @@ const config = {
 
   // Session store for the web panel (memory | sqlite | redis)
   sessionStore: (process.env.SESSION_STORE || 'sqlite').toLowerCase(),
-  sessionTtl: parseInt(process.env.SESSION_TTL, 10) || 604800, // seconds, default 7 days
+  sessionTtl: parseInt(process.env.SESSION_TTL ?? '', 10) || 604800, // seconds, default 7 days
   sessionRedisUrl: process.env.SESSION_REDIS_URL || 'redis://localhost:6379',
 
   // Interactive stdin console for headless hosts (Bisect, etc.)
@@ -240,10 +489,10 @@ const config = {
   stdinConsoleWritable: envBool('STDIN_CONSOLE_WRITABLE', false),
 
   // Cache TTL for resource metrics (default 30s)
-  resourceCacheTtl: Math.max(parseInt(process.env.RESOURCE_CACHE_TTL, 10) || 30000, 10000),
+  resourceCacheTtl: Math.max(parseInt(process.env.RESOURCE_CACHE_TTL ?? '', 10) || 30000, 10000),
 
   // Save-file parser
-  savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL, 10) || 300000, 60000), // min 1 min
+  savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL ?? '', 10) || 300000, 60000), // min 1 min
 
   // Agent mode — offloads save parsing to the game server for faster updates.
   // 'auto' = try agent first, fall back to direct .sav download
@@ -253,7 +502,7 @@ const config = {
   agentNodePath: process.env.AGENT_NODE_PATH || 'node', // path to Node.js on game server
   agentRemoteDir: process.env.AGENT_REMOTE_DIR || '', // where to upload agent (default: same dir as save)
   agentCachePath: process.env.AGENT_CACHE_PATH || '', // explicit path to humanitz-cache.json (for host-managed agents)
-  agentTimeout: Math.max(parseInt(process.env.AGENT_TIMEOUT, 10) || 120000, 10000), // max wait for agent exec
+  agentTimeout: Math.max(parseInt(process.env.AGENT_TIMEOUT ?? '', 10) || 120000, 10000), // max wait for agent exec
 
   // Agent trigger — how the bot tells the game server to generate the cache.
   // 'auto'  = try RCON+Panel API (Pterodactyl/Bisect), then SSH, then skip
@@ -263,12 +512,12 @@ const config = {
   // 'none'  = don't trigger — assume host runs the agent externally
   agentTrigger: (process.env.AGENT_TRIGGER || 'auto').toLowerCase(),
   agentPanelCommand: process.env.AGENT_PANEL_COMMAND || 'createHZSocket', // RCON/console command to trigger cache generation
-  agentPanelDelay: Math.max(parseInt(process.env.AGENT_PANEL_DELAY, 10) || 3000, 500), // ms to wait after sending command before checking for cache
+  agentPanelDelay: Math.max(parseInt(process.env.AGENT_PANEL_DELAY ?? '', 10) || 3000, 500), // ms to wait after sending command before checking for cache
 
   // Agent poll interval — used instead of SAVE_POLL_INTERVAL when agent mode is active.
   // Agent downloads a ~200-500KB cache vs the full ~60MB .sav, so faster polling is safe.
   // Default 90s, min 30s.  Set to 0 to use SAVE_POLL_INTERVAL for both modes.
-  agentPollInterval: parseInt(process.env.AGENT_POLL_INTERVAL, 10) || 90000,
+  agentPollInterval: parseInt(process.env.AGENT_POLL_INTERVAL ?? '', 10) || 90000,
 
   // Player-stats channel
   playerStatsChannelId: process.env.PLAYER_STATS_CHANNEL_ID || '',
@@ -294,9 +543,9 @@ const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   githubChannelId: process.env.GITHUB_CHANNEL_ID || '',
-  githubPollInterval: Math.max(parseInt(process.env.GITHUB_POLL_INTERVAL, 10) || 60_000, 30_000),
-  anticheatAnalyzeInterval: parseInt(process.env.ANTICHEAT_ANALYZE_INTERVAL, 10) || 60_000,
-  anticheatBaselineInterval: parseInt(process.env.ANTICHEAT_BASELINE_INTERVAL, 10) || 900_000,
+  githubPollInterval: Math.max(parseInt(process.env.GITHUB_POLL_INTERVAL ?? '', 10) || 60_000, 30_000),
+  anticheatAnalyzeInterval: parseInt(process.env.ANTICHEAT_ANALYZE_INTERVAL ?? '', 10) || 60_000,
+  anticheatBaselineInterval: parseInt(process.env.ANTICHEAT_BASELINE_INTERVAL ?? '', 10) || 900_000,
 
   // Howyagarn — dev-only feature incubator (all default off)
   enableDidYouKnow: envBool('ENABLE_DID_YOU_KNOW', false),
@@ -324,7 +573,7 @@ const config = {
   enableServerScheduler: envBool('ENABLE_SERVER_SCHEDULER', false),
   restartTimes: process.env.RESTART_TIMES || '', // comma-separated HH:MM times in BOT_TIMEZONE
   restartProfiles: process.env.RESTART_PROFILES || '', // comma-separated profile names (cycle order)
-  restartDelay: parseInt(process.env.RESTART_DELAY, 10) || 10, // countdown minutes before restart
+  restartDelay: parseInt(process.env.RESTART_DELAY ?? '', 10) || 10, // countdown minutes before restart
   restartRotateDaily: envBool('RESTART_ROTATE_DAILY', true), // shift profile order each day
   dockerContainer: process.env.DOCKER_CONTAINER || '', // Docker container name for restart commands
   serverNameTemplate: process.env.SERVER_NAME_TEMPLATE || '', // e.g. "[EU1] Howyagarn PVE | Current Mode: {mode} | Dynamic Difficulty"
@@ -341,12 +590,12 @@ const config = {
   showInventoryLogAdminOnly: envBool('SHOW_INVENTORY_LOG_ADMIN_ONLY', true), // restrict inventory log to admins
   pvpStartMinutes: envTime('PVP_START_TIME'), // total minutes from midnight (supports "HH" or "HH:MM")
   pvpEndMinutes: envTime('PVP_END_TIME'), // total minutes from midnight (supports "HH" or "HH:MM")
-  pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY, 10) || 10,
+  pvpRestartDelay: parseInt(process.env.PVP_RESTART_DELAY ?? '', 10) || 10,
   pvpUpdateServerName: envBool('PVP_UPDATE_SERVER_NAME', false),
-  pvpDays: (() => {
+  pvpDays: ((): Set<number> | null => {
     const val = process.env.PVP_DAYS;
     if (!val || val.trim() === '') return null; // null = every day
-    const dayNames = {
+    const dayNames: Record<string, number> = {
       sun: 0,
       mon: 1,
       tue: 2,
@@ -362,10 +611,10 @@ const config = {
       friday: 5,
       saturday: 6,
     };
-    const days = new Set();
+    const days = new Set<number>();
     for (const part of val.split(',')) {
       const t = part.trim().toLowerCase();
-      if (t in dayNames) days.add(dayNames[t]);
+      if (t in dayNames) days.add(dayNames[t] as number);
       else if (/^[0-6]$/.test(t)) days.add(parseInt(t, 10));
     }
     return days.size > 0 ? days : null;
@@ -374,32 +623,32 @@ const config = {
   // Settings overrides when PvP is ON — JSON object of GameServerSettings.ini keys.
   // These values are applied when PvP enables and reverted when PvP disables.
   // Example: {"OnDeath":"0","VitalDrain":"1","ZombieDiffDamage":"3"}
-  pvpSettingsOverrides: (() => {
+  pvpSettingsOverrides: ((): Record<string, string> | null => {
     const raw = process.env.PVP_SETTINGS_OVERRIDES;
     if (!raw || !raw.trim()) return null;
     try {
-      return JSON.parse(raw);
+      return JSON.parse(raw) as Record<string, string>;
     } catch (e) {
-      console.error('[CONFIG] Invalid PVP_SETTINGS_OVERRIDES JSON:', e.message);
+      console.error('[CONFIG] Invalid PVP_SETTINGS_OVERRIDES JSON:', (e as Error).message);
       return null;
     }
   })(),
 
   // Per-day PvP hour overrides: PVP_HOURS_MON=18:00-22:00, etc.
   // Falls back to PVP_START_TIME / PVP_END_TIME when not set for a day.
-  pvpDayHours: (() => {
+  pvpDayHours: ((): Map<number, { start: number; end: number }> | null => {
     const dayKeys = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const map = new Map(); // dayNum → { start, end } (total minutes from midnight)
+    const map = new Map<number, { start: number; end: number }>(); // dayNum → { start, end } (total minutes from midnight)
     for (let d = 0; d < 7; d++) {
-      const val = process.env[`PVP_HOURS_${dayKeys[d]}`];
+      const val = process.env[`PVP_HOURS_${dayKeys[d] ?? ''}`];
       if (!val || !val.includes('-')) continue;
       const [startStr, endStr] = val.split('-');
-      const parseHM = (s) => {
+      const parseHM = (s: string): number => {
         const p = s.trim().split(':');
-        return parseInt(p[0], 10) * 60 + (parseInt(p[1], 10) || 0);
+        return parseInt(p[0] ?? '', 10) * 60 + (parseInt(p[1] ?? '', 10) || 0);
       };
-      const start = parseHM(startStr);
-      const end = parseHM(endStr);
+      const start = parseHM(startStr ?? '');
+      const end = parseHM(endStr ?? '');
       if (!isNaN(start) && !isNaN(end)) map.set(d, { start, end });
     }
     return map.size > 0 ? map : null;
@@ -416,7 +665,7 @@ const config = {
   // Feature toggles — log watcher sub-features
   enableKillFeed: envBool('ENABLE_KILL_FEED', true), // post zombie kill batches to activity thread
   enablePvpKillFeed: envBool('ENABLE_PVP_KILL_FEED', true), // post PvP kills to activity thread
-  pvpKillWindow: parseInt(process.env.PVP_KILL_WINDOW, 10) || 60000, // ms window to attribute a kill after damage (default 60s; log timestamps are minute-precision)
+  pvpKillWindow: parseInt(process.env.PVP_KILL_WINDOW ?? '', 10) || 60000, // ms window to attribute a kill after damage (default 60s; log timestamps are minute-precision)
 
   // Save-based activity feeds — posted to activity thread from save-file diffs
   enableFishingFeed: envBool('ENABLE_FISHING_FEED', true), // "Player caught 3 fish"
@@ -526,23 +775,23 @@ const config = {
 
   // Feature toggles — log watcher: death loop detection
   enableDeathLoopDetection: envBool('ENABLE_DEATH_LOOP_DETECTION', true), // collapse rapid-fire death embeds
-  deathLoopThreshold: parseInt(process.env.DEATH_LOOP_THRESHOLD, 10) || 3, // deaths within window to trigger
-  deathLoopWindow: parseInt(process.env.DEATH_LOOP_WINDOW, 10) || 60000, // time window in ms (default 60s)
+  deathLoopThreshold: parseInt(process.env.DEATH_LOOP_THRESHOLD ?? '', 10) || 3, // deaths within window to trigger
+  deathLoopWindow: parseInt(process.env.DEATH_LOOP_WINDOW ?? '', 10) || 60000, // time window in ms (default 60s)
 
   // Feature toggles — overview embed leaderboards
   showMostBitten: envBool('SHOW_MOST_BITTEN', true), // most bitten leaderboard (from save)
   showMostFish: envBool('SHOW_MOST_FISH', true), // most fish caught leaderboard (from save)
   showWeeklyStats: envBool('SHOW_WEEKLY_STATS', true), // weekly leaderboards alongside all-time
-  weeklyResetDay: (() => {
-    const v = parseInt(process.env.WEEKLY_RESET_DAY, 10);
+  weeklyResetDay: ((): number => {
+    const v = parseInt(process.env.WEEKLY_RESET_DAY ?? '', 10);
     return isNaN(v) ? 1 : v;
   })(), // day to reset weekly baseline (0=Sun … 6=Sat, default 1=Mon)
-};
+} as Config & ConfigMethods;
 
 // Prepend SFTP_BASE_PATH to all SFTP file paths when set (only for relative paths)
 if (config.sftpBasePath) {
   const prefix = config.sftpBasePath;
-  const sftpKeys = [
+  const sftpKeys: Array<keyof Config> = [
     'sftpLogPath',
     'sftpConnectLogPath',
     'sftpIdMapPath',
@@ -551,9 +800,10 @@ if (config.sftpBasePath) {
     'sftpWelcomePath',
   ];
   for (const key of sftpKeys) {
+    const val = config[key] as string;
     // Only prepend if path doesn't start with / (relative path indicator)
-    if (config[key] && !config[key].startsWith('/')) {
-      config[key] = prefix + '/' + config[key];
+    if (val && !val.startsWith('/')) {
+      (config as unknown as Record<string, unknown>)[key as string] = prefix + '/' + val;
     }
   }
   _cfgLog.info('SFTP base path:', prefix);
@@ -562,9 +812,10 @@ if (config.sftpBasePath) {
 // Validate required values — Discord credentials are always needed.
 // RCON is optional: if missing, the bot starts without server features. Configure
 // RCON credentials in .env or via the Web Dashboard after first run.
-const required = ['discordToken', 'clientId', 'guildId'];
+const required: Array<keyof Config> = ['discordToken', 'clientId', 'guildId'];
 for (const key of required) {
-  if (!config[key] || config[key].startsWith('your_')) {
+  const val = config[key] as string | undefined;
+  if (!val || val.startsWith('your_')) {
     console.error(`[CONFIG] Missing or placeholder value for: ${key}`);
     console.error(`         Please configure your .env file. See .env.example for reference.`);
     process.exit(1);
@@ -588,7 +839,7 @@ Object.defineProperty(config, 'needsSetup', {
 // ── Timezone-aware date helpers ─────────────────────────────
 // All daily thread boundaries, summaries, and displayed times use BOT_TIMEZONE.
 
-config.getToday = function () {
+config.getToday = function (): string {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: config.botTimezone,
@@ -596,25 +847,25 @@ config.getToday = function () {
       month: '2-digit',
       day: '2-digit',
     }).formatToParts(new Date());
-    const y = parts.find((p) => p.type === 'year').value;
-    const m = parts.find((p) => p.type === 'month').value;
-    const d = parts.find((p) => p.type === 'day').value;
+    const y = parts.find((p) => p.type === 'year')?.value ?? '';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '';
     return `${y}-${m}-${d}`;
   } catch {
-    return new Date().toISOString().split('T')[0];
+    return new Date().toISOString().split('T')[0] ?? '';
   }
 };
 
-config.getDateLabel = function (date) {
+config.getDateLabel = function (date?: Date): string {
   try {
-    return (date || new Date()).toLocaleDateString('en-GB', {
+    return (date ?? new Date()).toLocaleDateString('en-GB', {
       timeZone: config.botTimezone,
       day: 'numeric',
       month: 'short',
       year: 'numeric',
     });
   } catch {
-    return (date || new Date()).toLocaleDateString('en-GB', {
+    return (date ?? new Date()).toLocaleDateString('en-GB', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -622,7 +873,7 @@ config.getDateLabel = function (date) {
   }
 };
 
-config.formatTime = function (date) {
+config.formatTime = function (date: Date): string {
   try {
     return date.toLocaleString('en-US', {
       timeZone: config.botTimezone,
@@ -647,32 +898,8 @@ config.formatTime = function (date) {
 // Converts a log timestamp (written in LOG_TIMEZONE) to a proper UTC Date.
 // Components come straight from the regex match: all are strings.
 
-function _tzOffsetMs(utcDate, timezone) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(utcDate);
-
-  const y = parts.find((p) => p.type === 'year').value;
-  const m = parts.find((p) => p.type === 'month').value;
-  const d = parts.find((p) => p.type === 'day').value;
-  let h = parts.find((p) => p.type === 'hour').value;
-  if (h === '24') h = '00'; // midnight edge case
-  const mn = parts.find((p) => p.type === 'minute').value;
-  const s = parts.find((p) => p.type === 'second').value;
-
-  const localAsUtc = new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`);
-  return localAsUtc.getTime() - utcDate.getTime();
-}
-
-config.parseLogTimestamp = function (year, month, day, hour, min) {
-  const pad = (n) => String(n).padStart(2, '0');
+config.parseLogTimestamp = function (year: string, month: string, day: string, hour: string, min: string): Date {
+  const pad = (n: string): string => n.padStart(2, '0');
   const iso = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(min)}:00Z`;
   const asUtc = new Date(iso);
 
@@ -680,11 +907,11 @@ config.parseLogTimestamp = function (year, month, day, hour, min) {
   if (tz === 'UTC') return asUtc;
 
   // First pass: compute offset at the "as-if-UTC" time
-  const offset1 = _tzOffsetMs(asUtc, tz);
+  const offset1 = tzOffsetMs(asUtc, tz);
   const corrected = new Date(asUtc.getTime() - offset1);
 
   // Second pass: offset may differ at corrected time (DST edge)
-  const offset2 = _tzOffsetMs(corrected, tz);
+  const offset2 = tzOffsetMs(corrected, tz);
   if (offset2 !== offset1) {
     return new Date(asUtc.getTime() - offset2);
   }
@@ -698,23 +925,24 @@ console.log(`[CONFIG] Timezone: ${config.botTimezone}, Log timezone: ${config.lo
 // Supports both password and SSH key authentication.
 // Used by: log-watcher, player-stats-channel, pvp-scheduler, multi-server
 
-config.sftpConnectConfig = function () {
+config.sftpConnectConfig = function (this: Partial<Config> & { sftpHost?: string }): SftpConnectConfig {
   // In multi-server context, `this` is the per-server config from multi-server.js.
   // Falls back to primary config singleton if called without context or if sftpHost is missing.
   // Note: multi-server.js maps DB values to sftp* properties, so this.sftpHost should always be set.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   const self = this && this.sftpHost ? this : config;
-  const cfg = {
-    host: self.sftpHost,
-    port: self.sftpPort,
-    username: self.sftpUser,
+  const cfg: SftpConnectConfig = {
+    host: self.sftpHost ?? '',
+    port: self.sftpPort ?? 2022,
+    username: self.sftpUser ?? '',
   };
   if (self.sftpPrivateKeyPath) {
     try {
-      cfg.privateKey = _cfgFs.readFileSync(self.sftpPrivateKeyPath);
+      cfg.privateKey = fs.readFileSync(self.sftpPrivateKeyPath);
       // If a password is also set, use it as the passphrase for the key
       if (self.sftpPassword) cfg.passphrase = self.sftpPassword;
     } catch (err) {
-      _cfgLog.error('Could not read SSH private key at %s: %s', self.sftpPrivateKeyPath, err.message);
+      _cfgLog.error('Could not read SSH private key at %s: %s', self.sftpPrivateKeyPath, (err as Error).message);
       // Fall back to password auth
       cfg.password = self.sftpPassword;
     }
@@ -729,7 +957,7 @@ config.sftpConnectConfig = function () {
  * When agent mode is not 'direct' and AGENT_POLL_INTERVAL is set (non-zero),
  * use the faster agent interval since it only downloads a ~200-500KB cache.
  */
-config.getEffectiveSavePollInterval = function () {
+config.getEffectiveSavePollInterval = function (): number {
   if (config.agentMode !== 'direct' && config.agentPollInterval > 0) {
     return Math.max(config.agentPollInterval, 30000); // min 30s
   }
@@ -744,24 +972,30 @@ config.getEffectiveSavePollInterval = function () {
 /**
  * Hydrate the config singleton from DB-backed config documents.
  * Called once from index.js after DB init + migration.
- * @param {import('./db/config-repository')} configRepo
  */
-config.hydrate = function (configRepo) {
+config.hydrate = function (configRepo: {
+  get(key: string): Record<string, unknown> | undefined;
+  update(key: string, values: Record<string, unknown>): void;
+}): void {
   try {
     const appConfig = configRepo.get('app');
     if (appConfig) {
       for (const [key, value] of Object.entries(appConfig)) {
-        if (Object.prototype.hasOwnProperty.call(config, key)) config[key] = value;
+        if (Object.prototype.hasOwnProperty.call(config, key)) {
+          (config as unknown as Record<string, unknown>)[key] = value;
+        }
       }
     }
     const serverConfig = configRepo.get('server:primary');
     if (serverConfig) {
       for (const [key, value] of Object.entries(serverConfig)) {
-        if (Object.prototype.hasOwnProperty.call(config, key)) config[key] = value;
+        if (Object.prototype.hasOwnProperty.call(config, key)) {
+          (config as unknown as Record<string, unknown>)[key] = value;
+        }
       }
     }
   } catch (err) {
-    console.error('[CONFIG] Failed to hydrate from DB \u2014 using .env values:', err.message);
+    console.error('[CONFIG] Failed to hydrate from DB \u2014 using .env values:', (err as Error).message);
   }
   config._configRepo = configRepo; // Always set repo for writes
 };
@@ -769,9 +1003,8 @@ config.hydrate = function (configRepo) {
 /**
  * Legacy no-op — display overrides are now loaded via hydrate().
  * Kept for backward compatibility with callers.
- * @param {object} _db - HumanitZDB instance (unused)
  */
-config.loadDisplayOverrides = function (_db) {
+config.loadDisplayOverrides = function (_db: unknown): void {
   // No-op — display overrides now loaded via config.hydrate()
 };
 
@@ -779,27 +1012,30 @@ config.loadDisplayOverrides = function (_db) {
  * Save a single display setting to the DB and update config in memory.
  * Writes to config_documents via ConfigRepository when available,
  * falls back to legacy bot_state for safety during transition/tests.
- * @param {object} db - HumanitZDB instance
- * @param {string} cfgKey - Config key (e.g. 'showVitals')
- * @param {*} value - New value
  */
-config.saveDisplaySetting = function (db, cfgKey, value) {
-  config[cfgKey] = value;
+config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknown): void {
+  (config as unknown as Record<string, unknown>)[cfgKey] = value;
   if (config._configRepo) {
     try {
-      config._configRepo.update('app', { [cfgKey]: value });
+      (config._configRepo as { update(doc: string, data: Record<string, unknown>): void }).update('app', {
+        [cfgKey]: value,
+      });
     } catch (err) {
-      console.error('[CONFIG] Could not save display setting to DB:', err.message);
+      console.error('[CONFIG] Could not save display setting to DB:', (err as Error).message);
     }
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
     if (!db) return;
     try {
-      const overrides = db.getStateJSON('display_settings', {});
+      const dbObj = db as {
+        getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
+        setStateJSON(key: string, val: Record<string, unknown>): void;
+      };
+      const overrides = dbObj.getStateJSON('display_settings', {});
       overrides[cfgKey] = value;
-      db.setStateJSON('display_settings', overrides);
+      dbObj.setStateJSON('display_settings', overrides);
     } catch (err) {
-      console.warn('[CONFIG] Could not save display override:', err.message);
+      console.warn('[CONFIG] Could not save display override:', (err as Error).message);
     }
   }
 };
@@ -808,32 +1044,71 @@ config.saveDisplaySetting = function (db, cfgKey, value) {
  * Save multiple display settings to the DB and update config in memory.
  * Writes to config_documents via ConfigRepository when available,
  * falls back to legacy bot_state for safety during transition/tests.
- * @param {object} db - HumanitZDB instance
- * @param {Object<string,*>} settings - Map of cfgKey → value
  */
-config.saveDisplaySettings = function (db, settings) {
-  for (const [key, value] of Object.entries(settings)) config[key] = value;
+config.saveDisplaySettings = function (db: unknown, settings: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(settings)) {
+    (config as unknown as Record<string, unknown>)[key] = value;
+  }
   if (config._configRepo) {
     try {
-      config._configRepo.update('app', settings);
+      (config._configRepo as { update(doc: string, data: Record<string, unknown>): void }).update('app', settings);
     } catch (err) {
-      console.error('[CONFIG] Could not save display settings to DB:', err.message);
+      console.error('[CONFIG] Could not save display settings to DB:', (err as Error).message);
     }
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
     if (!db) return;
     try {
-      const overrides = db.getStateJSON('display_settings', {});
+      const dbObj = db as {
+        getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
+        setStateJSON(key: string, val: Record<string, unknown>): void;
+      };
+      const overrides = dbObj.getStateJSON('display_settings', {});
       Object.assign(overrides, settings);
-      db.setStateJSON('display_settings', overrides);
+      dbObj.setStateJSON('display_settings', overrides);
     } catch (err) {
-      console.warn('[CONFIG] Could not save display overrides:', err.message);
+      console.warn('[CONFIG] Could not save display overrides:', (err as Error).message);
     }
   }
 };
 
+// ── Wrapped access-control methods (old API shim) ─────────────
+
+/**
+ * Check whether a section is visible for a given user.
+ * Returns true when the toggle is enabled AND either the admin-only flag is off
+ * or the user is a Discord admin.
+ *
+ * @param toggleKey  - Config key for the section toggle (e.g. 'showVitals')
+ * @param isAdmin    - Whether the requesting user passes isAdminView()
+ */
+config.canShow = function (toggleKey: string, isAdmin = false): boolean {
+  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
+};
+
+/**
+ * Check whether a Discord GuildMember has admin-view access.
+ * Returns true if the member has ANY of the permissions listed in ADMIN_VIEW_PERMISSIONS.
+ * Uses Discord's built-in permission system — no manual role config needed.
+ */
+config.isAdminView = function (member: import('discord.js').GuildMember | null): boolean {
+  return _isAdminView(config.adminViewPermissions, member);
+};
+
+/**
+ * Add all configured admin users and role members to a Discord thread.
+ * Resolves ADMIN_USER_IDS (explicit) + ADMIN_ROLE_IDS (fetches role members).
+ * Requires GuildMembers intent for role member resolution.
+ */
+config.addAdminMembers = function (
+  thread: import('discord.js').ThreadChannel,
+  guild: import('discord.js').Guild,
+): Promise<void> {
+  return _addAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
+};
+
 // ── FTP_* deprecation warnings ──────────────────────────────
-const _FTP_DEPRECATED_MAP = {
+const _FTP_DEPRECATED_MAP: Record<string, string> = {
   FTP_HOST: 'SFTP_HOST',
   FTP_PORT: 'SFTP_PORT',
   FTP_USER: 'SFTP_USER',
@@ -855,10 +1130,29 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
   }
 }
 
-module.exports = config;
-module.exports.canShow = canShow;
-module.exports.isAdminView = isAdminView;
-module.exports.addAdminMembers = addAdminMembers;
-module.exports._envBool = envBool;
-module.exports._envTime = envTime;
-module.exports._tzOffsetMs = _tzOffsetMs;
+export default config;
+
+// CJS compatibility — when .js files do require('../config'), they get the config
+// object directly (not wrapped in { default: config }).
+// This will be removed when all consumers are migrated to ESM imports.
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _mod = module as { exports: any };
+_mod.exports = config;
+_mod.exports.default = config;
+_mod.exports.canShow = function (toggleKey: string, isAdmin = false): boolean {
+  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
+};
+_mod.exports.isAdminView = function (member: import('discord.js').GuildMember | null): boolean {
+  return _isAdminView(config.adminViewPermissions, member);
+};
+_mod.exports.addAdminMembers = async function (
+  thread: import('discord.js').ThreadChannel,
+  guild: import('discord.js').Guild,
+): Promise<void> {
+  return _addAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
+};
+_mod.exports._envBool = envBool;
+_mod.exports._envTime = envTime;
+_mod.exports._tzOffsetMs = tzOffsetMs;
+/* eslint-enable @typescript-eslint/no-unsafe-member-access */
