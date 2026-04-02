@@ -13,7 +13,26 @@ import { getDirname } from './paths.js';
 const { BOOTSTRAP_KEYS } = require('../db/config-migration') as { BOOTSTRAP_KEYS: Set<string> };
 
 const __dirname = getDirname(import.meta.url);
-export const ENV_PATH = path.join(__dirname, '..', '..', '.env');
+const _defaultEnvPath = path.join(__dirname, '..', '..', '.env');
+const _defaultAuditPath = path.join(__dirname, '..', '..', 'data', 'nuke-audit.log');
+
+let _envPath = _defaultEnvPath;
+let _auditPath = _defaultAuditPath;
+
+/** Current .env path (overridable for tests). */
+export const ENV_PATH = _defaultEnvPath;
+
+/** Override file paths for testing — prevents writes to real .env and audit log. */
+export function _setTestPaths(envPath: string, auditPath: string): void {
+  _envPath = envPath;
+  _auditPath = auditPath;
+}
+
+/** Reset to default paths (call in afterEach). */
+export function _resetPaths(): void {
+  _envPath = _defaultEnvPath;
+  _auditPath = _defaultAuditPath;
+}
 
 let _envWriteLock = false;
 
@@ -32,7 +51,7 @@ export function writeEnvValues(updates: Record<string, string>): void {
     const msg = `[${new Date().toISOString()}] CRITICAL ENV WRITE: ${JSON.stringify(updates)}\nStack: ${stack}\n\n`;
     console.warn('[ENV-WRITER] ⚠ Writing critical key:', JSON.stringify(updates));
     try {
-      fs.appendFileSync(path.join(__dirname, '..', '..', 'data', 'nuke-audit.log'), msg);
+      fs.appendFileSync(_auditPath, msg);
     } catch (auditErr) {
       const errMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
       console.error('[ENV-WRITER] CRITICAL: Failed to write nuke audit log:', errMsg);
@@ -43,7 +62,7 @@ export function writeEnvValues(updates: Record<string, string>): void {
   try {
     let content: string;
     try {
-      content = fs.readFileSync(ENV_PATH, 'utf8');
+      content = fs.readFileSync(_envPath, 'utf8');
     } catch (readErr) {
       if ((readErr as NodeJS.ErrnoException).code === 'ENOENT') {
         content = '';
@@ -64,7 +83,7 @@ export function writeEnvValues(updates: Record<string, string>): void {
       }
       process.env[key] = value;
     }
-    fs.writeFileSync(ENV_PATH, content, 'utf8');
+    fs.writeFileSync(_envPath, content, 'utf8');
   } finally {
     _envWriteLock = false;
   }

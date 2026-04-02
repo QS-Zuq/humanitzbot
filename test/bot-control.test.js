@@ -33,30 +33,34 @@ describe('BotControlService', () => {
   let exitSpy;
   let svc;
 
-  // Save/restore env vars AND .env file that writeEnvValues touches
+  // Redirect writeEnvValues to temp files — never touch real .env or nuke-audit.log
   const savedEnv = {};
   const fs = require('fs');
   const path = require('path');
-  const envPath = path.join(__dirname, '..', '.env');
-  let savedEnvFile;
+  const os = require('os');
+  const { _setTestPaths, _resetPaths } = require('../src/utils/env-writer');
+  let tmpDir;
 
   beforeEach(() => {
     savedEnv.NUKE_BOT = process.env.NUKE_BOT;
     savedEnv.FIRST_RUN = process.env.FIRST_RUN;
     delete process.env.NUKE_BOT;
     delete process.env.FIRST_RUN;
-    // Backup .env file — tests call writeEnvValues which modifies the real file
-    try {
-      savedEnvFile = fs.readFileSync(envPath, 'utf8');
-    } catch (_) {
-      savedEnvFile = null;
-    }
+
+    // Create temp directory for .env and audit log
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-control-test-'));
+    const tmpEnv = path.join(tmpDir, '.env');
+    const tmpAudit = path.join(tmpDir, 'nuke-audit.log');
+    // Seed temp .env with minimal content
+    fs.writeFileSync(tmpEnv, 'NUKE_BOT=false\nFIRST_RUN=false\n', 'utf8');
+    _setTestPaths(tmpEnv, tmpAudit);
 
     exitSpy = spyExit();
     svc = new BotControlService({ exit: exitSpy });
   });
 
   afterEach(() => {
+    _resetPaths();
     // Restore env vars
     for (const [k, v] of Object.entries(savedEnv)) {
       if (v !== undefined) {
@@ -65,10 +69,10 @@ describe('BotControlService', () => {
         delete process.env[k];
       }
     }
-    // Restore .env file to prevent NUKE_BOT=true from persisting
-    if (savedEnvFile !== null) {
+    // Clean up temp directory
+    if (tmpDir) {
       try {
-        fs.writeFileSync(envPath, savedEnvFile, 'utf8');
+        fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch (_) {}
     }
   });
