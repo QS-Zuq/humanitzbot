@@ -5,6 +5,7 @@ const { defineConfig, globalIgnores } = require('eslint/config');
 const js = require('@eslint/js');
 const globals = require('globals');
 const prettierConfig = require('eslint-config-prettier/flat');
+const tseslint = require('typescript-eslint');
 
 // ── Shared rule presets ─────────────────────────────────────
 const sharedRules = {
@@ -31,6 +32,7 @@ module.exports = defineConfig([
   globalIgnores([
     'node_modules/',
     'data/',
+    'dist/',
     'src/web-map/public/tailwind.css',
     'src/web-map/public/tiles/',
     'qs-anticheat/',
@@ -40,7 +42,7 @@ module.exports = defineConfig([
     'temp/',
   ]),
 
-  // ── Backend: Node.js CommonJS ───────────────────────────────
+  // ── Backend: Node.js CommonJS (.js) ─────────────────────────
   {
     name: 'backend/node-cjs',
     files: ['src/**/*.js', 'setup.js', 'eslint.config.js'],
@@ -56,6 +58,42 @@ module.exports = defineConfig([
     },
     rules: {
       ...sharedRules,
+      'no-var': 'error',
+      'prefer-const': 'error',
+    },
+  },
+
+  // ── Backend: TypeScript ESM (.ts) ───────────────────────────
+  {
+    name: 'backend/node-ts',
+    files: ['src/**/*.ts'],
+    ignores: ['src/web-map/public/**'],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
       'no-var': 'error',
       'prefer-const': 'error',
     },
@@ -78,6 +116,39 @@ module.exports = defineConfig([
       ...sharedRules,
       'no-var': 'error',
       'prefer-const': 'error',
+    },
+  },
+
+  // ── Tests: TypeScript ───────────────────────────────────────
+  {
+    name: 'tests/node-test-ts',
+    files: ['test/**/*.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
 

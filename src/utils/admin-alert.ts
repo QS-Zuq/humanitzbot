@@ -5,19 +5,18 @@
  * Best-effort — never throws.
  */
 
-'use strict';
+import type { Client, EmbedBuilder, SendableChannels } from 'discord.js';
+
+interface AdminAlertOpts {
+  adminAlertChannelIds?: string[] | string;
+  fallbackChannelId?: string;
+}
 
 /**
  * Send an embed to all configured admin alert channels.
  * Falls back to a single fallback channel if no alert channels are configured.
- *
- * @param {import('discord.js').Client} client
- * @param {import('discord.js').EmbedBuilder} embed
- * @param {object} opts
- * @param {string[]} [opts.adminAlertChannelIds]
- * @param {string}   [opts.fallbackChannelId]
  */
-async function postAdminAlert(client, embed, opts = {}) {
+export async function postAdminAlert(client: Client, embed: EmbedBuilder, opts: AdminAlertOpts = {}): Promise<void> {
   // Normalize: if adminAlertChannelIds is a string (e.g. from DB live-apply), split into array
   let alertIds = opts.adminAlertChannelIds;
   if (typeof alertIds === 'string') {
@@ -26,7 +25,8 @@ async function postAdminAlert(client, embed, opts = {}) {
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  const channelIds = alertIds?.length > 0 ? alertIds : opts.fallbackChannelId ? [opts.fallbackChannelId] : [];
+  const channelIds =
+    alertIds && alertIds.length > 0 ? alertIds : opts.fallbackChannelId ? [opts.fallbackChannelId] : [];
 
   if (channelIds.length === 0) {
     console.warn('[ADMIN-ALERT] No alert channels configured — embed discarded. Set ADMIN_ALERT_CHANNEL_IDS in .env');
@@ -40,14 +40,13 @@ async function postAdminAlert(client, embed, opts = {}) {
         console.warn(`[ADMIN-ALERT] Channel ${channelId} not found or not accessible — skipping alert`);
         continue;
       }
-      const sendPromise = ch.send({ embeds: [embed] });
+      const sendPromise = (ch as SendableChannels).send({ embeds: [embed] });
       await Promise.race([sendPromise, new Promise((resolve) => setTimeout(resolve, 3000))]);
       // Prevent unhandled rejection if send rejects after the timeout won the race
       sendPromise.catch(() => {});
     } catch (sendErr) {
-      console.warn(`[ADMIN-ALERT] Failed to send alert to channel ${channelId}:`, sendErr.message);
+      const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      console.warn(`[ADMIN-ALERT] Failed to send alert to channel ${channelId}:`, msg);
     }
   }
 }
-
-module.exports = { postAdminAlert };

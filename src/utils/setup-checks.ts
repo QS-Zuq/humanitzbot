@@ -1,19 +1,30 @@
-'use strict';
-
 // ── Setup Prerequisite Checks ─────────────────────────────────
 // Pure, side-effect-free helper module for setup.js.
 // MUST NOT require config.js, dotenv, or any src/ module.
 // Only reads process.env — no initialisation triggered.
 
+interface PrerequisiteIssue {
+  key: string;
+  label: string;
+  type: 'missing' | 'warning';
+}
+
+interface CheckOpts {
+  skipSftp?: boolean;
+}
+
+interface RconResult {
+  ok: boolean;
+  error?: string;
+  message?: string;
+}
+
 /**
  * Check that required environment keys are present before setup runs.
  * Also checks legacy FTP_* fallback env vars (warns about rename).
- *
- * @param {{ skipSftp?: boolean }} [opts]
- * @returns {{ key: string, label: string, type: 'missing' | 'warning' }[]}
  */
-function checkPrerequisites(opts = {}) {
-  const issues = [];
+export function checkPrerequisites(opts: CheckOpts = {}): PrerequisiteIssue[] {
+  const issues: PrerequisiteIssue[] = [];
 
   // Required Discord keys
   const discordKeys = [
@@ -31,10 +42,10 @@ function checkPrerequisites(opts = {}) {
   // SFTP credentials (with FTP_* backward compatibility)
   if (!opts.skipSftp) {
     // Required: SFTP_HOST and SFTP_USER (or their FTP_* fallbacks)
-    for (const suffix of ['HOST', 'USER']) {
+    for (const suffix of ['HOST', 'USER'] as const) {
       const sftpVal = process.env[`SFTP_${suffix}`];
       const ftpVal = process.env[`FTP_${suffix}`];
-      const val = sftpVal || ftpVal;
+      const val = sftpVal ?? ftpVal;
       if (!val || val.startsWith('your_')) {
         issues.push({
           key: `SFTP_${suffix}`,
@@ -49,13 +60,13 @@ function checkPrerequisites(opts = {}) {
     // Credentials: require SFTP_PASSWORD or SFTP_PRIVATE_KEY_PATH (at least one)
     const sftpPassword = process.env.SFTP_PASSWORD;
     const ftpPassword = process.env.FTP_PASSWORD;
-    const password = sftpPassword || ftpPassword;
+    const password = sftpPassword ?? ftpPassword;
     const sftpKeyPath = process.env.SFTP_PRIVATE_KEY_PATH;
     const ftpKeyPath = process.env.FTP_PRIVATE_KEY_PATH;
-    const keyPath = sftpKeyPath || ftpKeyPath;
+    const keyPath = sftpKeyPath ?? ftpKeyPath;
 
-    const hasPassword = password && !password.startsWith('your_');
-    const hasKeyPath = keyPath && !keyPath.startsWith('your_');
+    const hasPassword = password != null && !password.startsWith('your_');
+    const hasKeyPath = keyPath != null && !keyPath.startsWith('your_');
 
     if (!hasPassword && !hasKeyPath) {
       issues.push({ key: 'SFTP_PASSWORD', label: 'SFTP_PASSWORD or SFTP_PRIVATE_KEY_PATH', type: 'missing' });
@@ -78,12 +89,10 @@ function checkPrerequisites(opts = {}) {
 /**
  * Attempt a TCP connection to the configured RCON endpoint.
  * Returns a structured result with error details on failure.
- *
- * @returns {Promise<{ ok: boolean, error?: string, message?: string }>}
  */
-async function testRconReachability() {
+export async function testRconReachability(): Promise<RconResult> {
   const host = process.env.RCON_HOST;
-  const port = parseInt(process.env.RCON_PORT, 10) || 27015;
+  const port = parseInt(process.env.RCON_PORT ?? '', 10) || 27015;
   const password = process.env.RCON_PASSWORD;
 
   if (!host || !password || host.startsWith('your_') || password.startsWith('your_')) {
@@ -91,10 +100,10 @@ async function testRconReachability() {
     return { ok: false, error: 'NOT_CONFIGURED', message: 'RCON not configured' };
   }
 
-  console.log(`[SETUP] Testing RCON connection to ${host}:${port}...`);
+  console.log(`[SETUP] Testing RCON connection to ${host}:${String(port)}...`);
 
+  const net = await import('node:net');
   return new Promise((resolve) => {
-    const net = require('net');
     const socket = new net.Socket();
     const timeout = 10_000;
 
@@ -111,13 +120,11 @@ async function testRconReachability() {
       resolve({ ok: true });
     });
 
-    socket.on('error', (err) => {
+    socket.on('error', (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
       socket.destroy();
       console.warn(`[SETUP] RCON connection failed: ${err.message}`);
-      resolve({ ok: false, error: err.code || 'UNKNOWN', message: err.message });
+      resolve({ ok: false, error: err.code ?? 'UNKNOWN', message: err.message });
     });
   });
 }
-
-module.exports = { checkPrerequisites, testRconReachability };

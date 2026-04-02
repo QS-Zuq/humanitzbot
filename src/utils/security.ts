@@ -1,9 +1,12 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDirname } from './paths.js';
 
-const SSH_KEYS_DIR = path.join(__dirname, '..', '..', 'data', 'ssh-keys');
+const __dirname = getDirname(import.meta.url);
 
-function readPrivateKey(inputPath) {
+export const SSH_KEYS_DIR = path.join(__dirname, '..', '..', 'data', 'ssh-keys');
+
+export function readPrivateKey(inputPath: string): Buffer {
   if (!fs.existsSync(SSH_KEYS_DIR)) {
     fs.mkdirSync(SSH_KEYS_DIR, { recursive: true });
   }
@@ -11,7 +14,7 @@ function readPrivateKey(inputPath) {
   const realRoot = fs.realpathSync(SSH_KEYS_DIR);
 
   // Sanitize: strip directory components, allow only the filename
-  const filename = path.basename(String(inputPath));
+  const filename = path.basename(inputPath);
   if (!filename || filename === '.' || filename === '..') {
     throw new Error('Invalid private key filename');
   }
@@ -29,5 +32,3 @@ function readPrivateKey(inputPath) {
 
   return fs.readFileSync(target);
 }
-
-module.exports = { readPrivateKey, SSH_KEYS_DIR };

@@ -10,22 +10,24 @@
  * The label is sanitized: CR/LF/tab removed (prevents log forging),
  * non-word characters stripped (prevents format-string injection via %),
  * and length capped at 40 characters.
- *
- * Usage:
- *   const { createLogger } = require('../utils/log');
- *   this._log = createLogger(deps.label, 'MODULE_NAME');
- *   this._log.info('Started successfully');
- *   this._log.error('Failed:', err.message);
  */
+
+export interface Logger {
+  label: string;
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+}
 
 /**
  * Sanitize a log label to prevent log injection.
- * @param {*} raw - Raw label value (may come from user-configurable server names)
- * @param {string} fallback - Default label if raw is empty
- * @returns {string} Safe single-line label
+ * @param raw - Raw label value (may come from user-configurable server names)
+ * @param fallback - Default label if raw is empty
+ * @returns Safe single-line label
  */
-function sanitizeLabel(raw, fallback) {
-  return String(raw ?? fallback ?? 'APP')
+export function sanitizeLabel(raw: unknown, fallback?: string): string {
+  const str = typeof raw === 'string' ? raw : typeof fallback === 'string' ? fallback : 'APP';
+  return str
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/[^\w :/-]/g, '')
     .trim()
@@ -35,19 +37,19 @@ function sanitizeLabel(raw, fallback) {
 /**
  * Create a logger instance with a fixed label prefix.
  * The format string is always a constant — label goes into %s slot.
- *
- * @param {*} rawLabel - Label from deps injection
- * @param {string} fallback - Default label
- * @returns {{ info: Function, warn: Function, error: Function, label: string }}
  */
-function createLogger(rawLabel, fallback) {
+export function createLogger(rawLabel: unknown, fallback?: string): Logger {
   const label = sanitizeLabel(rawLabel, fallback);
   return {
     label,
-    info: (...args) => console.log('[%s]', label, ...args),
-    warn: (...args) => console.warn('[%s]', label, ...args),
-    error: (...args) => console.error('[%s]', label, ...args),
+    info: (...args: unknown[]) => {
+      console.log('[%s]', label, ...args);
+    },
+    warn: (...args: unknown[]) => {
+      console.warn('[%s]', label, ...args);
+    },
+    error: (...args: unknown[]) => {
+      console.error('[%s]', label, ...args);
+    },
   };
 }
-
-module.exports = { createLogger, sanitizeLabel };
