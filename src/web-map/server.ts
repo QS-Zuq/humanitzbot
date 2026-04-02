@@ -53,7 +53,13 @@ function rateLimit(windowMs: number, maxReqs: number) {
     max: maxReqs,
     standardHeaders: false,
     legacyHeaders: false,
-    keyGenerator: (req) => (req.ip || 'unknown') + ':' + req.path,
+    keyGenerator: (req) => {
+      // Normalize IPv6-mapped IPv4 (::ffff:1.2.3.4 → 1.2.3.4) for consistent rate limiting
+      const raw = req.ip ?? 'unknown';
+      const ip = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+      return ip + ':' + req.path;
+    },
+    validate: { keyGeneratorIpFallback: false },
     handler: (_req, res) => {
       sendError(res, API_ERRORS.RATE_LIMITED, 429);
     },
