@@ -17,10 +17,52 @@
  *   - Clan milestones (5, 10, 15 members)
  */
 
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, type Client } from 'discord.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+type DbRow = Record<string, unknown>;
+
+/** Sendable channel or thread for posting embeds. */
+interface Sendable {
+  send(options: { embeds: EmbedBuilder[] }): Promise<unknown>;
+}
+
+/** Minimal LogWatcher interface for milestone posting. */
+interface MilestoneLogWatcher {
+  _dailyThread?: Sendable | null;
+  logChannel?: Sendable | null;
+}
+
+/** DB interface used by MilestoneTracker. */
+interface MilestoneDB {
+  getState(key: string): string | null;
+  getStateJSON(key: string, defaultVal: unknown): unknown;
+  setStateJSON(key: string, value: unknown): void;
+  getAllPlayers(): DbRow[];
+  getAllClans?(): DbRow[];
+}
+
+/** Persisted milestone state. */
+interface MilestoneState {
+  kills: Record<string, number[]>;
+  playtime: Record<string, number[]>;
+  survival: Record<string, number[]>;
+  challenges: Record<string, string[]>;
+  firsts: Record<string, string[]>;
+  clans: Record<string, number[]>;
+}
+
+interface ChallengeEntry {
+  name?: string;
+  id?: string;
+  progress?: number;
+  total?: number;
+}
 
 // ── Milestone Thresholds ─────────────────────────────────────────────────────
 
@@ -41,12 +83,12 @@ const CLAN_MEMBER_THRESHOLDS = [5, 10, 15, 20];
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
-function _fmtKills(this: any, n: any, locale: any = 'en') {
+function _fmtKills(n: number, locale = 'en'): string {
   if (n >= 1000) return `${fmtNumber(Math.floor(n / 1000), locale)}K`;
   return fmtNumber(n, locale);
 }
 
-function _fmtHours(this: any, ms: any, locale: any = 'en') {
+function _fmtHours(ms: number, locale = 'en'): string {
   const h = Math.floor(ms / 3600000);
   if (h >= 1000) return `${(h / 1000).toFixed(1)}K`;
   return fmtNumber(h, locale);
@@ -58,16 +100,12 @@ const STATE_KEY = 'milestones';
 
 /**
  * Load announced milestones from DB. Returns a structured object.
- * @param {object} db - HumanitZDB instance
- * @returns {object} { kills: {steamId: [thresholds]}, playtime: {steamId: [thresholds]},
- *                     survival: {steamId: [thresholds]}, challenges: {steamId: [names]},
- *                     firsts: {category: [names]}, clans: {clanName: [thresholds]} }
  */
-function _loadState(this: any, db: any) {
-  const defaults = { kills: {}, playtime: {}, survival: {}, challenges: {}, firsts: {}, clans: {} };
+function _loadState(db: MilestoneDB | null): MilestoneState {
+  const defaults: MilestoneState = { kills: {}, playtime: {}, survival: {}, challenges: {}, firsts: {}, clans: {} };
   if (!db) return defaults;
   try {
-    const raw = db.getStateJSON(STATE_KEY, null);
+    const raw = db.getStateJSON(STATE_KEY, null) as Partial<MilestoneState> | null;
     if (!raw) return defaults;
     // Merge with defaults so new categories are covered
     return { ...defaults, ...raw };
@@ -76,33 +114,48 @@ function _loadState(this: any, db: any) {
   }
 }
 
-function _saveState(this: any, db: any, state: any) {
+function _saveState(db: MilestoneDB | null, state: MilestoneState): void {
   if (!db) return;
   try {
     db.setStateJSON(STATE_KEY, state);
-  } catch (err: any) {
-    console.error('[MILESTONES] Failed to save state:', err.message);
+  } catch (err: unknown) {
+    console.error('[MILESTONES] Failed to save state:', errMsg(err));
   }
 }
 
 // ── MilestoneTracker class ───────────────────────────────────────────────────
 
 class MilestoneTracker {
-  [key: string]: any;
+  private _client: Client;
+  private _db: MilestoneDB | null;
+  private _logWatcher: MilestoneLogWatcher | null;
+  private _config: typeof _defaultConfig;
+  private _log: Logger;
+  private _locale: string;
+  private _state: MilestoneState;
+  private _needsBackfill: boolean;
+  private _pendingEmbeds: EmbedBuilder[];
+  private _lastCheckCount: number;
+
   /**
-   * @param {object} client - Discord.js Client
-   * @param {object} opts
-   * @param {object} opts.db - HumanitZDB instance
-   * @param {object} [opts.logWatcher] - LogWatcher for daily thread posting
-   * @param {object} [opts.config] - config object (for timezone, channel ID)
+   * @param client - Discord.js Client
+   * @param opts   Module dependencies
    */
-  constructor(client: any, opts: any = {}) {
+  constructor(
+    client: Client,
+    opts: {
+      db?: MilestoneDB | null;
+      logWatcher?: unknown;
+      config?: typeof _defaultConfig;
+      label?: string;
+    } = {},
+  ) {
     this._client = client;
-    this._db = opts.db || null;
-    this._logWatcher = opts.logWatcher || null;
-    this._config = opts.config || _defaultConfig;
+    this._db = opts.db ?? null;
+    this._logWatcher = (opts.logWatcher as MilestoneLogWatcher | null) ?? null;
+    this._config = opts.config ?? _defaultConfig;
     this._log = createLogger(opts.label, 'MILESTONES');
-    this._locale = getLocale({ serverConfig: this._config });
+    this._locale = getLocale();
 
     // In-memory state (loaded from DB on start)
     this._state = _loadState(this._db);
@@ -122,20 +175,13 @@ class MilestoneTracker {
 
   /**
    * Check all players for milestones. Called on SaveService 'sync' events.
-   *
-   * On the very first check (no state in DB), performs a silent backfill:
-   * records all existing milestones as "already announced" so only future
-   * milestones trigger Discord announcements. This prevents a flood of
-   * old achievements when the feature is first enabled on a populated server.
-   *
-   * @param {object} [syncResult] - SaveService sync result (unused, we read DB directly)
    */
-  async check(_syncResult: any) {
+  async check(_syncResult?: unknown): Promise<void> {
     if (!this._db) return;
     this._lastCheckCount = 0;
 
     try {
-      const players = this._db.getAllPlayers() || [];
+      const players = this._db.getAllPlayers();
 
       // First-run backfill: if no state existed in DB, silently record all
       // existing milestones without posting announcements
@@ -144,19 +190,20 @@ class MilestoneTracker {
       let changed = false;
 
       for (const p of players) {
-        const sid = p.steam_id;
-        const name = p.name || sid;
+        const sid = typeof p.steam_id === 'string' ? p.steam_id : '';
+        const name = typeof p.name === 'string' ? p.name : sid;
 
         // Kill milestones — uses lifetime_kills (persists across deaths)
-        if (this._checkKills(sid, name, p.lifetime_kills)) changed = true;
+        if (this._checkKills(sid, name, Number(p.lifetime_kills ?? 0))) changed = true;
 
         // Playtime milestones — playtime_seconds from PlaytimeTracker
-        if (p.playtime_seconds > 0) {
-          if (this._checkPlaytime(sid, name, p.playtime_seconds * 1000)) changed = true;
+        const playtimeSeconds = Number(p.playtime_seconds ?? 0);
+        if (playtimeSeconds > 0) {
+          if (this._checkPlaytime(sid, name, playtimeSeconds * 1000)) changed = true;
         }
 
         // Survival milestones — days_survived (current life)
-        if (this._checkSurvival(sid, name, p.days_survived)) changed = true;
+        if (this._checkSurvival(sid, name, Number(p.days_survived ?? 0))) changed = true;
 
         // Challenge completions
         if (this._checkChallenges(sid, name, p)) changed = true;
@@ -189,14 +236,14 @@ class MilestoneTracker {
 
       // Post queued embeds
       await this._flushEmbeds();
-    } catch (err: any) {
-      this._log.error('Check error:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Check error:', errMsg(err));
     }
   }
 
   // ── Kill milestones ────────────────────────────────────────
 
-  _checkKills(steamId: any, name: any, kills: any) {
+  _checkKills(steamId: string, name: string, kills: number): boolean {
     if (!kills || kills <= 0) return false;
     let changed = false;
     if (!this._state.kills[steamId]) this._state.kills[steamId] = [];
@@ -221,7 +268,7 @@ class MilestoneTracker {
 
   // ── Playtime milestones ────────────────────────────────────
 
-  _checkPlaytime(steamId: any, name: any, playtimeMs: any) {
+  _checkPlaytime(steamId: string, name: string, playtimeMs: number): boolean {
     if (!playtimeMs || playtimeMs <= 0) return false;
     let changed = false;
     if (!this._state.playtime[steamId]) this._state.playtime[steamId] = [];
@@ -246,7 +293,7 @@ class MilestoneTracker {
 
   // ── Survival streak milestones ─────────────────────────────
 
-  _checkSurvival(steamId: any, name: any, daysSurvived: any) {
+  _checkSurvival(steamId: string, name: string, daysSurvived: number): boolean {
     if (!daysSurvived || daysSurvived <= 0) return false;
     let changed = false;
     if (!this._state.survival[steamId]) this._state.survival[steamId] = [];
@@ -269,11 +316,14 @@ class MilestoneTracker {
 
   // ── Challenge completions ──────────────────────────────────
 
-  _checkChallenges(steamId: any, name: any, player: any) {
+  _checkChallenges(steamId: string, name: string, player: DbRow): boolean {
     // challenges is a JSON array: [{ name, progress, total }] or similar
-    let challenges;
+    let challenges: ChallengeEntry[];
     try {
-      challenges = typeof player.challenges === 'string' ? JSON.parse(player.challenges) : player.challenges;
+      challenges =
+        typeof player.challenges === 'string'
+          ? (JSON.parse(player.challenges) as ChallengeEntry[])
+          : (player.challenges as ChallengeEntry[]);
     } catch {
       return false;
     }
@@ -285,9 +335,9 @@ class MilestoneTracker {
 
     for (const ch of challenges) {
       // A challenge is "complete" when progress >= total and total > 0
-      const cName = ch.name || ch.id || 'Unknown';
+      const cName = ch.name ?? ch.id ?? 'Unknown';
       if (!ch.total || ch.total <= 0) continue;
-      if (ch.progress < ch.total) continue;
+      if ((ch.progress ?? 0) < ch.total) continue;
       if (announced.includes(cName)) continue;
 
       announced.push(cName);
@@ -303,16 +353,16 @@ class MilestoneTracker {
 
   // ── First-to-unlock milestones ─────────────────────────────
 
-  _checkFirsts(_steamId: any, name: any, player: any) {
+  _checkFirsts(_steamId: string, name: string, player: DbRow): boolean {
     let changed = false;
 
     // Professions
-    let profs;
+    let profs: unknown[];
     try {
       profs =
         typeof player.unlocked_professions === 'string'
-          ? JSON.parse(player.unlocked_professions)
-          : player.unlocked_professions;
+          ? (JSON.parse(player.unlocked_professions) as unknown[])
+          : (player.unlocked_professions as unknown[]);
     } catch {
       profs = [];
     }
@@ -340,18 +390,16 @@ class MilestoneTracker {
 
   // ── Clan milestones ────────────────────────────────────────
 
-  _checkClans() {
+  _checkClans(): boolean {
     if (!this._db) return false;
     let changed = false;
 
     try {
       const clans = this._db.getAllClans ? this._db.getAllClans() : [];
-      if (!Array.isArray(clans) || clans.length === 0) return false;
-
-      if (!this._state.clans) this._state.clans = {};
+      if (clans.length === 0) return false;
 
       for (const clan of clans) {
-        const clanName = clan.name || 'Unknown';
+        const clanName = typeof clan.name === 'string' ? clan.name : 'Unknown';
         const memberCount = Array.isArray(clan.members) ? clan.members.length : 0;
         if (!this._state.clans[clanName]) this._state.clans[clanName] = [];
         const announced = this._state.clans[clanName];
@@ -383,9 +431,8 @@ class MilestoneTracker {
   /**
    * When a player dies, reset their survival milestones so they can
    * earn them again on their next life. Called externally by LogWatcher.
-   * @param {string} steamId
    */
-  onPlayerDeath(steamId: any) {
+  onPlayerDeath(steamId: string): void {
     if (!steamId) return;
     if (this._state.survival[steamId] && this._state.survival[steamId].length > 0) {
       this._state.survival[steamId] = [];
@@ -395,7 +442,7 @@ class MilestoneTracker {
 
   // ── Embed queueing & posting ───────────────────────────────
 
-  _queueEmbed(description: any, color: any, footer: any) {
+  _queueEmbed(description: string, color: number, footer: string | null): void {
     const embed = new EmbedBuilder().setDescription(description).setColor(color).setTimestamp();
     if (footer) embed.setFooter({ text: footer });
     this._pendingEmbeds.push(embed);
@@ -405,7 +452,7 @@ class MilestoneTracker {
    * Post all queued milestone embeds to the activity thread.
    * Groups into batches of up to 10 (Discord embed limit per message).
    */
-  async _flushEmbeds() {
+  async _flushEmbeds(): Promise<void> {
     if (this._pendingEmbeds.length === 0) return;
 
     const embeds = this._pendingEmbeds.splice(0);
@@ -420,8 +467,8 @@ class MilestoneTracker {
       const batch = embeds.slice(i, i + 10);
       try {
         await target.send({ embeds: batch });
-      } catch (err: any) {
-        this._log.error('Failed to post milestones:', err.message);
+      } catch (err: unknown) {
+        this._log.error('Failed to post milestones:', errMsg(err));
       }
     }
   }
@@ -430,20 +477,20 @@ class MilestoneTracker {
    * Get the best channel/thread to post milestones to.
    * Prefers LogWatcher's daily thread, falls back to the log channel.
    */
-  _getPostTarget() {
+  _getPostTarget(): Sendable | null {
     // Use LogWatcher's daily thread if available
-    if (this._logWatcher && this._logWatcher._dailyThread) {
+    if (this._logWatcher?._dailyThread) {
       return this._logWatcher._dailyThread;
     }
     // Fall back to log channel
-    if (this._logWatcher && this._logWatcher.logChannel) {
+    if (this._logWatcher?.logChannel) {
       return this._logWatcher.logChannel;
     }
     // Try fetching the log channel directly
     const channelId = this._config.logChannelId;
-    if (channelId && this._client) {
+    if (channelId) {
       try {
-        return this._client.channels.cache.get(channelId) || null;
+        return (this._client.channels.cache.get(channelId) as Sendable | undefined) ?? null;
       } catch {
         return null;
       }
@@ -454,22 +501,22 @@ class MilestoneTracker {
   // ── State access (for testing) ─────────────────────────────
 
   /** Get the current milestone state (for testing/debugging). */
-  getState() {
+  getState(): MilestoneState {
     return this._state;
   }
 
   /** Get pending embeds count (for testing — may be 0 after flush). */
-  getPendingCount() {
+  getPendingCount(): number {
     return this._pendingEmbeds.length;
   }
 
   /** Get the number of milestones queued during the last check() call. */
-  getLastCheckCount() {
+  getLastCheckCount(): number {
     return this._lastCheckCount;
   }
 
   /** Clear all pending embeds (for testing). */
-  clearPending() {
+  clearPending(): void {
     this._pendingEmbeds = [];
   }
 

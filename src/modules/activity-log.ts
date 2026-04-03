@@ -20,19 +20,78 @@
  * @module activity-log
  */
 
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, type Client } from 'discord.js';
 import config from '../config/index.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
 import { cleanName, cleanItemName } from '../parsers/ue4-names.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
+import { errMsg } from '../utils/error.js';
 
-function _activityLocale(cfg?: any) {
-  return getLocale({ serverConfig: cfg || config });
+function _activityLocale(): string {
+  return getLocale();
 }
+
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+/** Channel-like object with a send method. */
+interface Sendable {
+  name?: string;
+  send(options: { embeds: EmbedBuilder[] }): Promise<unknown>;
+}
+
+interface DiffEvent {
+  type: string;
+  category?: string;
+  actor?: string;
+  actorName?: string;
+  item?: string;
+  amount?: number;
+  x?: number | null;
+  y?: number | null;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  details?: Record<string, unknown>;
+  attributedPlayer?: string;
+  attributedSteamId?: string;
+}
+
+interface SyncResult {
+  diffEvents?: DiffEvent[];
+  syncTime?: Date;
+}
+
+interface ActivityLogWatcher {
+  sendToThread(embed: EmbedBuilder): Promise<void>;
+  getRecentContainerAccess(actor: string): { player: string } | null;
+}
+
+interface ActivitySaveService {
+  on(event: string, handler: (result: SyncResult) => void): void;
+  removeListener(event: string, handler: (result: SyncResult) => void): void;
+}
+
+interface ItemBatch {
+  event: DiffEvent;
+  items: Array<{
+    item: string;
+    amount?: number;
+    durability?: number;
+    attributedPlayer?: string;
+    attributedSteamId?: string;
+  }>;
+}
+
+interface CollapsedBatch {
+  event: DiffEvent;
+  count: number;
+  isCollapsed: true;
+}
+
+type EventBatch = ItemBatch | CollapsedBatch;
 
 // ─── Category colours ───────────────────────────────────────────────────────
 
-const CATEGORY_COLORS = {
+const CATEGORY_COLORS: Record<string, number> = {
   container: 0xe67e22, // Orange
   inventory: 0x3498db, // Blue
   horse: 0x2ecc71, // Green
@@ -43,7 +102,7 @@ const CATEGORY_COLORS = {
 
 // ─── Category emoji ─────────────────────────────────────────────────────────
 
-const EVENT_EMOJI = {
+const EVENT_EMOJI: Record<string, string> = {
   container_item_added: '📦',
   container_item_removed: '📦',
   container_locked: '🔒',
@@ -74,26 +133,37 @@ const EVENT_EMOJI = {
 };
 
 class ActivityLog {
-  [key: string]: any;
+  private _client: Client;
+  private _saveService: ActivitySaveService | null;
+  private _logWatcher: ActivityLogWatcher | null;
+  private _log: Logger;
+  private _channel: Sendable | null;
+  private _started: boolean;
+  private _syncHandler: ((result: SyncResult) => void) | null;
+
   /**
-   * @param {import('discord.js').Client} client
-   * @param {object} options
-   * @param {import('./db/database')} options.db
-   * @param {import('./parsers/save-service')} options.saveService
-   * @param {import('./log-watcher')} [options.logWatcher]  Route embeds to daily thread
-   * @param {string} [options.label]
+   * @param client  Discord.js Client
+   * @param options Module dependencies
    */
-  constructor(client: any, options: any = {}) {
+  constructor(
+    client: Client,
+    options: {
+      db?: unknown;
+      saveService?: ActivitySaveService | null;
+      logWatcher?: unknown;
+      label?: string;
+    } = {},
+  ) {
     this._client = client;
-    this._db = options.db;
-    this._saveService = options.saveService;
-    this._logWatcher = options.logWatcher || null;
+    this._saveService = options.saveService ?? null;
+    this._logWatcher = (options.logWatcher as ActivityLogWatcher | null) ?? null;
     this._log = createLogger(options.label, 'ActivityLog');
     this._channel = null; // fallback channel when no logWatcher
     this._started = false;
+    this._syncHandler = null;
   }
 
-  async start() {
+  async start(): Promise<void> {
     if (this._started) return;
     this._started = true;
 
@@ -105,28 +175,32 @@ class ActivityLog {
         return;
       }
       try {
-        this._channel = await this._client.channels.fetch(channelId);
-        if (!this._channel) {
+        const fetched = await this._client.channels.fetch(channelId);
+        if (!fetched) {
           this._log.warn(`Channel ${channelId} not found`);
           return;
         }
-      } catch (err: any) {
-        this._log.warn(`Failed to fetch channel ${channelId}:`, err.message);
+        this._channel = fetched as Sendable;
+      } catch (err: unknown) {
+        this._log.warn(`Failed to fetch channel ${channelId}:`, errMsg(err));
         return;
       }
     }
 
     // Listen for save sync events
     if (this._saveService) {
-      this._syncHandler = (result: any) => this._onSync(result);
+      this._syncHandler = (result: SyncResult) => {
+        void this._onSync(result);
+      };
       this._saveService.on('sync', this._syncHandler);
     }
 
-    const target = this._logWatcher ? 'daily thread (via LogWatcher)' : `#${this._channel?.name || 'unknown'}`;
+    const channelName = this._channel?.name ?? 'unknown';
+    const target = this._logWatcher ? 'daily thread (via LogWatcher)' : `#${channelName}`;
     this._log.info(`Started \u2014 posting to ${target}`);
   }
 
-  stop() {
+  stop(): void {
     this._started = false;
     if (this._saveService && this._syncHandler) {
       this._saveService.removeListener('sync', this._syncHandler);
@@ -138,12 +212,12 @@ class ActivityLog {
   //  Event handling
   // ═══════════════════════════════════════════════════════════════════════════
 
-  async _onSync(result: any) {
+  async _onSync(result: SyncResult): Promise<void> {
     if (!result.diffEvents || result.diffEvents.length === 0) return;
     if (!this._logWatcher && !this._channel) return;
 
     try {
-      const syncTime = result.syncTime || new Date();
+      const syncTime = result.syncTime ?? new Date();
 
       // Cap events to prevent OOM/rate-limit on first-sync diff storms
       const maxEvents = 200;
@@ -156,24 +230,24 @@ class ActivityLog {
         try {
           if (this._logWatcher) {
             await this._logWatcher.sendToThread(embed);
-          } else {
+          } else if (this._channel) {
             await this._channel.send({ embeds: [embed] });
           }
-        } catch (sendErr: any) {
+        } catch (sendErr: unknown) {
           // Log individual embed failures but continue sending the rest
-          this._log.warn('Embed send failed (continuing):', sendErr.message);
+          this._log.warn('Embed send failed (continuing):', errMsg(sendErr));
         }
         // Small delay to respect Discord rate limits (1 embed per 500ms)
         if (embeds.length > 3) {
-          await new Promise((r) => setTimeout(r, 500));
+          await new Promise<void>((r) => setTimeout(r, 500));
         }
       }
 
       if (result.diffEvents.length > maxEvents) {
         this._log.info(`Capped activity batch: ${result.diffEvents.length} events \u2192 ${maxEvents} posted`);
       }
-    } catch (err: any) {
-      this._log.warn('Failed to post activity:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Failed to post activity:', errMsg(err));
     }
   }
 
@@ -186,8 +260,8 @@ class ActivityLog {
    * Groups events by category and builds one embed per category.
    * Filters out events based on config toggles.
    */
-  _buildEmbeds(events: any, syncTime: any) {
-    const embeds: any[] = [];
+  _buildEmbeds(events: DiffEvent[], syncTime: Date): EmbedBuilder[] {
+    const embeds: EmbedBuilder[] = [];
     const filtered = this._filterEvents(events);
     if (filtered.length === 0) return embeds;
 
@@ -195,11 +269,15 @@ class ActivityLog {
     const timeStr = _formatTime(syncTime);
 
     // Group by category
-    const groups = new Map();
+    const groups = new Map<string, DiffEvent[]>();
     for (const event of filtered) {
-      const cat = event.category || 'other';
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat).push(event);
+      const cat = event.category ?? 'other';
+      const existing = groups.get(cat);
+      if (existing) {
+        existing.push(event);
+      } else {
+        groups.set(cat, [event]);
+      }
     }
 
     for (const [category, catEvents] of groups) {
@@ -213,14 +291,15 @@ class ActivityLog {
   /**
    * Filter events based on config toggles.
    */
-  _filterEvents(events: any) {
-    return events.filter((e: any) => {
+  _filterEvents(events: DiffEvent[]): DiffEvent[] {
+    return events.filter((e) => {
       if (e.category === 'inventory') return config.showInventoryLog;
-      if (e.category === 'container') return config.enableContainerLog !== false;
-      if (e.category === 'horse') return config.enableHorseLog !== false;
-      if (e.category === 'vehicle') return config.enableVehicleLog !== false;
-      if (e.category === 'world') return config.enableWorldEventFeed !== false;
-      if (e.category === 'structure') return (config as any).enableStructureLog !== false;
+      if (e.category === 'container') return config.enableContainerLog;
+      if (e.category === 'horse') return config.enableHorseLog;
+      if (e.category === 'vehicle') return config.enableVehicleLog;
+      if (e.category === 'world') return config.enableWorldEventFeed;
+      if (e.category === 'structure')
+        return (config as typeof config & Record<string, unknown>).enableStructureLog !== false;
       return true;
     });
   }
@@ -229,41 +308,47 @@ class ActivityLog {
    * Build one embed for a category of events.
    * Events are batched by actor and formatted with clean names.
    */
-  _buildCategoryEmbed(category: any, events: any, timeStr: any) {
-    const clr = (CATEGORY_COLORS as Record<string, number>)[category] || 0x95a5a6;
+  _buildCategoryEmbed(category: string, events: DiffEvent[], timeStr: string): EmbedBuilder | null {
+    const clr = CATEGORY_COLORS[category] ?? 0x95a5a6;
     const title = _categoryTitle(category);
 
-    const lines = [];
-    const batchedItems = new Map(); // "actor::type" → aggregated
+    const lines: string[] = [];
+    const batchedItems = new Map<string, EventBatch>();
 
     for (const event of events) {
-      const key = `${event.actor}::${event.type}`;
+      const key = `${String(event.actor)}::${event.type}`;
 
       if (event.item) {
         if (!batchedItems.has(key)) {
           batchedItems.set(key, { event, items: [] });
         }
-        batchedItems.get(key).items.push({
-          item: event.item,
-          amount: event.amount,
-          durability: event.details?.durability,
-          attributedPlayer: event.attributedPlayer,
-          attributedSteamId: event.attributedSteamId,
-        });
+        const batch = batchedItems.get(key);
+        if (batch && 'items' in batch) {
+          batch.items.push({
+            item: event.item,
+            amount: event.amount,
+            durability: event.details?.durability as number | undefined,
+            attributedPlayer: event.attributedPlayer,
+            attributedSteamId: event.attributedSteamId,
+          });
+        }
       } else {
         // Collapse duplicate non-item events (e.g. 30x "Barb Defence was destroyed")
-        const dedupeKey = `${event.type}::${_cleanActorName(event.actorName || event.actor || '')}`;
+        const dedupeKey = `${event.type}::${_cleanActorName(event.actorName ?? event.actor ?? '')}`;
         if (!batchedItems.has(dedupeKey)) {
           batchedItems.set(dedupeKey, { event, count: 1, isCollapsed: true });
-        } else if (batchedItems.get(dedupeKey).isCollapsed) {
-          batchedItems.get(dedupeKey).count++;
+        } else {
+          const existing = batchedItems.get(dedupeKey);
+          if (existing && 'isCollapsed' in existing) {
+            existing.count++;
+          }
         }
       }
     }
 
     // Format collapsed non-item events
     for (const [, batch] of batchedItems) {
-      if (!batch.isCollapsed) continue;
+      if (!('isCollapsed' in batch)) continue;
       const formatted = _formatEvent(batch.event, timeStr);
       if (batch.count > 1) {
         lines.push(formatted + ` ×${batch.count}`);
@@ -274,29 +359,29 @@ class ActivityLog {
 
     // Format batched item events with clean names and player attribution
     for (const [, batch] of batchedItems) {
-      if (batch.isCollapsed) continue; // already formatted above
+      if ('isCollapsed' in batch) continue; // already formatted above
       const e = batch.event;
-      const emoji = (EVENT_EMOJI as Record<string, string>)[e.type] || '•';
+      const emoji = EVENT_EMOJI[e.type] ?? '•';
       const itemList = batch.items
-        .map((i: any) => {
+        .map((i) => {
           const cleaned = cleanItemName(i.item);
-          let label = i.amount > 1 ? `${cleaned} x${i.amount}` : cleaned;
+          let label = (i.amount ?? 0) > 1 ? `${cleaned} x${i.amount}` : cleaned;
           if (i.durability != null && i.durability < 100) label += ` (${Math.round(i.durability)}%)`;
           return label;
         })
         .join(', ');
 
-      const actorLabel = _cleanActorName(e.actorName || e.actor || '');
+      const actorLabel = _cleanActorName(e.actorName ?? e.actor ?? '');
       const loc = _formatLocation(e);
 
       // Player attribution: prefer cross-referenced data from diff-engine,
       // fall back to log-based container access tracking
       let playerTag = '';
-      const crossRefPlayer = e.attributedPlayer || batch.items.find((i: any) => i.attributedPlayer)?.attributedPlayer;
+      const crossRefPlayer = e.attributedPlayer ?? batch.items.find((i) => i.attributedPlayer)?.attributedPlayer;
       if (crossRefPlayer) {
         playerTag = ` — **${crossRefPlayer}**`;
       } else if (category === 'container' && this._logWatcher) {
-        const access = this._logWatcher.getRecentContainerAccess(e.actorName || e.actor);
+        const access = this._logWatcher.getRecentContainerAccess(e.actorName ?? e.actor ?? '');
         if (access) playerTag = ` — **${access.player}**`;
       }
 
@@ -349,7 +434,7 @@ class ActivityLog {
  * Clean raw UE4 actor names into human-readable labels.
  * Delegates to the shared cleanName() utility.
  */
-function _cleanActorName(raw: any) {
+function _cleanActorName(raw: unknown): string {
   return cleanName(raw);
 }
 
@@ -357,7 +442,7 @@ function _cleanActorName(raw: any) {
  * Format a Date or ISO string into a short HH:MM timestamp string.
  * Uses the bot's configured timezone.
  */
-function _formatTime(dateOrIso: any) {
+function _formatTime(dateOrIso: Date | string | null | undefined): string {
   if (!dateOrIso) return '';
   const d = dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
   if (isNaN(d.getTime())) return '';
@@ -372,7 +457,7 @@ function _formatTime(dateOrIso: any) {
   }
 }
 
-function _categoryTitle(category: any) {
+function _categoryTitle(category: string): string {
   switch (category) {
     case 'container':
       return t('discord:activity_log.container_activity', _activityLocale());
@@ -391,9 +476,9 @@ function _categoryTitle(category: any) {
   }
 }
 
-function _formatEvent(event: any, timeStr: any) {
-  const emoji = (EVENT_EMOJI as Record<string, string>)[event.type] || '•';
-  const name = _cleanActorName(event.actorName || event.actor || '');
+function _formatEvent(event: DiffEvent, timeStr: string): string {
+  const emoji = EVENT_EMOJI[event.type] ?? '•';
+  const name = _cleanActorName(event.actorName ?? event.actor ?? '');
   const ts = timeStr ? `\`${timeStr}\` ` : '';
   const loc = _formatLocation(event);
 
@@ -409,19 +494,19 @@ function _formatEvent(event: any, timeStr: any) {
       if (Array.isArray(items) && items.length > 0) {
         const cleaned = items
           .slice(0, 5)
-          .map((i: any) => cleanItemName(typeof i === 'string' ? i.replace(/ x\d+$/, '') : i));
+          .map((i: unknown) => cleanItemName(typeof i === 'string' ? i.replace(/ x\d+$/, '') : String(i)));
         lostList = `: ${cleaned.join(', ')}`;
         if (items.length > 5) lostList += ` +${items.length - 5} more`;
       }
       const amountLabel = event.amount === 1 ? 'item' : 'items';
-      return `${ts}${emoji} **${name}** destroyed (${fmtNumber(event.amount, _activityLocale())} ${amountLabel} lost${lostList})${loc}`;
+      return `${ts}${emoji} **${name}** destroyed (${fmtNumber(event.amount ?? 0, _activityLocale())} ${amountLabel} lost${lostList})${loc}`;
     }
     case 'horse_appeared':
       return `${ts}${emoji} **${name}** appeared${loc}`;
     case 'horse_disappeared':
-      return `${ts}${emoji} **${name}** disappeared (health: ${event.details?.lastHealth ?? '?'})${loc}`;
+      return `${ts}${emoji} **${name}** disappeared (health: ${event.details?.lastHealth != null ? `${event.details.lastHealth as number}` : '?'})${loc}`;
     case 'horse_health_changed': {
-      const delta = event.amount;
+      const delta = event.amount ?? 0;
       return `${ts}${emoji} **${name}** ${delta > 0 ? 'healed' : 'took damage'} (${delta > 0 ? '+' : ''}${delta} HP)${loc}`;
     }
     case 'horse_owner_changed':
@@ -431,27 +516,29 @@ function _formatEvent(event: any, timeStr: any) {
     case 'airdrop_despawned':
       return `${ts}${emoji} **Airdrop** has expired`;
     case 'world_day_advanced':
-      return `${ts}${emoji} Day **${event.details?.newDay}** has dawned (+${event.amount})`;
+      return `${ts}${emoji} Day **${String(event.details?.newDay)}** has dawned (+${event.amount ?? 0})`;
     case 'world_season_changed':
-      return `${ts}${emoji} Season changed to **${event.item}**`;
+      return `${ts}${emoji} Season changed to **${String(event.item)}**`;
     // ── New diff-engine event types ──
     case 'structure_damaged': {
-      const pct = event.details?.healthPercent != null ? ` (${Math.round(event.details.healthPercent)}% HP)` : '';
+      const pct =
+        event.details?.healthPercent != null ? ` (${Math.round(Number(event.details.healthPercent))}% HP)` : '';
       return `${ts}🏚️ **${name}** took damage${pct}${loc}`;
     }
     case 'structure_destroyed':
       return `${ts}💥 **${name}** was destroyed${loc}`;
     case 'structure_upgraded':
-      return `${ts}🔨 **${name}** upgraded to level ${event.details?.newLevel || '?'}${loc}`;
+      return `${ts}🔨 **${name}** upgraded to level ${event.details?.newLevel != null ? `${event.details.newLevel as number}` : '?'}${loc}`;
     case 'structure_built':
       return `${ts}🏗️ **${name}** was built${loc}`;
     case 'vehicle_health_changed': {
-      const delta = event.amount;
-      const pct = event.details?.healthPercent != null ? ` (${Math.round(event.details.healthPercent)}% HP)` : '';
+      const delta = event.amount ?? 0;
+      const pct =
+        event.details?.healthPercent != null ? ` (${Math.round(Number(event.details.healthPercent))}% HP)` : '';
       return `${ts}🚗 **${name}** ${delta > 0 ? 'repaired' : 'damaged'}${pct}${loc}`;
     }
     case 'vehicle_fuel_changed': {
-      const delta = event.amount;
+      const delta = event.amount ?? 0;
       return `${ts}⛽ **${name}** ${delta > 0 ? 'refueled' : 'fuel consumed'} (${delta > 0 ? '+' : ''}${Math.round(delta)})${loc}`;
     }
     case 'vehicle_appeared':
@@ -470,7 +557,7 @@ function _formatEvent(event: any, timeStr: any) {
  * Grid: 8x8 (A-H columns, 1-8 rows) mapped to UE4 world bounds.
  * World bounds: Width 395900, Offset X=201200 Y=-200600 (developer-provided)
  */
-function _formatLocation(event: any) {
+function _formatLocation(event: Partial<DiffEvent>): string {
   const x = event.x ?? event.pos_x;
   const y = event.y ?? event.pos_y;
   if (x == null || y == null) return '';
@@ -496,7 +583,7 @@ export default ActivityLog;
 export { ActivityLog };
 
 const _test = {
-  _filterEvents: ActivityLog.prototype._filterEvents,
+  _filterEvents: ActivityLog.prototype._filterEvents.bind(ActivityLog.prototype),
   _formatTime,
   _categoryTitle,
 };

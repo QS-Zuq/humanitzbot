@@ -124,42 +124,42 @@ describe('_filterEvents', () => {
     config.showInventoryLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'inventory'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'inventory'));
   });
 
   it('filters container when enableContainerLog is false', () => {
     config.enableContainerLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'container'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'container'));
   });
 
   it('filters horse when enableHorseLog is false', () => {
     config.enableHorseLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'horse'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'horse'));
   });
 
   it('filters vehicle when enableVehicleLog is false', () => {
     config.enableVehicleLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'vehicle'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'vehicle'));
   });
 
   it('filters world when enableWorldEventFeed is false', () => {
     config.enableWorldEventFeed = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'world'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'world'));
   });
 
   it('filters structure when enableStructureLog is false', () => {
     config.enableStructureLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'structure'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'structure'));
   });
 
   it('passes unknown categories through', () => {

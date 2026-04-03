@@ -21,25 +21,102 @@
  *   - Player of the Week
  */
 
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, type Client } from 'discord.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
 
 const STATE_KEY = 'recap_service';
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type ConfigType = typeof _defaultConfig;
+type DbRow = Record<string, unknown>;
+
+/** Sendable channel or thread for posting embeds. */
+interface Sendable {
+  send(options: { embeds: EmbedBuilder[] }): Promise<unknown>;
+}
+
+interface RecapLogWatcher {
+  logChannel?: Sendable | null;
+}
+
+interface RecapDB {
+  getActivitySince(isoTimestamp: string): DbRow[];
+  getAllPlayers(): DbRow[];
+  topKillers(limit: number): unknown[];
+  topPlaytime(limit: number): unknown[];
+  getStateJSON(key: string, defaultVal: unknown): unknown;
+  setStateJSON(key: string, value: unknown): void;
+}
+
+interface PeaksData {
+  yesterdayPeak?: number;
+  todayPeak?: number;
+}
+
+interface RecapPlaytime {
+  getPeaks(): PeaksData;
+}
+
+interface DayStats {
+  totalEvents: number;
+  uniquePlayers: number;
+  peakConcurrent: number;
+  connects: number;
+  disconnects: number;
+  deaths: number;
+  pvpKills: number;
+  builds: number;
+  loots: number;
+  raidHits: number;
+  fish: number;
+  totalKills: number;
+  topKiller: string | null;
+  topKillerKills: number;
+  newPlayers: string[];
+  mvp: string | null;
+  mvpScore: number;
+  unluckiest: string | null;
+  unluckyDeaths: number;
+}
+
+interface WeeklyStats {
+  uniquePlayers?: number;
+  deaths?: number;
+  pvpKills?: number;
+  builds?: number;
+  loots?: number;
+  totalEvents?: number;
+}
+
+interface RecapState {
+  lastDaily?: Record<string, unknown>;
+  lastWeekly?: WeeklyStats | null;
+}
+
+/** Safely coerce a DB field to string. */
+function _s(val: unknown, fallback = ''): string {
+  if (typeof val === 'string') return val;
+  if (val == null) return fallback;
+  if (typeof val === 'number' || typeof val === 'boolean') return `${val}`;
+  return JSON.stringify(val);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function _fmt(this: any, n: any, locale: any = 'en') {
+function _fmt(n: unknown, locale = 'en'): string {
   if (n == null) return '0';
   return fmtNumber(Number(n), locale);
 }
 
-function _tr(this: any, locale: any, key: any, vars: any = {}) {
+function _tr(locale: string, key: string, vars: Record<string, unknown> = {}): string {
   return t(`discord:recap.${key}`, locale, vars);
 }
 
-function _fmtHours(this: any, seconds: any, locale: any = 'en') {
+function _fmtHours(seconds: number, locale = 'en'): string {
   if (!seconds || seconds <= 0) {
     return _tr(locale, 'duration_minutes', { minutes: fmtNumber(0, locale) });
   }
@@ -52,7 +129,7 @@ function _fmtHours(this: any, seconds: any, locale: any = 'en') {
   });
 }
 
-function _trend(this: any, current: any, previous: any) {
+function _trend(current: number, previous: number | undefined): string {
   if (!previous || previous === 0) return '';
   const pct = Math.round(((current - previous) / previous) * 100);
   if (pct > 0) return ` ↑ ${pct}%`;
@@ -63,21 +140,32 @@ function _trend(this: any, current: any, previous: any) {
 // ── RecapService class ───────────────────────────────────────────────────────
 
 class RecapService {
-  [key: string]: any;
+  private _client: Client;
+  private _db: RecapDB | null;
+  private _logWatcher: RecapLogWatcher | null;
+  private _config: ConfigType;
+  private _playtime: RecapPlaytime | null;
+  private _log: Logger;
+
   /**
-   * @param {object} client - Discord.js Client
-   * @param {object} opts
-   * @param {object} opts.db - HumanitZDB instance
-   * @param {object} [opts.logWatcher] - LogWatcher for posting target
-   * @param {object} [opts.config] - config object
-   * @param {object} [opts.playtime] - PlaytimeTracker for peak stats
+   * @param client - Discord.js Client
+   * @param opts   Module dependencies
    */
-  constructor(client: any, opts: any = {}) {
+  constructor(
+    client: Client,
+    opts: {
+      db?: unknown;
+      logWatcher?: unknown;
+      config?: ConfigType;
+      playtime?: RecapPlaytime | null;
+      label?: string;
+    } = {},
+  ) {
     this._client = client;
-    this._db = opts.db || null;
-    this._logWatcher = opts.logWatcher || null;
-    this._config = opts.config || _defaultConfig;
-    this._playtime = opts.playtime || null;
+    this._db = (opts.db as RecapDB | null) ?? null;
+    this._logWatcher = (opts.logWatcher as RecapLogWatcher | null) ?? null;
+    this._config = opts.config ?? _defaultConfig;
+    this._playtime = opts.playtime ?? null;
     this._log = createLogger(opts.label, 'RECAP');
   }
 
@@ -86,14 +174,14 @@ class RecapService {
   /**
    * Post the daily recap for the given date (defaults to yesterday).
    * Called on LogWatcher day-rollover — the "yesterday" date is what just ended.
-   * @param {string} [dateStr] - YYYY-MM-DD of the day to recap (default: yesterday)
+   * @param dateStr - YYYY-MM-DD of the day to recap (default: yesterday)
    */
-  async postDailyRecap(dateStr: any) {
+  async postDailyRecap(dateStr?: string): Promise<void> {
     if (!this._db) return;
 
     try {
       // Default to yesterday in bot timezone
-      const date = dateStr || this._getYesterday();
+      const date = dateStr ?? this._getYesterday();
       const startOfDay = `${date}T00:00:00.000Z`;
       const endOfDay = `${date}T23:59:59.999Z`;
 
@@ -111,25 +199,30 @@ class RecapService {
 
       // Save stats for weekly comparison
       this._saveLastDaily(date, stats);
-    } catch (err: any) {
-      this._log.error('Daily recap error:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Daily recap error:', errMsg(err));
     }
   }
 
   /**
    * Gather all stats for a single day from the database.
    */
-  _gatherDayStats(startOfDay: any, endOfDay: any) {
+  _gatherDayStats(startOfDay: string, endOfDay: string): DayStats | null {
+    if (!this._db) return null;
     const events = this._db.getActivitySince(startOfDay);
     // Filter to only this day (getActivitySince returns everything after the timestamp)
-    const dayEvents = events.filter((e: any) => e.timestamp <= endOfDay);
+    const dayEvents = events.filter((e) => {
+      const ts = typeof e.timestamp === 'string' ? e.timestamp : _s(e.timestamp);
+      return ts <= endOfDay;
+    });
 
     if (dayEvents.length === 0) return null;
 
     // Count event types
     const counts: Record<string, number> = {};
     for (const e of dayEvents) {
-      counts[e.type] = (counts[e.type] || 0) + 1;
+      const eventType = _s(e.type);
+      counts[eventType] = (counts[eventType] || 0) + 1;
     }
 
     // Unique players from connect events
@@ -137,8 +230,9 @@ class RecapService {
     const playerNames: Record<string, string> = {};
     for (const e of dayEvents) {
       if (e.steam_id) {
-        uniquePlayers.add(e.steam_id);
-        if (e.player_name) playerNames[e.steam_id] = e.player_name;
+        const sid = _s(e.steam_id);
+        uniquePlayers.add(sid);
+        if (e.player_name) playerNames[sid] = _s(e.player_name);
       }
     }
 
@@ -147,12 +241,13 @@ class RecapService {
     const playerDeaths: Record<string, number> = {};
     const playerBuilds: Record<string, number> = {};
     for (const e of dayEvents) {
-      const sid = e.steam_id;
+      const sid = e.steam_id ? _s(e.steam_id) : '';
       if (!sid) continue;
-      if (e.type === 'player_death' || e.type === 'player_death_pvp') {
+      const eventType = _s(e.type);
+      if (eventType === 'player_death' || eventType === 'player_death_pvp') {
         playerDeaths[sid] = (playerDeaths[sid] || 0) + 1;
       }
-      if (e.type === 'player_build') {
+      if (eventType === 'player_build') {
         playerBuilds[sid] = (playerBuilds[sid] || 0) + 1;
       }
     }
@@ -162,30 +257,31 @@ class RecapService {
     // Total kills: count from DB players table (more reliable)
     const allPlayers = this._db.getAllPlayers();
     let totalKills = 0;
-    let topKiller = null;
+    let topKiller: string | null = null;
     let topKillerKills = 0;
     for (const p of allPlayers) {
-      if (p.lifetime_kills > 0) totalKills += p.lifetime_kills;
+      const lk = Number(p.lifetime_kills ?? 0);
+      if (lk > 0) totalKills += lk;
     }
 
     // Top killer today — use log_kills or lifetime as proxy
-    const topKillers = this._db.topKillers(1);
-    if (topKillers.length > 0) {
-      topKiller = topKillers[0].name;
-      topKillerKills = topKillers[0].lifetime_kills;
+    const topKillers = this._db.topKillers(1) as DbRow[];
+    if (topKillers.length > 0 && topKillers[0]) {
+      topKiller = _s(topKillers[0].name);
+      topKillerKills = Number(topKillers[0].lifetime_kills ?? 0);
     }
 
     // New players (first_seen today)
-    const newPlayers = allPlayers.filter((p: any) => {
-      const firstSeen = p.playtime_first_seen || p.updated_at;
+    const newPlayers = allPlayers.filter((p) => {
+      const firstSeen = _s(p.playtime_first_seen, _s(p.updated_at));
       return firstSeen && firstSeen >= startOfDay && firstSeen <= endOfDay;
     });
 
     // MVP — weighted score: kills*2 + builds*1 + loots*0.5 + playtime_hours*3
     // Unluckiest — most deaths
-    let mvp = null,
+    let mvp: string | null = null,
       mvpScore = 0;
-    let unluckiest = null,
+    let unluckiest: string | null = null,
       unluckyDeaths = 0;
 
     for (const sid of uniquePlayers) {
@@ -198,9 +294,9 @@ class RecapService {
         mvp = name;
         mvpScore = score;
       }
-      if ((deaths as number) > unluckyDeaths) {
+      if (deaths > unluckyDeaths) {
         unluckiest = name;
-        unluckyDeaths = deaths as number;
+        unluckyDeaths = deaths;
       }
     }
 
@@ -208,7 +304,7 @@ class RecapService {
     let peakConcurrent = 0;
     if (this._playtime) {
       const peaks = this._playtime.getPeaks();
-      peakConcurrent = peaks.yesterdayPeak || peaks.todayPeak || 0;
+      peakConcurrent = peaks.yesterdayPeak ?? peaks.todayPeak ?? 0;
     }
 
     return {
@@ -226,7 +322,7 @@ class RecapService {
       totalKills,
       topKiller,
       topKillerKills,
-      newPlayers: newPlayers.map((p: any) => p.name),
+      newPlayers: newPlayers.map((p) => _s(p.name)),
       mvp,
       mvpScore,
       unluckiest,
@@ -237,9 +333,9 @@ class RecapService {
   /**
    * Build the daily recap embed.
    */
-  _buildDailyEmbed(stats: any, dateLabel: any) {
-    const locale = getLocale({ serverConfig: this._config });
-    const lines = [];
+  _buildDailyEmbed(stats: DayStats, dateLabel: string): EmbedBuilder {
+    const locale = getLocale();
+    const lines: string[] = [];
 
     // Header stats
     lines.push(
@@ -323,11 +419,11 @@ class RecapService {
   /**
    * Post the weekly digest. Called on day-rollover when today is the weekly reset day.
    */
-  async postWeeklyDigest() {
+  async postWeeklyDigest(): Promise<void> {
     if (!this._db) return;
 
     try {
-      const locale = getLocale({ serverConfig: this._config });
+      const locale = getLocale();
       // Get the last 7 days of data
       const today = this._config.getToday();
       const weekAgo = new Date(`${today}T00:00:00.000Z`);
@@ -342,23 +438,25 @@ class RecapService {
 
       // Count event types
       const counts: Record<string, number> = {};
-      const uniquePlayers = new Set();
+      const uniquePlayers = new Set<string>();
       const playerDeaths: Record<string, number> = {};
       const playerNames: Record<string, string> = {};
       for (const e of events) {
-        counts[e.type] = (counts[e.type] || 0) + 1;
+        const eventType = _s(e.type);
+        counts[eventType] = (counts[eventType] || 0) + 1;
         if (e.steam_id) {
-          uniquePlayers.add(e.steam_id);
-          if (e.player_name) playerNames[e.steam_id] = e.player_name;
-          if (e.type === 'player_death' || e.type === 'player_death_pvp') {
-            playerDeaths[e.steam_id] = (playerDeaths[e.steam_id] || 0) + 1;
+          const sid = _s(e.steam_id);
+          uniquePlayers.add(sid);
+          if (e.player_name) playerNames[sid] = _s(e.player_name);
+          if (eventType === 'player_death' || eventType === 'player_death_pvp') {
+            playerDeaths[sid] = (playerDeaths[sid] || 0) + 1;
           }
         }
       }
 
       // Previous week comparison
       const prevState = this._loadState();
-      const prevWeek = prevState?.lastWeekly || null;
+      const prevWeek = prevState.lastWeekly ?? null;
 
       const totalDeaths = (counts.player_death || 0) + (counts.player_death_pvp || 0);
       const totalBuilds = counts.player_build || 0;
@@ -366,20 +464,20 @@ class RecapService {
       const pvpKills = counts.player_death_pvp || 0;
 
       // Player of the Week — from DB aggregates
-      const topKillers = this._db.topKillers(1);
-      const topPlaytime = this._db.topPlaytime(1);
+      const topKillers = this._db.topKillers(1) as DbRow[];
+      const topPlaytime = this._db.topPlaytime(1) as DbRow[];
 
       // Unluckiest of the week
-      let unluckiest = null,
+      let unluckiest: string | null = null,
         unluckyDeaths = 0;
-      for (const [sid, deaths] of Object.entries(playerDeaths) as [string, number][]) {
-        if ((deaths as number) > unluckyDeaths) {
-          unluckiest = playerNames[sid as string] || (sid as string);
-          unluckyDeaths = deaths as number;
+      for (const [sid, deaths] of Object.entries(playerDeaths)) {
+        if (deaths > unluckyDeaths) {
+          unluckiest = playerNames[sid] || sid;
+          unluckyDeaths = deaths;
         }
       }
 
-      const lines = [];
+      const lines: string[] = [];
       lines.push(
         _tr(locale, 'weekly_unique_players_line', {
           unique_players: _fmt(uniquePlayers.size, locale),
@@ -418,19 +516,19 @@ class RecapService {
       lines.push('');
 
       // Player of the Week
-      if (topKillers.length > 0) {
+      if (topKillers.length > 0 && topKillers[0]) {
         lines.push(
           _tr(locale, 'weekly_top_killer_line', {
-            top_killer: topKillers[0].name,
+            top_killer: _s(topKillers[0].name),
             top_killer_kills: _fmt(topKillers[0].lifetime_kills, locale),
           }),
         );
       }
-      if (topPlaytime.length > 0 && topPlaytime[0].playtime_seconds > 0) {
+      if (topPlaytime.length > 0 && topPlaytime[0] && Number(topPlaytime[0].playtime_seconds ?? 0) > 0) {
         lines.push(
           _tr(locale, 'weekly_most_active_line', {
-            most_active: topPlaytime[0].name,
-            most_active_hours: _fmtHours(topPlaytime[0].playtime_seconds, locale),
+            most_active: _s(topPlaytime[0].name),
+            most_active_hours: _fmtHours(Number(topPlaytime[0].playtime_seconds ?? 0), locale),
           }),
         );
       }
@@ -474,16 +572,16 @@ class RecapService {
         loots: totalLoots,
         totalEvents: events.length,
       });
-    } catch (err: any) {
-      this._log.error('Weekly digest error:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Weekly digest error:', errMsg(err));
     }
   }
 
   /**
    * Called on each day rollover. Posts daily recap, and weekly digest if it's reset day.
-   * @param {string} [yesterdayDate] - YYYY-MM-DD of the day that just ended
+   * @param yesterdayDate - YYYY-MM-DD of the day that just ended
    */
-  async onDayRollover(yesterdayDate: any) {
+  async onDayRollover(yesterdayDate?: string): Promise<void> {
     await this.postDailyRecap(yesterdayDate);
 
     // Check if today is the weekly reset day
@@ -497,7 +595,7 @@ class RecapService {
 
   // ── Posting ────────────────────────────────────────────────
 
-  async _post(embeds: any) {
+  async _post(embeds: EmbedBuilder[]): Promise<void> {
     const target = this._getPostTarget();
     if (!target) {
       this._log.warn('No channel available — recap dropped');
@@ -505,63 +603,63 @@ class RecapService {
     }
     try {
       await target.send({ embeds });
-    } catch (err: any) {
-      this._log.error('Failed to post recap:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to post recap:', errMsg(err));
     }
   }
 
-  _getPostTarget() {
+  _getPostTarget(): Sendable | null {
     // Post to the log channel directly (not the thread — recaps are top-level)
     if (this._logWatcher?.logChannel) {
       return this._logWatcher.logChannel;
     }
     const channelId = this._config.logChannelId;
-    if (channelId && this._client) {
-      return this._client.channels.cache.get(channelId) || null;
+    if (channelId) {
+      return (this._client.channels.cache.get(channelId) as Sendable | undefined) ?? null;
     }
     return null;
   }
 
   // ── State persistence ──────────────────────────────────────
 
-  _loadState() {
+  _loadState(): RecapState {
     if (!this._db) return {};
     try {
-      return this._db.getStateJSON(STATE_KEY, {});
+      return this._db.getStateJSON(STATE_KEY, {}) as RecapState;
     } catch {
       return {};
     }
   }
 
-  _saveLastDaily(date: any, stats: any) {
+  _saveLastDaily(date: string, stats: DayStats): void {
     if (!this._db) return;
     try {
       const state = this._loadState();
       state.lastDaily = { date, ...stats };
       this._db.setStateJSON(STATE_KEY, state);
-    } catch (err: any) {
-      this._log.error('Failed to save daily state:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to save daily state:', errMsg(err));
     }
   }
 
-  _saveWeeklyStats(stats: any) {
+  _saveWeeklyStats(stats: WeeklyStats): void {
     if (!this._db) return;
     try {
       const state = this._loadState();
       state.lastWeekly = stats;
       this._db.setStateJSON(STATE_KEY, state);
-    } catch (err: any) {
-      this._log.error('Failed to save weekly state:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to save weekly state:', errMsg(err));
     }
   }
 
   // ── Utility ────────────────────────────────────────────────
 
-  _getYesterday() {
+  _getYesterday(): string {
     const today = this._config.getToday();
     const d = new Date(`${today}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().split('T')[0];
+    return d.toISOString().split('T')[0] ?? today;
   }
 
   static STATE_KEY = STATE_KEY;

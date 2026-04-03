@@ -20,6 +20,25 @@
 
 import readline from 'node:readline';
 import type { HumanitZDB } from './db/database.js';
+import { errMsg } from './utils/error.js';
+
+/** Generic row shape from DB queries. */
+type DbRow = Record<string, unknown>;
+
+/** Safely coerce a DB field to string. */
+function s(val: unknown, fallback = ''): string {
+  if (val == null) return fallback;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean' || typeof val === 'bigint') return `${val}`;
+  return JSON.stringify(val);
+}
+
+/** Safely coerce a DB field to number. */
+function n(val: unknown, fallback = 0): number {
+  if (val == null) return fallback;
+  const num = Number(val);
+  return isNaN(num) ? fallback : num;
+}
 
 class StdinConsole {
   private _db: HumanitZDB | null;
@@ -57,7 +76,7 @@ class StdinConsole {
       this._rl.prompt();
     }
 
-    this._rl.on('line', async (line) => {
+    this._rl.on('line', (line) => {
       const trimmed = line.trim();
       if (!trimmed) {
         this._prompt();
@@ -65,9 +84,9 @@ class StdinConsole {
       }
 
       try {
-        await this._dispatch(trimmed);
-      } catch (err: any) {
-        this._print(`Error: ${String(err?.message ?? err)}`);
+        this._dispatch(trimmed);
+      } catch (err: unknown) {
+        this._print(`Error: ${errMsg(err)}`);
       }
       this._prompt();
     });
@@ -96,7 +115,7 @@ class StdinConsole {
 
   // ── Command dispatch ──────────────────────────────────────
 
-  private async _dispatch(input: string): Promise<void> {
+  private _dispatch(input: string): void {
     const parts = input.split(/\s+/);
     const cmd = (parts[0] ?? '').toLowerCase();
     const args = parts.slice(1);
@@ -212,10 +231,8 @@ Available commands:
       return;
     }
     const limit = parseInt(args[0] ?? '', 10) || 20;
-    const players: any[] = this._db.getAllPlayers();
-    const sorted = players.sort((a: any, b: any) =>
-      (b.last_seen || b.updated_at || '') > (a.last_seen || a.updated_at || '') ? 1 : -1,
-    );
+    const players = this._db.getAllPlayers() as DbRow[];
+    const sorted = players.sort((a, b) => (s(b.last_seen, s(b.updated_at)) > s(a.last_seen, s(a.updated_at)) ? 1 : -1));
     const slice = sorted.slice(0, limit);
 
     if (slice.length === 0) {
@@ -228,12 +245,12 @@ Available commands:
     this._print(header);
     this._print('-'.repeat(header.length));
     for (const p of slice) {
-      const name = String(p.name ?? 'Unknown').slice(0, 23);
-      const kills = String(p.zeeks_killed ?? 0);
-      const level = String(p.level ?? 0);
-      const seen = p.last_seen ?? p.updated_at ?? '-';
+      const name = s(p.name, 'Unknown').slice(0, 23);
+      const kills = String(n(p.zeeks_killed));
+      const level = String(n(p.level));
+      const seen = s(p.last_seen, s(p.updated_at, '-'));
       this._print(
-        `${String(p.steam_id ?? '').padEnd(20)} ${name.padEnd(24)} ${kills.padStart(6)} ${level.padStart(5)} ${String(seen).slice(0, 20).padEnd(20)}`,
+        `${s(p.steam_id).padEnd(20)} ${name.padEnd(24)} ${kills.padStart(6)} ${level.padStart(5)} ${seen.slice(0, 20).padEnd(20)}`,
       );
     }
   }
@@ -248,31 +265,31 @@ Available commands:
       return;
     }
     const steamId = args[0] ?? '';
-    const p: any = this._db.getPlayer(steamId);
+    const p = this._db.getPlayer(steamId) as DbRow | null;
     if (!p) {
       this._print(`Player not found: ${steamId}`);
       return;
     }
 
-    this._print(`Player: ${String(p.name ?? 'Unknown')}`);
-    this._print(`  Steam ID:    ${String(p.steam_id)}`);
-    this._print(`  Level:       ${String(p.level ?? 0)}`);
-    this._print(`  Kills:       ${String(p.zeeks_killed ?? 0)}`);
-    this._print(`  Headshots:   ${String(p.headshots ?? 0)}`);
-    this._print(`  Days Surv:   ${String(p.days_survived ?? 0)}`);
-    this._print(`  Health:      ${String(p.health ?? 0)} / ${String(p.max_health ?? 0)}`);
-    this._print(`  Hunger:      ${String(p.hunger ?? 0)}`);
-    this._print(`  Thirst:      ${String(p.thirst ?? 0)}`);
-    this._print(`  Infection:   ${String(p.infection ?? 0)}`);
+    this._print(`Player: ${s(p.name, 'Unknown')}`);
+    this._print(`  Steam ID:    ${s(p.steam_id)}`);
+    this._print(`  Level:       ${String(n(p.level))}`);
+    this._print(`  Kills:       ${String(n(p.zeeks_killed))}`);
+    this._print(`  Headshots:   ${String(n(p.headshots))}`);
+    this._print(`  Days Surv:   ${String(n(p.days_survived))}`);
+    this._print(`  Health:      ${String(n(p.health))} / ${String(n(p.max_health))}`);
+    this._print(`  Hunger:      ${String(n(p.hunger))}`);
+    this._print(`  Thirst:      ${String(n(p.thirst))}`);
+    this._print(`  Infection:   ${String(n(p.infection))}`);
     this._print(`  Online:      ${p.online ? 'Yes' : 'No'}`);
-    this._print(`  Last Seen:   ${String(p.last_seen ?? '-')}`);
-    this._print(`  Updated:     ${String(p.updated_at ?? '-')}`);
+    this._print(`  Last Seen:   ${s(p.last_seen, '-')}`);
+    this._print(`  Updated:     ${s(p.updated_at, '-')}`);
 
     // Aliases
     try {
-      const aliases: any[] = this._db.getPlayerAliases(steamId);
+      const aliases = this._db.getPlayerAliases(steamId) as DbRow[];
       if (aliases.length > 0) {
-        this._print(`  Aliases:     ${aliases.map((a: any) => String(a.name ?? a.player_name ?? '')).join(', ')}`);
+        this._print(`  Aliases:     ${aliases.map((a) => s(a.name, s(a.player_name))).join(', ')}`);
       }
     } catch {
       /* alias table may not exist */
@@ -284,7 +301,7 @@ Available commands:
       this._print('No database available.');
       return;
     }
-    const players: any[] = this._db.getOnlinePlayers();
+    const players = this._db.getOnlinePlayers() as DbRow[];
     if (players.length === 0) {
       this._print('No players online.');
       return;
@@ -292,9 +309,7 @@ Available commands:
 
     this._print(`Online players (${players.length}):`);
     for (const p of players) {
-      this._print(
-        `  ${String(p.steamId ?? p.steam_id ?? '').padEnd(20)} ${String(p.name ?? p.player_name ?? 'Unknown')}`,
-      );
+      this._print(`  ${s(p.steamId, s(p.steam_id)).padEnd(20)} ${s(p.name, s(p.player_name, 'Unknown'))}`);
     }
   }
 
@@ -310,7 +325,7 @@ Available commands:
     const query = args.join(' ');
 
     try {
-      const results: any[] = this._db.searchPlayersByName(query);
+      const results = this._db.searchPlayersByName(query) as DbRow[];
       if (results.length === 0) {
         this._print(`No players found matching "${query}".`);
         return;
@@ -318,7 +333,7 @@ Available commands:
 
       this._print(`Search results for "${query}" (${results.length}):`);
       for (const p of results) {
-        this._print(`  ${String(p.steam_id ?? '').padEnd(20)} ${String(p.name ?? p.player_name ?? 'Unknown')}`);
+        this._print(`  ${s(p.steam_id).padEnd(20)} ${s(p.name, s(p.player_name, 'Unknown'))}`);
       }
     } catch {
       this._print(`Search failed. Try: sql SELECT steam_id, name FROM players WHERE name LIKE '%${query}%'`);
@@ -333,7 +348,7 @@ Available commands:
     const limit = parseInt(args[0] ?? '', 10) || 10;
 
     try {
-      const rows: any[] = this._db.getRecentActivity(limit);
+      const rows = this._db.getRecentActivity(limit) as DbRow[];
       if (rows.length === 0) {
         this._print('No activity found.');
         return;
@@ -341,14 +356,14 @@ Available commands:
 
       this._print(`Recent activity (${rows.length}):`);
       for (const r of rows) {
-        const ts = r.timestamp ?? r.created_at ?? '';
-        const type = String(r.type ?? r.event_type ?? '?');
-        const actor = String(r.playerName ?? r.player_name ?? r.actor ?? '-');
-        const detail = String(r.details ?? r.detail ?? r.message ?? '');
-        this._print(`  [${String(ts).slice(0, 19)}] ${type.padEnd(22)} ${actor.padEnd(20)} ${detail.slice(0, 60)}`);
+        const ts = s(r.timestamp, s(r.created_at));
+        const type = s(r.type, s(r.event_type, '?'));
+        const actor = s(r.playerName, s(r.player_name, s(r.actor, '-')));
+        const detail = s(r.details, s(r.detail, s(r.message)));
+        this._print(`  [${ts.slice(0, 19)}] ${type.padEnd(22)} ${actor.padEnd(20)} ${detail.slice(0, 60)}`);
       }
-    } catch (err: any) {
-      this._print(`Activity query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Activity query failed: ${errMsg(err)}`);
     }
   }
 
@@ -360,7 +375,7 @@ Available commands:
     const limit = parseInt(args[0] ?? '', 10) || 10;
 
     try {
-      const rows: any[] = this._db.getRecentChat(limit);
+      const rows = this._db.getRecentChat(limit) as DbRow[];
       if (rows.length === 0) {
         this._print('No chat messages found.');
         return;
@@ -368,14 +383,14 @@ Available commands:
 
       this._print(`Recent chat (${rows.length}):`);
       for (const r of rows) {
-        const ts = r.timestamp ?? r.created_at ?? '';
+        const ts = s(r.timestamp, s(r.created_at));
         const dir = r.direction === 'outbound' ? '→' : '←';
-        const name = String(r.player_name ?? r.playerName ?? r.discord_user ?? '?');
-        const msg = String(r.message ?? '');
-        this._print(`  [${String(ts).slice(0, 19)}] ${dir} ${name.padEnd(20)} ${msg.slice(0, 80)}`);
+        const name = s(r.player_name, s(r.playerName, s(r.discord_user, '?')));
+        const msg = s(r.message);
+        this._print(`  [${ts.slice(0, 19)}] ${dir} ${name.padEnd(20)} ${msg.slice(0, 80)}`);
       }
-    } catch (err: any) {
-      this._print(`Chat query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Chat query failed: ${errMsg(err)}`);
     }
   }
 
@@ -394,7 +409,7 @@ Available commands:
       return;
     }
     try {
-      const rows: any[] = this._db.getAllState();
+      const rows = this._db.getAllState() as DbRow[];
       if (rows.length === 0) {
         this._print('No bot_state entries.');
         return;
@@ -402,11 +417,11 @@ Available commands:
 
       this._print(`bot_state entries (${rows.length}):`);
       for (const r of rows) {
-        const val = String(r.value ?? '').slice(0, 80);
-        this._print(`  ${String(r.key ?? '').padEnd(30)} ${val}`);
+        const val = s(r.value).slice(0, 80);
+        this._print(`  ${s(r.key).padEnd(30)} ${val}`);
       }
-    } catch (err: any) {
-      this._print(`State query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`State query failed: ${errMsg(err)}`);
     }
   }
 
@@ -434,8 +449,8 @@ Available commands:
           this._print(val);
         }
       }
-    } catch (err: any) {
-      this._print(`State get failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`State get failed: ${errMsg(err)}`);
     }
   }
 
@@ -458,8 +473,8 @@ Available commands:
     try {
       this._db.setState(key, value);
       this._print(`Set "${key}" = ${value}`);
-    } catch (err: any) {
-      this._print(`State set failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`State set failed: ${errMsg(err)}`);
     }
   }
 
@@ -481,8 +496,8 @@ Available commands:
     try {
       this._db.deleteState(key);
       this._print(`Deleted key "${key}".`);
-    } catch (err: any) {
-      this._print(`State delete failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`State delete failed: ${errMsg(err)}`);
     }
   }
 
@@ -491,35 +506,37 @@ Available commands:
       this._print('No database available.');
       return;
     }
-    const raw: any = this._db.db;
+    const raw = this._db.db;
     if (!raw) {
       this._print('Raw DB handle not available.');
       return;
     }
 
     try {
-      const tables: any[] = raw
+      const tables = raw
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-        .all();
+        .all() as DbRow[];
       this._print(`Database statistics (${tables.length} tables):`);
       this._print(`${'Table'.padEnd(35)} ${'Rows'.padStart(10)}`);
       this._print('-'.repeat(46));
 
       let totalRows = 0;
-      for (const t of tables) {
+      for (const tbl of tables) {
         try {
-          const row: any = raw.prepare(`SELECT COUNT(*) as count FROM "${String(t.name)}"`).get();
-          const count: number = row.count;
+          const row = raw.prepare(`SELECT COUNT(*) as count FROM "${String(tbl.name)}"`).get() as
+            | { count: number }
+            | undefined;
+          const count = row?.count ?? 0;
           totalRows += count;
-          this._print(`${String(t.name).padEnd(35)} ${String(count).padStart(10)}`);
+          this._print(`${String(tbl.name).padEnd(35)} ${String(count).padStart(10)}`);
         } catch {
-          this._print(`${String(t.name).padEnd(35)} ${'(error)'.padStart(10)}`);
+          this._print(`${String(tbl.name).padEnd(35)} ${'(error)'.padStart(10)}`);
         }
       }
       this._print('-'.repeat(46));
       this._print(`${'TOTAL'.padEnd(35)} ${String(totalRows).padStart(10)}`);
-    } catch (err: any) {
-      this._print(`Stats query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Stats query failed: ${errMsg(err)}`);
     }
   }
 
@@ -528,38 +545,38 @@ Available commands:
       this._print('No database available.');
       return;
     }
-    const raw: any = this._db.db;
+    const raw = this._db.db;
     if (!raw) {
       this._print('Raw DB handle not available.');
       return;
     }
 
     try {
-      const tables: any[] = raw
+      const tables = raw
         .prepare("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-        .all();
+        .all() as DbRow[];
       this._print(`Tables (${tables.length}):`);
-      for (const t of tables) {
-        this._print(`  ${String(t.name)}`);
+      for (const tbl of tables) {
+        this._print(`  ${String(tbl.name)}`);
       }
-    } catch (err: any) {
-      this._print(`Tables query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Tables query failed: ${errMsg(err)}`);
     }
   }
 
-  private _cmdSql(_args: string[], raw: string): void {
+  private _cmdSql(_args: string[], rawInput: string): void {
     if (!this._db) {
       this._print('No database available.');
       return;
     }
-    const dbHandle: any = this._db.db;
+    const dbHandle = this._db.db;
     if (!dbHandle) {
       this._print('Raw DB handle not available.');
       return;
     }
 
     // Extract everything after "sql "
-    const query = raw.slice(4).trim();
+    const query = rawInput.slice(4).trim();
     if (!query) {
       this._print('Usage: sql <SELECT ...>');
       return;
@@ -579,14 +596,14 @@ Available commands:
 
     try {
       if (isRead) {
-        const rows: any[] = dbHandle.prepare(query).all();
+        const rows = dbHandle.prepare(query).all() as DbRow[];
         if (rows.length === 0) {
           this._print('(no rows)');
           return;
         }
         // Print as table
         const cols = Object.keys(rows[0] as object);
-        const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? '').length)));
+        const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => s(r[c]).length)));
         // Cap column widths
         const maxW = 40;
         const cappedWidths = widths.map((w) => Math.min(w, maxW));
@@ -598,7 +615,7 @@ Available commands:
         for (const row of rows.slice(0, 100)) {
           const line = cols
             .map((c, i) =>
-              String(row[c] ?? '')
+              s(row[c])
                 .slice(0, maxW)
                 .padEnd(cappedWidths[i] ?? 0),
             )
@@ -608,11 +625,11 @@ Available commands:
         if (rows.length > 100) this._print(`... (${rows.length - 100} more rows)`);
         this._print(`(${rows.length} row${rows.length !== 1 ? 's' : ''})`);
       } else {
-        const result: any = dbHandle.prepare(query).run();
+        const result = dbHandle.prepare(query).run();
         this._print(`OK — ${String(result.changes)} row(s) affected.`);
       }
-    } catch (err: any) {
-      this._print(`SQL error: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`SQL error: ${errMsg(err)}`);
     }
   }
 
@@ -631,10 +648,10 @@ Available commands:
 
       this._print('World state:');
       for (const [key, value] of entries) {
-        this._print(`  ${key.padEnd(30)} ${String(value ?? '').slice(0, 60)}`);
+        this._print(`  ${key.padEnd(30)} ${s(value).slice(0, 60)}`);
       }
-    } catch (err: any) {
-      this._print(`World state query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`World state query failed: ${errMsg(err)}`);
     }
   }
 
@@ -644,7 +661,7 @@ Available commands:
       return;
     }
     try {
-      const clans: any[] = this._db.getAllClans();
+      const clans = this._db.getAllClans() as DbRow[];
       if (clans.length === 0) {
         this._print('No clans found.');
         return;
@@ -652,12 +669,12 @@ Available commands:
 
       this._print(`Clans (${clans.length}):`);
       for (const c of clans) {
-        const name = String(c.name ?? c.clan_name ?? '?');
-        const members = String(c.member_count ?? c.members ?? '?');
+        const name = s(c.name, s(c.clan_name, '?'));
+        const members = s(c.member_count, s(c.members, '?'));
         this._print(`  ${name.padEnd(30)} ${members} member(s)`);
       }
-    } catch (err: any) {
-      this._print(`Clans query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Clans query failed: ${errMsg(err)}`);
     }
   }
 
@@ -667,7 +684,7 @@ Available commands:
       return;
     }
     try {
-      const vehicles: any[] = this._db.getAllVehicles();
+      const vehicles = this._db.getAllVehicles() as DbRow[];
       if (vehicles.length === 0) {
         this._print('No vehicles found.');
         return;
@@ -675,13 +692,13 @@ Available commands:
 
       this._print(`Vehicles (${vehicles.length}):`);
       for (const v of vehicles) {
-        const name = String(v.name ?? v.vehicle_name ?? v.blueprint_name ?? '?');
+        const name = s(v.name, s(v.vehicle_name, s(v.blueprint_name, '?')));
         const fuel = v.fuel !== undefined ? `${Math.round(Number(v.fuel))}%` : '?';
-        const owner = String(v.owner_name ?? v.owner ?? '-');
+        const owner = s(v.owner_name, s(v.owner, '-'));
         this._print(`  ${name.padEnd(30)} fuel: ${fuel.padEnd(6)} owner: ${owner}`);
       }
-    } catch (err: any) {
-      this._print(`Vehicles query failed: ${String(err?.message ?? err)}`);
+    } catch (err: unknown) {
+      this._print(`Vehicles query failed: ${errMsg(err)}`);
     }
   }
 }
