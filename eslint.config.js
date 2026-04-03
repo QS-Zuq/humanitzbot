@@ -216,14 +216,7 @@ module.exports = defineConfig([
   // Track progress: grep -c 'no-unsafe' eslint.config.js
   {
     name: 'backend/migration-debt',
-    files: [
-      'src/db/database.ts',
-      'src/web-map/server.ts',
-      'src/server/multi-server.ts',
-      'src/modules/log-watcher.ts',
-      'src/modules/player-stats-channel.ts',
-      'src/modules/player-stats-embeds.ts',
-    ],
+    files: ['src/db/database.ts', 'src/web-map/server.ts'],
     rules: {
       // Core any/unsafe rules — every file in the list needs these
       '@typescript-eslint/no-explicit-any': 'off',
