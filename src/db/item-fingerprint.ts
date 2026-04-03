@@ -21,7 +21,7 @@
  * @module item-fingerprint
  */
 
-import crypto from 'crypto';
+import * as crypto from 'node:crypto';
 
 /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-assertion */
 

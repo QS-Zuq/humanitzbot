@@ -233,15 +233,15 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
     );
 
     const resParts: string[] = [];
-    if (resources.cpu != null) resParts.push(`🖥️ CPU: **${String(resources.cpu)}%**`);
+    if (resources.cpu != null) resParts.push(`🖥️ CPU: **${resources.cpu}%**`);
     if (resources.memUsed != null && resources.memTotal != null) {
       resParts.push(
-        `🧠 RAM: **${formatBytes(resources.memUsed)}** / ${formatBytes(resources.memTotal)} (${resources.memPercent != null ? String(resources.memPercent) : '?'}%)`,
+        `🧠 RAM: **${formatBytes(resources.memUsed)}** / ${formatBytes(resources.memTotal)} (${resources.memPercent != null ? resources.memPercent : '?'}%)`,
       );
     }
     if (resources.diskUsed != null && resources.diskTotal != null) {
       resParts.push(
-        `💾 Disk: **${formatBytes(resources.diskUsed)}** / ${formatBytes(resources.diskTotal)} (${resources.diskPercent != null ? String(resources.diskPercent) : '?'}%)`,
+        `💾 Disk: **${formatBytes(resources.diskUsed)}** / ${formatBytes(resources.diskTotal)} (${resources.diskPercent != null ? resources.diskPercent : '?'}%)`,
       );
     }
     if (resources.uptime != null) {
@@ -254,12 +254,12 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
 
     const limits = details.limits ?? {};
     const limitParts: string[] = [];
-    if (limits.memory != null) limitParts.push(`RAM: ${String(limits.memory)} MB`);
+    if (limits.memory != null) limitParts.push(`RAM: ${limits.memory} MB`);
     if (limits.disk != null)
       limitParts.push(
-        `Disk: ${limits.disk === 0 ? t('commands:qspanel.reply.unlimited', locale) : `${String(limits.disk)} MB`}`,
+        `Disk: ${limits.disk === 0 ? t('commands:qspanel.reply.unlimited', locale) : `${limits.disk} MB`}`,
       );
-    if (limits.cpu != null) limitParts.push(`CPU: ${String(limits.cpu)}%`);
+    if (limits.cpu != null) limitParts.push(`CPU: ${limits.cpu}%`);
     if (limitParts.length > 0) {
       embed.addFields({
         name: t('commands:qspanel.embeds.plan_limits_field', locale),
@@ -270,9 +270,9 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
 
     const fl = details.feature_limits ?? {};
     const fParts: string[] = [];
-    if (fl.databases != null) fParts.push(`Databases: ${String(fl.databases)}`);
-    if (fl.allocations != null) fParts.push(`Ports: ${String(fl.allocations)}`);
-    if (fl.backups != null) fParts.push(`Backups: ${String(fl.backups)}`);
+    if (fl.databases != null) fParts.push(`Databases: ${fl.databases}`);
+    if (fl.allocations != null) fParts.push(`Ports: ${fl.allocations}`);
+    if (fl.backups != null) fParts.push(`Backups: ${fl.backups}`);
     if (fParts.length > 0) {
       embed.addFields({
         name: t('commands:qspanel.embeds.features_field', locale),

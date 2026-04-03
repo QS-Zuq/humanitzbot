@@ -19,7 +19,9 @@ if (!token || !clientId || !guildId) {
 
 const commands: unknown[] = [];
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter((f) => f.endsWith('.js'));
+const commandFiles = fs
+  .readdirSync(commandsPath)
+  .filter((f) => (f.endsWith('.js') || f.endsWith('.ts')) && !f.endsWith('.d.ts'));
 
 for (const file of commandFiles) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

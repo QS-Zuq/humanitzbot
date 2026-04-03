@@ -11,21 +11,21 @@ const SUPPORTED_LANGS = ['en', 'zh-TW', 'zh-CN'] as const;
 type SupportedLang = (typeof SUPPORTED_LANGS)[number];
 const NAMESPACES = ['common', 'web', 'discord', 'api', 'commands'] as const;
 
-const resources: Record<string, Record<string, Record<string, string>>> = {};
+const resources: Record<string, Record<string, Record<string, unknown>>> = {};
 for (const lng of SUPPORTED_LANGS) {
   resources[lng] = {};
   for (const ns of NAMESPACES) {
     try {
       const filePath = path.join(LOCALES_DIR, lng, `${ns}.json`);
       const content = fs.readFileSync(filePath, 'utf8');
-      resources[lng][ns] = JSON.parse(content) as Record<string, string>;
+      resources[lng][ns] = JSON.parse(content) as Record<string, unknown>;
     } catch {
       resources[lng][ns] = {};
     }
   }
 }
 
-void i18next.init({
+const I18N_OPTIONS = {
   lng: 'en',
   supportedLngs: [...SUPPORTED_LANGS],
   fallbackLng: {
@@ -38,7 +38,20 @@ void i18next.init({
   resources,
   interpolation: { escapeValue: false },
   initImmediate: false,
-});
+} as const;
+
+/**
+ * Initialize i18next. Safe to await at startup; initImmediate:false also
+ * means the first call completes synchronously, so modules that import and
+ * use t() before awaiting this function will still get translations.
+ */
+export async function initI18n(): Promise<void> {
+  await i18next.init(I18N_OPTIONS);
+}
+
+// Kick off init at module load so translations are available immediately for
+// modules that call t() without awaiting initI18n().
+void initI18n();
 
 interface LocaleContext {
   locale?: string;

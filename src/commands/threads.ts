@@ -134,7 +134,8 @@ export function _parseHmzLog(text: string): Record<string, HmzDayData> {
     const deathMatch = body.match(/^Player died \((.+)\)$/);
     if (deathMatch) {
       d.deaths++;
-      d.players.add((deathMatch[1] ?? '').trim());
+      const deathName = (deathMatch[1] ?? '').trim();
+      if (deathName) d.players.add(deathName);
       continue;
     }
 
@@ -142,7 +143,8 @@ export function _parseHmzLog(text: string): Record<string, HmzDayData> {
     const buildMatch = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+/);
     if (buildMatch) {
       d.builds++;
-      d.players.add((buildMatch[1] ?? '').trim());
+      const buildName = (buildMatch[1] ?? '').trim();
+      if (buildName) d.players.add(buildName);
       continue;
     }
 
@@ -150,7 +152,8 @@ export function _parseHmzLog(text: string): Record<string, HmzDayData> {
     const dmgMatch = body.match(/^(.+?)\s+took\s+[\d.]+\s+damage from\s+/);
     if (dmgMatch) {
       d.damage++;
-      d.players.add((dmgMatch[1] ?? '').trim());
+      const dmgName = (dmgMatch[1] ?? '').trim();
+      if (dmgName) d.players.add(dmgName);
       continue;
     }
 
@@ -158,7 +161,8 @@ export function _parseHmzLog(text: string): Record<string, HmzDayData> {
     const lootMatch = body.match(/^(.+?)\s*\(\d{17}[^)]*\)\s*looted a container/);
     if (lootMatch) {
       d.loots++;
-      d.players.add((lootMatch[1] ?? '').trim());
+      const lootName = (lootMatch[1] ?? '').trim();
+      if (lootName) d.players.add(lootName);
       continue;
     }
 
