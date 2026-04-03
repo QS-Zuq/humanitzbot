@@ -355,16 +355,16 @@ export class KillTracker {
         // We cast to unknown first so TypeScript allows the falsy checks on required fields.
         for (const r of Object.values(this._data.players)) {
           const record = r as unknown as Record<string, unknown> & PlayerKillRecord;
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (!record.survivalCumulative) {
             record.survivalCumulative = KillTracker._emptySurvival();
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (!record.survivalSnapshot) {
             record.survivalSnapshot = KillTracker._emptySurvival();
           }
           if (!record.deathCheckpoint) record.deathCheckpoint = null;
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (record.lastKnownDeaths === undefined) record.lastKnownDeaths = 0;
           if (!record.lifetimeSnapshot) record.lifetimeSnapshot = null;
           if (!record.survivalLifetimeSnapshot) record.survivalLifetimeSnapshot = null;
@@ -376,16 +376,16 @@ export class KillTracker {
               ? { ...record.survivalLifetimeSnapshot }
               : null;
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (!record.activitySnapshot) {
             record.activitySnapshot = KillTracker._emptyObj(KillTracker.ACTIVITY_SCALAR_KEYS);
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (!record.activityArraySnapshot) {
             record.activityArraySnapshot = {};
             for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) record.activityArraySnapshot[k] = [];
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime game event data may have unexpected shape
           if (!record.challengeSnapshot) {
             record.challengeSnapshot = KillTracker._emptyObj(KillTracker.CHALLENGE_KEYS);
           }

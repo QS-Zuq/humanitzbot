@@ -190,7 +190,7 @@ function migrateEnvToDb(
   let skipped = 0;
 
   for (const [envKey, rawValue] of Object.entries(envValues)) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime data may be absent
     if (rawValue === '' || rawValue == null) {
       skipped++;
       continue;

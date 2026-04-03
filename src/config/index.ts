@@ -929,7 +929,7 @@ config.sftpConnectConfig = function (this: Partial<Config> & { sftpHost?: string
   // In multi-server context, `this` is the per-server config from multi-server.js.
   // Falls back to primary config singleton if called without context or if sftpHost is missing.
   // Note: multi-server.js maps DB values to sftp* properties, so this.sftpHost should always be set.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `this` may be undefined when called without context
   const self = this && this.sftpHost ? this : config;
   const cfg: SftpConnectConfig = {
     host: self.sftpHost ?? '',

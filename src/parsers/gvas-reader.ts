@@ -86,7 +86,7 @@ function createReader(buf: Buffer): GvasReader {
   let offset = 0;
 
   function readU8(): number {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- binary parser controls offset, value guaranteed present
     return buf[offset++]!;
   }
   function readU16(): number {

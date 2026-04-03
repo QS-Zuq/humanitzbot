@@ -146,7 +146,7 @@ export class PlaytimeTracker {
     if (this._data) return; // already initialised
     this._loadFromDb(); // load from DB
     // _loadFromDb may leave _data null if DB is empty or absent.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- _loadFromDb may leave _data null at runtime
     if (!this._data) {
       // DB has nothing yet — create empty structure
       this._data = {
@@ -598,8 +598,7 @@ export class PlaytimeTracker {
     }
     if (toDelete.length > 0) {
       for (const key of toDelete) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete st.players[key];
+        Reflect.deleteProperty(st.players, key);
       }
       // Also clean uniqueToday of any name-based entries
       st.peaks.uniqueToday = st.peaks.uniqueToday.filter((id) => /^\d{17}$/.test(id));

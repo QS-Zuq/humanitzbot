@@ -11,7 +11,7 @@
  */
 
 /* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/no-unnecessary-type-assertion */
+   @typescript-eslint/no-unnecessary-type-assertion -- runtime save-data fields may be absent; non-null assertions follow Map.set() guarantees */
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

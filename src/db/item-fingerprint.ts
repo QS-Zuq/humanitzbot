@@ -23,7 +23,7 @@
 
 import * as crypto from 'node:crypto';
 
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-assertion -- runtime JSON fields may be absent despite static types */
 
 interface ItemInput {
   item: string;

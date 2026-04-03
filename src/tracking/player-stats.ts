@@ -144,7 +144,7 @@ export class PlayerStats {
   init(): void {
     if (this._data) return; // already initialised
     this._loadFromDb(); // load from DB
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- _loadFromDb may leave _data null at runtime
     if (!this._data) this._data = { players: {} }; // empty if DB has nothing yet
     this._buildNameIndex();
     this._loadLocalIdMap(); // seed name→SteamID from cached PlayerIDMapped.txt
@@ -688,8 +688,7 @@ export class PlayerStats {
       target.lastEvent = source.lastEvent;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete players[nameKey];
+    Reflect.deleteProperty(players, nameKey);
     this._log.info(`Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
   }
 

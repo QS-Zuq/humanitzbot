@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-type-conversion */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-conversion -- runtime config values may differ from static types */
 /**
  * Field-level config validation for bot configuration values.
  *
