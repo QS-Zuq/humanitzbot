@@ -40,16 +40,6 @@ import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
-   @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
-   @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
-   @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-misused-promises
-   -- class fields typed; Express routes use untyped config/save/RCON data */
-
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
 import expressRateLimit from 'express-rate-limit';
 function rateLimit(windowMs: number, maxReqs: number) {

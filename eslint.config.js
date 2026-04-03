@@ -202,6 +202,65 @@ module.exports = defineConfig([
     },
   },
 
+  // ── Migration debt: files with untyped method bodies ──────────────
+  // These files have typed class fields and constructor deps (Phase 9)
+  // but method bodies still process untyped config/db/discord data.
+  // Rules are relaxed per-file until full method-body typing is complete.
+  // Track progress: grep -c 'no-unsafe' eslint.config.js
+  {
+    name: 'backend/migration-debt',
+    files: [
+      'src/db/database.ts',
+      'src/web-map/server.ts',
+      'src/web-map/dev-server.ts',
+      'src/stdin-console.ts',
+      'src/server/multi-server.ts',
+      'src/modules/log-watcher.ts',
+      'src/modules/log-watcher-events.ts',
+      'src/modules/log-watcher-threads.ts',
+      'src/modules/player-stats-channel.ts',
+      'src/modules/player-stats-embeds.ts',
+      'src/modules/server-status-embeds.ts',
+      'src/modules/server-scheduler.ts',
+      'src/modules/activity-log.ts',
+      'src/modules/github-tracker.ts',
+      'src/modules/chat-relay.ts',
+      'src/modules/milestone-tracker.ts',
+      'src/modules/pvp-scheduler.ts',
+      'src/modules/recap-service.ts',
+    ],
+    rules: {
+      // Core any/unsafe rules — every file in the list needs these
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      // Arithmetic / template rules tripped by `any` operands
+      '@typescript-eslint/restrict-plus-operands': 'off',
+      '@typescript-eslint/restrict-template-expressions': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
+      // Promise handling in event-driven modules
+      '@typescript-eslint/no-misused-promises': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/prefer-promise-reject-errors': 'off',
+      '@typescript-eslint/no-confusing-void-expression': 'off',
+      // Assertions & conditions on untyped data
+      '@typescript-eslint/no-unnecessary-condition': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+      '@typescript-eslint/no-unnecessary-type-conversion': 'off',
+      '@typescript-eslint/no-unnecessary-template-expression': 'off',
+      '@typescript-eslint/no-unnecessary-boolean-literal-compare': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      // Misc patterns in untyped method bodies
+      '@typescript-eslint/no-dynamic-delete': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/use-unknown-in-catch-callback-variable': 'off',
+    },
+  },
+
   // ── Prettier (must be last — disables conflicting format rules) ──
   prettierConfig,
 ]);

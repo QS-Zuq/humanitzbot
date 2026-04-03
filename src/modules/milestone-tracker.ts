@@ -41,7 +41,6 @@ const CLAN_MEMBER_THRESHOLDS = [5, 10, 15, 20];
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any -- Phase 5: type class fields and helpers */
 function _fmtKills(this: any, n: any, locale: any = 'en') {
   if (n >= 1000) return `${fmtNumber(Math.floor(n / 1000), locale)}K`;
   return fmtNumber(n, locale);

@@ -26,7 +26,6 @@ import { createLogger } from '../utils/log.js';
 import { cleanName, cleanItemName } from '../parsers/ue4-names.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/unbound-method, @typescript-eslint/no-unnecessary-boolean-literal-compare -- Phase 5: type class fields */
 function _activityLocale(cfg?: any) {
   return getLocale({ serverConfig: cfg || config });
 }

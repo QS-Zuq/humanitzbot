@@ -21,11 +21,6 @@ import fs from 'fs';
 import { SCHEMA_VERSION, ALL_TABLES } from './schema.js';
 import { createLogger, type Logger } from '../utils/log.js';
 
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-explicit-any -- data-access layer: method params accept dynamic
-   shapes from parsers; full domain interfaces tracked in follow-up */
-
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
 
 /** Generic row type for untyped SQLite query results. */
@@ -1248,7 +1243,6 @@ class HumanitZDB {
   setState(key: string, value: unknown): void {
     this._handle
       .prepare("INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))")
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
       .run(key, value != null ? String(value) : null);
   }
 
@@ -2261,7 +2255,6 @@ class HumanitZDB {
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
       .run(name, JSON.stringify(nameHistory ?? []), steamId);
   }
 
@@ -2329,7 +2322,6 @@ class HumanitZDB {
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
   setServerPeak(key: string, value: unknown): void {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
     const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
     this._stmts.setServerPeak.run(key, stored);
   }
@@ -3307,7 +3299,6 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivities(entries: Array<Record<string, any>>) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
     if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {
@@ -3338,7 +3329,6 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivitiesAt(entries: Array<Record<string, any>>) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
     if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {

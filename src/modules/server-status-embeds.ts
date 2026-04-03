@@ -12,12 +12,6 @@ import {
   buildResourceField as _buildResourceField,
 } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-template-expression
-   -- embed builders receive untyped RCON/config/save data via prototype mixin;
-      typed via ServerStatus `this` context at runtime */
 import { formatUptime as fmtUp } from '../server/server-resources.js';
 
 function _ts(locale: any, key: any, vars: any = {}) {

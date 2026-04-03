@@ -11,7 +11,6 @@ import { createLogger } from '../utils/log.js';
 import * as logWatcherThreads from './log-watcher-threads.js';
 import * as logWatcherEvents from './log-watcher-events.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-confusing-void-expression -- Phase 5: type class fields */
 class LogWatcher {
   [key: string]: any;
   constructor(client: any, deps: any = {}) {

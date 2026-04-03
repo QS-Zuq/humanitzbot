@@ -9,7 +9,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands -- Phase 5: type class fields */
 function _te(this: any, locale: any, key: any, vars: any = {}) {
   return t(`discord:events.${key}`, locale, vars);
 }
@@ -434,7 +433,5 @@ function _flushRaidBatch(this: any) {
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────
-
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands */
 
 export { _onBuild, _onDeath, _flushDeathLoop, _onRaid, _batchLoot, _flushLootBatch, _flushBuildBatch, _flushRaidBatch };

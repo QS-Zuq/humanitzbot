@@ -11,11 +11,6 @@ import expressRateLimit from 'express-rate-limit';
 
 const __dirname = getDirname(import.meta.url);
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-unsafe-return
-   -- save parser returns untyped player data maps; SFTP responses are untyped */
-
 function parseSave(buf: Buffer): Map<string, any> {
   return (_parseSaveFull(buf) as any).players;
 }

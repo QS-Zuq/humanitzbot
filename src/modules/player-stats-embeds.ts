@@ -17,13 +17,6 @@ import { cleanItemName as _rawClean, cleanItemArray, isHexGuid } from '../parser
 import { buildScheduleField } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-base-to-string,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-non-null-assertion
-   -- embed builders receive untyped save/playtime/config data via prototype mixin */
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /** Clean a UE4 item name; returns '' for junk/null/hex GUIDs. */

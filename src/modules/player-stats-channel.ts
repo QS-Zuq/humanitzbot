@@ -14,14 +14,6 @@ import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
 import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands,
-   @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises,
-   @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable,
-   @typescript-eslint/no-non-null-assertion
-   -- class fields typed; method bodies still use untyped save/RCON/parser data */
 /**
  * Convert a DB player row (snake_case, from _parsePlayerRow) to camelCase
  * save-data format matching parseSave() output.  This allows all embed

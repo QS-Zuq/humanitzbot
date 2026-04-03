@@ -26,7 +26,6 @@ import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
 import _defaultConfig from '../config/index.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-type-assertion -- Phase 5: type class fields */
 const STATE_KEY = 'recap_service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

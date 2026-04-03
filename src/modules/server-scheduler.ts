@@ -29,7 +29,6 @@ import _defaultPanelApi from '../server/panel-api.js';
 import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
 import { createLogger } from '../utils/log.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
 // Profile name → RCON color tag for in-game messages

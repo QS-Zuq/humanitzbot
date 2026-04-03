@@ -12,6 +12,7 @@
  */
 
 import fs from 'fs';
+import { createRequire } from 'node:module';
 import path from 'path';
 import SftpClient from 'ssh2-sftp-client';
 import _defaultConfig from '../config/index.js';
@@ -41,16 +42,10 @@ import PvpScheduler from '../modules/pvp-scheduler.js';
 import ServerScheduler from '../modules/server-scheduler.js';
 import ActivityLog from '../modules/activity-log.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands
-   -- class fields typed; multi-server configs are dynamic JSON from DB/files */
-
 let AnticheatIntegration: any;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
-  const _acMod = require('../modules/anticheat-integration');
+  const _require = createRequire(import.meta.url);
+  const _acMod = _require('../modules/anticheat-integration');
   AnticheatIntegration = _acMod.default ?? _acMod;
 } catch {
   /* optional module */

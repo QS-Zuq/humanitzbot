@@ -8,7 +8,6 @@ import { createLogger } from '../utils/log.js';
 import * as chatParser from './chat-relay-parser.js';
 const { stripAdminPrefix, CHAT_RE, PLAIN_CHAT_RE } = chatParser;
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
 class ChatRelay {
   [key: string]: any;
   constructor(client: any, deps: any = {}) {

@@ -21,11 +21,6 @@
 import readline from 'node:readline';
 import type { HumanitZDB } from './db/database.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
-   -- DB methods return untyped rows; console commands display dynamic data */
-
 class StdinConsole {
   private _db: HumanitZDB | null;
   private _writable: boolean;
@@ -636,7 +631,6 @@ Available commands:
 
       this._print('World state:');
       for (const [key, value] of entries) {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
         this._print(`  ${key.padEnd(30)} ${String(value ?? '').slice(0, 60)}`);
       }
     } catch (err: any) {
