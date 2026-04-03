@@ -73,10 +73,10 @@ export interface PlaytimeTrackerOptions {
   db?: HumanitZDB | null;
 }
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
-  getAllPlayerPlaytime(): DbPlaytimeRow[];
-  getAllServerPeaks(): DbPeaksRow;
+  getAllPlayerPlaytime(): Record<string, unknown>[];
+  getAllServerPeaks(): Record<string, unknown>;
   upsertFullPlaytime(steamId: string, data: UpsertPlaytimeData): void;
   setServerPeak(key: string, value: string): void;
   registerAlias(steamId: string, name: string, source: string): void;
@@ -187,7 +187,7 @@ export class PlaytimeTracker {
     // real DB values on the next _persistPlaytime() call.
     if (this._data) {
       try {
-        const rows = db.getAllPlayerPlaytime();
+        const rows = db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
         if (rows.length > 0) {
           let reloaded = 0;
           for (const row of rows) {
@@ -475,11 +475,11 @@ export class PlaytimeTracker {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerPlaytime();
+      const rows = this._db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
       if (rows.length === 0) return; // DB empty — fall through to JSON
 
       // Load peaks from server_peaks table
-      const peaksData = this._db.getAllServerPeaks();
+      const peaksData = this._db.getAllServerPeaks() as DbPeaksRow;
       const peaks: PeaksData = {
         allTimePeak: parseInt(peaksData.all_time_peak ?? '0', 10),
         allTimePeakDate: peaksData.all_time_peak_date ?? null,

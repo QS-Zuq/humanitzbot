@@ -530,7 +530,7 @@ class ServerInstance {
     });
     this.db.init();
     try {
-      gameReferenceSeed(this.db as Parameters<typeof gameReferenceSeed>[0]);
+      gameReferenceSeed(this.db as unknown as Parameters<typeof gameReferenceSeed>[0]);
     } catch (err: unknown) {
       this._log.warn('Game reference seed failed:', errMsg(err));
     }
@@ -565,22 +565,22 @@ class ServerInstance {
 
     this.playerStats = new PlayerStats({
       dataDir: this.dataDir,
-      db: this.db as Parameters<PlayerStats['setDb']>[0],
+      db: this.db as unknown as Parameters<PlayerStats['setDb']>[0],
       playtime: null, // set after playtime is created
       label: 'STATS:' + this._log.label,
     });
 
     this.playtime = new PlaytimeTracker({
       dataDir: this.dataDir,
-      db: this.db as Parameters<PlaytimeTracker['setDb']>[0],
+      db: this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0],
       config: this.config,
       label: 'PLAYTIME:' + this._log.label,
     });
 
     // Wire up cross-reference
     (this.playerStats as unknown as { _playtime: PlaytimeTracker })._playtime = this.playtime;
-    this.playerStats.setDb(this.db as Parameters<PlayerStats['setDb']>[0]);
-    this.playtime.setDb(this.db as Parameters<PlaytimeTracker['setDb']>[0]);
+    this.playerStats.setDb(this.db as unknown as Parameters<PlayerStats['setDb']>[0]);
+    this.playtime.setDb(this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0]);
 
     // Bound server-info functions using this rcon
     this.getServerInfo = () => getServerInfo(this.rcon);

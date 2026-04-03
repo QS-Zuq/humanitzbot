@@ -35,7 +35,7 @@ interface ConfigRepo {
 }
 
 interface HumanitZDBLike {
-  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
+  getStateJSON(key: string, defaultVal: unknown): unknown;
 }
 
 // ── Bootstrap keys that MUST stay in .env ────────────────────
@@ -243,10 +243,11 @@ function migrateDisplaySettings(db: HumanitZDBLike, configRepo: ConfigRepo): num
 
   if (!overrides || typeof overrides !== 'object') return 0;
 
-  const keys = Object.keys(overrides);
+  const obj = overrides as Record<string, unknown>;
+  const keys = Object.keys(obj);
   if (keys.length === 0) return 0;
 
-  configRepo.update('app', overrides);
+  configRepo.update('app', obj);
   return keys.length;
 }
 

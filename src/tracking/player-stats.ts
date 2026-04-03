@@ -52,9 +52,9 @@ interface TrackerData {
   players: Record<string, PlayerRecord>;
 }
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
-  getAllPlayerLogStats(): DbLogStatRow[];
+  getAllPlayerLogStats(): Record<string, unknown>[];
   upsertFullLogStats(steamId: string, data: UpsertLogData): void;
   importIdMap(entries: IdMapEntry[]): void;
   registerAlias(steamId: string, name: string, source: string): void;
@@ -225,7 +225,7 @@ export class PlayerStats {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerLogStats();
+      const rows = this._db.getAllPlayerLogStats() as unknown as DbLogStatRow[];
       if (rows.length === 0) return; // DB empty — fall through to JSON
       this._data = { players: {} };
       for (const row of rows) {

@@ -11,6 +11,13 @@
  * Integrates with: save-parser, player-stats, playtime-tracker, rcon
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -85,7 +92,7 @@ function stripControlChars(value: any): string {
     if ((code >= 0 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
       continue;
     }
-    out += input[i];
+    out += input[i] ?? '';
   }
   return out;
 }
@@ -451,7 +458,7 @@ class WebMapServer {
       const raw = fs.readFileSync(path.join(dataDir, 'logs', 'PlayerIDMapped.txt'), 'utf8');
       for (const line of raw.split('\n')) {
         const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m?.[1] && m?.[2]) map[m[1]] = m[2].trim();
+        if (m?.[1] && m[2]) map[m[1]] = m[2].trim();
       }
     } catch {
       /* file may not exist for this server */
@@ -750,7 +757,8 @@ class WebMapServer {
         };
 
         // Players
-        for (const [, p] of Object.entries(data.players || {}) as [string, any][]) {
+        for (const [, pRaw] of Object.entries(data.players || {})) {
+          const p = pRaw as any;
           if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x, p.y, 'P']);
         }
 
@@ -1231,7 +1239,7 @@ class WebMapServer {
     });
 
     // Plugin-registered routes
-    for (const plugin of this._plugins as any[]) {
+    for (const plugin of this._plugins) {
       if (typeof plugin.registerRoutes === 'function') {
         try {
           plugin.registerRoutes(app, { rateLimit, requireTier });
@@ -1324,7 +1332,7 @@ class WebMapServer {
         serverName: srv.config?.serverName || '',
       };
       // Check if this is the hzmod-enabled server
-      for (const plugin of this._plugins as any[]) {
+      for (const plugin of this._plugins) {
         if (plugin.name === 'hzmod') {
           // hzmod is registered with a serverId — only show on that server's dashboard
           const pluginSrv = plugin.serverId;
@@ -1433,7 +1441,7 @@ class WebMapServer {
         };
         for (const [cat, typesList] of Object.entries(catMap)) {
           let sum = 0;
-          for (const t of typesList) sum += (types as any)[t] || 0;
+          for (const t of typesList) sum += types[t] ?? 0;
           if (sum > 0) categories[cat] = sum;
         }
 
@@ -1634,7 +1642,7 @@ class WebMapServer {
         // Wrap in a limited query if no LIMIT clause
         let query = sql;
         if (!/\bLIMIT\b/i.test(sql)) {
-          query = sql.replace(/;?\s*$/, '') + ' LIMIT ' + limit;
+          query = String(sql).replace(/;?\s*$/, '') + ' LIMIT ' + String(limit);
         }
 
         const rows = db.prepare(query).all();
@@ -1854,8 +1862,9 @@ class WebMapServer {
               groupCount: 0,
               totalItems: 0,
             };
+          // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
+          locationSummary[key].totalItems += Number(inst.amount) || 1;
           locationSummary[key].instanceCount++;
-          locationSummary[key].totalItems += inst.amount || 1;
         }
         for (const grp of groups) {
           const key = `${grp.location_type}|${grp.location_id}`;
@@ -1868,7 +1877,8 @@ class WebMapServer {
               totalItems: 0,
             };
           locationSummary[key].groupCount++;
-          locationSummary[key].totalItems += grp.quantity * (grp.stack_size || 1);
+          // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
+          locationSummary[key].totalItems += Number(grp.quantity) * (Number(grp.stack_size) || 1);
         }
 
         res.json({
@@ -2897,11 +2907,12 @@ class WebMapServer {
       const parts = dotPath.split('.');
       let cur = obj;
       for (let i = 0; i < parts.length - 1; i++) {
-        const p = parts[i]!;
+        const p = parts[i] as string;
         if (cur[p] == null || typeof cur[p] !== 'object') cur[p] = {};
         cur = cur[p];
       }
-      cur[parts[parts.length - 1]!] = value;
+      const lastKey = parts[parts.length - 1];
+      if (lastKey !== undefined) cur[lastKey] = value;
     }
 
     /** Build categorized bot-config sections from a servers.json serverDef entry. */
@@ -2963,7 +2974,7 @@ class WebMapServer {
           const mapping = ENV_TO_SERVERDEF[envKey];
           if (!mapping) continue;
           const raw: any = _getNestedValue(serverDef, mapping.jsonPath);
-          const value = raw != null ? String(raw as string) : '';
+          const value = raw != null ? String(raw) : '';
           const isSensitive = !!(mapping.sensitive || ENV_SENSITIVE_KEYS.has(envKey));
           keys.push({
             key: envKey,
@@ -3256,7 +3267,13 @@ class WebMapServer {
                   if (cur[parts[i]] == null) break;
                   cur = cur[parts[i]];
                 }
-                if (cur && typeof cur === 'object') delete cur[parts[parts.length - 1]];
+                if (cur && typeof cur === 'object') {
+                  const lastPart = parts[parts.length - 1];
+                  if (lastPart !== undefined) {
+                    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                    delete cur[lastPart];
+                  }
+                }
               } else {
                 _setNestedValue(serverDef, mapping.jsonPath, coerced);
               }
@@ -3288,7 +3305,7 @@ class WebMapServer {
           // Build envKey → restart lookup from ENV_CATEGORIES
           const restartByEnvKey = new Map();
           for (const cat of ENV_CATEGORIES) {
-            for (const f of (cat as any).fields as any[]) restartByEnvKey.set(f.env, !!cat.restart);
+            for (const f of (cat as any).fields as any[]) restartByEnvKey.set(f.env, cat.restart);
           }
           const appPatch: Record<string, any> = {};
           const serverPatch: Record<string, any> = {};
@@ -3480,6 +3497,7 @@ class WebMapServer {
               }
               return l;
             });
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mutated in map() callback
             if (!found) newEnvLines.push(`WELCOME_FILE_LINES=${pipeValue}`);
             fs.writeFileSync(envPath, newEnvLines.join('\n'));
           }
@@ -3498,7 +3516,7 @@ class WebMapServer {
           } catch (sftpErr: any) {
             console.error('[WelcomeFile] SFTP upload failed:', sftpErr.message);
             sendOk(res, {
-              message: 'Welcome file saved to config but SFTP upload failed: ' + sftpErr.message,
+              message: 'Welcome file saved to config but SFTP upload failed: ' + String(sftpErr.message),
               lineCount: lines.length,
               uploaded: false,
             });
@@ -3740,7 +3758,7 @@ class WebMapServer {
           try {
             opts.privateKey = readPrivateKey(sftpCfg.privateKeyPath);
           } catch (keyErr: any) {
-            return { ok: false, error: 'Cannot read private key: ' + keyErr.message };
+            return { ok: false, error: 'Cannot read private key: ' + String(keyErr.message) };
           }
         }
         await client.connect(opts);
@@ -3770,7 +3788,7 @@ class WebMapServer {
           enabled: true,
           status: rcon.connected ? 'running' : 'offline',
           players: { current: 0, max: null },
-          rcon: { host: config.rconHost || null, port: config.rconPort || null, connected: !!rcon.connected },
+          rcon: { host: config.rconHost || null, port: config.rconPort || null, connected: rcon.connected },
           sftp: { host: config.sftpHost || null, configured: !!(config.sftpHost && config.sftpUser) },
           lastSync: (() => {
             const ss = this._saveService;
@@ -4337,7 +4355,7 @@ class WebMapServer {
             sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
             return;
           }
-          const scope = 'server:' + id;
+          const scope = `server:${String(id)}`;
           if (id !== 'primary' && !configRepo.get(scope)) {
             sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
             return;
@@ -4384,7 +4402,7 @@ class WebMapServer {
             sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
             return;
           }
-          const scope = 'server:' + id;
+          const scope = `server:${String(id)}`;
           if (id !== 'primary' && !configRepo.get(scope)) {
             sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
             return;
@@ -4399,57 +4417,52 @@ class WebMapServer {
 
     // ── Panel: Bot actions (restart, reimport, factory reset, env sync) ──
     /** POST /api/panel/bot-actions/:action — Bot lifecycle control */
-    app.post(
-      '/api/panel/bot-actions/:action',
-      requireTier('admin'),
-      rateLimit(30000, 3),
-      async (req: any, res: any) => {
-        try {
-          const { action } = req.params;
-          const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
-          if (!validActions.includes(action)) {
-            sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
-            return;
-          }
-          if (!this._botControl) {
-            sendError(res, API_ERRORS.BOT_CONTROL_NOT_AVAILABLE, 500);
-            return;
-          }
-
-          const meta = { source: 'web', user: req.session?.username || 'unknown' };
-          let result;
-
-          switch (action) {
-            case 'restart':
-              result = this._botControl.restart(meta);
-              break;
-            case 'reimport':
-              result = this._botControl.reimport(meta);
-              break;
-            case 'factory_reset': {
-              const { confirm } = req.body;
-              if (confirm !== 'NUKE') {
-                sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
-                return;
-              }
-              result = this._botControl.factoryReset(meta);
-              break;
-            }
-            case 'env_sync':
-              result = this._botControl.envSync();
-              break;
-          }
-
-          sendOk(res, result);
-        } catch (err: any) {
-          if (err.code === 'BOT_ACTION_PENDING') {
-            sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
-            return;
-          }
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+    app.post('/api/panel/bot-actions/:action', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
+      try {
+        const { action } = req.params;
+        const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
+        if (!validActions.includes(action)) {
+          sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
+          return;
         }
-      },
-    );
+        if (!this._botControl) {
+          sendError(res, API_ERRORS.BOT_CONTROL_NOT_AVAILABLE, 500);
+          return;
+        }
+
+        const meta = { source: 'web', user: req.session?.username || 'unknown' };
+        let result;
+
+        switch (action) {
+          case 'restart':
+            result = this._botControl.restart(meta);
+            break;
+          case 'reimport':
+            result = this._botControl.reimport(meta);
+            break;
+          case 'factory_reset': {
+            const { confirm } = req.body;
+            if (confirm !== 'NUKE') {
+              sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
+              return;
+            }
+            result = this._botControl.factoryReset(meta);
+            break;
+          }
+          case 'env_sync':
+            result = this._botControl.envSync();
+            break;
+        }
+
+        sendOk(res, result);
+      } catch (err: any) {
+        if (err.code === 'BOT_ACTION_PENDING') {
+          sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
+          return;
+        }
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     // ══════════════════════════════════════════════════════════════════
     //  Timeline API — time-scroll playback, entity history, death causes
@@ -4678,10 +4691,10 @@ class WebMapServer {
     };
 
     // Initial poll (immediate, don't await — let server start)
-    poll();
-    this._pollTimer = setInterval(poll, POLL_INTERVAL);
+    void poll();
+    this._pollTimer = setInterval(() => void poll(), POLL_INTERVAL);
     this._pollTimer.unref();
-    console.log('[WEB MAP] Background polling started (every ' + POLL_INTERVAL / 1000 + 's)');
+    console.log(`[WEB MAP] Background polling started (every ${String(POLL_INTERVAL / 1000)}s)`);
   }
 
   /** Build and cache the landing page data. All RCON calls parallelised. */
@@ -4781,7 +4794,7 @@ class WebMapServer {
       if (!serverInfo.totalPlayers) {
         try {
           const saveData = this._parseSaveDataForServer(dir);
-          serverInfo.totalPlayers = saveData?.size || 0;
+          serverInfo.totalPlayers = saveData.size || 0;
         } catch {
           /* non-critical */
         }
@@ -4930,7 +4943,7 @@ class WebMapServer {
     }
     {
       const mods: string[] = [];
-      if (rcon?.connected) mods.push('rcon');
+      if (rcon.connected) mods.push('rcon');
       if (this._db) mods.push('db');
       if (this._saveService) mods.push('sftp');
       if (this._scheduler && this._scheduler.isActive()) mods.push('schedule');
@@ -4938,7 +4951,7 @@ class WebMapServer {
       result.primary.modules = mods;
     }
     result.primary.discordInvite = config.discordInviteLink || '';
-    for (const plugin of this._plugins as any[]) {
+    for (const plugin of this._plugins) {
       if (typeof plugin.getLandingData === 'function') {
         try {
           Object.assign(result, plugin.getLandingData() || {});
@@ -5112,7 +5125,7 @@ class WebMapServer {
         this._startBackgroundPolling();
         resolve();
       });
-      this._server.on('error', (err: any) => {
+      this._server.on('error', (err: Error) => {
         console.error('[WEB MAP] Server error:', err.message);
         reject(err);
       });

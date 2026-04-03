@@ -157,7 +157,7 @@ let HzmodIpcClient: (new (socketPath: string) => IpcClientInstance) | undefined;
 async function loadOptionalModules(): Promise<void> {
   try {
     AnticheatIntegration = (
-      (await import('./modules/anticheat-integration.js')) as { default: typeof AnticheatIntegration }
+      (await import('./modules/anticheat-integration.js')) as unknown as { default: typeof AnticheatIntegration }
     ).default;
   } catch {
     /* optional module */

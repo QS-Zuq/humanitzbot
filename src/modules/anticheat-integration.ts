@@ -44,6 +44,7 @@ interface DbLike {
 }
 
 interface AcFlag {
+  [key: string]: unknown;
   id?: number;
   steam_id: string;
   status: string;
@@ -53,6 +54,7 @@ interface AcFlag {
 }
 
 interface RiskScoreData {
+  [key: string]: unknown;
   steam_id: string;
   risk_score: number;
   open_flags: number;

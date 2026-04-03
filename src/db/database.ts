@@ -1243,15 +1243,22 @@ class HumanitZDB {
   setState(key: string, value: unknown): void {
     this._handle
       .prepare("INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))")
-      .run(key, value != null ? String(value) : null);
+      .run(
+        key,
+        value != null
+          ? typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value as string | number | boolean)
+          : null,
+      );
   }
 
   /** Get a bot_state value parsed as JSON. Returns defaultVal if not found or parse fails. */
-  getStateJSON(key: string, defaultVal = null) {
+  getStateJSON(key: string, defaultVal: unknown = null): unknown {
     const raw = this.getState(key);
     if (raw == null) return defaultVal;
     try {
-      return JSON.parse(raw);
+      return JSON.parse(raw) as unknown;
     } catch {
       return defaultVal;
     }
@@ -2098,7 +2105,7 @@ class HumanitZDB {
    * @param {string} steamId
    * @param {object} data - Flat object matching column names (from save parser)
    */
-  upsertPlayer(steamId: string, data: Record<string, any>) {
+  upsertPlayer(steamId: string, data: Record<string, unknown>) {
     const params = {
       steam_id: steamId,
       name: data.name || '',
@@ -2219,12 +2226,18 @@ class HumanitZDB {
     return row ? _parsePlayerRow(row) : null;
   }
 
-  getAllPlayers() {
-    return this._stmts.getAllPlayers.all().map(_parsePlayerRow);
+  getAllPlayers(): DbRow[] {
+    return this._stmts.getAllPlayers
+      .all()
+      .map(_parsePlayerRow)
+      .filter((r): r is DbRow => r !== null);
   }
 
-  getOnlinePlayers() {
-    return this._stmts.getOnlinePlayers.all().map(_parsePlayerRow);
+  getOnlinePlayers(): DbRow[] {
+    return this._stmts.getOnlinePlayers
+      .all()
+      .map(_parsePlayerRow)
+      .filter((r): r is DbRow => r !== null);
   }
 
   /**
@@ -2245,7 +2258,7 @@ class HumanitZDB {
   }
 
   /** Update kill tracker JSON for a player. */
-  updateKillTracker(steamId: string, killData: Record<string, any>) {
+  updateKillTracker(steamId: string, killData: Record<string, unknown>) {
     this._handle
       .prepare("UPDATE players SET kill_tracker = ?, updated_at = datetime('now') WHERE steam_id = ?")
       .run(JSON.stringify(killData), steamId);
@@ -2255,14 +2268,14 @@ class HumanitZDB {
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      .run(name, JSON.stringify(nameHistory ?? []), steamId);
+      .run(name, JSON.stringify(nameHistory), steamId);
   }
 
   /**
    * Upsert full player log stats (DB-first — called by player-stats.js on every record call).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullLogStats(steamId: string, data: Record<string, any>) {
+  upsertFullLogStats(steamId: string, data: Record<string, unknown>) {
     this._stmts.upsertPlayerLogStats.run({
       steam_id: steamId,
       name: data.name || '',
@@ -2291,15 +2304,15 @@ class HumanitZDB {
    * Get all player log stats from DB (for loading into PlayerStats cache on startup).
    * Returns an array of objects matching the DB columns.
    */
-  getAllPlayerLogStats(): any[] {
-    return this._stmts.getAllPlayerLogStats.all() as any[];
+  getAllPlayerLogStats(): DbRow[] {
+    return this._stmts.getAllPlayerLogStats.all() as DbRow[];
   }
 
   /**
    * Upsert full playtime data (DB-first — called by playtime-tracker.js).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullPlaytime(steamId: string, data: Record<string, any>) {
+  upsertFullPlaytime(steamId: string, data: Record<string, unknown>) {
     this._stmts.upsertPlayerPlaytime.run({
       steam_id: steamId,
       name: data.name || '',
@@ -2314,15 +2327,18 @@ class HumanitZDB {
   /**
    * Get all player playtime from DB (for loading into PlaytimeTracker cache on startup).
    */
-  getAllPlayerPlaytime(): any[] {
-    return this._stmts.getAllPlayerPlaytime.all() as any[];
+  getAllPlayerPlaytime(): DbRow[] {
+    return this._stmts.getAllPlayerPlaytime.all() as DbRow[];
   }
 
   /**
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
   setServerPeak(key: string, value: unknown): void {
-    const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
+    const stored =
+      value != null && typeof value === 'object'
+        ? JSON.stringify(value)
+        : String((value ?? '') as string | number | boolean);
     this._stmts.setServerPeak.run(key, stored);
   }
 
@@ -2371,8 +2387,8 @@ class HumanitZDB {
    * Bulk-register aliases from a parsed PlayerIDMapped.txt.
    * @param {Array<{steamId: string, name: string}>} entries
    */
-  importIdMap(entries: Array<Record<string, any>>) {
-    const tx = this._handle.transaction((list) => {
+  importIdMap(entries: Array<{ steamId: string; name: string }>): void {
+    const tx = this._handle.transaction((list: Array<{ steamId: string; name: string }>) => {
       for (const { steamId, name } of list) {
         this.registerAlias(steamId, name, 'idmap');
       }
@@ -2384,8 +2400,8 @@ class HumanitZDB {
    * Bulk-register aliases from parsed PlayerConnectedLog.txt.
    * @param {Array<{steamId: string, name: string}>} entries
    */
-  importConnectLog(entries: Array<Record<string, any>>) {
-    const tx = this._handle.transaction((list) => {
+  importConnectLog(entries: Array<{ steamId: string; name: string }>): void {
+    const tx = this._handle.transaction((list: Array<{ steamId: string; name: string }>) => {
       for (const { steamId, name } of list) {
         this.registerAlias(steamId, name, 'connect_log');
       }
@@ -2397,10 +2413,10 @@ class HumanitZDB {
    * Register aliases from save parser output (keyed by SteamID, name from idMap).
    * @param {Map<string, object>} players - steamId → playerData (with .name if injected)
    */
-  importFromSave(players: Map<string, Record<string, any>>) {
+  importFromSave(players: Map<string, Record<string, unknown>>) {
     const tx = this._handle.transaction(() => {
       for (const [steamId, data] of players) {
-        if (data.name) this.registerAlias(steamId, data.name, 'save');
+        if (typeof data.name === 'string') this.registerAlias(steamId, data.name, 'save');
       }
     });
     tx();
@@ -2485,7 +2501,7 @@ class HumanitZDB {
     if (!query) return [];
     const rows = this._stmts.lookupByNameLike.all(`%${query.toLowerCase().trim()}%`) as DbRow[];
     // Deduplicate by steamId, keeping the best for each
-    const seen = new Map();
+    const seen = new Map<unknown, { steamId: unknown; name: unknown; source: unknown }>();
     for (const r of rows) {
       if (!seen.has(r.steam_id) || r.is_current) {
         seen.set(r.steam_id, { steamId: r.steam_id, name: r.name, source: r.source });
@@ -2562,7 +2578,7 @@ class HumanitZDB {
   //  Clans
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertClan(name: string, members: Array<Record<string, any>>) {
+  upsertClan(name: string, members: Array<Record<string, unknown>>) {
     this._stmts.upsertClan.run(name);
     this._stmts.deleteClanMembers.run(name);
     for (const m of members) {
@@ -2633,8 +2649,8 @@ class HumanitZDB {
   //  Structures
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceStructures(structures: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceStructures(structures: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._stmts.clearStructures.run();
       for (const s of items) {
         this._stmts.insertStructure.run(
@@ -2671,8 +2687,8 @@ class HumanitZDB {
   //  Vehicles
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceVehicles(vehicles: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceVehicles(vehicles: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._stmts.clearVehicles.run();
       for (const v of items) {
         this._stmts.insertVehicle.run(
@@ -2701,8 +2717,8 @@ class HumanitZDB {
   //  Companions
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceCompanions(companions: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceCompanions(companions: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._stmts.clearCompanions.run();
       for (const c of items) {
         this._stmts.insertCompanion.run(
@@ -2728,14 +2744,14 @@ class HumanitZDB {
   //  World horses
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceWorldHorses(horses: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceWorldHorses(horses: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceWorldHorsesInner(items);
     });
     insert(horses);
   }
 
-  _replaceWorldHorsesInner(horses: Array<Record<string, any>>) {
+  _replaceWorldHorsesInner(horses: Array<Record<string, unknown>>) {
     this._stmts.clearWorldHorses.run();
     for (const h of horses) {
       this._stmts.insertWorldHorse.run(
@@ -2766,14 +2782,14 @@ class HumanitZDB {
   //  Dead bodies
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceDeadBodies(bodies: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceDeadBodies(bodies: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceDeadBodiesInner(items);
     });
     insert(bodies);
   }
 
-  _replaceDeadBodiesInner(bodies: Array<Record<string, any>>) {
+  _replaceDeadBodiesInner(bodies: Array<Record<string, unknown>>) {
     this._stmts.clearDeadBodies.run();
     for (const b of bodies) {
       this._stmts.insertDeadBody.run(b.actorName, b.x ?? null, b.y ?? null, b.z ?? null);
@@ -2784,17 +2800,17 @@ class HumanitZDB {
   //  Containers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceContainers(containers: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceContainers(containers: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceContainersInner(items);
     });
     insert(containers);
   }
 
-  _replaceContainersInner(containers: Array<Record<string, any>>): void {
+  _replaceContainersInner(containers: Array<Record<string, unknown>>): void {
     this._stmts.clearContainers.run();
     for (const c of containers) {
-      const extra: Record<string, any> = {};
+      const extra: Record<string, unknown> = {};
       if (c.hackCoolDown != null) extra['hackCoolDown'] = c.hackCoolDown;
       if (c.destroyTime != null) extra['destroyTime'] = c.destroyTime;
       if (c.extraFloats) extra['extraFloats'] = c.extraFloats;
@@ -2826,14 +2842,14 @@ class HumanitZDB {
   //  Loot actors
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceLootActors(lootActors: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceLootActors(lootActors: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceLootActorsInner(items);
     });
     insert(lootActors);
   }
 
-  _replaceLootActorsInner(lootActors: Array<Record<string, any>>) {
+  _replaceLootActorsInner(lootActors: Array<Record<string, unknown>>) {
     this._stmts.clearLootActors.run();
     for (const la of lootActors) {
       this._stmts.insertLootActor.run(
@@ -2861,7 +2877,7 @@ class HumanitZDB {
    * @param {object} item - { fingerprint, item, durability, ammo, attachments, cap, maxDur, locationType, locationId, locationSlot, x, y, z, amount, groupId }
    * @returns {number} The auto-incremented ID of the new instance
    */
-  createItemInstance(item: Record<string, any>) {
+  createItemInstance(item: Record<string, unknown>) {
     const result = this._stmts.insertItemInstance.run(
       item.fingerprint,
       item.item,
@@ -2891,8 +2907,8 @@ class HumanitZDB {
    */
   moveItemInstance(
     instanceId: number,
-    to: Record<string, any>,
-    attribution: Record<string, any> | null,
+    to: Record<string, unknown>,
+    attribution: Record<string, unknown> | null,
     moveType: string = 'move',
   ) {
     const old = this._stmts.findItemInstanceById.get(instanceId) as DbRow | undefined;
@@ -2969,7 +2985,7 @@ class HumanitZDB {
     return this._stmts.getActiveItemInstances.all();
   }
 
-  getItemInstancesByItem(item: Record<string, any>) {
+  getItemInstancesByItem(item: Record<string, unknown>) {
     return this._stmts.getItemInstancesByItem.all(item);
   }
 
@@ -3005,7 +3021,7 @@ class HumanitZDB {
    * Otherwise create a new group.
    * @returns {{ id: number, created: boolean }}
    */
-  upsertItemGroup(group: Record<string, any>) {
+  upsertItemGroup(group: Record<string, unknown>) {
     const existing = this._stmts.findActiveGroupByLocation.get(
       group.fingerprint,
       group.locationType,
@@ -3040,7 +3056,7 @@ class HumanitZDB {
     this._stmts.updateItemGroupQuantity.run(quantity, groupId);
   }
 
-  updateItemGroupLocation(groupId: number, to: Record<string, any>) {
+  updateItemGroupLocation(groupId: number, to: Record<string, unknown>) {
     this._stmts.updateItemGroupLocation.run(
       to.locationType,
       to.locationId || '',
@@ -3081,7 +3097,7 @@ class HumanitZDB {
     return this._stmts.getActiveItemGroups.all();
   }
 
-  getItemGroupsByItem(item: Record<string, any>) {
+  getItemGroupsByItem(item: Record<string, unknown>) {
     return this._stmts.getItemGroupsByItem.all(item);
   }
 
@@ -3116,24 +3132,28 @@ class HumanitZDB {
    * @param {object} [opts.attribution] - { steamId, name }
    * @param {{ x?: number, y?: number, z?: number }} [opts.pos] - position
    */
-  recordGroupMovement(opts: Record<string, any>): void {
+  recordGroupMovement(opts: Record<string, unknown>): void {
+    const from = (opts.from ?? {}) as Record<string, unknown>;
+    const to = (opts.to ?? {}) as Record<string, unknown>;
+    const attribution = (opts.attribution ?? {}) as Record<string, unknown>;
+    const pos = (opts.pos ?? {}) as Record<string, unknown>;
     this._stmts.insertItemMovement.run(
       opts.instanceId ?? null,
       opts.groupId ?? null,
       opts.moveType,
       opts.item,
-      opts.from?.type || '',
-      opts.from?.id || '',
-      opts.from?.slot || '',
-      opts.to?.type || '',
-      opts.to?.id || '',
-      opts.to?.slot || '',
+      from.type || '',
+      from.id || '',
+      from.slot || '',
+      to.type || '',
+      to.id || '',
+      to.slot || '',
       opts.amount || 1,
-      opts.attribution?.steamId || '',
-      opts.attribution?.name || '',
-      opts.pos?.x ?? null,
-      opts.pos?.y ?? null,
-      opts.pos?.z ?? null,
+      attribution.steamId || '',
+      attribution.name || '',
+      pos.x ?? null,
+      pos.y ?? null,
+      pos.z ?? null,
     );
   }
 
@@ -3169,14 +3189,14 @@ class HumanitZDB {
   //  World drops (LODPickups, dropped backpacks, global containers)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceWorldDrops(drops: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceWorldDrops(drops: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceWorldDropsInner(items);
     });
     insert(drops);
   }
 
-  _replaceWorldDropsInner(drops: Array<Record<string, any>>) {
+  _replaceWorldDropsInner(drops: Array<Record<string, unknown>>) {
     this._stmts.clearWorldDrops.run();
     for (const d of drops) {
       this._stmts.insertWorldDrop.run(
@@ -3212,14 +3232,14 @@ class HumanitZDB {
   //  Quests
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceQuests(quests: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => {
+  replaceQuests(quests: Array<Record<string, unknown>>): void {
+    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
       this._replaceQuestsInner(items);
     });
     insert(quests);
   }
 
-  _replaceQuestsInner(quests: Array<Record<string, any>>) {
+  _replaceQuestsInner(quests: Array<Record<string, unknown>>) {
     this._stmts.clearQuests.run();
     for (const q of quests) {
       this._stmts.insertQuest.run(q.id, q.type, q.state, JSON.stringify(q.data));
@@ -3230,10 +3250,10 @@ class HumanitZDB {
   //  Server settings
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertSettings(settings: Record<string, string>) {
-    const upsert = this._handle.transaction((obj) => {
+  upsertSettings(settings: Record<string, string>): void {
+    const upsert = this._handle.transaction((obj: Record<string, string>) => {
       for (const [key, value] of Object.entries(obj)) {
-        this._stmts.upsertSetting.run(key, String(value));
+        this._stmts.upsertSetting.run(key, value);
       }
     });
     upsert(settings);
@@ -3254,13 +3274,13 @@ class HumanitZDB {
   //  Snapshots (for weekly/daily deltas)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  createSnapshot(type: string, steamId: string, data: Record<string, any>) {
+  createSnapshot(type: string, steamId: string, data: Record<string, unknown>) {
     this._stmts.insertSnapshot.run(type, steamId, JSON.stringify(data));
   }
 
   getLatestSnapshot(type: string, steamId: string) {
     const row = this._stmts.getLatestSnapshot.get(type, steamId) as DbRow | undefined;
-    return row ? { ...row, data: JSON.parse((row.data as string) || '{}') } : null;
+    return row ? { ...row, data: JSON.parse((row.data as string) || '{}') as unknown } : null;
   }
 
   purgeSnapshots(olderThan: string) {
@@ -3275,7 +3295,7 @@ class HumanitZDB {
    * Insert a single activity log entry.
    * @param {object} entry - { type, category, actor, actorName, item, amount, details, x, y, z, steamId, source, targetName, targetSteamId }
    */
-  insertActivity(entry: Record<string, any>) {
+  insertActivity(entry: Record<string, unknown>) {
     this._stmts.insertActivity.run(
       entry.type,
       entry.category || '',
@@ -3298,9 +3318,9 @@ class HumanitZDB {
    * Insert multiple activity entries in a single transaction.
    * @param {Array<object>} entries
    */
-  insertActivities(entries: Array<Record<string, any>>) {
-    if (!entries || entries.length === 0) return;
-    const tx = this._handle.transaction((list) => {
+  insertActivities(entries: Array<Record<string, unknown>>): void {
+    if (entries.length === 0) return;
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const entry of list) {
         this._stmts.insertActivity.run(
           entry.type,
@@ -3328,9 +3348,9 @@ class HumanitZDB {
    * Each entry must have a `createdAt` ISO string.
    * @param {Array<object>} entries
    */
-  insertActivitiesAt(entries: Array<Record<string, any>>) {
-    if (!entries || entries.length === 0) return;
-    const tx = this._handle.transaction((list) => {
+  insertActivitiesAt(entries: Array<Record<string, unknown>>): void {
+    if (entries.length === 0) return;
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const entry of list) {
         this._stmts.insertActivityAt.run(
           entry.type,
@@ -3411,7 +3431,7 @@ class HumanitZDB {
    * Insert a single chat log entry.
    * @param {object} entry - { type, playerName, steamId, message, direction, discordUser, isAdmin }
    */
-  insertChat(entry: Record<string, any>) {
+  insertChat(entry: Record<string, unknown>) {
     this._stmts.insertChat.run(
       entry.type,
       entry.playerName || '',
@@ -3427,7 +3447,7 @@ class HumanitZDB {
    * Insert a chat entry with explicit timestamp (for backfill).
    * @param {object} entry - includes createdAt ISO string
    */
-  insertChatAt(entry: Record<string, any>) {
+  insertChatAt(entry: Record<string, unknown>) {
     this._stmts.insertChatAt.run(
       entry.type,
       entry.playerName || '',
@@ -3481,8 +3501,8 @@ class HumanitZDB {
    * Runs in a single transaction for performance (~1ms for 50 players).
    * @param {Map<string, object>} players - steamId → parsed player data
    */
-  bulkUpsertPlayers(players: Map<string, Record<string, any>>) {
-    const tx = this._handle.transaction((entries) => {
+  bulkUpsertPlayers(players: Map<string, Record<string, unknown>>): void {
+    const tx = this._handle.transaction((entries: Array<[string, Record<string, unknown>]>) => {
       for (const [steamId, data] of entries) {
         this.upsertPlayer(steamId, data);
       }
@@ -3498,29 +3518,29 @@ class HumanitZDB {
    * @param {object} data - { players, worldState, structures, vehicles, companions, clans,
    *                          deadBodies, containers, lootActors, quests, horses, worldDrops }
    */
-  syncAllFromSave(data: Record<string, any>): void {
+  syncAllFromSave(data: Record<string, unknown>): void {
     const tx = this._handle.transaction(() => {
       // Core entity sync (players, world state, structures, vehicles, companions, clans)
       this._syncFromSaveInner(data);
 
       // Auxiliary entity sync — all in the SAME transaction
-      if (data.deadBodies && data.deadBodies.length > 0) {
-        this._replaceDeadBodiesInner(data.deadBodies);
+      if (Array.isArray(data.deadBodies) && data.deadBodies.length > 0) {
+        this._replaceDeadBodiesInner(data.deadBodies as Array<Record<string, unknown>>);
       }
-      if (data.containers && data.containers.length > 0) {
-        this._replaceContainersInner(data.containers);
+      if (Array.isArray(data.containers) && data.containers.length > 0) {
+        this._replaceContainersInner(data.containers as Array<Record<string, unknown>>);
       }
-      if (data.lootActors && data.lootActors.length > 0) {
-        this._replaceLootActorsInner(data.lootActors);
+      if (Array.isArray(data.lootActors) && data.lootActors.length > 0) {
+        this._replaceLootActorsInner(data.lootActors as Array<Record<string, unknown>>);
       }
-      if (data.quests && data.quests.length > 0) {
-        this._replaceQuestsInner(data.quests);
+      if (Array.isArray(data.quests) && data.quests.length > 0) {
+        this._replaceQuestsInner(data.quests as Array<Record<string, unknown>>);
       }
-      if (data.horses && data.horses.length > 0) {
-        this._replaceWorldHorsesInner(data.horses);
+      if (Array.isArray(data.horses) && data.horses.length > 0) {
+        this._replaceWorldHorsesInner(data.horses as Array<Record<string, unknown>>);
       }
-      if (data.worldDrops && data.worldDrops.length > 0) {
-        this._replaceWorldDropsInner(data.worldDrops);
+      if (Array.isArray(data.worldDrops) && data.worldDrops.length > 0) {
+        this._replaceWorldDropsInner(data.worldDrops as Array<Record<string, unknown>>);
       }
     });
     tx();
@@ -3531,7 +3551,7 @@ class HumanitZDB {
    * Wraps in its own transaction when called standalone (backward compat).
    * When called from syncAllFromSave(), use _syncFromSaveInner() directly.
    */
-  syncFromSave(parsed: Record<string, any>) {
+  syncFromSave(parsed: Record<string, unknown>) {
     const tx = this._handle.transaction(() => {
       this._syncFromSaveInner(parsed);
     });
@@ -3539,17 +3559,18 @@ class HumanitZDB {
   }
 
   /** Inner sync logic — no transaction wrapper, safe to call inside an outer transaction. */
-  _syncFromSaveInner(parsed: Record<string, any>): void {
+  _syncFromSaveInner(parsed: Record<string, unknown>): void {
     // Players
     if (parsed.players) {
-      for (const [steamId, data] of parsed.players) {
+      const players = parsed.players as Map<string, Record<string, unknown>>;
+      for (const [steamId, data] of players) {
         this.upsertPlayer(steamId, data);
       }
     }
 
     // World state
     if (parsed.worldState) {
-      for (const [key, value] of Object.entries(parsed.worldState)) {
+      for (const [key, value] of Object.entries(parsed.worldState as Record<string, unknown>)) {
         const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
         this._stmts.setWorldState.run(key, stored);
       }
@@ -3558,7 +3579,7 @@ class HumanitZDB {
     // Structures
     if (parsed.structures) {
       this._stmts.clearStructures.run();
-      for (const s of parsed.structures) {
+      for (const s of parsed.structures as Array<Record<string, unknown>>) {
         this._stmts.insertStructure.run(
           s.actorClass,
           s.displayName || '',
@@ -3580,7 +3601,7 @@ class HumanitZDB {
     // Vehicles
     if (parsed.vehicles) {
       this._stmts.clearVehicles.run();
-      for (const v of parsed.vehicles) {
+      for (const v of parsed.vehicles as Array<Record<string, unknown>>) {
         this._stmts.insertVehicle.run(
           v.class,
           v.displayName || '',
@@ -3600,7 +3621,7 @@ class HumanitZDB {
     // Companions
     if (parsed.companions) {
       this._stmts.clearCompanions.run();
-      for (const c of parsed.companions) {
+      for (const c of parsed.companions as Array<Record<string, unknown>>) {
         this._stmts.insertCompanion.run(
           c.type,
           c.actorName,
@@ -3616,10 +3637,10 @@ class HumanitZDB {
 
     // Clans
     if (parsed.clans) {
-      for (const clan of parsed.clans) {
+      for (const clan of parsed.clans as Array<Record<string, unknown>>) {
         this._stmts.upsertClan.run(clan.name);
         this._stmts.deleteClanMembers.run(clan.name);
-        for (const m of clan.members) {
+        for (const m of clan.members as Array<Record<string, unknown>>) {
           this._stmts.insertClanMember.run(
             clan.name,
             m.steamId,
@@ -3634,7 +3655,7 @@ class HumanitZDB {
 
     // Server settings
     if (parsed.serverSettings) {
-      for (const [key, value] of Object.entries(parsed.serverSettings)) {
+      for (const [key, value] of Object.entries(parsed.serverSettings as Record<string, unknown>)) {
         this._stmts.upsertSetting.run(key, String(value));
       }
     }
@@ -3644,8 +3665,8 @@ class HumanitZDB {
   //  Game reference data seeding
   // ═══════════════════════════════════════════════════════════════════════════
 
-  seedGameItems(items: Array<Record<string, any>>): void {
-    const tx = this._handle.transaction((list) => {
+  seedGameItems(items: Array<Record<string, unknown>>): void {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const item of list) {
         this._stmts.upsertGameItem.run(
           item.id,
@@ -3681,7 +3702,7 @@ class HumanitZDB {
           item.excludeFromVendor ? 1 : 0,
           item.excludeFromAI ? 1 : 0,
           item.useAsFertilizer ? 1 : 0,
-          String(item.state ?? ''),
+          typeof item.state === 'string' ? item.state : '',
           item.tag || '',
           typeof item.openItem === 'string' ? item.openItem : item.openItem ? '1' : '',
           item.bodyAttachSocket || '',
@@ -3703,11 +3724,11 @@ class HumanitZDB {
     return this._stmts.searchGameItems.all(q, q);
   }
 
-  seedGameProfessions(professions: Array<Record<string, any>>) {
+  seedGameProfessions(professions: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_professions (id, enum_value, enum_index, perk, description, affliction, skills) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const p of list) {
         stmt.run(
           p.id,
@@ -3723,11 +3744,11 @@ class HumanitZDB {
     tx(professions);
   }
 
-  seedGameAfflictions(afflictions: Array<Record<string, any>>) {
+  seedGameAfflictions(afflictions: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_afflictions (idx, name, description, icon) VALUES (?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const a of list) {
         stmt.run(a.idx, a.name, a.description || '', a.icon || '');
       }
@@ -3735,11 +3756,11 @@ class HumanitZDB {
     tx(afflictions);
   }
 
-  seedGameSkills(skills: Array<Record<string, any>>) {
+  seedGameSkills(skills: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_skills (id, name, description, effect, category, icon) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const s of list) {
         stmt.run(s.id, s.name, s.description || '', s.effect || '', s.category || '', s.icon || '');
       }
@@ -3747,11 +3768,11 @@ class HumanitZDB {
     tx(skills);
   }
 
-  seedGameChallenges(challenges: Array<Record<string, any>>) {
+  seedGameChallenges(challenges: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_challenges (id, name, description, save_field, target) VALUES (?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const c of list) {
         stmt.run(c.id, c.name, c.description || '', c.saveField || '', c.target || 0);
       }
@@ -3759,11 +3780,17 @@ class HumanitZDB {
     tx(challenges);
   }
 
-  seedLoadingTips(tips: Array<Record<string, any> | string>) {
+  seedLoadingTips(tips: Array<Record<string, unknown> | string>): void {
     const stmt = this._handle.prepare('INSERT OR REPLACE INTO game_loading_tips (id, text, category) VALUES (?, ?, ?)');
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown> | string>) => {
       for (let i = 0; i < list.length; i++) {
-        stmt.run(i + 1, list[i].text || list[i], list[i].category || '');
+        const entry = list[i];
+        if (entry == null) continue;
+        if (typeof entry === 'string') {
+          stmt.run(i + 1, entry, '');
+        } else {
+          stmt.run(i + 1, entry.text || '', entry.category || '');
+        }
       }
     });
     tx(tips);
@@ -3775,14 +3802,14 @@ class HumanitZDB {
 
   // ─── New game reference seed methods (schema v11) ─────────────────────────
 
-  seedGameBuildings(buildings: Array<Record<string, any>>) {
+  seedGameBuildings(buildings: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_buildings (
       id, name, description, category, category_raw, health,
       show_in_build_menu, requires_build_tool, moveable, learned_building,
       landscape_only, water_only, structure_only, wall_placement, require_foundation,
       xp_multiplier, resources, upgrades
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const b of list) {
         stmt.run(
           b.id,
@@ -3809,18 +3836,19 @@ class HumanitZDB {
     tx(buildings);
   }
 
-  seedGameLootPools(lootTables: Record<string, Record<string, any>>) {
+  seedGameLootPools(lootTables: Record<string, Record<string, unknown>>) {
     const poolStmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_loot_pools (id, name, item_count) VALUES (?, ?, ?)',
     );
     const itemStmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_loot_pool_items (pool_id, item_id, name, chance_to_spawn, type, max_stack_size) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((tables: Record<string, any>) => {
+    const tx = this._handle.transaction((tables: Record<string, Record<string, unknown>>) => {
       for (const [poolId, pool] of Object.entries(tables)) {
         poolStmt.run(poolId, pool.name || poolId, pool.itemCount || 0);
-        for (const [itemId, itemRaw] of Object.entries(pool.items || {})) {
-          const item = itemRaw as Record<string, any>;
+        const items = (pool.items ?? {}) as Record<string, unknown>;
+        for (const [itemId, itemRaw] of Object.entries(items)) {
+          const item = itemRaw as Record<string, unknown>;
           itemStmt.run(
             poolId,
             itemId,
@@ -3835,9 +3863,9 @@ class HumanitZDB {
     tx(lootTables);
   }
 
-  seedGameVehiclesRef(vehicles: Array<Record<string, any>>) {
+  seedGameVehiclesRef(vehicles: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare('INSERT OR REPLACE INTO game_vehicles_ref (id, name) VALUES (?, ?)');
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const v of list) {
         stmt.run(v.id, v.name || v.id);
       }
@@ -3845,11 +3873,11 @@ class HumanitZDB {
     tx(vehicles);
   }
 
-  seedGameAnimals(animals: Array<Record<string, any>>) {
+  seedGameAnimals(animals: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_animals (id, name, type, hide_item_id) VALUES (?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const a of list) {
         stmt.run(a.id, a.name || a.id, a.type || '', a.hideItemId || '');
       }
@@ -3857,11 +3885,11 @@ class HumanitZDB {
     tx(animals);
   }
 
-  seedGameCrops(crops: Array<Record<string, any>>) {
+  seedGameCrops(crops: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_crops (
       id, crop_id, growth_time_days, grid_columns, grid_rows, harvest_result, harvest_count, grow_seasons
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const c of list) {
         stmt.run(
           c.id,
@@ -3878,11 +3906,11 @@ class HumanitZDB {
     tx(crops);
   }
 
-  seedGameCarUpgrades(upgrades: Array<Record<string, any>>) {
+  seedGameCarUpgrades(upgrades: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_car_upgrades (
       id, type, type_raw, level, socket, tool_durability_lost, craft_time_minutes, health, craft_cost
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const u of list) {
         stmt.run(
           u.id,
@@ -3900,11 +3928,11 @@ class HumanitZDB {
     tx(upgrades);
   }
 
-  seedGameAmmoTypes(ammo: Array<Record<string, any>>) {
+  seedGameAmmoTypes(ammo: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_ammo_types (id, damage, headshot_multiplier, range, penetration) VALUES (?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const a of list) {
         stmt.run(a.id, a.damage ?? 0, a.headshotMultiplier ?? 1, a.range ?? 0, a.penetration ?? 0);
       }
@@ -3912,11 +3940,11 @@ class HumanitZDB {
     tx(ammo);
   }
 
-  seedGameRepairData(repairs: Array<Record<string, any>>) {
+  seedGameRepairData(repairs: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_repair_data (
       id, resource_type, resource_type_raw, amount, health_to_add, is_repairable, extra_resources
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const r of list) {
         stmt.run(
           r.id,
@@ -3932,11 +3960,11 @@ class HumanitZDB {
     tx(repairs);
   }
 
-  seedGameFurniture(furniture: Array<Record<string, any>>) {
+  seedGameFurniture(furniture: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_furniture (id, name, mesh_count, drop_resources) VALUES (?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const f of list) {
         stmt.run(f.id, f.name || f.id, f.meshCount ?? 0, _json(f.dropResources));
       }
@@ -3944,11 +3972,11 @@ class HumanitZDB {
     tx(furniture);
   }
 
-  seedGameTraps(traps: Array<Record<string, any>>) {
+  seedGameTraps(traps: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_traps (id, item_id, requires_weapon, requires_ammo, requires_items, required_ammo_id) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const t of list) {
         stmt.run(
           t.id,
@@ -3963,11 +3991,11 @@ class HumanitZDB {
     tx(traps);
   }
 
-  seedGameSprays(sprays: Array<Record<string, any>>) {
+  seedGameSprays(sprays: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_sprays (id, name, description, color) VALUES (?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const s of list) {
         stmt.run(s.id, s.name || s.id, s.description || '', s.color || '');
       }
@@ -3975,7 +4003,7 @@ class HumanitZDB {
     tx(sprays);
   }
 
-  seedGameRecipes(recipes: Array<Record<string, any>>) {
+  seedGameRecipes(recipes: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_recipes (
       id, name, description, station, station_raw, recipe_type, craft_time,
       profession, profession_raw, requires_recipe, hidden, inventory_search_only,
@@ -3983,7 +4011,7 @@ class HumanitZDB {
       override_name, override_description, crafted_item, also_give_item, also_give_arr,
       ingredients
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const r of list) {
         stmt.run(
           r.id,
@@ -4015,11 +4043,11 @@ class HumanitZDB {
     tx(recipes);
   }
 
-  seedGameLore(lore: Array<Record<string, any>>) {
+  seedGameLore(lore: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_lore (id, title, text, category, sort_order) VALUES (?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const l of list) {
         stmt.run(l.id, l.title || '', l.text || '', l.category || '', l.order ?? 0);
       }
@@ -4027,11 +4055,11 @@ class HumanitZDB {
     tx(lore);
   }
 
-  seedGameQuests(quests: Array<Record<string, any>>) {
+  seedGameQuests(quests: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_quests (id, name, description, xp_reward, requirements, rewards) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const q of list) {
         stmt.run(q.id, q.name || '', q.description || '', q.xpReward ?? 0, _json(q.requirements), _json(q.rewards));
       }
@@ -4039,11 +4067,11 @@ class HumanitZDB {
     tx(quests);
   }
 
-  seedGameSpawnLocations(spawns: Array<Record<string, any>>) {
+  seedGameSpawnLocations(spawns: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_spawn_locations (id, name, description, map) VALUES (?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const s of list) {
         stmt.run(s.id, s.name || s.id, s.description || '', s.map || '');
       }
@@ -4051,11 +4079,11 @@ class HumanitZDB {
     tx(spawns);
   }
 
-  seedGameServerSettingDefs(settings: Array<Record<string, any>>) {
+  seedGameServerSettingDefs(settings: Array<Record<string, unknown>>) {
     const stmt = this._handle.prepare(
       'INSERT OR REPLACE INTO game_server_setting_defs (key, label, description, type, default_val, options) VALUES (?, ?, ?, ?, ?, ?)',
     );
-    const tx = this._handle.transaction((list) => {
+    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const s of list) {
         stmt.run(s.key, s.label || '', s.description || '', s.type || 'string', s.defaultVal || '', _json(s.options));
       }
@@ -4082,8 +4110,8 @@ class HumanitZDB {
    * @param {Array}  data.backpacks - [{ class, x, y, z, itemCount, items }]
    * @returns {number} The snapshot ID
    */
-  insertTimelineSnapshot(data: Record<string, any>): number {
-    const s = data.snapshot || {};
+  insertTimelineSnapshot(data: Record<string, unknown>): number {
+    const s = (data.snapshot || {}) as Record<string, unknown>;
     const result = this._stmts.insertTimelineSnapshot.run(
       s.gameDay || 0,
       s.gameTime || 0,
@@ -4107,7 +4135,7 @@ class HumanitZDB {
     const tx = this._handle.transaction(() => {
       // Players
       if (data.players) {
-        for (const p of data.players) {
+        for (const p of data.players as Array<Record<string, unknown>>) {
           this._stmts.insertTimelinePlayer.run(
             snapId,
             p.steamId,
@@ -4132,7 +4160,7 @@ class HumanitZDB {
 
       // AI spawns
       if (data.ai) {
-        for (const a of data.ai) {
+        for (const a of data.ai as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineAI.run(
             snapId,
             a.aiType,
@@ -4148,7 +4176,7 @@ class HumanitZDB {
 
       // Vehicles
       if (data.vehicles) {
-        for (const v of data.vehicles) {
+        for (const v of data.vehicles as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineVehicle.run(
             snapId,
             v.class,
@@ -4166,7 +4194,7 @@ class HumanitZDB {
 
       // Structures
       if (data.structures) {
-        for (const st of data.structures) {
+        for (const st of data.structures as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineStructure.run(
             snapId,
             st.actorClass,
@@ -4184,7 +4212,7 @@ class HumanitZDB {
 
       // Houses
       if (data.houses) {
-        for (const h of data.houses) {
+        for (const h of data.houses as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineHouse.run(
             snapId,
             h.uid,
@@ -4206,7 +4234,7 @@ class HumanitZDB {
 
       // Companions + horses
       if (data.companions) {
-        for (const c of data.companions) {
+        for (const c of data.companions as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineCompanion.run(
             snapId,
             c.entityType,
@@ -4224,7 +4252,7 @@ class HumanitZDB {
 
       // Dropped backpacks
       if (data.backpacks) {
-        for (const b of data.backpacks) {
+        for (const b of data.backpacks as Array<Record<string, unknown>>) {
           this._stmts.insertTimelineBackpack.run(
             snapId,
             b.class || '',
@@ -4243,11 +4271,11 @@ class HumanitZDB {
   }
 
   /** Get recent timeline snapshots (metadata only). */
-  getTimelineSnapshots(limit = 50) {
-    return this._stmts.getTimelineSnapshots.all(limit).map((r: any) => {
-      if (r.summary)
+  getTimelineSnapshots(limit = 50): DbRow[] {
+    return (this._stmts.getTimelineSnapshots.all(limit) as DbRow[]).map((r) => {
+      if (r.summary && typeof r.summary === 'string')
         try {
-          r.summary = JSON.parse(r.summary as string);
+          r.summary = JSON.parse(r.summary) as unknown;
         } catch {
           /* */
         }
@@ -4256,11 +4284,11 @@ class HumanitZDB {
   }
 
   /** Get timeline snapshots in a date range. */
-  getTimelineSnapshotRange(from: string, to: string) {
-    return this._stmts.getTimelineSnapshotRange.all(from, to).map((r: any) => {
-      if (r.summary)
+  getTimelineSnapshotRange(from: string, to: string): DbRow[] {
+    return (this._stmts.getTimelineSnapshotRange.all(from, to) as DbRow[]).map((r) => {
+      if (r.summary && typeof r.summary === 'string')
         try {
-          r.summary = JSON.parse(r.summary as string);
+          r.summary = JSON.parse(r.summary) as unknown;
         } catch {
           /* */
         }
@@ -4287,10 +4315,10 @@ class HumanitZDB {
       houses: this._stmts.getTimelineHouses.all(snapshotId),
       companions: this._stmts.getTimelineCompanions.all(snapshotId),
 
-      backpacks: this._stmts.getTimelineBackpacks.all(snapshotId).map((b: any) => {
-        if (b.items_summary)
+      backpacks: (this._stmts.getTimelineBackpacks.all(snapshotId) as DbRow[]).map((b) => {
+        if (b.items_summary && typeof b.items_summary === 'string')
           try {
-            b.items_summary = JSON.parse(b.items_summary as string);
+            b.items_summary = JSON.parse(b.items_summary) as unknown;
           } catch {
             /* */
           }
@@ -4305,12 +4333,12 @@ class HumanitZDB {
   }
 
   /** Get player position history for trails. */
-  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, any>) {
+  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, unknown>) {
     return this._stmts.getPlayerPositionHistory.all(steamId, from, to);
   }
 
   /** Get AI population history for charts. */
-  getAIPopulationHistory(from: string, to: Record<string, any>) {
+  getAIPopulationHistory(from: string, to: Record<string, unknown>) {
     return this._stmts.getAIPopulationHistory.all(from, to);
   }
 
@@ -4336,7 +4364,7 @@ class HumanitZDB {
    * @param {number} [data.y]
    * @param {number} [data.z]
    */
-  insertDeathCause(data: Record<string, any>): void {
+  insertDeathCause(data: Record<string, unknown>): void {
     this._stmts.insertDeathCause.run(
       data.victimName,
       data.victimSteamId || '',
@@ -4379,7 +4407,8 @@ class HumanitZDB {
    * @param {object} flag - { steam_id, player_name, detector, severity, score, details, evidence, auto_escalated }
    * @returns {number} The inserted flag ID
    */
-  insertAcFlag(flag: Record<string, any>): number | bigint {
+  insertAcFlag(input: Record<string, unknown>): number | bigint {
+    const flag = input as DbRow;
     const info = this._stmts.insertAcFlag.run({
       steam_id: flag.steam_id,
       player_name: flag.player_name || '',
@@ -4433,7 +4462,7 @@ class HumanitZDB {
    * Upsert a player risk score.
    * @param {object} data - { steam_id, risk_score, open_flags, confirmed_flags, dismissed_flags, last_flag_at, baseline_data }
    */
-  upsertRiskScore(data: Record<string, any>): void {
+  upsertRiskScore(data: Record<string, unknown>): void {
     this._stmts.upsertRiskScore.run({
       steam_id: data.steam_id,
       risk_score: data.risk_score || 0,
@@ -4461,7 +4490,7 @@ class HumanitZDB {
    * Upsert an entity fingerprint.
    * @param {object} fp - { entity_type, entity_id, fingerprint, parent_id, creator_steam_id, tamper_score, metadata }
    */
-  upsertFingerprint(fp: Record<string, any>): void {
+  upsertFingerprint(fp: Record<string, unknown>): void {
     this._stmts.upsertFingerprint.run({
       entity_type: fp.entity_type,
       entity_id: fp.entity_id,
@@ -4489,7 +4518,7 @@ class HumanitZDB {
    * @param {object} evt - { fingerprint_id, event_type, old_state, new_state, attributed_to, source, confidence }
    * @returns {number} The inserted event ID
    */
-  insertFingerprintEvent(evt: Record<string, any>): number | bigint {
+  insertFingerprintEvent(evt: Record<string, unknown>): number | bigint {
     const info = this._stmts.insertFingerprintEvent.run({
       fingerprint_id: evt.fingerprint_id,
       event_type: evt.event_type,
@@ -4516,7 +4545,7 @@ function _json(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function _parsePlayerRow(row: any): any {
+function _parsePlayerRow(row: unknown): DbRow | null {
   if (!row) return null;
   // Parse JSON columns back to objects
   const jsonCols = [
@@ -4548,11 +4577,11 @@ function _parsePlayerRow(row: any): any {
     'kill_tracker',
     'custom_data',
   ];
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   for (const col of jsonCols) {
     if (parsed[col] && typeof parsed[col] === 'string') {
       try {
-        parsed[col] = JSON.parse(parsed[col]);
+        parsed[col] = JSON.parse(parsed[col]) as unknown;
       } catch {
         /* leave as string */
       }
@@ -4571,38 +4600,39 @@ function _parsePlayerRow(row: any): any {
  * Avoids the { ...row } spread + 27-column JSON.parse of _parsePlayerRow().
  */
 
-function _parsePlayerRowForDiff(row: any): any {
+function _parsePlayerRowForDiff(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed: Record<string, any> = {
-    steam_id: row.steam_id,
-    name: row.name,
-    online: !!row.online,
-    pos_x: row.pos_x,
-    pos_y: row.pos_y,
-    pos_z: row.pos_z,
+  const r = row as DbRow;
+  const parsed: DbRow = {
+    steam_id: r.steam_id,
+    name: r.name,
+    online: !!r.online,
+    pos_x: r.pos_x,
+    pos_y: r.pos_y,
+    pos_z: r.pos_z,
     inventory: null,
     equipment: null,
     quick_slots: null,
     backpack_items: null,
   };
   for (const col of ['inventory', 'equipment', 'quick_slots', 'backpack_items'] as const) {
-    if (row[col] && typeof row[col] === 'string') {
+    if (r[col] && typeof r[col] === 'string') {
       try {
-        parsed[col] = JSON.parse(row[col]);
+        parsed[col] = JSON.parse(r[col]) as unknown;
       } catch {
-        parsed[col] = row[col];
+        parsed[col] = r[col];
       }
     }
   }
   return parsed;
 }
 
-function _parseActivityRow(row: any): any {
+function _parseActivityRow(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   if (parsed.details && typeof parsed.details === 'string') {
     try {
-      parsed.details = JSON.parse(parsed.details);
+      parsed.details = JSON.parse(parsed.details) as unknown;
     } catch {
       /* leave as string */
     }
@@ -4610,13 +4640,13 @@ function _parseActivityRow(row: any): any {
   return parsed;
 }
 
-function _parseAcFlagRow(row: any): any {
+function _parseAcFlagRow(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   for (const col of ['details', 'evidence']) {
     if (parsed[col] && typeof parsed[col] === 'string') {
       try {
-        parsed[col] = JSON.parse(parsed[col]);
+        parsed[col] = JSON.parse(parsed[col]) as unknown;
       } catch {
         /* leave as string */
       }
@@ -4626,12 +4656,12 @@ function _parseAcFlagRow(row: any): any {
   return parsed;
 }
 
-function _parseRiskRow(row: any): any {
+function _parseRiskRow(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   if (parsed.baseline_data && typeof parsed.baseline_data === 'string') {
     try {
-      parsed.baseline_data = JSON.parse(parsed.baseline_data);
+      parsed.baseline_data = JSON.parse(parsed.baseline_data) as unknown;
     } catch {
       /* leave as string */
     }
@@ -4639,12 +4669,12 @@ function _parseRiskRow(row: any): any {
   return parsed;
 }
 
-function _parseFingerprintRow(row: any): any {
+function _parseFingerprintRow(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   if (parsed.metadata && typeof parsed.metadata === 'string') {
     try {
-      parsed.metadata = JSON.parse(parsed.metadata);
+      parsed.metadata = JSON.parse(parsed.metadata) as unknown;
     } catch {
       /* leave as string */
     }
@@ -4652,13 +4682,13 @@ function _parseFingerprintRow(row: any): any {
   return parsed;
 }
 
-function _parseFingerprintEventRow(row: any): any {
+function _parseFingerprintEventRow(row: unknown): DbRow | null {
   if (!row) return null;
-  const parsed = { ...row };
+  const parsed: DbRow = { ...(row as DbRow) };
   for (const col of ['old_state', 'new_state']) {
     if (parsed[col] && typeof parsed[col] === 'string') {
       try {
-        parsed[col] = JSON.parse(parsed[col]);
+        parsed[col] = JSON.parse(parsed[col]) as unknown;
       } catch {
         /* leave as string */
       }

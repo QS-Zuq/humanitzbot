@@ -64,13 +64,14 @@ const AI_DISPLAY_NAMES: Record<string, string> = {
   BanditSniper: 'Bandit (Sniper)',
 };
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
   insertTimelineSnapshot(data: TimelineInsertData): number;
   purgeOldTimeline(olderThan: string): { changes: number };
 }
 
 interface TimelineInsertData {
+  [key: string]: unknown;
   snapshot: SnapshotHeader;
   players: TimelinePlayer[];
   ai: TimelineAI[];
