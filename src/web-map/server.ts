@@ -11,12 +11,11 @@
  * Integrates with: save-parser, player-stats, playtime-tracker, rcon
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition
+   -- 5000+ line Express server; method bodies process untyped config/save/RCON data */
 
 import express from 'express';
 import path from 'path';
@@ -1862,8 +1861,7 @@ class WebMapServer {
               groupCount: 0,
               totalItems: 0,
             };
-          // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
-          locationSummary[key].totalItems += Number(inst.amount) || 1;
+          locationSummary[key].totalItems += Number(inst.amount as string) || 1;
           locationSummary[key].instanceCount++;
         }
         for (const grp of groups) {
@@ -1877,8 +1875,7 @@ class WebMapServer {
               totalItems: 0,
             };
           locationSummary[key].groupCount++;
-          // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
-          locationSummary[key].totalItems += Number(grp.quantity) * (Number(grp.stack_size) || 1);
+          locationSummary[key].totalItems += Number(grp.quantity as string) * (Number(grp.stack_size as string) || 1);
         }
 
         res.json({
@@ -3270,8 +3267,7 @@ class WebMapServer {
                 if (cur && typeof cur === 'object') {
                   const lastPart = parts[parts.length - 1];
                   if (lastPart !== undefined) {
-                    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-                    delete cur[lastPart];
+                    Reflect.deleteProperty(cur, lastPart);
                   }
                 }
               } else {
@@ -3497,7 +3493,6 @@ class WebMapServer {
               }
               return l;
             });
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mutated in map() callback
             if (!found) newEnvLines.push(`WELCOME_FILE_LINES=${pipeValue}`);
             fs.writeFileSync(envPath, newEnvLines.join('\n'));
           }

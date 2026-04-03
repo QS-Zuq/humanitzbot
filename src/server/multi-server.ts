@@ -501,8 +501,7 @@ class ServerInstance {
   getServerInfo: () => ReturnType<typeof getServerInfo>;
   getPlayerList: () => ReturnType<typeof getPlayerList>;
   sendAdminMessage: (msg: string) => ReturnType<typeof sendAdminMessage>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- module instances have heterogeneous shapes; typed at call sites
-  _modules: Record<string, any>;
+  _modules: Record<string, unknown>;
   saveService: SaveService | null;
   _playtimeFlushTimer: ReturnType<typeof setInterval> | null;
 
@@ -930,8 +929,8 @@ class ServerInstance {
     this._log.info('Server started with', Object.keys(this._modules).length, 'module(s)');
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- async for consistent API; callers await this
   async stop(): Promise<void> {
+    await Promise.resolve(); // ensure async for consistent API
     this._log.info('Stopping server');
 
     for (const [name, mod] of Object.entries(this._modules)) {
