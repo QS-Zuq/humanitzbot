@@ -14,7 +14,14 @@ import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
 import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands,
+   @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises,
+   @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable,
+   @typescript-eslint/no-non-null-assertion
+   -- class fields typed; method bodies still use untyped save/RCON/parser data */
 /**
  * Convert a DB player row (snake_case, from _parsePlayerRow) to camelCase
  * save-data format matching parseSave() output.  This allows all embed
@@ -131,7 +138,41 @@ function _dbRowToSave(row: any) {
 }
 
 class PlayerStatsChannel {
-  [key: string]: any;
+  _config: any;
+  _playtime: any;
+  _playerStats: any;
+  _db: any;
+  _log: ReturnType<typeof createLogger>;
+  _label: string;
+  _serverId: string;
+  _dataDir: string | null;
+  _panelApi: any;
+  client: any;
+  _logWatcher: any;
+  channel: any;
+  statusMessage: any;
+  saveInterval: ReturnType<typeof setInterval> | null;
+  _saveData: Map<string, any>;
+  _clanData: any[];
+  _lastSaveUpdate: Date | null;
+  _embedInterval: ReturnType<typeof setInterval> | null;
+  _killTracker: KillTracker;
+  _serverSettings: Record<string, any>;
+  _weeklyStats: any;
+  _headless: boolean;
+  _worldState: any;
+  _structures: any[];
+  _vehicles: any[];
+  _horses: any[];
+  _containers: any[];
+  _companions: any[];
+  _lastEmbedKey: string | null;
+
+  // Embed builder methods mixed in via Object.assign (see bottom of file)
+  _buildOverviewEmbed!: () => any;
+  _buildPlayerRow!: () => any[];
+  _buildClanRow!: () => any[];
+
   constructor(client: any, logWatcher: any, deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
@@ -139,24 +180,30 @@ class PlayerStatsChannel {
     this._db = deps.db || null;
     this._log = createLogger(deps.label, 'PLAYER STATS CH');
     this._label = this._log.label;
-    this._serverId = deps.serverId || ''; // unique suffix for select menu IDs
-    this._dataDir = deps.dataDir || null; // for writing save-cache.json (multi-server)
+    this._serverId = deps.serverId || '';
+    this._dataDir = deps.dataDir || null;
     this._panelApi = deps.panelApi || null;
 
     this.client = client;
-    this._logWatcher = logWatcher || null; // for posting kill feed to activity thread
+    this._logWatcher = logWatcher || null;
     this.channel = null;
-    this.statusMessage = null; // the single embed we keep editing
+    this.statusMessage = null;
     this.saveInterval = null;
-    this._saveData = new Map(); // steamId -> save data
-    this._clanData = []; // array of { name, members: [{ name, steamId, rank }] }
+    this._saveData = new Map();
+    this._clanData = [];
     this._lastSaveUpdate = null;
     this._embedInterval = null;
-    // Kill/stat tracker (shared data layer)
     this._killTracker = new KillTracker(deps);
-    this._serverSettings = {}; // parsed GameServerSettings.ini
-    this._weeklyStats = null; // cached weekly delta leaderboards
-    this._headless = false; // true when running without Discord channel (data-only mode)
+    this._serverSettings = {};
+    this._weeklyStats = null;
+    this._headless = false;
+    this._worldState = null;
+    this._structures = [];
+    this._vehicles = [];
+    this._horses = [];
+    this._containers = [];
+    this._companions = [];
+    this._lastEmbedKey = null;
   }
 
   // ── Cross-validated player resolver ─────────────────────────
@@ -255,7 +302,9 @@ class PlayerStatsChannel {
         .then(() => {
           if (!this._headless) this._updateEmbed();
         })
-        .catch((err: any) => this._log.error('Save poll error:', err.message));
+        .catch((err: any) => {
+          this._log.error('Save poll error:', err.message);
+        });
     }, pollMs);
     this._log.info(`Save poll every ${pollMs / 1000}s${this._headless ? ' (headless)' : ''}`);
 
@@ -455,7 +504,7 @@ class PlayerStatsChannel {
   _enrichServerSettings() {
     if (!this._worldState) return;
     const ws = this._worldState;
-    if (ws.daysPassed != null) (this._serverSettings as Record<string, any>)._daysPassed = ws.daysPassed;
+    if (ws.daysPassed != null) this._serverSettings._daysPassed = ws.daysPassed;
     if (ws.currentSeason) this._serverSettings._currentSeason = ws.currentSeason;
     if (ws.currentSeasonDay != null) this._serverSettings._currentSeasonDay = ws.currentSeasonDay;
     if (ws.totalStructures != null) this._serverSettings._totalStructures = ws.totalStructures;
@@ -783,7 +832,7 @@ class PlayerStatsChannel {
    * and presentation (PSC embeds / activity feed).
    */
   _runAccumulate() {
-    const { deltas, targetDate } = this._killTracker.accumulate(this._saveData, { gameData });
+    const { deltas, targetDate } = this._killTracker.accumulate(this._saveData, { gameData: gameData as any });
     if (this._logWatcher) {
       this._postActivitySummary(deltas, targetDate);
     }

@@ -45,7 +45,7 @@ import ActivityLog from '../modules/activity-log.js';
    @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
    @typescript-eslint/restrict-plus-operands
-   -- Multi-server configs are dynamic JSON; SFTP/RCON/Panel objects are untyped */
+   -- class fields typed; multi-server configs are dynamic JSON from DB/files */
 
 let AnticheatIntegration: any;
 try {
@@ -404,7 +404,27 @@ function createServerConfig(serverDef: any): any {
 // ═════════════════════════════════════════════════════════════
 
 class ServerInstance {
-  [key: string]: any;
+  client: any;
+  id: string;
+  name: string;
+  def: any;
+  running: boolean;
+  _configRepo: any;
+  dataDir: string;
+  config: any;
+  _log: ReturnType<typeof createLogger>;
+  db: HumanitZDB;
+  panelApi: any;
+  rcon: any;
+  playerStats: PlayerStats;
+  playtime: PlaytimeTracker;
+  getServerInfo: () => ReturnType<typeof getServerInfo>;
+  getPlayerList: () => ReturnType<typeof getPlayerList>;
+  sendAdminMessage: (msg: string) => ReturnType<typeof sendAdminMessage>;
+  _modules: Record<string, any>;
+  saveService: any;
+  _playtimeFlushTimer: ReturnType<typeof setInterval> | null;
+
   constructor(client: any, serverDef: any, deps: any = {}) {
     this.client = client;
     this.id = serverDef.id;
@@ -429,7 +449,7 @@ class ServerInstance {
     });
     this.db.init();
     try {
-      gameReferenceSeed(this.db);
+      gameReferenceSeed(this.db as any);
     } catch (err: any) {
       this._log.warn('Game reference seed failed:', err.message);
     }
@@ -464,22 +484,22 @@ class ServerInstance {
 
     this.playerStats = new PlayerStats({
       dataDir: this.dataDir,
-      db: this.db,
+      db: this.db as any,
       playtime: null, // set after playtime is created
       label: 'STATS:' + this._log.label,
     });
 
     this.playtime = new PlaytimeTracker({
       dataDir: this.dataDir,
-      db: this.db,
+      db: this.db as any,
       config: this.config,
       label: 'PLAYTIME:' + this._log.label,
     });
 
     // Wire up cross-reference
-    this.playerStats._playtime = this.playtime;
-    this.playerStats.setDb(this.db);
-    this.playtime.setDb(this.db);
+    (this.playerStats as any)._playtime = this.playtime;
+    this.playerStats.setDb(this.db as any);
+    this.playtime.setDb(this.db as any);
 
     // Bound server-info functions using this rcon
     this.getServerInfo = () => getServerInfo(this.rcon);
@@ -489,6 +509,7 @@ class ServerInstance {
     // Module instances (created on start)
     this._modules = {};
     this.saveService = null;
+    this._playtimeFlushTimer = null;
   }
 
   /** Whether SFTP is configured for this server. */
@@ -517,7 +538,7 @@ class ServerInstance {
       panelApi: this.panelApi,
       // Per-server panel API gets its own resource monitoring if available;
       // otherwise disable to prevent inheriting primary's Pterodactyl stats
-      serverResources: this.panelApi ? { backend: 'pterodactyl', panelApi: this.panelApi } : { backend: null },
+      serverResources: (this.panelApi ? { backend: 'pterodactyl', panelApi: this.panelApi } : { backend: null }) as any,
     };
   }
 
@@ -569,7 +590,7 @@ class ServerInstance {
     if (this.hasSftp || this.panelApi) {
       try {
         const sftpConfig = this.hasSftp ? this.config.sftpConnectConfig() : null;
-        this.saveService = new SaveService(this.db, {
+        this.saveService = new SaveService(this.db as any, {
           sftpConfig,
           savePath: this.config.sftpSavePath,
           clanSavePath: (() => {
@@ -764,7 +785,7 @@ class ServerInstance {
     }
 
     // Anticheat — observation-only anomaly detection (optional private package)
-    if (this.config.enableAnticheat && AnticheatIntegration && this.db) {
+    if (this.config.enableAnticheat && AnticheatIntegration) {
       try {
         const mod = new AnticheatIntegration({
           db: this.db,
@@ -803,7 +824,7 @@ class ServerInstance {
 
     for (const [name, mod] of Object.entries(this._modules)) {
       try {
-        if (typeof (mod as any).stop === 'function') (mod as any).stop();
+        if (typeof mod.stop === 'function') mod.stop();
       } catch (err: any) {
         this._log.error('Error stopping', name + ':', err.message);
       }
@@ -829,7 +850,7 @@ class ServerInstance {
 
     // Close per-server DB
     try {
-      if (this.db) this.db.close();
+      this.db.close();
     } catch {}
 
     this.running = false;
@@ -853,10 +874,13 @@ class ServerInstance {
 // ═════════════════════════════════════════════════════════════
 
 class MultiServerManager {
-  [key: string]: any;
+  client: any;
+  _instances: Map<string, ServerInstance>;
+  _configRepo: any;
+
   constructor(client: any, deps: any = {}) {
     this.client = client;
-    this._instances = new Map(); // id → ServerInstance
+    this._instances = new Map();
     this._configRepo = deps.configRepo || null;
   }
 

@@ -1,10 +1,5 @@
 'use strict';
 
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any,
-   @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
-   -- db handle is untyped (HumanitZDB); full typing is Phase 5 scope */
-
 /**
  * Interactive stdin console for managing the bot on headless hosts (e.g. Bisect).
  *
@@ -24,9 +19,15 @@
  */
 
 import readline from 'node:readline';
+import type { HumanitZDB } from './db/database.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
+   -- DB methods return untyped rows; console commands display dynamic data */
 
 class StdinConsole {
-  private _db: any;
+  private _db: HumanitZDB | null;
   private _writable: boolean;
   private _rl: readline.Interface | null;
   private _started: boolean;
@@ -35,8 +36,8 @@ class StdinConsole {
    * @param opts.db       - HumanitZDB instance
    * @param opts.writable - Allow write operations
    */
-  constructor({ db, writable = false }: { db?: any; writable?: boolean } = {}) {
-    this._db = db;
+  constructor({ db, writable = false }: { db?: HumanitZDB | null; writable?: boolean } = {}) {
+    this._db = db ?? null;
     this._writable = writable;
     this._rl = null;
     this._started = false;
@@ -426,18 +427,16 @@ Available commands:
     const key = args[0] ?? '';
 
     try {
-      const val: unknown = this._db.getState(key);
-      if (val === undefined || val === null) {
+      const val: string | null = this._db.getState(key);
+      if (val === null) {
         this._print(`Key "${key}" not found.`);
       } else {
         // Try pretty-print JSON
         try {
-          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-          const parsed: unknown = JSON.parse(String(val));
+          const parsed: unknown = JSON.parse(val);
           this._print(JSON.stringify(parsed, null, 2));
         } catch {
-          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-          this._print(String(val));
+          this._print(val);
         }
       }
     } catch (err: any) {

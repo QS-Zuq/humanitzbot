@@ -1,22 +1,68 @@
+import type { Client, Message, EmbedBuilder } from 'discord.js';
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey, safeEditMessage } from './discord-utils.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
-import _defaultPlayerStats from '../tracking/player-stats.js';
+import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats, { type PlayerStats } from '../tracking/player-stats.js';
 import _defaultServerResources from '../server/server-resources.js';
 import {
   getServerInfo as _defaultGetServerInfo,
   getPlayerList as _defaultGetPlayerList,
   sendAdminMessage as _defaultSendAdminMessage,
+  type ServerInfo,
+  type PlayerList,
 } from '../rcon/server-info.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import type { HumanitZDB } from '../db/database.js';
 
 // Embed builders — presentation layer (mixed into prototype below)
 import * as statusEmbeds from './server-status-embeds.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises -- Phase 5: type class fields */
+type ConfigType = typeof _defaultConfig;
+type ServerResourcesType = typeof _defaultServerResources;
+/** Discord channel with send/name — loose type for channels.fetch() result.
+ *  Uses intersection to satisfy both runtime usage and discord-utils signatures. */
+type DiscordChannel = import('discord.js').TextChannel;
+
+interface ServerStatusDeps {
+  config?: ConfigType;
+  playtime?: PlaytimeTracker;
+  playerStats?: PlayerStats;
+  serverResources?: ServerResourcesType;
+  getServerInfo?: typeof _defaultGetServerInfo;
+  getPlayerList?: typeof _defaultGetPlayerList;
+  sendAdminMessage?: typeof _defaultSendAdminMessage;
+  db?: HumanitZDB | null;
+  label?: string;
+}
+
 class ServerStatus {
-  [key: string]: any;
-  constructor(client: any, deps: any = {}) {
+  _config: ConfigType;
+  _playtime: PlaytimeTracker;
+  _playerStats: PlayerStats;
+  _serverResources: ServerResourcesType;
+  _getServerInfo: typeof _defaultGetServerInfo;
+  _getPlayerList: typeof _defaultGetPlayerList;
+  _sendAdminMessage: typeof _defaultSendAdminMessage;
+  _db: HumanitZDB | null;
+  _log: Logger;
+  _label: string;
+  client: Client;
+  channel: DiscordChannel | null;
+  statusMessage: Message | null;
+  interval: ReturnType<typeof setInterval> | null;
+  updateIntervalMs: number;
+  _lastOnline: boolean | null;
+  _offlineSince: Date | null;
+  _onlineSince: Date | null;
+  _lastInfo: ServerInfo | null;
+  _lastPlayerList: PlayerList | null;
+  _lastEmbedKey: string | null;
+
+  // Embed builder methods mixed in via Object.assign (see bottom of file)
+  _buildEmbed!: (info: ServerInfo | null, playerList: PlayerList | null, resources?: unknown) => EmbedBuilder;
+  _buildOfflineEmbed!: () => Promise<EmbedBuilder>;
+
+  constructor(client: Client, deps: ServerStatusDeps = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
     this._playerStats = deps.playerStats || _defaultPlayerStats;
@@ -33,17 +79,17 @@ class ServerStatus {
 
     this.client = client;
     this.channel = null;
-    this.statusMessage = null; // the single embed we keep editing
+    this.statusMessage = null;
     this.interval = null;
-    this.updateIntervalMs = parseInt(this._config.serverStatusInterval, 10) || 30000; // 30s default
+    this.updateIntervalMs = parseInt(String(this._config.serverStatusInterval), 10) || 30000;
 
     // Track online/offline state for transitions
-    this._lastOnline = null; // null = unknown, true = online, false = offline
-    this._offlineSince = null; // Date when server went offline
-    this._onlineSince = null; // Date when server came online (for uptime)
-    this._lastInfo = null; // cache last successful RCON info
-    this._lastPlayerList = null; // cache last successful player list
-    this._lastEmbedKey = null; // content hash to skip redundant edits
+    this._lastOnline = null;
+    this._offlineSince = null;
+    this._onlineSince = null;
+    this._lastInfo = null;
+    this._lastPlayerList = null;
+    this._lastEmbedKey = null;
 
     // Load persisted state (uptime, cached info) so data survives bot restarts
     this._loadState();
@@ -59,7 +105,7 @@ class ServerStatus {
       }
 
       this._log.info(`Fetching channel ${this._config.serverStatusChannelId}...`);
-      this.channel = await this.client.channels.fetch(this._config.serverStatusChannelId);
+      this.channel = (await this.client.channels.fetch(this._config.serverStatusChannelId)) as DiscordChannel | null;
       if (!this.channel) {
         this._log.error('Channel not found! Check SERVER_STATUS_CHANNEL_ID.');
         return;
@@ -79,10 +125,13 @@ class ServerStatus {
       await this._update();
 
       // Start the loop
-      this.interval = setInterval(() => this._update(), this.updateIntervalMs);
-    } catch (err: any) {
-      this._log.error('Failed to start:', err.message);
-      this._log.error('Full error:', err);
+      this.interval = setInterval(() => {
+        void this._update();
+      }, this.updateIntervalMs);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._log.error('Failed to start:', msg);
+      this._log.error('Full error:', String(err));
     }
   }
 
@@ -94,8 +143,9 @@ class ServerStatus {
   }
 
   async _cleanOwnMessage() {
+    if (!this.channel) return;
     const savedId = this._loadMessageId();
-    await cleanOwnMessages(this.channel, this.client, { savedIds: savedId, label: this._label });
+    await cleanOwnMessages(this.channel, this.client, { savedIds: savedId ?? undefined, label: this._label });
   }
 
   _loadMessageId() {
@@ -121,7 +171,7 @@ class ServerStatus {
       if (this._config.showHostResources && this._serverResources.backend) {
         try {
           resources = await this._serverResources.getResources();
-        } catch (_: any) {}
+        } catch {}
       }
 
       // Server is online — cache the data
@@ -137,7 +187,7 @@ class ServerStatus {
       }
       this._lastOnline = true;
       this._offlineSince = null;
-      if (wasOffline || !this._onlineSince) this._saveState(); // only persist on transition
+      if (wasOffline) this._saveState(); // only persist on transition
 
       const embed = this._buildEmbed(info, playerList, resources);
 
@@ -149,19 +199,20 @@ class ServerStatus {
 
         this.statusMessage = await safeEditMessage(
           this.statusMessage,
-          this.channel,
+          this.channel as import('discord.js').TextBasedChannel,
           { embeds: [embed] },
           {
             label: this._label,
-            onRecreate: (msg: any) => {
+            onRecreate: (msg: Message) => {
               this.statusMessage = msg;
               this._saveMessageId();
             },
           },
         );
       }
-    } catch (err: any) {
-      if (err.message.includes('RCON not connected')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('RCON not connected')) {
         // Server is offline — show offline embed with cached data
         if (this._lastOnline !== false) {
           this._offlineSince = new Date();
@@ -178,22 +229,22 @@ class ServerStatus {
             try {
               this.statusMessage = await safeEditMessage(
                 this.statusMessage,
-                this.channel,
+                this.channel as import('discord.js').TextBasedChannel,
                 { embeds: [embed] },
                 {
                   label: this._label,
-                  onRecreate: (msg: any) => {
+                  onRecreate: (msg: Message) => {
                     this.statusMessage = msg;
                   },
                 },
               );
-            } catch (_: any) {
+            } catch {
               /* ignore */
             }
           }
         }
       } else {
-        this._log.error('Update error:', err.message);
+        this._log.error('Update error:', errMsg);
       }
     }
   }
@@ -204,16 +255,16 @@ class ServerStatus {
   _loadState() {
     try {
       if (!this._db) return;
-      const data = this._db.getStateJSON('server_status_cache', null);
+      const data = this._db.getStateJSON('server_status_cache', null) as Record<string, unknown> | null;
       if (!data) return;
-      if (data.onlineSince) this._onlineSince = new Date(data.onlineSince);
-      if (data.offlineSince) this._offlineSince = new Date(data.offlineSince);
-      if (data.lastOnline !== undefined) this._lastOnline = data.lastOnline;
-      if (data.lastInfo) this._lastInfo = data.lastInfo;
-      if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList;
-      this._log.info(`Loaded cached state (online since: ${data.onlineSince || 'unknown'})`);
-    } catch (err: any) {
-      this._log.info('Could not load cached state:', err.message);
+      if (data.onlineSince) this._onlineSince = new Date(data.onlineSince as string);
+      if (data.offlineSince) this._offlineSince = new Date(data.offlineSince as string);
+      if (data.lastOnline !== undefined) this._lastOnline = data.lastOnline as boolean;
+      if (data.lastInfo) this._lastInfo = data.lastInfo as ServerInfo;
+      if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList as PlayerList;
+      this._log.info(`Loaded cached state (online since: ${String(data.onlineSince) || 'unknown'})`);
+    } catch (err: unknown) {
+      this._log.info('Could not load cached state:', err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -231,18 +282,18 @@ class ServerStatus {
         lastPlayerList: this._lastPlayerList,
         savedAt: new Date().toISOString(),
       });
-    } catch (err: any) {
-      this._log.error('Could not save state:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Could not save state:', err instanceof Error ? err.message : String(err));
     }
   }
 
-  _loadServerSettings() {
+  _loadServerSettings(): Record<string, unknown> {
     try {
       if (this._db) {
-        const data = this._db.getStateJSON('server_settings', null);
+        const data = this._db.getStateJSON('server_settings', null) as Record<string, unknown> | null;
         if (data) return data;
       }
-    } catch (_: any) {}
+    } catch {}
     return {};
   }
 }

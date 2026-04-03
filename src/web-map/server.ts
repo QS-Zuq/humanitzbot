@@ -48,7 +48,7 @@ const __dirname = getDirname(import.meta.url);
    @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
    @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
    @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-misused-promises
-   -- 5000+ line Express server with pervasive untyped config/save/RCON data access */
+   -- class fields typed; Express routes use untyped config/save/RCON data */
 
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
 import expressRateLimit from 'express-rate-limit';
@@ -176,7 +176,30 @@ function _extractLandingSettings(ss: any): any {
 }
 
 class WebMapServer {
-  [key: string]: any;
+  _client: any;
+  _app: ReturnType<typeof express>;
+  _server: import('http').Server | null;
+  _port: number;
+  _db: any;
+  _scheduler: any;
+  _saveService: any;
+  _multiServerManager: any;
+  _plugins: any[];
+  _configRepo: any;
+  _worldBounds: any;
+  _responseCache: Map<string, { data: any; ts: number }>;
+  _playerCache: Map<string, any>;
+  _lastParse: number;
+  _idMap: Record<string, string>;
+  _botControl: any;
+  _moduleStatus: any;
+  _pollTimer: ReturnType<typeof setInterval> | null = null;
+  setScheduler!: (scheduler: any) => void;
+  setSaveService!: (saveService: any) => void;
+  setMultiServerManager!: (msm: any) => void;
+  setBotControl!: (bc: any) => void;
+  setModuleStatus!: (status: any) => void;
+
   constructor(client: any, opts: any = {}) {
     this._client = client;
     this._app = express();

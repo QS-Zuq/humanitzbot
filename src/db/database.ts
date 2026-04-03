@@ -19,23 +19,211 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { SCHEMA_VERSION, ALL_TABLES } from './schema.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
 
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument,
    @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-   -- better-sqlite3 prepared statements (_stmts) are untyped; full typing is Phase 5 scope */
-
-type Logger = ReturnType<typeof createLogger>;
+   @typescript-eslint/no-explicit-any -- data-access layer: method params accept dynamic
+   shapes from parsers; full domain interfaces tracked in follow-up */
 
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
+
+/** Generic row type for untyped SQLite query results. */
+type DbRow = Record<string, unknown>;
+
+/** All prepared statements cached after init(). Keys are guaranteed present at runtime. */
+interface PreparedStatements {
+  areClanmates: Database.Statement;
+  clearActivityLog: Database.Statement;
+  clearChatLog: Database.Statement;
+  clearCompanions: Database.Statement;
+  clearContainers: Database.Statement;
+  clearCurrentAlias: Database.Statement;
+  clearDeadBodies: Database.Statement;
+  clearLootActors: Database.Statement;
+  clearQuests: Database.Statement;
+  clearStructures: Database.Statement;
+  clearVehicles: Database.Statement;
+  clearWorldDrops: Database.Statement;
+  clearWorldHorses: Database.Statement;
+  countActivity: Database.Statement;
+  countActivityBySource: Database.Statement;
+  countChat: Database.Statement;
+  countStructuresByOwner: Database.Statement;
+  deleteClanMembers: Database.Statement;
+  escalateAcFlag: Database.Statement;
+  findActiveGroupByLocation: Database.Statement;
+  findActiveGroupsByFingerprint: Database.Statement;
+  findItemGroupById: Database.Statement;
+  findItemInstanceByFingerprint: Database.Statement;
+  findItemInstanceById: Database.Statement;
+  findItemInstancesByFingerprint: Database.Statement;
+  getAcFlagCount: Database.Statement;
+  getAcFlags: Database.Statement;
+  getAcFlagsByDetector: Database.Statement;
+  getAcFlagsBySteam: Database.Statement;
+  getAcFlagsSince: Database.Statement;
+  getActiveItemGroups: Database.Statement;
+  getActiveItemInstances: Database.Statement;
+  getActivityByActor: Database.Statement;
+  getActivityByActorPaged: Database.Statement;
+  getActivityByCategory: Database.Statement;
+  getActivityByCategoryPaged: Database.Statement;
+  getActivitySince: Database.Statement;
+  getActivitySinceBySource: Database.Statement;
+  getAIPopulationHistory: Database.Statement;
+  getAliasStats: Database.Statement;
+  getAllAliases: Database.Statement;
+  getAllClans: Database.Statement;
+  getAllCompanions: Database.Statement;
+  getAllContainers: Database.Statement;
+  getAllPlayerLogStats: Database.Statement;
+  getAllPlayerPlaytime: Database.Statement;
+  getAllPlayers: Database.Statement;
+  getAllRiskScores: Database.Statement;
+  getAllServerPeaks: Database.Statement;
+  getAllSettings: Database.Statement;
+  getAllVehicles: Database.Statement;
+  getAllWorldDrops: Database.Statement;
+  getAllWorldHorses: Database.Statement;
+  getAllWorldState: Database.Statement;
+  getChatSince: Database.Statement;
+  getClanForSteamId: Database.Statement;
+  getClanMembers: Database.Statement;
+  getContainersWithItems: Database.Statement;
+  getDeathCauses: Database.Statement;
+  getDeathCausesByPlayer: Database.Statement;
+  getDeathCausesSince: Database.Statement;
+  getDeathCauseStats: Database.Statement;
+  getFingerprint: Database.Statement;
+  getFingerprintEvents: Database.Statement;
+  getFingerprintsByType: Database.Statement;
+  getGameItem: Database.Statement;
+  getItemGroupCount: Database.Statement;
+  getItemGroupsByItem: Database.Statement;
+  getItemGroupsByLocation: Database.Statement;
+  getItemInstanceCount: Database.Statement;
+  getItemInstancesByGroup: Database.Statement;
+  getItemInstancesByItem: Database.Statement;
+  getItemInstancesByLocation: Database.Statement;
+  getItemMovements: Database.Statement;
+  getItemMovementsByGroup: Database.Statement;
+  getItemMovementsByLocation: Database.Statement;
+  getItemMovementsByPlayer: Database.Statement;
+  getLatestSnapshot: Database.Statement;
+  getMeta: Database.Statement;
+  getOnlinePlayers: Database.Statement;
+  getOnlinePlayersForDiff: Database.Statement;
+  getPlayer: Database.Statement;
+  getPlayerPositionHistory: Database.Statement;
+  getRecentActivity: Database.Statement;
+  getRecentActivityPaged: Database.Statement;
+  getRecentChat: Database.Statement;
+  getRecentItemMovements: Database.Statement;
+  getRiskScore: Database.Statement;
+  getServerPeak: Database.Statement;
+  getSetting: Database.Statement;
+  getStructures: Database.Statement;
+  getStructuresByOwner: Database.Statement;
+  getTimelineAI: Database.Statement;
+  getTimelineBackpacks: Database.Statement;
+  getTimelineCompanions: Database.Statement;
+  getTimelineHouses: Database.Statement;
+  getTimelinePlayers: Database.Statement;
+  getTimelineSnapshotBounds: Database.Statement;
+  getTimelineSnapshotById: Database.Statement;
+  getTimelineSnapshotCount: Database.Statement;
+  getTimelineSnapshotRange: Database.Statement;
+  getTimelineSnapshots: Database.Statement;
+  getTimelineStructures: Database.Statement;
+  getTimelineVehicles: Database.Statement;
+  getWorldDropsByType: Database.Statement;
+  getWorldDropsWithItems: Database.Statement;
+  getWorldState: Database.Statement;
+  insertAcFlag: Database.Statement;
+  insertActivity: Database.Statement;
+  insertActivityAt: Database.Statement;
+  insertChat: Database.Statement;
+  insertChatAt: Database.Statement;
+  insertClanMember: Database.Statement;
+  insertCompanion: Database.Statement;
+  insertContainer: Database.Statement;
+  insertDeadBody: Database.Statement;
+  insertDeathCause: Database.Statement;
+  insertFingerprintEvent: Database.Statement;
+  insertItemGroup: Database.Statement;
+  insertItemInstance: Database.Statement;
+  insertItemMovement: Database.Statement;
+  insertLootActor: Database.Statement;
+  insertQuest: Database.Statement;
+  insertSnapshot: Database.Statement;
+  insertStructure: Database.Statement;
+  insertTimelineAI: Database.Statement;
+  insertTimelineBackpack: Database.Statement;
+  insertTimelineCompanion: Database.Statement;
+  insertTimelineHouse: Database.Statement;
+  insertTimelinePlayer: Database.Statement;
+  insertTimelineSnapshot: Database.Statement;
+  insertTimelineStructure: Database.Statement;
+  insertTimelineVehicle: Database.Statement;
+  insertVehicle: Database.Statement;
+  insertWorldDrop: Database.Statement;
+  insertWorldHorse: Database.Statement;
+  lookupByName: Database.Statement;
+  lookupByNameLike: Database.Statement;
+  lookupBySteamId: Database.Statement;
+  markAllItemGroupsLost: Database.Statement;
+  markAllItemInstancesLost: Database.Statement;
+  markItemGroupLost: Database.Statement;
+  markItemInstanceLost: Database.Statement;
+  purgeOldActivity: Database.Statement;
+  purgeOldChat: Database.Statement;
+  purgeOldLostGroups: Database.Statement;
+  purgeOldLostItems: Database.Statement;
+  purgeOldMovements: Database.Statement;
+  purgeOldSnapshots: Database.Statement;
+  purgeOldTimeline: Database.Statement;
+  searchChat: Database.Statement;
+  searchGameItems: Database.Statement;
+  searchItemGroups: Database.Statement;
+  searchItemInstances: Database.Statement;
+  setAllOffline: Database.Statement;
+  setMeta: Database.Statement;
+  setPlayerOnline: Database.Statement;
+  setServerPeak: Database.Statement;
+  setWorldState: Database.Statement;
+  topBitten: Database.Statement;
+  topBuilders: Database.Statement;
+  topDeaths: Database.Statement;
+  topFish: Database.Statement;
+  topKillers: Database.Statement;
+  topLooters: Database.Statement;
+  topPlaytime: Database.Statement;
+  topPvp: Database.Statement;
+  topSurvival: Database.Statement;
+  touchItemGroup: Database.Statement;
+  touchItemInstance: Database.Statement;
+  updateAcFlagStatus: Database.Statement;
+  updateItemGroupLocation: Database.Statement;
+  updateItemGroupQuantity: Database.Statement;
+  updateItemInstanceLocation: Database.Statement;
+  upsertAlias: Database.Statement;
+  upsertClan: Database.Statement;
+  upsertFingerprint: Database.Statement;
+  upsertGameItem: Database.Statement;
+  upsertPlayer: Database.Statement;
+  upsertPlayerLogStats: Database.Statement;
+  upsertPlayerPlaytime: Database.Statement;
+  upsertRiskScore: Database.Statement;
+  upsertSetting: Database.Statement;
+}
 
 class HumanitZDB {
   _dbPath: string;
   _memory: boolean;
   _log: Logger;
   _db: Database.Database | null;
-  _stmts: Record<string, any>;
+  _stmts: PreparedStatements;
   private _dbRaw: Database.Database | null;
 
   constructor(options: { dbPath?: string; memory?: boolean; label?: string } = {}) {
@@ -44,7 +232,7 @@ class HumanitZDB {
     this._log = createLogger(options.label, 'DB');
     this._db = null;
     this._dbRaw = null;
-    this._stmts = {};
+    this._stmts = {} as PreparedStatements;
   }
 
   /** Get the active database handle. Throws if not initialized or closed. */
@@ -93,7 +281,7 @@ class HumanitZDB {
       this._dbRaw.close();
       this._db = null;
       this._dbRaw = null;
-      this._stmts = {};
+      this._stmts = {} as PreparedStatements;
     }
   }
 
@@ -1076,7 +1264,7 @@ class HumanitZDB {
   }
 
   /** Set a bot_state value as JSON. */
-  setStateJSON(key: string, value: string | null) {
+  setStateJSON(key: string, value: unknown) {
     this.setState(key, JSON.stringify(value));
   }
 
@@ -1916,7 +2104,7 @@ class HumanitZDB {
    * @param {string} steamId
    * @param {object} data - Flat object matching column names (from save parser)
    */
-  upsertPlayer(steamId: string, data: Record<string, unknown>) {
+  upsertPlayer(steamId: string, data: Record<string, any>) {
     const params = {
       steam_id: steamId,
       name: data.name || '',
@@ -2063,7 +2251,7 @@ class HumanitZDB {
   }
 
   /** Update kill tracker JSON for a player. */
-  updateKillTracker(steamId: string, killData: Record<string, unknown>) {
+  updateKillTracker(steamId: string, killData: Record<string, any>) {
     this._handle
       .prepare("UPDATE players SET kill_tracker = ?, updated_at = datetime('now') WHERE steam_id = ?")
       .run(JSON.stringify(killData), steamId);
@@ -2081,7 +2269,7 @@ class HumanitZDB {
    * Upsert full player log stats (DB-first — called by player-stats.js on every record call).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullLogStats(steamId: string, data: Record<string, unknown>) {
+  upsertFullLogStats(steamId: string, data: Record<string, any>) {
     this._stmts.upsertPlayerLogStats.run({
       steam_id: steamId,
       name: data.name || '',
@@ -2110,15 +2298,15 @@ class HumanitZDB {
    * Get all player log stats from DB (for loading into PlayerStats cache on startup).
    * Returns an array of objects matching the DB columns.
    */
-  getAllPlayerLogStats() {
-    return this._stmts.getAllPlayerLogStats.all();
+  getAllPlayerLogStats(): any[] {
+    return this._stmts.getAllPlayerLogStats.all() as any[];
   }
 
   /**
    * Upsert full playtime data (DB-first — called by playtime-tracker.js).
    * Creates the player row if it doesn't exist.
    */
-  upsertFullPlaytime(steamId: string, data: Record<string, unknown>) {
+  upsertFullPlaytime(steamId: string, data: Record<string, any>) {
     this._stmts.upsertPlayerPlaytime.run({
       steam_id: steamId,
       name: data.name || '',
@@ -2133,8 +2321,8 @@ class HumanitZDB {
   /**
    * Get all player playtime from DB (for loading into PlaytimeTracker cache on startup).
    */
-  getAllPlayerPlaytime() {
-    return this._stmts.getAllPlayerPlaytime.all();
+  getAllPlayerPlaytime(): any[] {
+    return this._stmts.getAllPlayerPlaytime.all() as any[];
   }
 
   /**
@@ -2150,7 +2338,7 @@ class HumanitZDB {
    * Get a server peak value.
    */
   getServerPeak(key: string) {
-    const r = this._stmts.getServerPeak.get(key);
+    const r = this._stmts.getServerPeak.get(key) as DbRow | undefined;
     return r ? r.value : null;
   }
 
@@ -2158,7 +2346,7 @@ class HumanitZDB {
    * Get all server peak values as a flat object.
    */
   getAllServerPeaks() {
-    const rows = this._stmts.getAllServerPeaks.all();
+    const rows = this._stmts.getAllServerPeaks.all() as DbRow[];
     const result: Record<string, unknown> = {};
     for (const r of rows) result[r.key as string] = r.value;
     return result;
@@ -2240,15 +2428,16 @@ class HumanitZDB {
     // If it's already a SteamID, return directly
     if (/^\d{17}$/.test(name)) return { steamId: name, name, source: 'direct', isCurrent: true };
 
-    const rows = this._stmts.lookupByName.all(nameLower);
+    const rows = this._stmts.lookupByName.all(nameLower) as DbRow[];
     if (rows.length === 0) return null;
 
     // Prefer is_current=1 entries, then most recently seen
+    const first = rows[0] as DbRow;
     return {
-      steamId: rows[0].steam_id,
-      name: rows[0].name,
-      source: rows[0].source,
-      isCurrent: !!rows[0].is_current,
+      steamId: first.steam_id,
+      name: first.name,
+      source: first.source,
+      isCurrent: !!first.is_current,
     };
   }
 
@@ -2263,21 +2452,21 @@ class HumanitZDB {
   resolveSteamIdToName(steamId: string) {
     if (!steamId) return steamId;
 
-    const rows = this._stmts.lookupBySteamId.all(steamId);
+    const rows = this._stmts.lookupBySteamId.all(steamId) as DbRow[];
     if (rows.length === 0) return steamId;
 
     // Source priority for "best name"
     const priority: Record<string, number> = { idmap: 5, connect_log: 4, save: 3, playtime: 2, log: 1, manual: 0 };
 
     // Among is_current=1 entries, pick the highest-priority source
-    const current = rows.filter((r: Record<string, unknown>) => r.is_current);
+    const current = rows.filter((r) => r.is_current);
     if (current.length > 0) {
-      current.sort((a: any, b: any) => (priority[b.source as string] ?? 0) - (priority[a.source as string] ?? 0));
-      return current[0].name;
+      current.sort((a, b) => (priority[b.source as string] ?? 0) - (priority[a.source as string] ?? 0));
+      return (current[0] as DbRow).name as string;
     }
 
     // Fallback: most recently seen alias
-    return rows[0].name;
+    return (rows[0] as DbRow).name as string;
   }
 
   /**
@@ -2286,7 +2475,7 @@ class HumanitZDB {
    * @returns {Array<{ name: string, source: string, firstSeen: string, lastSeen: string, isCurrent: boolean }>}
    */
   getPlayerAliases(steamId: string) {
-    return this._stmts.lookupBySteamId.all(steamId).map((r: Record<string, unknown>) => ({
+    return (this._stmts.lookupBySteamId.all(steamId) as DbRow[]).map((r) => ({
       name: r.name,
       source: r.source,
       firstSeen: r.first_seen,
@@ -2302,7 +2491,7 @@ class HumanitZDB {
    */
   searchPlayersByName(query: string) {
     if (!query) return [];
-    const rows = this._stmts.lookupByNameLike.all(`%${query.toLowerCase().trim()}%`);
+    const rows = this._stmts.lookupByNameLike.all(`%${query.toLowerCase().trim()}%`) as DbRow[];
     // Deduplicate by steamId, keeping the best for each
     const seen = new Map();
     for (const r of rows) {
@@ -2318,7 +2507,7 @@ class HumanitZDB {
    * @returns {{ uniquePlayers: number, totalAliases: number }}
    */
   getAliasStats() {
-    const row = this._stmts.getAliasStats.get();
+    const row = this._stmts.getAliasStats.get() as DbRow | undefined;
     return { uniquePlayers: row?.unique_players || 0, totalAliases: row?.total_aliases || 0 };
   }
 
@@ -2381,7 +2570,7 @@ class HumanitZDB {
   //  Clans
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertClan(name: string, members: Array<Record<string, unknown>>) {
+  upsertClan(name: string, members: Array<Record<string, any>>) {
     this._stmts.upsertClan.run(name);
     this._stmts.deleteClanMembers.run(name);
     for (const m of members) {
@@ -2390,10 +2579,10 @@ class HumanitZDB {
   }
 
   getAllClans() {
-    const clans = this._stmts.getAllClans.all();
-    return clans.map((c: Record<string, unknown>) => ({
+    const clans = this._stmts.getAllClans.all() as DbRow[];
+    return clans.map((c) => ({
       ...c,
-      members: this._stmts.getClanMembers.all(c.name).map((m: Record<string, unknown>) => ({
+      members: (this._stmts.getClanMembers.all(c.name) as DbRow[]).map((m) => ({
         steamId: m.steam_id,
         name: m.name,
         rank: m.rank,
@@ -2425,7 +2614,7 @@ class HumanitZDB {
    */
   getClanForSteamId(steamId: string) {
     if (!steamId) return null;
-    const row = this._stmts.getClanForSteamId.get(steamId);
+    const row = this._stmts.getClanForSteamId.get(steamId) as DbRow | undefined;
     return row ? row.clan_name : null;
   }
 
@@ -2438,11 +2627,11 @@ class HumanitZDB {
     this._stmts.setWorldState.run(key, stored);
   }
   getWorldState(key: string) {
-    const r = this._stmts.getWorldState.get(key);
+    const r = this._stmts.getWorldState.get(key) as DbRow | undefined;
     return r ? r.value : null;
   }
   getAllWorldState() {
-    const rows = this._stmts.getAllWorldState.all();
+    const rows = this._stmts.getAllWorldState.all() as DbRow[];
     const result: Record<string, unknown> = {};
     for (const r of rows) result[r.key as string] = r.value;
     return result;
@@ -2603,7 +2792,7 @@ class HumanitZDB {
   //  Containers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  replaceContainers(containers: Array<Record<string, unknown>>) {
+  replaceContainers(containers: Array<Record<string, any>>) {
     const insert = this._handle.transaction((items) => {
       this._replaceContainersInner(items);
     });
@@ -2613,7 +2802,7 @@ class HumanitZDB {
   _replaceContainersInner(containers: Array<Record<string, any>>): void {
     this._stmts.clearContainers.run();
     for (const c of containers) {
-      const extra: Record<string, unknown> = {};
+      const extra: Record<string, any> = {};
       if (c.hackCoolDown != null) extra['hackCoolDown'] = c.hackCoolDown;
       if (c.destroyTime != null) extra['destroyTime'] = c.destroyTime;
       if (c.extraFloats) extra['extraFloats'] = c.extraFloats;
@@ -2714,7 +2903,7 @@ class HumanitZDB {
     attribution: Record<string, any> | null,
     moveType: string = 'move',
   ) {
-    const old = this._stmts.findItemInstanceById.get(instanceId);
+    const old = this._stmts.findItemInstanceById.get(instanceId) as DbRow | undefined;
     if (!old) return;
 
     // Update location
@@ -2788,7 +2977,7 @@ class HumanitZDB {
     return this._stmts.getActiveItemInstances.all();
   }
 
-  getItemInstancesByItem(item: Record<string, unknown>) {
+  getItemInstancesByItem(item: Record<string, any>) {
     return this._stmts.getItemInstancesByItem.all(item);
   }
 
@@ -2797,7 +2986,8 @@ class HumanitZDB {
   }
 
   getItemInstanceCount() {
-    return this._stmts.getItemInstanceCount.get().count;
+    const row = this._stmts.getItemInstanceCount.get() as DbRow | undefined;
+    return row?.count ?? 0;
   }
 
   searchItemInstances(query: string, limit = 50) {
@@ -2829,10 +3019,10 @@ class HumanitZDB {
       group.locationType,
       group.locationId || '',
       group.locationSlot || '',
-    );
+    ) as DbRow | undefined;
     if (existing) {
       this._stmts.updateItemGroupQuantity.run(group.quantity, existing.id);
-      return { id: existing.id, created: false };
+      return { id: existing.id as number, created: false };
     }
     const result = this._stmts.insertItemGroup.run(
       group.fingerprint,
@@ -2899,7 +3089,7 @@ class HumanitZDB {
     return this._stmts.getActiveItemGroups.all();
   }
 
-  getItemGroupsByItem(item: Record<string, unknown>) {
+  getItemGroupsByItem(item: Record<string, any>) {
     return this._stmts.getItemGroupsByItem.all(item);
   }
 
@@ -2908,7 +3098,8 @@ class HumanitZDB {
   }
 
   getItemGroupCount() {
-    return this._stmts.getItemGroupCount.get().count;
+    const row = this._stmts.getItemGroupCount.get() as DbRow | undefined;
+    return row?.count ?? 0;
   }
 
   searchItemGroups(query: string, limit = 50) {
@@ -3057,11 +3248,11 @@ class HumanitZDB {
   }
 
   getSetting(key: string) {
-    const r = this._stmts.getSetting.get(key);
+    const r = this._stmts.getSetting.get(key) as DbRow | undefined;
     return r ? r.value : null;
   }
   getAllSettings() {
-    const rows = this._stmts.getAllSettings.all();
+    const rows = this._stmts.getAllSettings.all() as DbRow[];
     const result: Record<string, unknown> = {};
     for (const r of rows) result[r.key as string] = r.value;
     return result;
@@ -3076,8 +3267,8 @@ class HumanitZDB {
   }
 
   getLatestSnapshot(type: string, steamId: string) {
-    const row = this._stmts.getLatestSnapshot.get(type, steamId);
-    return row ? { ...row, data: JSON.parse(row.data || '{}') } : null;
+    const row = this._stmts.getLatestSnapshot.get(type, steamId) as DbRow | undefined;
+    return row ? { ...row, data: JSON.parse((row.data as string) || '{}') } : null;
   }
 
   purgeSnapshots(olderThan: string) {
@@ -3208,7 +3399,7 @@ class HumanitZDB {
 
   /** Count total activity entries. */
   getActivityCount() {
-    const row = this._stmts.countActivity.get();
+    const row = this._stmts.countActivity.get() as DbRow | undefined;
     return row?.count || 0;
   }
 
@@ -3287,7 +3478,7 @@ class HumanitZDB {
 
   /** Count total chat entries. */
   getChatCount() {
-    const row = this._stmts.countChat.get();
+    const row = this._stmts.countChat.get() as DbRow | undefined;
     return row?.count || 0;
   }
 
@@ -4089,11 +4280,11 @@ class HumanitZDB {
 
   /** Get full snapshot data by ID (all entities). */
   getTimelineSnapshotFull(snapshotId: number) {
-    const snap = this._stmts.getTimelineSnapshotById.get(snapshotId);
+    const snap = this._stmts.getTimelineSnapshotById.get(snapshotId) as DbRow | undefined;
     if (!snap) return null;
     if (snap.summary)
       try {
-        snap.summary = JSON.parse(snap.summary);
+        snap.summary = JSON.parse(snap.summary as string);
       } catch {
         /* */
       }
@@ -4124,12 +4315,12 @@ class HumanitZDB {
   }
 
   /** Get player position history for trails. */
-  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, unknown>) {
+  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, any>) {
     return this._stmts.getPlayerPositionHistory.all(steamId, from, to);
   }
 
   /** Get AI population history for charts. */
-  getAIPopulationHistory(from: string, to: Record<string, unknown>) {
+  getAIPopulationHistory(from: string, to: Record<string, any>) {
     return this._stmts.getAIPopulationHistory.all(from, to);
   }
 
@@ -4234,7 +4425,8 @@ class HumanitZDB {
 
   /** Count flags for a player matching severities and status since a timestamp. */
   getAcFlagCount(steamId: string, sev1: string, sev2: string, status: string, since: string) {
-    return this._stmts.getAcFlagCount.get(steamId, sev1, sev2, status, since).count;
+    const row = this._stmts.getAcFlagCount.get(steamId, sev1, sev2, status, since) as DbRow | undefined;
+    return row?.count ?? 0;
   }
 
   /** Update a flag's review status. */
@@ -4391,7 +4583,7 @@ function _parsePlayerRow(row: any): any {
 
 function _parsePlayerRowForDiff(row: any): any {
   if (!row) return null;
-  const parsed: Record<string, unknown> = {
+  const parsed: Record<string, any> = {
     steam_id: row.steam_id,
     name: row.name,
     online: !!row.online,
