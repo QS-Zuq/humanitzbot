@@ -26,13 +26,8 @@ const _path = require('path');
 //  GVAS Binary Reader (auto-bundled from gvas-reader.ts)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-// ─── Binary Reader ──────────────────────────────────────────────────────────
-
 function createReader(buf) {
   let offset = 0;
-
   function readU8() {
     return buf[offset++];
   }
@@ -75,11 +70,6 @@ function createReader(buf) {
   function readBool() {
     return readU8() !== 0;
   }
-
-  /**
-   * Read a UE4 FString (length-prefixed, null-terminated).
-   * Positive length = UTF-8, negative length = UTF-16LE.
-   */
   function readFString() {
     const len = readI32();
     if (len === 0) return '';
@@ -96,7 +86,6 @@ function createReader(buf) {
     }
     throw new Error(`Bad FString length: ${String(len)} at offset ${String(offset - 4)}`);
   }
-
   function getOffset() {
     return offset;
   }
@@ -112,7 +101,6 @@ function createReader(buf) {
   function skip(bytes) {
     offset += bytes;
   }
-
   return {
     buf,
     readU8,
@@ -130,23 +118,15 @@ function createReader(buf) {
     remaining,
     peek,
     skip,
-    length,
+    length: buf.length,
   };
 }
-
-// ─── Clean UE4 GUID suffixes from property names ───────────────────────────
-
 function cleanName(name) {
   return name.replace(/_\d+_[A-F0-9]{32}$/i, '');
 }
-
-// ─── GVAS header parser ────────────────────────────────────────────────────
-
 function parseHeader(r) {
   const magic = Buffer.from([r.readU8(), r.readU8(), r.readU8(), r.readU8()]).toString('ascii');
-
   if (magic !== 'GVAS') throw new Error('Not a GVAS save file');
-
   const header = {
     magic,
     saveVersion: r.readU32(),
@@ -160,20 +140,15 @@ function parseHeader(r) {
     branch: r.readFString(),
     customVersions: [],
   };
-
-  r.readU32(); // custom version format
+  r.readU32();
   const numCV = r.readU32();
   for (let i = 0; i < numCV; i++) {
     header.customVersions.push({ guid: r.readGuid(), version: r.readI32() });
   }
   header.saveClass = r.readFString();
-
   return header;
 }
-
-// ─── Property type names we capture MapProperty values for ─────────────────
-
-const MAP_CAPTURE = new Set([
+const MAP_CAPTURE = /* @__PURE__ */ new Set([
   'GameStats',
   'FloatData',
   'CustomData',
@@ -182,20 +157,11 @@ const MAP_CAPTURE = new Set([
   'SGlobalContainerSave',
   'LodModularLootActor',
 ]);
-
-// ─── Read a single UProperty ───────────────────────────────────────────────
-
-/**
- * Read one UProperty from the stream.
- * Returns { name, type, raw, value, ...extras } or null at end/error.
- */
 function readProperty(r, options = {}) {
   const skipLargeArrays = options.skipLargeArrays ?? false;
   const skipThreshold = options.skipThreshold ?? 10;
-
   if (r.remaining() < 4) return null;
   const startOff = r.getOffset();
-
   let name;
   try {
     name = r.readFString();
@@ -203,7 +169,6 @@ function readProperty(r, options = {}) {
     return null;
   }
   if (name === 'None' || name === '') return null;
-
   let typeName;
   try {
     typeName = r.readFString();
@@ -211,48 +176,39 @@ function readProperty(r, options = {}) {
     r.setOffset(startOff);
     return null;
   }
-
   const dataSize = r.readI64();
   if (dataSize < 0 || dataSize > r.length) {
     r.setOffset(startOff);
     return null;
   }
-
   const cname = cleanName(name);
-  const prop = { name: cname, type, raw, value: null };
-
+  const prop = { name: cname, type: typeName, raw: name, value: null };
   try {
     switch (typeName) {
       case 'BoolProperty':
         prop.value = r.readBool();
-        r.readU8(); // separator
+        r.readU8();
         break;
-
       case 'IntProperty':
         r.readU8();
         prop.value = r.readI32();
         break;
-
       case 'UInt32Property':
         r.readU8();
         prop.value = r.readU32();
         break;
-
       case 'Int64Property':
         r.readU8();
         prop.value = r.readI64();
         break;
-
       case 'FloatProperty':
         r.readU8();
         prop.value = r.readF32();
         break;
-
       case 'DoubleProperty':
         r.readU8();
         prop.value = r.readF64();
         break;
-
       case 'StrProperty':
       case 'NameProperty':
       case 'SoftObjectProperty':
@@ -260,13 +216,11 @@ function readProperty(r, options = {}) {
         r.readU8();
         prop.value = r.readFString();
         break;
-
       case 'EnumProperty':
         prop.enumType = r.readFString();
         r.readU8();
         prop.value = r.readFString();
         break;
-
       case 'ByteProperty': {
         const enumName = r.readFString();
         r.readU8();
@@ -278,33 +232,27 @@ function readProperty(r, options = {}) {
         }
         break;
       }
-
       case 'TextProperty':
         r.readU8();
         r.setOffset(r.getOffset() + dataSize);
         prop.value = '<text>';
         break;
-
       case 'StructProperty':
         _readStructProperty(r, prop, dataSize);
         break;
-
       case 'ArrayProperty':
         _readArrayProperty(r, prop, dataSize, { skipLargeArrays, skipThreshold });
         break;
-
       case 'MapProperty':
         _readMapProperty(r, prop, dataSize, cname);
         break;
-
       case 'SetProperty': {
-        r.readFString(); // inner type
+        r.readFString();
         r.readU8();
         r.setOffset(r.getOffset() + dataSize);
         prop.value = null;
         break;
       }
-
       default:
         r.readU8();
         r.setOffset(r.getOffset() + dataSize);
@@ -312,48 +260,36 @@ function readProperty(r, options = {}) {
         break;
     }
   } catch {
-    // Unrecoverable parse error within this property
     return null;
   }
-
   return prop;
 }
-
-// ─── Struct subtypes ───────────────────────────────────────────────────────
-
 function _readStructProperty(r, prop, _dataSize) {
   const structType = r.readFString();
   r.readGuid();
   r.readU8();
   prop.structType = structType;
-
   switch (structType) {
     case 'Vector':
     case 'Rotator':
       prop.value = { x: r.readF32(), y: r.readF32(), z: r.readF32() };
       break;
-
     case 'Quat':
       prop.value = { x: r.readF32(), y: r.readF32(), z: r.readF32(), w: r.readF32() };
       break;
-
     case 'Guid':
       prop.value = r.readGuid();
       break;
-
     case 'LinearColor':
       prop.value = { r: r.readF32(), g: r.readF32(), b: r.readF32(), a: r.readF32() };
       break;
-
     case 'DateTime':
     case 'Timespan':
       prop.value = r.readI64();
       break;
-
     case 'Vector2D':
       prop.value = { x: r.readF32(), y: r.readF32() };
       break;
-
     case 'GameplayTagContainer': {
       const c = r.readU32();
       const tags = [];
@@ -363,16 +299,13 @@ function _readStructProperty(r, prop, _dataSize) {
       prop.value = tags;
       break;
     }
-
     case 'TimerHandle':
       prop.value = r.readFString();
       break;
-
     case 'SoftClassPath':
     case 'SoftObjectPath':
       prop.value = r.readFString();
       break;
-
     case 'Transform': {
       const subProps = [];
       let sub;
@@ -383,16 +316,14 @@ function _readStructProperty(r, prop, _dataSize) {
       const rotation = subProps.find((s) => s.name === 'Rotation');
       const scale = subProps.find((s) => s.name === 'Scale3D');
       prop.value = {
-        translation: translation?.value ?? null,
-        rotation: rotation?.value ?? null,
-        scale: scale?.value ?? null,
+        translation: (translation == null ? void 0 : translation.value) ?? null,
+        rotation: (rotation == null ? void 0 : rotation.value) ?? null,
+        scale: (scale == null ? void 0 : scale.value) ?? null,
       };
       prop.children = subProps;
       break;
     }
-
     default: {
-      // Generic struct — recursively read child properties
       prop.value = 'struct';
       const children = [];
       let child;
@@ -404,9 +335,6 @@ function _readStructProperty(r, prop, _dataSize) {
     }
   }
 }
-
-// ─── Array subtypes ────────────────────────────────────────────────────────
-
 function _readArrayProperty(r, prop, dataSize, options) {
   const innerType = r.readFString();
   r.readU8();
@@ -414,17 +342,14 @@ function _readArrayProperty(r, prop, dataSize, options) {
   const count = r.readI32();
   prop.innerType = innerType;
   prop.count = count;
-
   if (innerType === 'StructProperty') {
-    r.readFString(); // arrName
-    r.readFString(); // arrType
-    r.readI64(); // arrSize
+    r.readFString();
+    r.readFString();
+    r.readI64();
     const arrStructType = r.readFString();
     r.readGuid();
     r.readU8();
     prop.arrayStructType = arrStructType;
-
-    // Skip large world-geometry arrays (Transform, Vector, Rotator)
     if (
       options.skipLargeArrays &&
       ['Transform', 'Vector', 'Rotator'].includes(arrStructType) &&
@@ -434,54 +359,45 @@ function _readArrayProperty(r, prop, dataSize, options) {
       prop.value = `<skipped ${String(count)}>`;
       return;
     }
-
     if (arrStructType === 'S_Slots') {
-      // Inventory slots — parse to extract items
       prop.value = _parseInventorySlots(r, count);
     } else if (arrStructType === 'Guid') {
-      // Guid arrays are inline 16-byte values, not property lists
       const guids = [];
       for (let i = 0; i < count; i++) {
         guids.push(r.readGuid());
       }
       prop.value = guids;
     } else if (arrStructType === 'Vector' || arrStructType === 'Rotator') {
-      // Inline 12-byte structs (3 x float32)
       const vecs = [];
       for (let i = 0; i < count; i++) {
         vecs.push({ x: r.readF32(), y: r.readF32(), z: r.readF32() });
       }
       prop.value = vecs;
     } else if (arrStructType === 'Quat') {
-      // Inline 16-byte structs (4 x float32)
       const quats = [];
       for (let i = 0; i < count; i++) {
         quats.push({ x: r.readF32(), y: r.readF32(), z: r.readF32(), w: r.readF32() });
       }
       prop.value = quats;
     } else if (arrStructType === 'LinearColor') {
-      // Inline 16-byte structs (4 x float32)
       const colors = [];
       for (let i = 0; i < count; i++) {
         colors.push({ r: r.readF32(), g: r.readF32(), b: r.readF32(), a: r.readF32() });
       }
       prop.value = colors;
     } else if (arrStructType === 'DateTime' || arrStructType === 'Timespan') {
-      // Inline 8-byte values
       const times = [];
       for (let i = 0; i < count; i++) {
         times.push(r.readI64());
       }
       prop.value = times;
     } else if (arrStructType === 'Vector2D') {
-      // Inline 8-byte structs (2 x float32)
       const vec2s = [];
       for (let i = 0; i < count; i++) {
         vec2s.push({ x: r.readF32(), y: r.readF32() });
       }
       prop.value = vec2s;
     } else {
-      // Generic struct array — parse each element
       const elements = [];
       for (let i = 0; i < count; i++) {
         const elemProps = [];
@@ -536,14 +452,10 @@ function _readArrayProperty(r, prop, dataSize, options) {
     }
     prop.value = uints;
   } else {
-    // Unknown inner type — skip the data
     r.setOffset(afterSep + dataSize);
     prop.value = `<unknown ${innerType}>`;
   }
 }
-
-// ─── Inventory slot parsing ────────────────────────────────────────────────
-
 function _parseInventorySlots(r, count) {
   const items = [];
   for (let i = 0; i < count; i++) {
@@ -552,7 +464,6 @@ function _parseInventorySlots(r, count) {
     while ((child = readProperty(r)) !== null) {
       slotProps.push(child);
     }
-
     let itemName = null;
     let amount = 0;
     let durability = 0;
@@ -577,7 +488,6 @@ function _parseInventorySlots(r, count) {
       if (sp.name === 'MaxDur') maxDur = sp.value || 0;
       if (sp.name === 'Wetness') wetness = sp.value || 0;
     }
-
     if (itemName && itemName !== 'None' && itemName !== 'Empty') {
       const slot = {
         item: itemName,
@@ -587,7 +497,7 @@ function _parseInventorySlots(r, count) {
       if (ammo) slot.ammo = ammo;
       if (attachments.length) slot.attachments = attachments;
       if (cap) slot.cap = Math.round(cap * 100) / 100;
-      if (weight) slot.weight = Math.round(weight * 10000) / 10000;
+      if (weight) slot.weight = Math.round(weight * 1e4) / 1e4;
       if (maxDur) slot.maxDur = Math.round(maxDur * 100) / 100;
       if (wetness) slot.wetness = Math.round(wetness * 100) / 100;
       items.push(slot);
@@ -595,9 +505,6 @@ function _parseInventorySlots(r, count) {
   }
   return items;
 }
-
-// ─── Map property ──────────────────────────────────────────────────────────
-
 function _readMapProperty(r, prop, dataSize, cname) {
   const keyType = r.readFString();
   const valType = r.readFString();
@@ -605,17 +512,13 @@ function _readMapProperty(r, prop, dataSize, cname) {
   const afterSep = r.getOffset();
   prop.keyType = keyType;
   prop.valType = valType;
-
   if (MAP_CAPTURE.has(cname)) {
-    r.readI32(); // removedCount
+    r.readI32();
     const count = r.readI32();
-
-    // StructProperty values require recursive parsing
     if (valType === 'StructProperty' || keyType === 'StructProperty') {
-      const entries = [];
+      const entries2 = [];
       for (let i = 0; i < count; i++) {
         const entry = { key: null, value: null };
-        // Read key
         if (keyType === 'StrProperty' || keyType === 'NameProperty') entry.key = r.readFString();
         else if (keyType === 'IntProperty') entry.key = r.readI32();
         else if (keyType === 'EnumProperty') entry.key = r.readFString();
@@ -627,7 +530,6 @@ function _readMapProperty(r, prop, dataSize, cname) {
           }
           entry.key = keyProps;
         }
-        // Read value
         if (valType === 'StructProperty') {
           const valProps = [];
           let vp;
@@ -639,12 +541,11 @@ function _readMapProperty(r, prop, dataSize, cname) {
         else if (valType === 'IntProperty') entry.value = r.readI32();
         else if (valType === 'StrProperty') entry.value = r.readFString();
         else if (valType === 'BoolProperty') entry.value = r.readBool();
-        entries.push(entry);
+        entries2.push(entry);
       }
-      prop.value = entries;
+      prop.value = entries2;
       return;
     }
-
     const entries = {};
     for (let i = 0; i < count; i++) {
       let key;
@@ -656,7 +557,6 @@ function _readMapProperty(r, prop, dataSize, cname) {
         prop.value = null;
         return;
       }
-
       let val;
       if (valType === 'FloatProperty') val = r.readF32();
       else if (valType === 'IntProperty') val = r.readI32();
@@ -667,24 +567,15 @@ function _readMapProperty(r, prop, dataSize, cname) {
         prop.value = null;
         return;
       }
-
       entries[key] = val;
     }
     prop.value = entries;
   } else {
-    // Skip maps we don't need to capture
     r.setOffset(afterSep + dataSize);
     prop.value = null;
   }
 }
-
-// ─── Recovery: scan forward for next valid property ────────────────────────
-
-/**
- * When parsing gets stuck (null property without offset advancement),
- * scan forward to find the next valid property header.
- */
-function recoverForward(r, startPos, maxScan = 500000) {
+function recoverForward(r, startPos, maxScan = 5e5) {
   const buf = r.buf;
   for (let scan = startPos + 1; scan < Math.min(startPos + maxScan, buf.length - 10); scan++) {
     const len = buf.readInt32LE(scan);
@@ -703,24 +594,7 @@ function recoverForward(r, startPos, maxScan = 500000) {
 //  Save Parser (auto-bundled from save-parser.ts)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Comprehensive HumanitZ save file parser.
- *
- * Parses a GVAS save file (.sav) and returns a structured object containing:
- *   - players     Map<steamId, PlayerData>   — all per-player data
- *   - worldState  object                     — global server state
- *   - structures  array                      — placed buildings with health/owners
- *   - vehicles    array                      — vehicles with position/health/fuel
- *   - companions  array                      — dogs and other companions
- *   - deadBodies  array                      — death loot locations
- *   - containers  array                      — global storage containers
- *   - lootActors  array                      — modular loot spawn points
- *   - quests      array                      — world quest state
- *
- * Also exports parseClanData(buf) for the separate Save_ClanData.sav file.
- */
-
-// ─── Perk enum → display name ──────────────────────────────────────────────
+(createReader, parseHeader, readProperty, recoverForward);
 
 const PERK_MAP = {
   'Enum_Professions::NewEnumerator0': 'Unemployed',
@@ -736,16 +610,12 @@ const PERK_MAP = {
   'Enum_Professions::NewEnumerator16': 'Fire Fighter',
   'Enum_Professions::NewEnumerator17': 'Electrical Engineer',
 };
-
 const PERK_INDEX_MAP = Object.fromEntries(
   Object.entries(PERK_MAP).map(([k, v]) => {
     const num = parseInt(k.split('NewEnumerator')[1] ?? '0', 10);
     return [num, v];
   }),
 );
-
-// ─── Clan rank → display name ──────────────────────────────────────────────
-
 const CLAN_RANK_MAP = {
   'E_ClanRank::NewEnumerator0': 'Recruit',
   'E_ClanRank::NewEnumerator1': 'Member',
@@ -753,18 +623,12 @@ const CLAN_RANK_MAP = {
   'E_ClanRank::NewEnumerator3': 'Co-Leader',
   'E_ClanRank::NewEnumerator4': 'Leader',
 };
-
-// ─── Season enum → display name ────────────────────────────────────────────
-
 const SEASON_MAP = {
   'UDS_Season::NewEnumerator0': 'Spring',
   'UDS_Season::NewEnumerator1': 'Summer',
   'UDS_Season::NewEnumerator2': 'Autumn',
   'UDS_Season::NewEnumerator3': 'Winter',
 };
-
-// ─── Statistics tag path → player field mapping ────────────────────────────
-
 const STAT_TAG_MAP = {
   'statistics.stat.game.kills.total': 'lifetimeKills',
   'statistics.stat.game.kills.headshot': 'lifetimeHeadshots',
@@ -798,9 +662,6 @@ const STAT_TAG_MAP = {
   'statistics.stat.challenge.LockpickSurvivorSUV': 'challengeLockpickSUV',
   'statistics.stat.challenge.RepairRadioTower': 'challengeRepairRadio',
 };
-
-// ─── Simplify UE4 blueprint class names ────────────────────────────────────
-
 function simplifyBlueprint(bp) {
   if (!bp || typeof bp !== 'string') return bp;
   const match = bp.match(/BP_([^.]+?)(?:_C)?$/);
@@ -809,70 +670,65 @@ function simplifyBlueprint(bp) {
   const last = parts[parts.length - 1] ?? '';
   return last.replace(/_C$/, '').replace(/^BP_/, '');
 }
-
-// ─── Player data types ────────────────────────────────────────────────────
-
-// ─── Default player data template ──────────────────────────────────────────
-
 function createPlayerData() {
   return {
     male: true,
     startingPerk: 'Unknown',
-    affliction,
+    affliction: 0,
     charProfile: {},
-    zeeksKilled,
-    headshots,
-    meleeKills,
-    gunKills,
-    blastKills,
-    fistKills,
-    takedownKills,
-    vehicleKills,
-    lifetimeKills,
-    lifetimeHeadshots,
-    lifetimeMeleeKills,
-    lifetimeGunKills,
-    lifetimeBlastKills,
-    lifetimeFistKills,
-    lifetimeTakedownKills,
-    lifetimeVehicleKills,
-    lifetimeDaysSurvived,
-    hasExtendedStats,
-    daysSurvived,
-    timesBitten,
-    bites,
-    fishCaught,
-    fishCaughtPike,
-    health,
-    maxHealth,
-    hunger,
-    maxHunger,
-    thirst,
-    maxThirst,
-    stamina,
-    maxStamina,
-    infection,
-    maxInfection,
-    battery,
-    fatigue,
-    infectionBuildup,
-    wellRested,
-    energy,
-    hood,
-    hypoHandle,
-    exp,
-    level,
-    skillPoints,
-    expCurrent,
-    expRequired,
-    x,
-    y,
-    z,
-    rotationYaw,
-    respawnX,
-    respawnY,
-    respawnZ,
-    cbRadioCooldown,
+    zeeksKilled: 0,
+    headshots: 0,
+    meleeKills: 0,
+    gunKills: 0,
+    blastKills: 0,
+    fistKills: 0,
+    takedownKills: 0,
+    vehicleKills: 0,
+    lifetimeKills: 0,
+    lifetimeHeadshots: 0,
+    lifetimeMeleeKills: 0,
+    lifetimeGunKills: 0,
+    lifetimeBlastKills: 0,
+    lifetimeFistKills: 0,
+    lifetimeTakedownKills: 0,
+    lifetimeVehicleKills: 0,
+    lifetimeDaysSurvived: 0,
+    hasExtendedStats: false,
+    daysSurvived: 0,
+    timesBitten: 0,
+    bites: 0,
+    fishCaught: 0,
+    fishCaughtPike: 0,
+    health: 0,
+    maxHealth: 0,
+    hunger: 0,
+    maxHunger: 0,
+    thirst: 0,
+    maxThirst: 0,
+    stamina: 0,
+    maxStamina: 0,
+    infection: 0,
+    maxInfection: 0,
+    battery: 100,
+    fatigue: 0,
+    infectionBuildup: 0,
+    wellRested: 0,
+    energy: 0,
+    hood: 0,
+    hypoHandle: 0,
+    exp: 0,
+    level: 0,
+    skillPoints: 0,
+    expCurrent: 0,
+    expRequired: 0,
+    x: null,
+    y: null,
+    z: null,
+    rotationYaw: null,
+    respawnX: null,
+    respawnY: null,
+    respawnZ: null,
+    cbRadioCooldown: 0,
     playerStates: [],
     bodyConditions: [],
     craftingRecipes: [],
@@ -897,63 +753,55 @@ function createPlayerData() {
     companionData: [],
     horses: [],
     extendedStats: [],
-    challengeKillZombies,
-    challengeKill50,
-    challengeCatch20Fish,
-    challengeRegularAngler,
-    challengeKillZombieBear,
-    challenge9Squares,
-    challengeCraftFirearm,
-    challengeCraftFurnace,
-    challengeCraftMeleeBench,
-    challengeCraftMeleeWeapon,
-    challengeCraftRainCollector,
-    challengeCraftTablesaw,
-    challengeCraftTreatment,
-    challengeCraftWeaponsBench,
-    challengeCraftWorkbench,
-    challengeFindDog,
-    challengeFindHeli,
-    challengeLockpickSUV,
-    challengeRepairRadio,
+    challengeKillZombies: 0,
+    challengeKill50: 0,
+    challengeCatch20Fish: 0,
+    challengeRegularAngler: 0,
+    challengeKillZombieBear: 0,
+    challenge9Squares: 0,
+    challengeCraftFirearm: 0,
+    challengeCraftFurnace: 0,
+    challengeCraftMeleeBench: 0,
+    challengeCraftMeleeWeapon: 0,
+    challengeCraftRainCollector: 0,
+    challengeCraftTablesaw: 0,
+    challengeCraftTreatment: 0,
+    challengeCraftWeaponsBench: 0,
+    challengeCraftWorkbench: 0,
+    challengeFindDog: 0,
+    challengeFindHeli: 0,
+    challengeLockpickSUV: 0,
+    challengeRepairRadio: 0,
     customData: {},
-    dayIncremented,
-    infectionTimer,
-    backpackSize,
+    dayIncremented: false,
+    infectionTimer: null,
+    backpackSize: 0,
     characterProfile: '',
-    skinTone,
-    bSize,
-    durability,
-    dirtBlood,
-    randColor,
-    randHair,
+    skinTone: 0,
+    bSize: 0,
+    durability: 0,
+    dirtBlood: null,
+    randColor: 0,
+    randHair: 0,
     repUpper: '',
     repHead: '',
     repLower: '',
     repHand: '',
     repBoot: '',
     repFace: '',
-    repFacial,
-    badFood,
-    skinBlood,
-    skinDirt,
-    clean,
-    sleepers,
+    repFacial: 0,
+    badFood: 0,
+    skinBlood: 0,
+    skinDirt: 0,
+    clean: 0,
+    sleepers: 0,
     floatData: {},
   };
 }
-
-// ─── Result types ──────────────────────────────────────────────────────────
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Main parser
-// ═══════════════════════════════════════════════════════════════════════════
-
 function parseSave(buf) {
   const r = createReader(buf);
   const header = parseHeader(r);
-
-  const players = new Map();
+  const players = /* @__PURE__ */ new Map();
   const worldState = {};
   const structures = [];
   const vehicles = [];
@@ -963,7 +811,6 @@ function parseSave(buf) {
   const lootActors = [];
   const quests = [];
   const horses = [];
-
   let buildActorClasses = [];
   let buildActorHealths = [];
   let buildActorMaxHealths = [];
@@ -975,14 +822,11 @@ function parseSave(buf) {
   let buildActorInventories = [];
   let buildActorTransformCount = 0;
   let buildActorTransforms = [];
-
   let currentSteamID = null;
-
   function ensurePlayer(id) {
     if (!players.has(id)) players.set(id, createPlayerData());
     return players.get(id);
   }
-
   function prescanSteamId(props) {
     for (const prop of props) {
       if (prop.name === 'SteamID' && typeof prop.value === 'string') {
@@ -994,24 +838,20 @@ function parseSave(buf) {
       }
     }
   }
-
   function handleProp(prop) {
+    var _a, _b, _c, _d, _e;
     if (!prop) return;
     const n = prop.name;
-
     if (n === 'SteamID' && typeof prop.value === 'string') {
       const match = prop.value.match(/(7656\d+)/);
       if (match) currentSteamID = match[1] ?? null;
     }
-
     if (prop.children) {
       prescanSteamId(prop.children);
       for (const child of prop.children) {
         handleProp(child);
       }
     }
-
-    // Statistics array extraction
     if (Array.isArray(prop.value) && prop.value.length > 0 && Array.isArray(prop.value[0])) {
       if (n === 'Statistics' && currentSteamID) {
         _extractStatistics(prop.value, ensurePlayer(currentSteamID));
@@ -1019,11 +859,10 @@ function parseSave(buf) {
       if (n === 'ExtendedStats' && currentSteamID) {
         _extractExtendedStats(prop.value, ensurePlayer(currentSteamID));
       }
-
       if (n === 'Tree' && currentSteamID) {
-        const p = ensurePlayer(currentSteamID);
+        const p2 = ensurePlayer(currentSteamID);
         const allSkills = [];
-        p.skillTree = prop.value
+        p2.skillTree = prop.value
           .map((elemProps) => {
             if (!Array.isArray(elemProps)) return null;
             const node = {};
@@ -1044,10 +883,9 @@ function parseSave(buf) {
             return node;
           })
           .filter(Boolean);
-        if (allSkills.length) p.unlockedSkills = allSkills;
+        if (allSkills.length) p2.unlockedSkills = allSkills;
         return;
       }
-
       for (const elemProps of prop.value) {
         if (Array.isArray(elemProps)) {
           prescanSteamId(elemProps);
@@ -1058,9 +896,6 @@ function parseSave(buf) {
       }
       if (n === 'DropInSaves') currentSteamID = null;
     }
-
-    // ── WORLD-LEVEL PROPERTIES ──
-
     if (n === 'BuildActorClass' && Array.isArray(prop.value)) {
       buildActorClasses = prop.value;
       return;
@@ -1070,14 +905,14 @@ function parseSave(buf) {
         buildActorTransforms = prop.value.map((elem) => {
           if (Array.isArray(elem)) {
             const t = elem.find((c) => c.name === 'Translation');
-            return t?.value ?? null;
+            return (t == null ? void 0 : t.value) ?? null;
           }
           return null;
         });
         buildActorTransformCount = prop.value.length;
       } else if (typeof prop.value === 'string' && prop.value.startsWith('<skipped')) {
         const m = prop.value.match(/\d+/);
-        buildActorTransformCount = m?.[0] ? parseInt(m[0], 10) : 0;
+        buildActorTransformCount = (m == null ? void 0 : m[0]) ? parseInt(m[0], 10) : 0;
       }
       return;
     }
@@ -1113,39 +948,35 @@ function parseSave(buf) {
       buildActorInventories = prop.value;
       return;
     }
-
     if (n === 'Cars' && Array.isArray(prop.value)) {
       _extractVehicles(prop.value, vehicles);
       return;
     }
-
     if (n === 'Dogs' && Array.isArray(prop.value)) {
       for (const name of prop.value) {
         if (name && typeof name === 'string') {
           companions.push({
             type: 'dog',
-            actorName,
+            actorName: name,
             ownerSteamId: '',
-            x,
-            y,
-            z,
-            health,
+            x: null,
+            y: null,
+            z: null,
+            health: 0,
             extra: {},
           });
         }
       }
       return;
     }
-
     if (n === 'DeadBodies' && Array.isArray(prop.value)) {
       for (const name of prop.value) {
         if (name && typeof name === 'string') {
-          deadBodies.push({ actorName: name, x, y, z: null });
+          deadBodies.push({ actorName: name, x: null, y: null, z: null });
         }
       }
       return;
     }
-
     if (n === 'ExplodableBarrels' && Array.isArray(prop.value)) {
       worldState['explodableBarrels'] = prop.value;
       return;
@@ -1158,22 +989,21 @@ function parseSave(buf) {
       _extractHorses(prop.value, horses);
       return;
     }
-
     if (n === 'LODPickups' && Array.isArray(prop.value)) {
       worldState['lodPickups'] = [];
       for (const elemProps of prop.value) {
         if (!Array.isArray(elemProps)) continue;
         const pickup = {
           valid: false,
-          x,
-          y,
-          z,
+          x: null,
+          y: null,
+          z: null,
           item: '',
-          amount,
-          durability,
-          worldLoot,
-          placed,
-          spawned,
+          amount: 0,
+          durability: 0,
+          worldLoot: false,
+          placed: false,
+          spawned: false,
         };
         for (const ep of elemProps) {
           if (ep.name === 'Valid?' && ep.value) pickup['valid'] = true;
@@ -1182,7 +1012,7 @@ function parseSave(buf) {
           if (ep.name === 'Spawned?' && ep.value) pickup['spawned'] = true;
           if (ep.name === 'Transform') {
             const tv = ep.value;
-            if (tv?.translation) {
+            if (tv == null ? void 0 : tv.translation) {
               pickup['x'] = _round2(tv.translation.x);
               pickup['y'] = _round2(tv.translation.y);
               pickup['z'] = _round2(tv.translation.z);
@@ -1205,7 +1035,6 @@ function parseSave(buf) {
       worldState['totalLodPickups'] = worldState['lodPickups'].length;
       return;
     }
-
     if (n === 'SavedActors' && Array.isArray(prop.value)) {
       worldState['savedActors'] = [];
       for (const elemProps of prop.value) {
@@ -1213,12 +1042,12 @@ function parseSave(buf) {
         const actor = {
           class: '',
           displayName: '',
-          x,
-          y,
-          z,
-          health,
+          x: null,
+          y: null,
+          z: null,
+          health: 0,
           ownerSteamId: '',
-          locked,
+          locked: false,
           dtName: '',
         };
         for (const ap of elemProps) {
@@ -1228,7 +1057,7 @@ function parseSave(buf) {
           }
           if (ap.name === 'Transform') {
             const tv = ap.value;
-            if (tv?.translation) {
+            if (tv == null ? void 0 : tv.translation) {
               actor['x'] = _round2(tv.translation.x);
               actor['y'] = _round2(tv.translation.y);
               actor['z'] = _round2(tv.translation.z);
@@ -1246,7 +1075,6 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'NodeSaveData' && Array.isArray(prop.value)) {
       worldState['nodeSaveDataCount'] = prop.value.length;
       worldState['aiSpawns'] = [];
@@ -1254,12 +1082,12 @@ function parseSave(buf) {
         if (!Array.isArray(entry)) continue;
         const nodeUid = entry.find((c) => c.name === 'NodeUID');
         const data = entry.find((c) => c.name === 'Data');
-        if (!data?.value || !Array.isArray(data.value)) continue;
+        if (!(data == null ? void 0 : data.value) || !Array.isArray(data.value)) continue;
         for (const aiInfo of data.value) {
           if (!Array.isArray(aiInfo)) continue;
-          const aiType = aiInfo.find((c) => c.name === 'AIType')?.value;
-          const aiLoc = aiInfo.find((c) => c.name === 'AILocation')?.value;
-          const graveTime = aiInfo.find((c) => c.name === 'GraveTimeMinutes')?.value;
+          const aiType = (_a = aiInfo.find((c) => c.name === 'AIType')) == null ? void 0 : _a.value;
+          const aiLoc = (_b = aiInfo.find((c) => c.name === 'AILocation')) == null ? void 0 : _b.value;
+          const graveTime = (_c = aiInfo.find((c) => c.name === 'GraveTimeMinutes')) == null ? void 0 : _c.value;
           if (!aiType || aiType === 'EAItype::E_None') continue;
           const typeName = aiType.replace('EAItype::E_', '');
           let category = 'zombie';
@@ -1268,7 +1096,7 @@ function parseSave(buf) {
           worldState['aiSpawns'].push({
             type: typeName,
             category,
-            nodeUid: nodeUid?.value ?? '',
+            nodeUid: (nodeUid == null ? void 0 : nodeUid.value) ?? '',
             x: aiLoc ? _round2(aiLoc.x) : null,
             y: aiLoc ? _round2(aiLoc.y) : null,
             z: aiLoc ? _round2(aiLoc.z) : null,
@@ -1276,7 +1104,7 @@ function parseSave(buf) {
           });
         }
       }
-      worldState['aiSummary'] = { zombies: 0, bandits, animals, byType: {} };
+      worldState['aiSummary'] = { zombies: 0, bandits: 0, animals: 0, byType: {} };
       const summary = worldState['aiSummary'];
       for (const ai of worldState['aiSpawns']) {
         if (ai.category === 'zombie') summary.zombies++;
@@ -1286,7 +1114,6 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'DestroyedSleepers' && Array.isArray(prop.value)) {
       worldState['destroyedSleepers'] = prop.value.length;
       worldState['destroyedSleeperIds'] = prop.value;
@@ -1304,13 +1131,15 @@ function parseSave(buf) {
           })
           .filter(Boolean);
       } else if (typeof prop.value === 'string' && prop.value.startsWith('<skipped')) {
-        worldState['destroyedRandCars'] = parseInt(prop.value.match(/\d+/)?.[0] ?? '0', 10);
+        worldState['destroyedRandCars'] = parseInt(
+          ((_d = prop.value.match(/\d+/)) == null ? void 0 : _d[0]) ?? '0',
+          10,
+        );
       } else {
         worldState['destroyedRandCars'] = 0;
       }
       return;
     }
-
     if (n === 'SaveID' && typeof prop.value === 'number') {
       worldState['saveId'] = prop.value;
       return;
@@ -1323,14 +1152,13 @@ function parseSave(buf) {
       _extractLootActors(prop, lootActors);
       return;
     }
-
     if (n === 'StoneCutting') {
       worldState['stoneCuttingStations'] = Array.isArray(prop.value) ? prop.value.length : 0;
       if (Array.isArray(prop.value)) {
         worldState['stoneCuttingData'] = prop.value
           .map((elemProps) => {
             if (!Array.isArray(elemProps)) return null;
-            const station = { name: '', stage, time: 0 };
+            const station = { name: '', stage: 0, time: 0 };
             for (const ep of elemProps) {
               if (ep.name === 'Name') station['name'] = ep.value ?? '';
               if (ep.name === 'Stage' && typeof ep.value === 'number') station['stage'] = ep.value;
@@ -1342,7 +1170,6 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'PreBuildActors') {
       worldState['preBuildActors'] = [];
       if (Array.isArray(prop.value)) {
@@ -1351,9 +1178,9 @@ function parseSave(buf) {
           const actor = {
             class: '',
             displayName: '',
-            x,
-            y,
-            z,
+            x: null,
+            y: null,
+            z: null,
             resources: {},
           };
           for (const ep of elemProps) {
@@ -1363,7 +1190,7 @@ function parseSave(buf) {
             }
             if (ep.name === 'Transform') {
               const tv = ep.value;
-              if (tv?.translation) {
+              if (tv == null ? void 0 : tv.translation) {
                 actor['x'] = _round2(tv.translation.x);
                 actor['y'] = _round2(tv.translation.y);
                 actor['z'] = _round2(tv.translation.z);
@@ -1377,19 +1204,18 @@ function parseSave(buf) {
       worldState['preBuildActorCount'] = worldState['preBuildActors'].length;
       return;
     }
-
     if (n === 'SGlobalContainerSave') {
       worldState['globalContainers'] = [];
       if (Array.isArray(prop.value)) {
         for (const entry of prop.value) {
-          if (!entry?.value) continue;
+          if (!(entry == null ? void 0 : entry.value)) continue;
           const props = Array.isArray(entry.value) ? entry.value : [];
           const container = {
             actorName: '',
             items: [],
             quickSlots: [],
-            locked,
-            doesSpawnLoot,
+            locked: false,
+            doesSpawnLoot: false,
           };
           for (const cp of props) {
             if (cp.name === 'ContainerActor') container['actorName'] = cp.value ?? '';
@@ -1406,7 +1232,6 @@ function parseSave(buf) {
       worldState['totalGlobalContainers'] = worldState['globalContainers'].length;
       return;
     }
-
     if (n === 'LodModularLootActor') {
       worldState['modularLootActors'] = [];
       worldState['modularLootSlotCount'] = 0;
@@ -1415,7 +1240,7 @@ function parseSave(buf) {
           if (!entry) continue;
           const entryProps = [...(entry.key ?? []), ...(entry.value ?? [])];
           if (entryProps.length === 0) continue;
-          const actor = { name: '', disabled, spawned, slots: [] };
+          const actor = { name: '', disabled: false, spawned: false, slots: [] };
           for (const cp of entryProps) {
             if (cp.name === 'Name') actor['name'] = cp.value ?? '';
             if (cp.name === 'Disabled?') actor['disabled'] = !!cp.value;
@@ -1423,7 +1248,7 @@ function parseSave(buf) {
             if (cp.name === 'Slots' && Array.isArray(cp.value)) {
               for (const slot of cp.value) {
                 if (!Array.isArray(slot)) continue;
-                const s = { supportedItems: [], itemId: '', count, durability: 0 };
+                const s = { supportedItems: [], itemId: '', count: 0, durability: 0 };
                 for (const sp of slot) {
                   if (sp.name === 'SupportedItems' && Array.isArray(sp.value)) s['supportedItems'] = sp.value;
                   if (sp.name === 'ItemID') s['itemId'] = sp.value ?? '';
@@ -1441,7 +1266,6 @@ function parseSave(buf) {
       worldState['totalModularLootActors'] = worldState['modularLootActors'].length;
       return;
     }
-
     if (n === 'ExtraParams' && Array.isArray(prop.value)) {
       worldState['_extraParams'] = prop.value;
       return;
@@ -1455,13 +1279,12 @@ function parseSave(buf) {
       worldState['buildingDecayActive'] = decaying;
       return;
     }
-
     if (n === 'ExplodableBarrelsTransform' && Array.isArray(prop.value)) {
       worldState['explodableBarrelPositions'] = prop.value
         .map((elem) => {
           if (Array.isArray(elem)) {
             const t = elem.find((c) => c.name === 'Translation');
-            const tv = t?.value;
+            const tv = t == null ? void 0 : t.value;
             if (tv) return { x: _round2(tv.x), y: _round2(tv.y), z: _round2(tv.z) };
           }
           return null;
@@ -1469,7 +1292,6 @@ function parseSave(buf) {
         .filter(Boolean);
       return;
     }
-
     if (n === 'LOD_Pickup_Disabled' && Array.isArray(prop.value)) {
       worldState['lodPickupDisabled'] = prop.value;
       return;
@@ -1482,7 +1304,6 @@ function parseSave(buf) {
       worldState['lodPreBDisabled'] = prop.value;
       return;
     }
-
     if (n === 'LODHouseData' && Array.isArray(prop.value)) {
       worldState['houses'] = [];
       for (const entry of prop.value) {
@@ -1492,14 +1313,14 @@ function parseSave(buf) {
         const house = {
           uid: '',
           name: '',
-          windowsOpen,
-          windowsTotal,
-          doorsOpen,
-          doorsLocked,
-          doorsTotal,
-          destroyedFurniture,
-          hasGenerator,
-          randomSeed,
+          windowsOpen: 0,
+          windowsTotal: 0,
+          doorsOpen: 0,
+          doorsLocked: 0,
+          doorsTotal: 0,
+          destroyedFurniture: 0,
+          hasGenerator: false,
+          randomSeed: 0,
           floatData: {},
         };
         for (const hp of entryProps) {
@@ -1528,12 +1349,10 @@ function parseSave(buf) {
       worldState['totalHouses'] = worldState['houses'].length;
       return;
     }
-
     if (n === 'FoliageBerry') {
       worldState['foliageBerry'] = prop.children ?? prop.value;
       return;
     }
-
     if (n === 'HZActorManagerData') {
       if (prop.children) {
         const mgr = { destroyedActors: [], destroyedInstances: [] };
@@ -1557,16 +1376,15 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'BackpackData' && Array.isArray(prop.value) && !currentSteamID) {
       worldState['droppedBackpacks'] = [];
       for (const elemProps of prop.value) {
         if (!Array.isArray(elemProps)) continue;
-        const backpack = { x: null, y, z, items: [], class: '' };
+        const backpack = { x: null, y: null, z: null, items: [], class: '' };
         for (const bp of elemProps) {
           if (bp.name === 'BackpackTransform') {
             const tv = bp.value;
-            if (tv?.translation) {
+            if (tv == null ? void 0 : tv.translation) {
               backpack['x'] = _round2(tv.translation.x);
               backpack['y'] = _round2(tv.translation.y);
               backpack['z'] = _round2(tv.translation.z);
@@ -1581,7 +1399,6 @@ function parseSave(buf) {
       worldState['totalDroppedBackpacks'] = worldState['droppedBackpacks'].length;
       return;
     }
-
     if (n === 'SpawnedHeliCrash' && Array.isArray(prop.value)) {
       worldState['heliCrashData'] = prop.value;
       return;
@@ -1598,7 +1415,6 @@ function parseSave(buf) {
       worldState['questConfig'] = prop.value;
       return;
     }
-
     if (n === 'Airdrop') {
       worldState['airdropActive'] = true;
       if (prop.children) {
@@ -1606,7 +1422,7 @@ function parseSave(buf) {
         for (const c of prop.children) {
           if (c.name === 'Loc') {
             const tv = c.value;
-            if (tv?.translation) {
+            if (tv == null ? void 0 : tv.translation) {
               airdrop['x'] = _round2(tv.translation.x);
               airdrop['y'] = _round2(tv.translation.y);
               airdrop['z'] = _round2(tv.translation.z);
@@ -1620,7 +1436,6 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'DropInSaves' && Array.isArray(prop.value)) {
       const dropIns = [];
       for (const elemProps of prop.value) {
@@ -1628,20 +1443,18 @@ function parseSave(buf) {
         for (const ep of elemProps) {
           if (ep.name === 'SteamID' && typeof ep.value === 'string') {
             const m = ep.value.match(/(7656\d+)/);
-            if (m?.[1]) dropIns.push(m[1]);
+            if (m == null ? void 0 : m[1]) dropIns.push(m[1]);
           }
         }
       }
       worldState['dropInSaves'] = dropIns;
       return;
     }
-
     if (n === 'UniqueSpawners') {
       worldState['uniqueSpawnerCount'] = Array.isArray(prop.value) ? prop.value.length : 0;
       worldState['uniqueSpawnerIds'] = Array.isArray(prop.value) ? prop.value : [];
       return;
     }
-
     if (n === 'Dedi_DaysPassed' && typeof prop.value === 'number') {
       worldState['daysPassed'] = prop.value;
       return;
@@ -1662,7 +1475,6 @@ function parseSave(buf) {
       worldState['usesSteamUid'] = !!prop.value;
       return;
     }
-
     if (n === 'GameDiff') {
       if (prop.children) {
         const diff = {};
@@ -1684,7 +1496,6 @@ function parseSave(buf) {
       }
       return;
     }
-
     if (n === 'UDSandUDWsave') {
       worldState['weatherState'] = prop.children ?? prop.value;
       const ws = worldState['weatherState'];
@@ -1697,12 +1508,8 @@ function parseSave(buf) {
       }
       return;
     }
-
-    // ── PLAYER-LEVEL PROPERTIES ──
-
     if (!currentSteamID) return;
     const p = ensurePlayer(currentSteamID);
-
     if (n === 'DayzSurvived' && typeof prop.value === 'number') p.daysSurvived = prop.value;
     if (n === 'Affliction' && typeof prop.value === 'number') p.affliction = prop.value;
     if (n === 'Male') p.male = !!prop.value;
@@ -1724,7 +1531,6 @@ function parseSave(buf) {
     if (n === 'RepFacial' && typeof prop.value === 'number') p.repFacial = prop.value;
     if (n === 'Bites' && typeof prop.value === 'number') p.bites = prop.value;
     if (n === 'CBRadioCooldown' && typeof prop.value === 'number') p.cbRadioCooldown = prop.value;
-
     if (n === 'CurrentHealth' && typeof prop.value === 'number') p.health = _round(prop.value);
     if (n === 'MaxHealth' && typeof prop.value === 'number') p.maxHealth = _round(prop.value);
     if (n === 'CurrentHunger' && typeof prop.value === 'number') p.hunger = _round(prop.value);
@@ -1736,7 +1542,6 @@ function parseSave(buf) {
     if (n === 'CurrentInfection' && typeof prop.value === 'number') p.infection = _round(prop.value);
     if (n === 'MaxInfection' && typeof prop.value === 'number') p.maxInfection = _round(prop.value);
     if (n === 'PlayerBattery' && typeof prop.value === 'number') p.battery = _round(prop.value);
-
     if (n === 'Exp') {
       if (typeof prop.value === 'number') {
         p.exp = _round(prop.value);
@@ -1750,47 +1555,41 @@ function parseSave(buf) {
         }
       }
     }
-
     if (n === 'InfectionTimer') p.infectionTimer = prop.value ?? null;
-
     if (n === 'StartingPerk') {
       let mapped;
       if (typeof prop.value === 'string') mapped = PERK_MAP[prop.value];
       else if (typeof prop.value === 'number') mapped = PERK_INDEX_MAP[prop.value];
       if (mapped) p.startingPerk = mapped;
     }
-
     if (n === 'GameStats' && prop.value && typeof prop.value === 'object') {
       const gs = prop.value;
-      if (gs['ZeeksKilled'] !== undefined) p.zeeksKilled = gs['ZeeksKilled'];
-      if (gs['HeadShot'] !== undefined) p.headshots = gs['HeadShot'];
-      if (gs['MeleeKills'] !== undefined) p.meleeKills = gs['MeleeKills'];
-      if (gs['GunKills'] !== undefined) p.gunKills = gs['GunKills'];
-      if (gs['BlastKills'] !== undefined) p.blastKills = gs['BlastKills'];
-      if (gs['FistKills'] !== undefined) p.fistKills = gs['FistKills'];
-      if (gs['TakedownKills'] !== undefined) p.takedownKills = gs['TakedownKills'];
-      if (gs['VehicleKills'] !== undefined) p.vehicleKills = gs['VehicleKills'];
-      if (gs['DaysSurvived'] !== undefined && gs['DaysSurvived'] > 0) p.daysSurvived = gs['DaysSurvived'];
+      if (gs['ZeeksKilled'] !== void 0) p.zeeksKilled = gs['ZeeksKilled'];
+      if (gs['HeadShot'] !== void 0) p.headshots = gs['HeadShot'];
+      if (gs['MeleeKills'] !== void 0) p.meleeKills = gs['MeleeKills'];
+      if (gs['GunKills'] !== void 0) p.gunKills = gs['GunKills'];
+      if (gs['BlastKills'] !== void 0) p.blastKills = gs['BlastKills'];
+      if (gs['FistKills'] !== void 0) p.fistKills = gs['FistKills'];
+      if (gs['TakedownKills'] !== void 0) p.takedownKills = gs['TakedownKills'];
+      if (gs['VehicleKills'] !== void 0) p.vehicleKills = gs['VehicleKills'];
+      if (gs['DaysSurvived'] !== void 0 && gs['DaysSurvived'] > 0) p.daysSurvived = gs['DaysSurvived'];
     }
-
     if (n === 'FloatData' && prop.value && typeof prop.value === 'object') {
       const fd = prop.value;
-      if (fd['Fatigue'] !== undefined) p.fatigue = _round2(fd['Fatigue']);
-      if (fd['InfectionBuildup'] !== undefined) p.infectionBuildup = Math.round(fd['InfectionBuildup']);
-      if (fd['WellRested'] !== undefined) p.wellRested = _round2(fd['WellRested']);
-      if (fd['Energy'] !== undefined) p.energy = _round2(fd['Energy']);
-      if (fd['Hood'] !== undefined) p.hood = _round2(fd['Hood']);
-      if (fd['HypoHandle'] !== undefined) p.hypoHandle = _round2(fd['HypoHandle']);
-      if (fd['BadFood'] !== undefined) p.badFood = _round2(fd['BadFood']);
-      if (fd['Skin_Blood'] !== undefined) p.skinBlood = _round2(fd['Skin_Blood']);
-      if (fd['Skin_Dirt'] !== undefined) p.skinDirt = _round2(fd['Skin_Dirt']);
-      if (fd['Clean'] !== undefined) p.clean = _round2(fd['Clean']);
-      if (fd['Sleepers'] !== undefined) p.sleepers = _round2(fd['Sleepers']);
+      if (fd['Fatigue'] !== void 0) p.fatigue = _round2(fd['Fatigue']);
+      if (fd['InfectionBuildup'] !== void 0) p.infectionBuildup = Math.round(fd['InfectionBuildup']);
+      if (fd['WellRested'] !== void 0) p.wellRested = _round2(fd['WellRested']);
+      if (fd['Energy'] !== void 0) p.energy = _round2(fd['Energy']);
+      if (fd['Hood'] !== void 0) p.hood = _round2(fd['Hood']);
+      if (fd['HypoHandle'] !== void 0) p.hypoHandle = _round2(fd['HypoHandle']);
+      if (fd['BadFood'] !== void 0) p.badFood = _round2(fd['BadFood']);
+      if (fd['Skin_Blood'] !== void 0) p.skinBlood = _round2(fd['Skin_Blood']);
+      if (fd['Skin_Dirt'] !== void 0) p.skinDirt = _round2(fd['Skin_Dirt']);
+      if (fd['Clean'] !== void 0) p.clean = _round2(fd['Clean']);
+      if (fd['Sleepers'] !== void 0) p.sleepers = _round2(fd['Sleepers']);
       p.floatData = fd;
     }
-
     if (n === 'CustomData' && prop.value && typeof prop.value === 'object') p.customData = prop.value;
-
     if (n === 'Recipe_Crafting' && Array.isArray(prop.value)) p.craftingRecipes = prop.value.filter(Boolean);
     if (n === 'Recipe_Building' && Array.isArray(prop.value)) p.buildingRecipes = prop.value.filter(Boolean);
     if (n === 'PlayerStates' && Array.isArray(prop.value)) p.playerStates = prop.value;
@@ -1805,28 +1604,25 @@ function parseSave(buf) {
     if (n === 'LootItemUnique' && Array.isArray(prop.value)) p.lootItemUnique = prop.value.filter(Boolean);
     if (n === 'LoreId' && typeof prop.value === 'string') p.lore.push(prop.value);
     if (n === 'Lore' && Array.isArray(prop.value)) p.lore = prop.value;
-
     if (n === 'PlayerTransform' && prop.type === 'StructProperty' && prop.structType === 'Transform') {
       _extractTransform(prop, p);
     } else if (
       p.x === null &&
       prop.type === 'StructProperty' &&
       prop.structType === 'Transform' &&
-      prop.value?.translation
+      ((_e = prop.value) == null ? void 0 : _e.translation)
     ) {
       const SKIP_TRANSFORMS = ['PlayerRespawnPoint', 'BackpackTransform', 'Transform', 'CompanionTransform'];
       if (!SKIP_TRANSFORMS.includes(n)) _extractTransform(prop, p);
     }
-
     if (n === 'PlayerRespawnPoint' && prop.type === 'StructProperty' && prop.structType === 'Transform') {
       const tv = prop.value;
-      if (tv?.translation && typeof tv.translation.x === 'number') {
+      if ((tv == null ? void 0 : tv.translation) && typeof tv.translation.x === 'number') {
         p.respawnX = _round2(tv.translation.x);
         p.respawnY = _round2(tv.translation.y);
         p.respawnZ = _round2(tv.translation.z);
       }
     }
-
     if (n === 'CharProfile' && prop.children) {
       const profile = {};
       for (const c of prop.children) {
@@ -1851,7 +1647,6 @@ function parseSave(buf) {
       }
       p.charProfile = profile;
     }
-
     if (n === 'PlayerInventory' && Array.isArray(prop.value)) p.inventory = prop.value;
     if (n === 'PlayerEquipment' && Array.isArray(prop.value)) p.equipment = prop.value;
     if (n === 'PlayerQuickSlots' && Array.isArray(prop.value)) p.quickSlots = prop.value;
@@ -1866,7 +1661,6 @@ function parseSave(buf) {
     }
     if (n === 'Challenges' && Array.isArray(prop.value)) p.challenges = prop.value;
     if (n === 'QuestSpawnerDone' && Array.isArray(prop.value)) p.questSpawnerDone = prop.value;
-
     if (n === 'CompanionData' && Array.isArray(prop.value)) {
       p.companionData = [];
       for (const cd of prop.value) {
@@ -1874,12 +1668,12 @@ function parseSave(buf) {
         const comp = {
           class: '',
           displayName: '',
-          x,
-          y,
-          z,
-          health,
-          energy,
-          vest,
+          x: null,
+          y: null,
+          z: null,
+          health: 0,
+          energy: 0,
+          vest: 0,
           command: '',
           inventory: [],
         };
@@ -1890,7 +1684,7 @@ function parseSave(buf) {
           }
           if (cp.name === 'Transform') {
             const tv = cp.value;
-            if (tv?.translation) {
+            if (tv == null ? void 0 : tv.translation) {
               comp['x'] = _round2(tv.translation.x);
               comp['y'] = _round2(tv.translation.y);
               comp['z'] = _round2(tv.translation.z);
@@ -1921,11 +1715,6 @@ function parseSave(buf) {
     }
     if (n === 'Horses' && Array.isArray(prop.value)) p.horses = prop.value;
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  Main parse loop
-  // ═══════════════════════════════════════════════════════════════════════════
-
   while (r.remaining() > 4) {
     try {
       const saved = r.getOffset();
@@ -1942,11 +1731,6 @@ function parseSave(buf) {
       if (!recoverForward(r, pos)) break;
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  Post-processing: assemble parallel arrays into structures
-  // ═══════════════════════════════════════════════════════════════════════════
-
   const structCount = buildActorClasses.length || buildActorTransformCount;
   for (let i = 0; i < structCount; i++) {
     const ownerStr = buildActorStrings[i] ?? '';
@@ -1955,7 +1739,7 @@ function parseSave(buf) {
     structures.push({
       actorClass: buildActorClasses[i] ?? '',
       displayName: simplifyBlueprint(buildActorClasses[i] ?? ''),
-      ownerSteamId: ownerMatch?.[1] ?? '',
+      ownerSteamId: (ownerMatch == null ? void 0 : ownerMatch[1]) ?? '',
       x: transform ? _round2(transform.x) : null,
       y: transform ? _round2(transform.y) : null,
       z: transform ? _round2(transform.z) : null,
@@ -1964,11 +1748,10 @@ function parseSave(buf) {
       upgradeLevel: buildActorUpgrades[i] ?? 0,
       attachedToTrailer: buildActorTrailer[i] ?? false,
       inventory: [],
-      noSpawn,
+      noSpawn: false,
       extraData: buildActorData[i] ?? '',
     });
   }
-
   for (const nsProps of buildActorNoSpawn) {
     if (!Array.isArray(nsProps)) continue;
     for (const nsp of nsProps) {
@@ -1978,7 +1761,6 @@ function parseSave(buf) {
       }
     }
   }
-
   for (let idx = 0; idx < buildActorInventories.length; idx++) {
     const invProps = buildActorInventories[idx];
     if (!Array.isArray(invProps)) continue;
@@ -1988,7 +1770,6 @@ function parseSave(buf) {
     let locked = false;
     let craftingContent = [];
     let doesSpawnLoot = false;
-
     for (const ip of invProps) {
       if (ip.name === 'ContainerActor') actorName = ip.value || '';
       if (ip.name === 'ContainerInventoryArray' && Array.isArray(ip.value)) items = ip.value;
@@ -1997,9 +1778,7 @@ function parseSave(buf) {
       if (ip.name === 'DoesSpawnLoot') doesSpawnLoot = !!ip.value;
       if (ip.name === 'CraftingContent' && Array.isArray(ip.value)) craftingContent = ip.value;
     }
-
     if (items.length === 0 && quickSlots.length === 0 && craftingContent.length === 0) continue;
-
     if (actorName) {
       const existingContainer = containers.find((c) => c.actorName === actorName);
       if (existingContainer) {
@@ -2017,7 +1796,7 @@ function parseSave(buf) {
           z: transform ? _round2(transform.z) : null,
           locked,
           doesSpawnLoot,
-          buildIndex,
+          buildIndex: idx,
         });
       }
     } else {
@@ -2032,11 +1811,10 @@ function parseSave(buf) {
         locked,
         doesSpawnLoot,
         craftingContent,
-        buildIndex,
+        buildIndex: idx,
       });
     }
   }
-
   if (!worldState['currentSeason'] && worldState['gameDifficulty']) {
     const SEASONS = ['Spring', 'Summer', 'Fall', 'Winter'];
     const diff = worldState['gameDifficulty'];
@@ -2047,7 +1825,6 @@ function parseSave(buf) {
       worldState['currentSeason'] = SEASONS[(startIdx + seasonsPassed) % 4];
     }
   }
-
   worldState['totalStructures'] = structures.length;
   worldState['totalVehicles'] = vehicles.length;
   worldState['totalCompanions'] = companions.length;
@@ -2055,7 +1832,6 @@ function parseSave(buf) {
   worldState['totalHorses'] = horses.length;
   worldState['totalContainers'] = containers.length;
   worldState['totalPlayers'] = players.size;
-
   return {
     players,
     worldState,
@@ -2070,17 +1846,11 @@ function parseSave(buf) {
     header,
   };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Extraction helpers
-// ═══════════════════════════════════════════════════════════════════════════
-
 function _extractStatistics(statArray, player) {
   for (const elemProps of statArray) {
     if (!Array.isArray(elemProps)) continue;
     let tagName = null;
     let currentValue = null;
-
     for (const ep of elemProps) {
       if (ep.name === 'StatisticId') {
         if (ep.children) {
@@ -2092,7 +1862,6 @@ function _extractStatistics(statArray, player) {
       }
       if (ep.name === 'CurrentValue' && typeof ep.value === 'number') currentValue = ep.value;
     }
-
     if (tagName && currentValue !== null && currentValue > 0) {
       const field = STAT_TAG_MAP[tagName];
       if (field) {
@@ -2102,7 +1871,6 @@ function _extractStatistics(statArray, player) {
     }
   }
 }
-
 function _extractExtendedStats(statArray, player) {
   player.extendedStats = [];
   for (const elemProps of statArray) {
@@ -2115,24 +1883,22 @@ function _extractExtendedStats(statArray, player) {
     if (stat['name']) player.extendedStats.push(stat);
   }
 }
-
 function _extractVehicles(carArray, vehicleList) {
   for (const carProps of carArray) {
     if (!Array.isArray(carProps)) continue;
     const vehicle = {
       class: '',
       displayName: '',
-      x,
-      y,
-      z,
-      health,
-      maxHealth,
-      fuel,
+      x: null,
+      y: null,
+      z: null,
+      health: 0,
+      maxHealth: 0,
+      fuel: 0,
       inventory: [],
       upgrades: [],
       extra: {},
     };
-
     for (const cp of carProps) {
       if (cp.name === 'Class') {
         vehicle.class = cp.value || '';
@@ -2143,7 +1909,7 @@ function _extractVehicles(carArray, vehicleList) {
       if (cp.name === 'Fuel' && typeof cp.value === 'number') vehicle.fuel = _round(cp.value);
       if (cp.name === 'Transform') {
         const tv = cp.value;
-        if (tv?.translation) {
+        if (tv == null ? void 0 : tv.translation) {
           vehicle.x = _round2(tv.translation.x);
           vehicle.y = _round2(tv.translation.y);
           vehicle.z = _round2(tv.translation.z);
@@ -2154,7 +1920,6 @@ function _extractVehicles(carArray, vehicleList) {
     vehicleList.push(vehicle);
   }
 }
-
 function _extractContainers(prop, containerList) {
   if (!Array.isArray(prop.value)) return;
   for (const elemProps of prop.value) {
@@ -2163,12 +1928,12 @@ function _extractContainers(prop, containerList) {
       actorName: '',
       items: [],
       quickSlots: [],
-      x,
-      y,
-      z,
-      locked,
-      doesSpawnLoot,
-      alarmOff,
+      x: null,
+      y: null,
+      z: null,
+      locked: false,
+      doesSpawnLoot: false,
+      alarmOff: false,
     };
     for (const cp of elemProps) {
       if (cp.name === 'ContainerActor') container.actorName = cp.value || '';
@@ -2186,27 +1951,25 @@ function _extractContainers(prop, containerList) {
     if (container.actorName) containerList.push(container);
   }
 }
-
 function _extractHorses(horseArray, horseList) {
   for (const horseProps of horseArray) {
     if (!Array.isArray(horseProps)) continue;
     const horse = {
       class: '',
       displayName: '',
-      x,
-      y,
-      z,
-      health,
-      maxHealth,
-      energy,
-      stamina,
+      x: null,
+      y: null,
+      z: null,
+      health: 0,
+      maxHealth: 0,
+      energy: 0,
+      stamina: 0,
       ownerSteamId: '',
       name: '',
       saddleInventory: [],
       inventory: [],
       extra: {},
     };
-
     for (const hp of horseProps) {
       if (hp.name === 'Class') {
         horse.class = hp.value || '';
@@ -2219,7 +1982,7 @@ function _extractHorses(horseArray, horseList) {
       if (hp.name === 'Stamina' && typeof hp.value === 'number') horse.stamina = _round(hp.value);
       if (hp.name === 'Transform') {
         const tv = hp.value;
-        if (tv?.translation) {
+        if (tv == null ? void 0 : tv.translation) {
           horse.x = _round2(tv.translation.x);
           horse.y = _round2(tv.translation.y);
           horse.z = _round2(tv.translation.z);
@@ -2227,7 +1990,7 @@ function _extractHorses(horseArray, horseList) {
       }
       if (hp.name === 'Owner' && typeof hp.value === 'string') {
         const m = hp.value.match(/(7656\d+)/);
-        if (m?.[1]) horse.ownerSteamId = m[1];
+        if (m == null ? void 0 : m[1]) horse.ownerSteamId = m[1];
       }
       if (hp.name === 'SaddleInventory' && Array.isArray(hp.value)) horse.saddleInventory = hp.value;
       if (hp.name === 'Inventory' && Array.isArray(hp.value)) horse.inventory = hp.value;
@@ -2251,12 +2014,11 @@ function _extractHorses(horseArray, horseList) {
     horseList.push(horse);
   }
 }
-
 function _extractLootActors(prop, actorList) {
   if (!Array.isArray(prop.value)) return;
   for (const elemProps of prop.value) {
     if (!Array.isArray(elemProps)) continue;
-    const actor = { name: '', type: '', x, y, z, items: [] };
+    const actor = { name: '', type: '', x: null, y: null, z: null, items: [] };
     for (const lp of elemProps) {
       if (lp.name === 'Name') actor.name = lp.value || '';
       if (lp.name === 'Type') actor.type = lp.value || '';
@@ -2265,7 +2027,6 @@ function _extractLootActors(prop, actorList) {
     if (actor.name) actorList.push(actor);
   }
 }
-
 function _extractWorldQuests(prop, questList) {
   if (!Array.isArray(prop.value)) return;
   for (const elemProps of prop.value) {
@@ -2279,10 +2040,9 @@ function _extractWorldQuests(prop, questList) {
     if (quest.id) questList.push(quest);
   }
 }
-
 function _extractTransform(prop, player) {
   const tv = prop.value;
-  if (tv?.translation) {
+  if (tv == null ? void 0 : tv.translation) {
     const t = tv.translation;
     if (typeof t.x === 'number' && typeof t.y === 'number') {
       player.x = _round2(t.x);
@@ -2297,11 +2057,10 @@ function _extractTransform(prop, player) {
     }
   }
 }
-
 function _childrenToObject(children) {
   const obj = {};
   for (const c of children) {
-    if (c.name && c.value !== undefined && c.value !== 'struct' && c.value !== '<text>') {
+    if (c.name && c.value !== void 0 && c.value !== 'struct' && c.value !== '<text>') {
       obj[c.name] = c.value;
     }
     if (c.children) {
@@ -2310,26 +2069,17 @@ function _childrenToObject(children) {
   }
   return obj;
 }
-
-// ─── Rounding helpers ──────────────────────────────────────────────────────
-
 function _round(v) {
   return v;
 }
 function _round2(v) {
   return v;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Clan data parser (separate Save_ClanData.sav file)
-// ═══════════════════════════════════════════════════════════════════════════
-
 function parseClanData(buf) {
+  var _a, _b, _c, _d, _e, _f, _g;
   const r = createReader(buf);
   parseHeader(r);
-
   const clans = [];
-
   while (r.remaining() > 4) {
     const saved = r.getOffset();
     const prop = readProperty(r);
@@ -2337,32 +2087,31 @@ function parseClanData(buf) {
       if (r.getOffset() === saved) break;
       continue;
     }
-
     if (prop.name === 'ClanInfo' && prop.type === 'ArrayProperty') {
       if (!Array.isArray(prop.value)) continue;
-
       for (const clanProps of prop.value) {
         if (!Array.isArray(clanProps)) continue;
         const clan = { name: '', members: [] };
-
         for (const cp of clanProps) {
-          if (cp.name?.startsWith('ClanName') && typeof cp.value === 'string') clan.name = cp.value;
-          if (cp.name?.startsWith('Members') && cp.type === 'ArrayProperty') {
+          if (((_a = cp.name) == null ? void 0 : _a.startsWith('ClanName')) && typeof cp.value === 'string')
+            clan.name = cp.value;
+          if (((_b = cp.name) == null ? void 0 : _b.startsWith('Members')) && cp.type === 'ArrayProperty') {
             if (Array.isArray(cp.value)) {
               for (const memberProps of cp.value) {
                 if (!Array.isArray(memberProps)) continue;
-                const member = { name: '', steamId: '', rank: 'Member', canInvite, canKick: false };
+                const member = { name: '', steamId: '', rank: 'Member', canInvite: false, canKick: false };
                 for (const mp of memberProps) {
-                  if (mp.name?.startsWith('Name') && typeof mp.value === 'string') member.name = mp.value;
-                  if (mp.name?.startsWith('NetID') && typeof mp.value === 'string') {
+                  if (((_c = mp.name) == null ? void 0 : _c.startsWith('Name')) && typeof mp.value === 'string')
+                    member.name = mp.value;
+                  if (((_d = mp.name) == null ? void 0 : _d.startsWith('NetID')) && typeof mp.value === 'string') {
                     const match = mp.value.match(/(7656\d+)/);
-                    if (match?.[1]) member.steamId = match[1];
+                    if (match == null ? void 0 : match[1]) member.steamId = match[1];
                   }
-                  if (mp.name?.startsWith('Rank') && typeof mp.value === 'string') {
+                  if (((_e = mp.name) == null ? void 0 : _e.startsWith('Rank')) && typeof mp.value === 'string') {
                     member.rank = CLAN_RANK_MAP[mp.value] ?? mp.value;
                   }
-                  if (mp.name?.startsWith('CanInvite')) member.canInvite = !!mp.value;
-                  if (mp.name?.startsWith('CanKick')) member.canKick = !!mp.value;
+                  if ((_f = mp.name) == null ? void 0 : _f.startsWith('CanInvite')) member.canInvite = !!mp.value;
+                  if ((_g = mp.name) == null ? void 0 : _g.startsWith('CanKick')) member.canKick = !!mp.value;
                 }
                 if (member.steamId) clan.members.push(member);
               }
@@ -2373,7 +2122,6 @@ function parseClanData(buf) {
       }
     }
   }
-
   return clans;
 }
 
