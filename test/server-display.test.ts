@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises */
 /**
  * Tests for src/server/server-display.js — V35 INI display helpers.
  * Run: npm test
@@ -7,6 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as _server_display from '../src/server/server-display.js';
 const {
   ON_DEATH_LABELS,
   AI_EVENT_LABELS,
@@ -29,9 +30,10 @@ const {
   timeEmoji,
   buildSettingsFields,
   buildLootScarcity,
-} = require('../src/server/server-display');
+} = _server_display as any;
 
-const { modalTitle } = require('../src/modules/discord-utils');
+import * as _discord_utils from '../src/modules/discord-utils.js';
+const { modalTitle } = _discord_utils as any;
 
 describe('ON_DEATH_LABELS (V35)', () => {
   it('has exactly 4 entries', () => {

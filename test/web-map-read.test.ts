@@ -1,12 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 'use strict';
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const WebMapServer = require('../src/web-map/server');
+import _webMapServer from '../src/web-map/server.js';
+const WebMapServer = _webMapServer as any;
 
-const { extractHandler } = require('./helpers/route-helpers');
+import * as _route_helpers from './helpers/route-helpers.js';
+const { extractHandler } = _route_helpers as any;
 
 /** Create a mock response that captures status code and JSON body. */
 function mockRes() {

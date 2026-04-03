@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 /**
  * Tests for panel-api.js — Pterodactyl Panel API client.
  * Uses createPanelApi() factory to avoid singleton side effects.
@@ -8,7 +8,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { createPanelApi } = require('../src/server/panel-api');
+import * as _panel_api from '../src/server/panel-api.js';
+const { createPanelApi } = _panel_api as any;
 
 const SERVER_URL = 'https://panel.test.com/server/abc123';
 const API_KEY = 'test-api-key';

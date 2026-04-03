@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises */
 /**
  * Tests for player-stats-channel.js utility functions: _parseIni, _cleanItemName
  * Run: npm test
@@ -6,7 +6,8 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } = require('../src/modules/player-stats-channel');
+import * as _player_stats_channel from '../src/modules/player-stats-channel.js';
+const { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } = _player_stats_channel as any;
 
 // Clean up singleton references after tests.
 // Requiring player-stats-channel pulls in both player-stats and playtime-tracker
@@ -132,6 +133,7 @@ describe('_cleanItemName', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('_isNewWeek (via KillTracker)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const KillTracker = require('../src/tracking/kill-tracker');
 
   function makeTracker(resetDay = 1, tz = 'UTC') {
@@ -200,6 +202,7 @@ describe('_isNewWeek (via KillTracker)', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('_snapshotPlayerStats (via KillTracker)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const KillTracker = require('../src/tracking/kill-tracker');
 
   function makeTracker(_saveData: Map<string, unknown>, logStats?: unknown, ptData?: unknown) {
@@ -263,6 +266,7 @@ describe('_resolveUdsWeather', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('Challenge tracking (via KillTracker)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const KillTracker = require('../src/tracking/kill-tracker');
 
   it('CHALLENGE_KEYS contains all 19 challenge fields', () => {

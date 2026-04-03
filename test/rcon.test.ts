@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-deprecated */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-deprecated */
 /**
  * Tests for rcon.js — Source Engine RCON binary packet parsing & building.
  * Run: node --test test/rcon.test.js
@@ -6,7 +6,8 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { RconManager } = require('../src/rcon/rcon');
+import * as _rcon from '../src/rcon/rcon.js';
+const { RconManager } = _rcon as any;
 
 // ── Helpers ─────────────────────────────────────────────
 

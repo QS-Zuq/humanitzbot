@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/unbound-method */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/unbound-method */
 /**
  * Tests for stdin-console.js — interactive CLI for headless hosts.
  *
@@ -16,9 +16,11 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const HumanitZDB = require('../src/db/database');
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
 
-const StdinConsole = require('../src/stdin-console');
+import _stdin_console from '../src/stdin-console.js';
+const StdinConsole = _stdin_console as any;
 
 // Capture stdout writes from the console
 function captureOutput(_console: unknown, fn: () => unknown): string[] | Promise<string[]> {

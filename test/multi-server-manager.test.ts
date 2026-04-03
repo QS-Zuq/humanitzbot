@@ -1,12 +1,15 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const HumanitZDB = require('../src/db/database');
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
 
-const ConfigRepository = require('../src/db/config-repository');
+import _config_repository from '../src/db/config-repository.js';
+const ConfigRepository = _config_repository as any;
 
-const { createServerConfig, _extractSaveName, SAVE_FILE_PATTERN } = require('../src/server/multi-server');
+import * as _multi_server from '../src/server/multi-server.js';
+const { createServerConfig, _extractSaveName, SAVE_FILE_PATTERN } = _multi_server as any;
 
 function makeServerDef(overrides: Record<string, any> = {}) {
   return {

@@ -1,16 +1,20 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises */
 'use strict';
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { mockDb } = require('./helpers/mock-db');
+import * as _mock_db from './helpers/mock-db.js';
+const { mockDb } = _mock_db as any;
 
-const { API_ERRORS } = require('../src/web-map/api-errors');
+import * as _api_errors from '../src/web-map/api-errors.js';
+const { API_ERRORS } = _api_errors as any;
 
-const WebMapServer = require('../src/web-map/server');
+import _webMapServer from '../src/web-map/server.js';
+const WebMapServer = _webMapServer as any;
 
-const { extractHandler: _extractHandler } = require('./helpers/route-helpers');
+import * as _route_helpers from './helpers/route-helpers.js';
+const { extractHandler: _extractHandler } = _route_helpers as any;
 
 // ── Mock configRepo ──────────────────────────────────────────────────────────
 

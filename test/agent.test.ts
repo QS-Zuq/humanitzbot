@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression */
 /**
  * Tests for the save-agent system (agent-builder + updated save-service).
  *
@@ -18,7 +18,9 @@ import { execSync, execFileSync } from 'child_process';
 
 // ─── Modules under test ─────────────────────────────────────────────────────
 
-const { buildAgentScript, writeAgent, AGENT_VERSION } = require('../src/parsers/agent-builder');
+import * as _agent_builder from '../src/parsers/agent-builder.js';
+import * as _save_parser from '../src/parsers/save-parser.js';
+const { buildAgentScript, writeAgent, AGENT_VERSION } = _agent_builder as any;
 
 // ─── Test data ──────────────────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -195,8 +197,10 @@ describe('agent execution', () => {
 describe('SaveService agent mode', () => {
   // We test the logic without actual SFTP/SSH connections
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const SaveService = require('../src/parsers/save-service');
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const HumanitZDB = require('../src/db/database');
 
   let db: any;
@@ -494,7 +498,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same player count as direct parse', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -504,6 +508,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same structure count as direct parse', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
     const { parseSave } = require('../src/parsers/save-parser');
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
@@ -512,6 +517,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same vehicle count as direct parse', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
     const { parseSave } = require('../src/parsers/save-parser');
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
@@ -520,6 +526,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves player steam IDs', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
     const { parseSave } = require('../src/parsers/save-parser');
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
@@ -531,6 +538,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves world state', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
     const { parseSave } = require('../src/parsers/save-parser');
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);

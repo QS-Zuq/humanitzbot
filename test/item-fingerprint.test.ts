@@ -1,13 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const {
-  generateFingerprint,
-  normalizeSlot,
-  normalizeInventory,
-  buildFingerprintMap,
-} = require('../src/db/item-fingerprint');
+import * as _item_fingerprint from '../src/db/item-fingerprint.js';
+const { generateFingerprint, normalizeSlot, normalizeInventory, buildFingerprintMap } = _item_fingerprint as any;
 
 describe('generateFingerprint', () => {
   it('returns empty string for null/invalid input', () => {

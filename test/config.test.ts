@@ -1,7 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-dynamic-delete */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-dynamic-delete */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as _configMod from '../src/config/index.js';
 const {
   _envBool: envBool,
   _envTime: envTime,
@@ -9,9 +10,8 @@ const {
   canShow,
   isAdminView,
   addAdminMembers,
-} = require('../src/config');
-
-const config = require('../src/config');
+} = _configMod as any;
+const config = (_configMod as any).default;
 
 // ══════════════════════════════════════════════════════════
 // envBool — string to boolean coercion
@@ -788,6 +788,7 @@ describe('FTP\u2192SFTP backward compatibility', () => {
   function reloadConfig() {
     delete require.cache[configPath];
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
     return require(configPath);
   }
 

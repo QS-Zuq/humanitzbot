@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 /**
  * Tests for pvp-scheduler.js — per-day PvP hours, window detection, transitions.
  * Run: npm test
@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 
 // Minimal stub for PvpScheduler — we only test pure-logic methods
 
-const PvpScheduler = require('../src/modules/pvp-scheduler');
+import _pvp_scheduler from '../src/modules/pvp-scheduler.js';
+const PvpScheduler = _pvp_scheduler as any;
 
 function makeScheduler(overrides: Record<string, unknown> = {}) {
   const config = {

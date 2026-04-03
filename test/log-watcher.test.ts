@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -310,8 +310,10 @@ describe('simplifyBlueprintName', () => {
 });
 
 describe('_nukeActive thread suppression', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const LogWatcher = require('../src/modules/log-watcher');
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const ChatRelay = require('../src/modules/chat-relay');
 
   const mockClient = { channels: { fetch: async () => null }, on: () => {}, user: { id: '1' } };
@@ -365,6 +367,7 @@ describe('_nukeActive thread suppression', () => {
 });
 
 describe('PvP NPC source detection', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const LogWatcher = require('../src/modules/log-watcher');
 
   function createWatcher(): any {
@@ -444,6 +447,7 @@ describe('PvP NPC source detection', () => {
 });
 
 describe('PvP damage to death correlation', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
   const LogWatcher = require('../src/modules/log-watcher');
 
   function createWatcher(): any {

@@ -1,14 +1,17 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 'use strict';
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const RecapService = require('../src/modules/recap-service');
+import _recap_service from '../src/modules/recap-service.js';
+const RecapService = _recap_service as any;
 
-const { mockDb: createMockDb } = require('./helpers/mock-db');
+import * as _mock_db from './helpers/mock-db.js';
+const { mockDb: createMockDb } = _mock_db as any;
 
-const { makePlayer, makeEvent, mockClient, mockConfig } = require('./helpers/factories');
+import * as _factories from './helpers/factories.js';
+const { makePlayer, makeEvent, mockClient, mockConfig } = _factories as any;
 
 // ── Domain adapter: adds activity queries and ranking methods ────────────────
 

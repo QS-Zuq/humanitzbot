@@ -1,10 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const HumanitZDB = require('../src/db/database');
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
 
-const ConfigRepository = require('../src/db/config-repository');
+import _config_repository from '../src/db/config-repository.js';
+const ConfigRepository = _config_repository as any;
 
 describe('ConfigRepository', () => {
   let db: any;

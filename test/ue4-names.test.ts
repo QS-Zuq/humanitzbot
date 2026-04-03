@@ -1,8 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { cleanName, cleanItemName, cleanItemArray, isHexGuid } = require('../src/parsers/ue4-names');
+import * as _ue4_names from '../src/parsers/ue4-names.js';
+const { cleanName, cleanItemName, cleanItemArray, isHexGuid } = _ue4_names as any;
 
 describe('cleanName', () => {
   it('handles Door_GEN_VARIABLE_BP_ pattern', () => {

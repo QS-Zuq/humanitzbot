@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises */
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const envSync = require('../src/env-sync');
+import * as _env_sync from '../src/env-sync.js';
+const envSync = _env_sync as any;
 
 // ── Helpers ──────────────────────────────────────────────────
 let tmpDir: string | null = null;

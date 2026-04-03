@@ -1,10 +1,11 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 'use strict';
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const GitHubTracker = require('../src/modules/github-tracker');
+import * as _github_tracker from '../src/modules/github-tracker.js';
+const GitHubTracker = (_github_tracker as any).default;
 
 // ── Minimal mocks ────────────────────────────────────────────────────────────
 

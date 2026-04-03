@@ -1,13 +1,16 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const gameData = require('../src/parsers/game-data');
+import * as _game_data from '../src/parsers/game-data.js';
+const gameData = _game_data as any;
 
-const { PERK_MAP, PERK_INDEX_MAP, CLAN_RANK_MAP, SEASON_MAP } = require('../src/parsers/save-parser');
+import * as _save_parser from '../src/parsers/save-parser.js';
+const { PERK_MAP, PERK_INDEX_MAP, CLAN_RANK_MAP, SEASON_MAP } = _save_parser as any;
 const { ENUM_MAPS } = gameData;
 
-const { _projectEnum } = require('../src/parsers/game-data-extract')._test;
+import * as _game_data_extract from '../src/parsers/game-data-extract.js';
+const { _projectEnum } = (_game_data_extract as any)._test;
 
 describe('AFFLICTION_MAP', () => {
   it('is an array', () => {

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 /**
  * Tests for /threads rebuild — log parsing and summary builders.
  * Run: node --test test/threads.test.js
@@ -6,6 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as _threads from '../src/commands/threads.js';
 const {
   _parseHmzLog,
   _parseConnectLog,
@@ -14,7 +15,7 @@ const {
   _dateKey,
   _fetchThreadMessages,
   _findMatchingThreads,
-} = require('../src/commands/threads');
+} = _threads as any;
 
 // ══════════════════════════════════════════════════════════
 // _dateKey
