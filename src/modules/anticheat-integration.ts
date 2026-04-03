@@ -18,8 +18,9 @@ let AnticheatEngine: any = null;
 let _available = false;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- optional module, top-level await incompatible with CJS
-  AnticheatEngine = require('@humanitzbot/qs-anticheat').default;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
+  const _acMod = require('@humanitzbot/qs-anticheat') as Record<string, unknown>;
+  AnticheatEngine = (_acMod as { default?: unknown }).default ?? _acMod;
   _available = true;
 } catch {
   // Private package not installed — all methods are no-ops

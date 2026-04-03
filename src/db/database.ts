@@ -2073,7 +2073,8 @@ class HumanitZDB {
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      .run(name, JSON.stringify(nameHistory), steamId);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+      .run(name, JSON.stringify(nameHistory ?? []), steamId);
   }
 
   /**
@@ -3115,7 +3116,8 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivities(entries: Array<Record<string, any>>) {
-    if (entries.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+    if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {
         this._stmts.insertActivity.run(
@@ -3145,7 +3147,8 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivitiesAt(entries: Array<Record<string, any>>) {
-    if (entries.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+    if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {
         this._stmts.insertActivityAt.run(

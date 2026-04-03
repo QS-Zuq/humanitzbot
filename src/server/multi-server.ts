@@ -54,7 +54,8 @@ import ActivityLog from '../modules/activity-log.js';
 let AnticheatIntegration: any;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
-  AnticheatIntegration = require('../modules/anticheat-integration').default;
+  const _acMod = require('../modules/anticheat-integration');
+  AnticheatIntegration = _acMod.default ?? _acMod;
 } catch {
   /* optional module */
 }
