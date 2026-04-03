@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-conversion */
 import { ActivityType, type Client } from 'discord.js';
 import config from '../config/index.js';
 import panelApi from '../server/panel-api.js';
@@ -48,21 +47,25 @@ interface BotStatusManager {
 }
 
 function _toInt(value: unknown): number | null {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
   const n = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(n) ? n : null;
 }
 
 function _limitActivityName(name: unknown, max = 128): string {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
   const text = String(name ?? '');
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
 }
 
 function _hasValue(value: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
   return value !== undefined && value !== null && String(value).trim() !== '';
 }
 
 function _moduleState(rawStatus: unknown): 'active' | 'disabled' | 'warning' | 'unknown' {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
   const text = String(rawStatus ?? '').toLowerCase();
   if (!text) return 'unknown';
   if (/(active|running|online|healthy|ok)\b/.test(text)) return 'active';
@@ -96,7 +99,7 @@ function _extractPlayers(info: ServerInfo | null | undefined): { players: number
   }
 
   for (const [key, value] of Object.entries(fields)) {
-    if (!/player|connected/i.test(String(key))) continue;
+    if (!/player|connected/i.test(key)) continue;
     const m = String(value).match(/(\d+)\s*(?:\/\s*(\d+))?/);
     if (!m) continue;
     if (players === null) players = _toInt(m[1]);
@@ -199,10 +202,10 @@ function _buildWorldActivities(info: ServerInfo | null | undefined): ActivityIte
 }
 
 function _buildConnectActivity(): ActivityItem | null {
-  const host = String(config.publicHost ?? '').trim();
+  const host = (config.publicHost ?? '').trim();
   if (!host) return null;
 
-  const port = String(config.gamePort ?? '').trim();
+  const port = config.gamePort.trim();
   const endpoint = port ? `${host}:${port}` : host;
 
   return {
@@ -304,7 +307,7 @@ function createBotStatusManager(client: Client, opts: BotStatusManagerOptions = 
   }
 
   function _buildFeatureActivities(): ActivityItem[] {
-    const moduleStatus = getModuleStatus() ?? {};
+    const moduleStatus = getModuleStatus();
     const features: ActivityItem[] = [];
 
     const isOn = (moduleName: string, cfgValue: unknown): boolean => {
@@ -414,7 +417,7 @@ function createBotStatusManager(client: Client, opts: BotStatusManagerOptions = 
   }
 
   async function _refresh(forceRotate = false): Promise<void> {
-    if (!client || !client.user) return;
+    if (!client.user) return;
 
     const now = getNow();
     let info: ServerInfo | null = null;
@@ -436,7 +439,7 @@ function createBotStatusManager(client: Client, opts: BotStatusManagerOptions = 
     const base = _buildBasePresence(effectiveInfo, error, now, usedCachedInfo);
     const features = _buildFeatureActivities();
     const world = _buildWorldActivities(effectiveInfo).slice(0, 2);
-    const moduleSummary = _buildModuleSummaryActivity(getModuleStatus() ?? {});
+    const moduleSummary = _buildModuleSummaryActivity(getModuleStatus());
     const extra = moduleSummary ? [moduleSummary, ...world, ...features] : [...world, ...features];
 
     let chosen = base.activity;

@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unsafe-return */
 /**
  * SQLite session store for express-session.
  *
@@ -15,6 +11,12 @@
 import { Store } from 'express-session';
 import util from 'util';
 import { createLogger } from '../../utils/log.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-plus-operands
+   -- Prototype-based Store subclass with untyped better-sqlite3 db */
 
 const _log = createLogger(null, 'SESSION:SQLite');
 

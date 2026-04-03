@@ -1,6 +1,6 @@
 'use strict';
 
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- raw JSON fields may be absent at runtime */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime JSON fields may be absent despite static types */
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  game-data-extract.ts — Dynamic extraction from game-tables-raw.json

@@ -791,7 +791,7 @@ client.once(Events.ClientReady, (readyClient) => {
         db,
         label: 'AUTO MSG',
       });
-      await autoMessages.start();
+      autoMessages.start();
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');

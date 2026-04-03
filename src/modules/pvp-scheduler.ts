@@ -1,12 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-template-expressions,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-floating-promises,
-   @typescript-eslint/prefer-promise-reject-errors,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
-
 import { EmbedBuilder } from 'discord.js';
 import SftpClient from 'ssh2-sftp-client';
 import { exec } from 'child_process';
@@ -14,6 +5,7 @@ import _defaultConfig from '../config/index.js';
 import _defaultRcon from '../rcon/rcon.js';
 import { createLogger } from '../utils/log.js';
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
 class PvpScheduler {
@@ -673,8 +665,11 @@ class PvpScheduler {
   }
 }
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
+
 export default PvpScheduler;
 export { PvpScheduler };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = PvpScheduler;

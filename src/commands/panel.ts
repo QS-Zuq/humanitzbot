@@ -1,8 +1,8 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { t, getLocalizations, fmtDate, fmtTime } from '../i18n/index.js';
 import _panelApi from '../server/panel-api.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
 const { formatBytes, formatUptime } =
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
   require('../server/server-resources') as typeof import('../server/server-resources');
 
 const panelApi = _panelApi as typeof _panelApi & {

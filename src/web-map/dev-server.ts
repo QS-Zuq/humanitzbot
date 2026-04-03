@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
 /**
  * Dev server for web map with SFTP live position fetching
  */
@@ -12,6 +10,11 @@ import { getDirname } from '../utils/paths.js';
 import expressRateLimit from 'express-rate-limit';
 
 const __dirname = getDirname(import.meta.url);
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-unsafe-return
+   -- Save parser returns untyped player data maps; SFTP responses are untyped */
 
 function parseSave(buf: Buffer): Map<string, any> {
   return (_parseSaveFull(buf) as any).players;

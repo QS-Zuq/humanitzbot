@@ -20,8 +20,9 @@
 
 import { normalizeInventory } from './item-fingerprint.js';
 
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-non-null-assertion,
-   @typescript-eslint/no-unnecessary-condition */
+/* eslint-disable @typescript-eslint/no-unsafe-call -- HumanitZDBLike index signature is untyped; full typing is Phase 5 scope */
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- Map.get() after .has() checks throughout */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime JSON fields may be absent despite casts */
 
 // ── Types ──────────────────────────────────────────────────────
 

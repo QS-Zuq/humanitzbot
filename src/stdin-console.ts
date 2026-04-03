@@ -1,8 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-assertion */
-
 'use strict';
+
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any,
+   @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
+   -- db handle is untyped (HumanitZDB); full typing is Phase 5 scope */
 
 /**
  * Interactive stdin console for managing the bot on headless hosts (e.g. Bisect).
@@ -105,42 +106,78 @@ class StdinConsole {
     const args = parts.slice(1);
 
     switch (cmd) {
-      case 'help':
-        return this._cmdHelp();
-      case 'players':
-        return this._cmdPlayers(args);
-      case 'player':
-        return this._cmdPlayer(args);
-      case 'online':
-        return this._cmdOnline();
-      case 'search':
-        return this._cmdSearch(args);
-      case 'activity':
-        return this._cmdActivity(args);
-      case 'chat':
-        return this._cmdChat(args);
-      case 'state':
-        return this._cmdState(args);
-      case 'state.get':
-        return this._cmdStateGet(args);
-      case 'state.set':
-        return this._cmdStateSet(args);
-      case 'state.delete':
-        return this._cmdStateDelete(args);
-      case 'state.list':
-        return this._cmdStateList();
-      case 'stats':
-        return this._cmdStats();
-      case 'tables':
-        return this._cmdTables();
-      case 'sql':
-        return this._cmdSql(args, input);
-      case 'world':
-        return this._cmdWorld();
-      case 'clans':
-        return this._cmdClans();
-      case 'vehicles':
-        return this._cmdVehicles();
+      case 'help': {
+        this._cmdHelp();
+        return;
+      }
+      case 'players': {
+        this._cmdPlayers(args);
+        return;
+      }
+      case 'player': {
+        this._cmdPlayer(args);
+        return;
+      }
+      case 'online': {
+        this._cmdOnline();
+        return;
+      }
+      case 'search': {
+        this._cmdSearch(args);
+        return;
+      }
+      case 'activity': {
+        this._cmdActivity(args);
+        return;
+      }
+      case 'chat': {
+        this._cmdChat(args);
+        return;
+      }
+      case 'state': {
+        this._cmdState(args);
+        return;
+      }
+      case 'state.get': {
+        this._cmdStateGet(args);
+        return;
+      }
+      case 'state.set': {
+        this._cmdStateSet(args);
+        return;
+      }
+      case 'state.delete': {
+        this._cmdStateDelete(args);
+        return;
+      }
+      case 'state.list': {
+        this._cmdStateList();
+        return;
+      }
+      case 'stats': {
+        this._cmdStats();
+        return;
+      }
+      case 'tables': {
+        this._cmdTables();
+        return;
+      }
+      case 'sql': {
+        this._cmdSql(args, input);
+        return;
+      }
+      case 'world': {
+        this._cmdWorld();
+        return;
+      }
+      case 'clans': {
+        this._cmdClans();
+        return;
+      }
+      case 'vehicles': {
+        this._cmdVehicles();
+        return;
+      }
       default:
         this._print(`Unknown command: ${cmd}. Type "help" for available commands.`);
     }
@@ -238,7 +275,7 @@ Available commands:
     // Aliases
     try {
       const aliases: any[] = this._db.getPlayerAliases(steamId);
-      if (aliases && aliases.length > 0) {
+      if (aliases.length > 0) {
         this._print(`  Aliases:     ${aliases.map((a: any) => String(a.name ?? a.player_name ?? '')).join(', ')}`);
       }
     } catch {
@@ -278,7 +315,7 @@ Available commands:
 
     try {
       const results: any[] = this._db.searchPlayersByName(query);
-      if (!results || results.length === 0) {
+      if (results.length === 0) {
         this._print(`No players found matching "${query}".`);
         return;
       }
@@ -301,7 +338,7 @@ Available commands:
 
     try {
       const rows: any[] = this._db.getRecentActivity(limit);
-      if (!rows || rows.length === 0) {
+      if (rows.length === 0) {
         this._print('No activity found.');
         return;
       }
@@ -328,7 +365,7 @@ Available commands:
 
     try {
       const rows: any[] = this._db.getRecentChat(limit);
-      if (!rows || rows.length === 0) {
+      if (rows.length === 0) {
         this._print('No chat messages found.');
         return;
       }
@@ -348,8 +385,11 @@ Available commands:
 
   private _cmdState(args: string[]): void {
     // "state" alone → list, "state <key>" → get
-    if (args.length === 0) return this._cmdStateList();
-    return this._cmdStateGet(args);
+    if (args.length === 0) {
+      this._cmdStateList();
+      return;
+    }
+    this._cmdStateGet(args);
   }
 
   private _cmdStateList(): void {
@@ -359,7 +399,7 @@ Available commands:
     }
     try {
       const rows: any[] = this._db.getAllState();
-      if (!rows || rows.length === 0) {
+      if (rows.length === 0) {
         this._print('No bot_state entries.');
         return;
       }
@@ -392,9 +432,11 @@ Available commands:
       } else {
         // Try pretty-print JSON
         try {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
           const parsed: unknown = JSON.parse(String(val));
           this._print(JSON.stringify(parsed, null, 2));
         } catch {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
           this._print(String(val));
         }
       }
@@ -550,7 +592,7 @@ Available commands:
         }
         // Print as table
         const cols = Object.keys(rows[0] as object);
-        const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => String((r as any)[c] ?? '').length)));
+        const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? '').length)));
         // Cap column widths
         const maxW = 40;
         const cappedWidths = widths.map((w) => Math.min(w, maxW));
@@ -562,7 +604,7 @@ Available commands:
         for (const row of rows.slice(0, 100)) {
           const line = cols
             .map((c, i) =>
-              String((row as any)[c] ?? '')
+              String(row[c] ?? '')
                 .slice(0, maxW)
                 .padEnd(cappedWidths[i] ?? 0),
             )
@@ -587,7 +629,7 @@ Available commands:
     }
     try {
       const state: Record<string, unknown> = this._db.getAllWorldState();
-      const entries = Object.entries(state ?? {});
+      const entries = Object.entries(state);
       if (entries.length === 0) {
         this._print('No world state data.');
         return;
@@ -595,6 +637,7 @@ Available commands:
 
       this._print('World state:');
       for (const [key, value] of entries) {
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
         this._print(`  ${key.padEnd(30)} ${String(value ?? '').slice(0, 60)}`);
       }
     } catch (err: any) {
@@ -609,7 +652,7 @@ Available commands:
     }
     try {
       const clans: any[] = this._db.getAllClans();
-      if (!clans || clans.length === 0) {
+      if (clans.length === 0) {
         this._print('No clans found.');
         return;
       }
@@ -632,7 +675,7 @@ Available commands:
     }
     try {
       const vehicles: any[] = this._db.getAllVehicles();
-      if (!vehicles || vehicles.length === 0) {
+      if (vehicles.length === 0) {
         this._print('No vehicles found.');
         return;
       }

@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime data may differ from static types */
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- guarded by prior checks */
+/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime save-file data may differ from static types */
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- guarded by prior checks in save-file pipeline */
 
 /**
  * Save-to-DB service for the HumanitZ bot.

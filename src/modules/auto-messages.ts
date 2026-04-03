@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/no-misused-promises, @typescript-eslint/require-await */
-
 import _defaultConfig from '../config/index.js';
 import { sendAdminMessage, getServerInfo } from '../rcon/server-info.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
@@ -10,8 +8,11 @@ import { createLogger } from '../utils/log.js';
 import * as content from './auto-messages-content.js';
 const { _rconColorLink, buildWelcomeContent } = content;
 
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
 class AutoMessages {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 5: replace index signature with typed fields
   [key: string]: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps shape varies by caller
   constructor(deps: any = {}) {
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
@@ -36,12 +37,12 @@ class AutoMessages {
     this._welcomeCooldown = 5000; // ms between welcome messages
   }
 
-  async start() {
+  start() {
     this._log.info('Starting auto-messages...');
 
     // Periodic Discord link broadcast
     if (this._config.enableAutoMsgLink) {
-      this._linkTimer = setInterval(() => this._sendDiscordLink(), this.linkInterval);
+      this._linkTimer = setInterval(() => void this._sendDiscordLink(), this.linkInterval);
       this._log.info(`Discord link every ${this.linkInterval / 60000} min`);
     } else {
       this._log.info('Discord link broadcast disabled');
@@ -49,7 +50,7 @@ class AutoMessages {
 
     // Periodic promo message broadcast
     if (this._config.enableAutoMsgPromo) {
-      this._promoTimer = setInterval(() => this._sendPromoMessage(), this.promoInterval);
+      this._promoTimer = setInterval(() => void this._sendPromoMessage(), this.promoInterval);
       this._log.info(`Promo message every ${this.promoInterval / 60000} min`);
     } else {
       this._log.info('Promo message disabled');
@@ -57,7 +58,8 @@ class AutoMessages {
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
-      this._onPlayerJoined = (joiner: any) => this._sendWelcomeMessage(joiner);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joiner shape from event emitter
+      this._onPlayerJoined = (joiner: any) => void this._sendWelcomeMessage(joiner);
       this._presenceTracker.on('playerJoined', this._onPlayerJoined);
       this._log.info('RCON welcome messages enabled (on player join)');
     } else if (this._config.enableWelcomeMsg) {
@@ -83,7 +85,7 @@ class AutoMessages {
   // ── Private methods ────────────────────────────────────────
 
   /** Colorize a Discord invite link (instance wrapper). */
-  _colorLink(link: any) {
+  _colorLink(link: string) {
     return content._colorLink(link);
   }
 
@@ -96,8 +98,8 @@ class AutoMessages {
         : `<FO>Join our </><CL>Discord</><FO>! ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
       this._log.info('Sent Discord link to game chat');
-    } catch (err: any) {
-      this._log.error('Failed to send Discord link:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to send Discord link:', (err as Error).message);
     }
   }
 
@@ -109,17 +111,18 @@ class AutoMessages {
         : `<FO>Issues, suggestions, or just want to connect? ${_rconColorLink(this.discordLink)}`;
       await this._sendAdminMessage(msg);
       this._log.info('Sent promo message to game chat');
-    } catch (err: any) {
-      this._log.error('Failed to send promo message:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to send promo message:', (err as Error).message);
     }
   }
 
   /** Resolve placeholders in custom broadcast messages. */
-  async _resolveMessagePlaceholders(text: any) {
+  async _resolveMessagePlaceholders(text: string) {
     const info = await this._getServerInfoSafe();
     return this._resolvePlaceholders(text, info);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joiner shape from event emitter
   async _sendWelcomeMessage(joiner: any) {
     // Anti-spam: don't stack welcome messages too close together
     const now = Date.now();
@@ -143,11 +146,12 @@ class AutoMessages {
       await this._sendAdminMessage(msg);
       this._lastWelcomeTime = Date.now();
       this._log.info(`Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
-    } catch (err: any) {
-      this._log.error(`Failed to send welcome to ${joiner.name}:`, err.message);
+    } catch (err: unknown) {
+      this._log.error(`Failed to send welcome to ${joiner.name}:`, (err as Error).message);
     }
   }
 }
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 
 // Mix in content-layer methods (difficulty text, PvP schedule text)
 Object.assign(AutoMessages.prototype, {
@@ -160,7 +164,10 @@ export { AutoMessages };
 
 export { buildWelcomeContent };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = AutoMessages;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports.AutoMessages = AutoMessages;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports.buildWelcomeContent = buildWelcomeContent;

@@ -23,9 +23,8 @@ import { createLogger } from '../utils/log.js';
 
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
    @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any,
-   @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/no-confusing-void-expression */
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+   -- better-sqlite3 prepared statements (_stmts) are untyped; full typing is Phase 5 scope */
 
 type Logger = ReturnType<typeof createLogger>;
 
@@ -1038,7 +1037,7 @@ class HumanitZDB {
 
   /** Public meta setter. */
   setMeta(key: string, value: string | null) {
-    return this._setMeta(key, value);
+    this._setMeta(key, value);
   }
 
   _setMeta(key: string, value: string | null) {
@@ -1061,6 +1060,7 @@ class HumanitZDB {
   setState(key: string, value: unknown): void {
     this._handle
       .prepare("INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))")
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
       .run(key, value != null ? String(value) : null);
   }
 
@@ -2073,7 +2073,7 @@ class HumanitZDB {
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      .run(name, JSON.stringify(nameHistory || []), steamId);
+      .run(name, JSON.stringify(nameHistory), steamId);
   }
 
   /**
@@ -2140,6 +2140,7 @@ class HumanitZDB {
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
   setServerPeak(key: string, value: unknown): void {
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
     const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
     this._stmts.setServerPeak.run(key, stored);
   }
@@ -2546,7 +2547,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceWorldHorses(horses: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => this._replaceWorldHorsesInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceWorldHorsesInner(items);
+    });
     insert(horses);
   }
 
@@ -2582,7 +2585,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceDeadBodies(bodies: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => this._replaceDeadBodiesInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceDeadBodiesInner(items);
+    });
     insert(bodies);
   }
 
@@ -2598,7 +2603,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceContainers(containers: Array<Record<string, unknown>>) {
-    const insert = this._handle.transaction((items) => this._replaceContainersInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceContainersInner(items);
+    });
     insert(containers);
   }
 
@@ -2638,7 +2645,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceLootActors(lootActors: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => this._replaceLootActorsInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceLootActorsInner(items);
+    });
     insert(lootActors);
   }
 
@@ -2977,7 +2986,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceWorldDrops(drops: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => this._replaceWorldDropsInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceWorldDropsInner(items);
+    });
     insert(drops);
   }
 
@@ -3018,7 +3029,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceQuests(quests: Array<Record<string, any>>) {
-    const insert = this._handle.transaction((items) => this._replaceQuestsInner(items));
+    const insert = this._handle.transaction((items) => {
+      this._replaceQuestsInner(items);
+    });
     insert(quests);
   }
 
@@ -3102,7 +3115,7 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivities(entries: Array<Record<string, any>>) {
-    if (!entries || entries.length === 0) return;
+    if (entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {
         this._stmts.insertActivity.run(
@@ -3132,7 +3145,7 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivitiesAt(entries: Array<Record<string, any>>) {
-    if (!entries || entries.length === 0) return;
+    if (entries.length === 0) return;
     const tx = this._handle.transaction((list) => {
       for (const entry of list) {
         this._stmts.insertActivityAt.run(
@@ -3335,7 +3348,9 @@ class HumanitZDB {
    * When called from syncAllFromSave(), use _syncFromSaveInner() directly.
    */
   syncFromSave(parsed: Record<string, any>) {
-    const tx = this._handle.transaction(() => this._syncFromSaveInner(parsed));
+    const tx = this._handle.transaction(() => {
+      this._syncFromSaveInner(parsed);
+    });
     tx();
   }
 

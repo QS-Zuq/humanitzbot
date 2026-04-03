@@ -9,9 +9,6 @@
  * @module server/server-display
  */
 
-/* eslint-disable @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any */
-
 import { getDayOffset, getRotatedProfileIndex } from '../modules/schedule-utils.js';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
 const { formatBytes: _fmtBytes } = require('./server-resources') as typeof import('./server-resources');
@@ -164,7 +161,9 @@ interface FieldEntry {
   inline: boolean;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings from INI parser
 function buildSettingsFields(s: Record<string, any>, cfg: Record<string, any> = {}): FieldEntry[] {
+  /* eslint-disable @typescript-eslint/no-unsafe-argument -- values from dynamic Record<string, any> settings */
   const fields: FieldEntry[] = [];
 
   function section(emoji: string, title: string, entries: [string, string | null][]): void {
@@ -276,11 +275,15 @@ function buildSettingsFields(s: Record<string, any>, cfg: Record<string, any> = 
     }
   }
 
+  /* eslint-enable @typescript-eslint/no-unsafe-argument */
   return fields;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings
 function buildLootScarcity(s: Record<string, any>): string | null {
+  /* eslint-disable @typescript-eslint/no-unsafe-assignment -- values from dynamic Record<string, any> */
   const fb = s.LootRarity ?? undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values from settings record
   const map: [string, string, any][] = [
     ['\uD83C\uDF56', 'Food', s.RarityFood ?? fb],
     ['\uD83E\uDD64', 'Drink', s.RarityDrink ?? fb],
@@ -300,10 +303,13 @@ function buildLootScarcity(s: Record<string, any>): string | null {
       return `${emoji} **${label}:** ${name}`;
     });
 
+  /* eslint-enable @typescript-eslint/no-unsafe-assignment */
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings
 function buildWeatherOdds(s: Record<string, any>): string | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values from settings record
   const weatherKeys: [string, string, any][] = [
     ['\u2600\uFE0F', 'Clear Sky', s.Weather_ClearSky],
     ['\u2601\uFE0F', 'Cloudy', s.Weather_Cloudy],
@@ -327,6 +333,7 @@ function buildWeatherOdds(s: Record<string, any>): string | null {
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic resource metrics
 function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => string): FieldEntry[] {
   if (!fmtBytes) {
     try {
@@ -355,6 +362,7 @@ function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => 
   return [{ name: '\uD83D\uDCE1 Host Resources', value: parts.join('\n'), inline: false }];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic config object
 function buildScheduleField(cfg: Record<string, any>): { name: string; value: string } | null {
   if (!cfg.enableServerScheduler) return null;
   const timesStr = (cfg.restartTimes as string) || process.env.RESTART_TIMES || '';

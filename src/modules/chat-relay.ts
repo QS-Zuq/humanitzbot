@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion */
-
 import { Events, EmbedBuilder } from 'discord.js';
 import _defaultConfig from '../config/index.js';
 import _defaultRcon from '../rcon/rcon.js';
@@ -12,6 +8,7 @@ import { createLogger } from '../utils/log.js';
 import * as chatParser from './chat-relay-parser.js';
 const { stripAdminPrefix, CHAT_RE, PLAIN_CHAT_RE } = chatParser;
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
 class ChatRelay {
   [key: string]: any;
   constructor(client: any, deps: any = {}) {
@@ -453,10 +450,12 @@ Object.assign(ChatRelay.prototype, {
   _sanitizeRcon: chatParser._sanitizeRcon,
 });
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion */
+
 export default ChatRelay;
 export { ChatRelay };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 
 _mod.exports = ChatRelay;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 /**
  * Session store factory for express-session.
  *
@@ -14,6 +12,10 @@ import { createLogger } from '../utils/log.js';
 import { SqliteSessionStore } from './session-stores/sqlite-store.js';
 
 const _log = createLogger(null, 'SESSION');
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+   -- Config and optional Redis/SQLite deps are dynamically loaded and untyped */
 
 function createSessionStore(config: any, db?: any): Store | undefined {
   const storeType = ((config.sessionStore as string) || 'sqlite').toLowerCase();

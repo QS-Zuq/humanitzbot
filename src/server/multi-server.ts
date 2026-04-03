@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands */
 /**
  * Multi-Server Manager — manages additional game server instances.
  *
@@ -47,6 +44,13 @@ import PlayerStatsChannel from '../modules/player-stats-channel.js';
 import PvpScheduler from '../modules/pvp-scheduler.js';
 import ServerScheduler from '../modules/server-scheduler.js';
 import ActivityLog from '../modules/activity-log.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-plus-operands
+   -- Multi-server configs are dynamic JSON; SFTP/RCON/Panel objects are untyped */
+
 let AnticheatIntegration: any;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
@@ -710,7 +714,7 @@ class ServerInstance {
     if (hasAnyAutoMsg && this.config.rconHost) {
       try {
         const mod = new AutoMessages({ ...deps, presenceTracker: this._modules.presenceTracker || null });
-        await mod.start();
+        mod.start();
         this._modules.autoMessages = mod;
         this._log.info('AutoMessages active');
       } catch (err: any) {

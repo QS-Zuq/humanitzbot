@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion */
-
 import { EmbedBuilder } from 'discord.js';
 import SftpClient from 'ssh2-sftp-client';
 import fs from 'fs';
@@ -21,6 +15,7 @@ import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
 import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion -- Phase 5: type class fields */
 /**
  * Convert a DB player row (snake_case, from _parsePlayerRow) to camelCase
  * save-data format matching parseSave() output.  This allows all embed
@@ -1095,15 +1090,23 @@ function _resolveUdsWeather(enumValue: any) {
 
 Object.assign(PlayerStatsChannel.prototype, playerStatsEmbeds);
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion */
+
 export default PlayerStatsChannel;
 export { PlayerStatsChannel };
 
 export { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = PlayerStatsChannel;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports.PlayerStatsChannel = PlayerStatsChannel;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports._parseIni = _parseIni;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports._cleanItemName = _cleanItemName;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports._resolveUdsWeather = _resolveUdsWeather;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports._dbRowToSave = _dbRowToSave;

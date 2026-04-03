@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/no-misused-promises */
-
 /**
  * Player Presence Tracker — polls RCON for online players, tracks peak/unique stats,
  * seeds playtime sessions on startup, and emits join/leave events.
@@ -15,9 +13,20 @@ import { createLogger } from '../utils/log.js';
 import { getPlayerList as _defaultGetPlayerList } from '../rcon/server-info.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
 
+type ConfigType = typeof _defaultConfig;
+
+interface PresenceDeps {
+  config?: ConfigType;
+  playtime?: typeof _defaultPlaytime;
+  getPlayerList?: typeof _defaultGetPlayerList;
+  label?: string;
+}
+
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
 class PlayerPresenceTracker extends EventEmitter {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 5: replace index signature with typed fields
   [key: string]: any;
-  constructor(deps: any = {}) {
+  constructor(deps: PresenceDeps = {}) {
     super();
     this._config = deps.config || _defaultConfig;
     this._playtime = deps.playtime || _defaultPlaytime;
@@ -35,7 +44,7 @@ class PlayerPresenceTracker extends EventEmitter {
   async start() {
     this._log.info('Starting player presence tracker...');
     await this._seedPlayers();
-    this._pollTimer = setInterval(() => this._poll(), this._config.autoMsgJoinCheckInterval);
+    this._pollTimer = setInterval(() => void this._poll(), this._config.autoMsgJoinCheckInterval);
     this._log.info(`Polling every ${this._config.autoMsgJoinCheckInterval / 1000}s`);
   }
 
@@ -80,8 +89,8 @@ class PlayerPresenceTracker extends EventEmitter {
       }
       this._initialised = true;
       this._log.info(`Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
-    } catch (err: any) {
-      this._log.error('Failed to seed players:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to seed players:', (err as Error).message);
       this._initialised = true; // continue anyway
     }
   }
@@ -96,14 +105,14 @@ class PlayerPresenceTracker extends EventEmitter {
     let list;
     try {
       list = await this._getPlayerList();
-    } catch (_: any) {
+    } catch {
       // RCON failure expected during server restarts — silently ignore
       return;
     }
 
     try {
       const currentOnline = new Set();
-      const newJoiners = [];
+      const newJoiners: { id: string; name: string; steamId: string | null }[] = [];
 
       if (list.players && list.players.length > 0) {
         for (const p of list.players) {
@@ -122,7 +131,7 @@ class PlayerPresenceTracker extends EventEmitter {
         if (!currentOnline.has(id)) {
           try {
             this.emit('playerLeft', { id });
-          } catch (e: any) {
+          } catch (e: unknown) {
             this._log.error('Listener error on playerLeft:', e);
           }
         }
@@ -131,7 +140,7 @@ class PlayerPresenceTracker extends EventEmitter {
       this._onlinePlayers = currentOnline;
 
       // Record peak player count and unique players for today (SteamID only)
-      const steamOnly = [...currentOnline].filter((id: any) => /^\d{17}$/.test(id));
+      const steamOnly = ([...currentOnline] as string[]).filter((id) => /^\d{17}$/.test(id));
       this._playtime.recordPlayerCount(steamOnly.length);
       for (const id of steamOnly) {
         this._playtime.recordUniqueToday(id);
@@ -141,19 +150,22 @@ class PlayerPresenceTracker extends EventEmitter {
       for (const joiner of newJoiners) {
         try {
           this.emit('playerJoined', joiner);
-        } catch (e: any) {
+        } catch (e: unknown) {
           this._log.error('Listener error on playerJoined:', e);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this._log.error('Unexpected poll error:', err);
     }
   }
 }
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 
 export default PlayerPresenceTracker;
 export { PlayerPresenceTracker };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = PlayerPresenceTracker;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports.PlayerPresenceTracker = PlayerPresenceTracker;

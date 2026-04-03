@@ -1,12 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-misused-promises,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
-   @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
-   @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
-   @typescript-eslint/no-unnecessary-type-assertion */
 /**
  * Web Map Server — Interactive Leaflet-based player map served via Express.
  *
@@ -34,8 +25,8 @@ import { setupAuth, requireTier } from './auth.js';
 import { API_ERRORS, sendError, sendOk } from './api-errors.js';
 
 import serverResources from '../server/server-resources.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance, named exports inaccessible
 const { formatBytes, formatUptime } =
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance, named exports inaccessible
   require('../server/server-resources') as typeof import('../server/server-resources');
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
 import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
@@ -51,6 +42,16 @@ const { discoverPaths: _discoverPaths } = require('../server/multi-server') as t
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
+   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition,
+   @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
+   @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
+   @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
+   @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-misused-promises
+   -- 5000+ line Express server with pervasive untyped config/save/RCON data access */
 
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
 import expressRateLimit from 'express-rate-limit';

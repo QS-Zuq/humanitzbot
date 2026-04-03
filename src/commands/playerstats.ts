@@ -112,7 +112,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
         }
 
         const adminFlag = config.isAdminView(selectInteraction.member as import('discord.js').GuildMember | null);
-        const playerEmbed = buildPlayerEmbed(stats, { isAdmin: adminFlag });
+        const playerEmbed = buildPlayerEmbed(stats as Parameters<typeof buildPlayerEmbed>[0], { isAdmin: adminFlag });
 
         await selectInteraction.update({ embeds: [playerEmbed], components: [row] });
       } catch (err) {

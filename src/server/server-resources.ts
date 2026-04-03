@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-explicit-any,
-   @typescript-eslint/prefer-promise-reject-errors */
 /**
  * Server resource monitoring — CPU, RAM, disk usage.
  *
@@ -11,6 +8,11 @@
 
 import _defaultConfig from '../config/index.js';
 import panelApi from './panel-api.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/prefer-promise-reject-errors
+   -- SSH/Panel API responses and config are untyped; ssh2 Client has no TS types */
 
 // ── Result shape ────────────────────────────────────────────
 

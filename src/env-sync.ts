@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /**
  * Smart .env synchronization utility
  *
@@ -142,10 +141,8 @@ function extractSections(examplePath: string): Section[] {
 
     // Section header: # ── Section Name ──────...
     if (/^#\s*──\s*(.+?)\s*──+/.test(trimmed)) {
-      if (currentSection) {
-        currentSection.endKey = lastKey;
-        sections.push(currentSection);
-      }
+      currentSection.endKey = lastKey;
+      sections.push(currentSection);
       currentSection = {
         title: trimmed,
         startKey: null,
@@ -158,17 +155,13 @@ function extractSections(examplePath: string): Section[] {
     if (match) {
       const key = match[1] ?? '';
       lastKey = key;
-      if (currentSection) {
-        if (!currentSection.startKey) currentSection.startKey = key;
-        if (!currentSection.keys.includes(key)) currentSection.keys.push(key);
-      }
+      if (!currentSection.startKey) currentSection.startKey = key;
+      if (!currentSection.keys.includes(key)) currentSection.keys.push(key);
     }
   }
 
-  if (currentSection) {
-    currentSection.endKey = lastKey;
-    sections.push(currentSection);
-  }
+  currentSection.endKey = lastKey;
+  sections.push(currentSection);
 
   return sections;
 }

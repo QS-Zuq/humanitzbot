@@ -1,8 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/use-unknown-in-catch-callback-variable */
-
 /**
  * GitHub Tracker — polls GitHub API for repository changes (PRs, pushes) and
  * posts updates to per-repository Discord threads in a configured channel.
@@ -36,6 +31,7 @@ const COLOR_PUSH = 0x3498db; // blue
 
 // ── GitHubTracker ─────────────────────────────────────────────────────────────
 
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-misused-promises -- Phase 5: type class fields */
 class GitHubTracker {
   [key: string]: any;
   /**
@@ -434,8 +430,10 @@ class GitHubTracker {
     return `gh: ${repo}`.slice(0, 100);
   }
 }
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-misused-promises */
 
 export { GitHubTracker };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = GitHubTracker;

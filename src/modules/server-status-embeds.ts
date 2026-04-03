@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands,
-   @typescript-eslint/no-unnecessary-template-expression */
-
 import { EmbedBuilder } from 'discord.js';
 import {
   formatTime as _formatTime,
@@ -18,6 +12,7 @@ import {
   buildResourceField as _buildResourceField,
 } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-template-expression -- Phase 5: type class fields */
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
 const { formatUptime: fmtUp } = require('../server/server-resources') as typeof import('../server/server-resources');
 
@@ -357,5 +352,7 @@ async function _buildOfflineEmbed(this: any) {
 
   return embed;
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-template-expression */
 
 export { _buildEmbed, _buildOfflineEmbed };

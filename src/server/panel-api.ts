@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unnecessary-condition */
 /**
  * Pterodactyl Panel API client.
  *
@@ -10,6 +6,11 @@
  */
 
 import _defaultConfig from '../config/index.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call
+   -- Pterodactyl API responses are untyped external JSON; pervasive any is intentional */
 
 // ── URL parsing ─────────────────────────────────────────────
 
@@ -373,9 +374,14 @@ Object.assign(PanelApi.prototype, {
   },
 });
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
+
 // ── Per-server instance factory ─────────────────────────────
 
 function createPanelApi(opts?: { serverUrl?: string; apiKey?: string }): PanelApi | null {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- opts is optional
   if (!opts?.serverUrl || !opts?.apiKey) return null;
   try {
     return new PanelApi({ serverUrl: opts.serverUrl, apiKey: opts.apiKey });
@@ -391,8 +397,9 @@ export default instance;
 
 export { PanelApi, createPanelApi };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS interop
 const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any */
 _mod.exports = instance;
 _mod.exports.PanelApi = PanelApi;
 _mod.exports.createPanelApi = createPanelApi;
@@ -429,4 +436,4 @@ for (const method of _BOUND_METHODS) {
 
 // ── Test escape hatch ───────────────────────────────────────
 _mod.exports._test = { _parseUrl };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any */

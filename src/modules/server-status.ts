@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
-
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey, safeEditMessage } from './discord-utils.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
@@ -17,6 +13,7 @@ import { createLogger } from '../utils/log.js';
 // Embed builders — presentation layer (mixed into prototype below)
 import * as statusEmbeds from './server-status-embeds.js';
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises -- Phase 5: type class fields */
 class ServerStatus {
   [key: string]: any;
   constructor(client: any, deps: any = {}) {
@@ -253,9 +250,13 @@ class ServerStatus {
 // Mix in embed builders (presentation layer)
 Object.assign(ServerStatus.prototype, statusEmbeds);
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
+
 export default ServerStatus;
 export { ServerStatus };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = ServerStatus;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
 _mod.exports.ServerStatus = ServerStatus;

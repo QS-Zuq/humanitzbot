@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands,
-   @typescript-eslint/no-unnecessary-type-assertion */
-
 /**
  * Recap Service — automated daily and weekly summary embeds.
  *
@@ -32,6 +26,7 @@ import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
 import _defaultConfig from '../config/index.js';
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-type-assertion -- Phase 5: type class fields */
 const STATE_KEY = 'recap_service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -573,8 +568,11 @@ class RecapService {
   static STATE_KEY = STATE_KEY;
 }
 
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-type-assertion */
+
 export default RecapService;
 export { RecapService };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
 const _mod = module as { exports: any };
 _mod.exports = RecapService;

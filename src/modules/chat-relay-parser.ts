@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-non-null-assertion */
-
 /**
  * Chat relay data-layer: line parsing, diffing, and sanitisation.
  *
@@ -11,6 +7,8 @@
  *
  * Mixed into ChatRelay.prototype by chat-relay.js.
  */
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- Phase 5: type prototype-mixed functions */
 
 // ── Timestamp prefix ─────────────────────────────────────────
 // Game update (March 2026) added timestamps to fetchchat output:
@@ -92,8 +90,8 @@ function _parseLine(this: any, line: any) {
   let m = CHAT_RE.exec(cleaned);
   if (!m) m = PLAIN_CHAT_RE.exec(cleaned); // admin players may lack <PN> tags
   if (m) {
-    const name = m[1]!.trim();
-    const rawText = m[2]!.trim();
+    const name = (m[1] ?? '').trim();
+    const rawText = (m[2] ?? '').trim();
     const text = this._sanitize(stripRichText(rawText));
     const badge = isAdmin ? ' 🛡️' : '';
     return {

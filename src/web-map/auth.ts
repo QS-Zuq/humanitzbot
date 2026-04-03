@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
 /**
  * Discord OAuth2 middleware for the web panel.
  */
@@ -13,6 +10,11 @@ import _defaultConfig from '../config/index.js';
 import { createSessionStore } from './session-store-factory.js';
 
 import type { Express, Request, Response, NextFunction } from 'express';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return
+   -- Express req/session extensions and Discord API responses are untyped */
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
