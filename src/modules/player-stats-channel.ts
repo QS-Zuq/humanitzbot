@@ -2,23 +2,23 @@
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition,
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion */
 
 import { EmbedBuilder } from 'discord.js';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../utils/log.js';
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey } from './discord-utils.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
-const KillTracker = require('../tracking/kill-tracker') as typeof import('../tracking/kill-tracker.js').KillTracker;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class directly
+const KillTracker = require('../tracking/kill-tracker') as typeof import('../tracking/kill-tracker').KillTracker;
 import { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } from '../parsers/save-parser.js';
 import * as gameData from '../parsers/game-data.js';
 import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
+import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 
 /**
@@ -531,7 +531,7 @@ class PlayerStatsChannel {
         const _savePath = this._config.sftpSavePath;
         const _slIdx = _savePath.indexOf('SaveList/');
         const clanPath = _slIdx !== -1 ? _savePath.slice(0, _slIdx) + 'Save_ClanData.sav' : _savePath;
-        const clanBuf = await sftp.get(clanPath);
+        const clanBuf = (await sftp.get(clanPath)) as Buffer;
         this._clanData = parseClanData(clanBuf);
         this._log.info(`Parsed clans: ${this._clanData.length} clans`);
       } catch (err: any) {
@@ -1093,7 +1093,7 @@ function _resolveUdsWeather(enumValue: any) {
   );
 }
 
-Object.assign(PlayerStatsChannel.prototype, require('./player-stats-embeds'));
+Object.assign(PlayerStatsChannel.prototype, playerStatsEmbeds);
 
 export default PlayerStatsChannel;
 export { PlayerStatsChannel };

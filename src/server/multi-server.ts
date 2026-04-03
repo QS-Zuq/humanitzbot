@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands,
-   @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands */
 /**
  * Multi-Server Manager — manages additional game server instances.
  *
@@ -17,14 +16,17 @@
 
 import fs from 'fs';
 import path from 'path';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
 import _defaultConfig from '../config/index.js';
-import { RconManager } from '../rcon/rcon.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton, named ESM exports inaccessible
+const { RconManager } = require('../rcon/rcon') as typeof import('../rcon/rcon');
 import { PanelRcon } from '../rcon/panel-rcon.js';
-import { createPanelApi } from './panel-api.js';
-import { PlayerStats } from '../tracking/player-stats.js';
-import { PlaytimeTracker } from '../tracking/playtime-tracker.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
+const { createPanelApi } = require('./panel-api') as typeof import('./panel-api');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton
+const { PlayerStats } = require('../tracking/player-stats') as typeof import('../tracking/player-stats');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton
+const { PlaytimeTracker } = require('../tracking/playtime-tracker') as typeof import('../tracking/playtime-tracker');
 import { getServerInfo, getPlayerList, sendAdminMessage } from '../rcon/server-info.js';
 import { createLogger } from '../utils/log.js';
 import { readPrivateKey } from '../utils/security.js';
@@ -32,23 +34,23 @@ import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
 
-// Module classes (require for CJS-only modules)
-const HumanitZDB = require('../db/database');
-const gameReference = require('../parsers/game-reference');
-const SaveService = require('../parsers/save-service');
-const ServerStatus = require('../modules/server-status');
-const StatusChannels = require('../modules/status-channels');
-const ChatRelay = require('../modules/chat-relay');
-const PlayerPresenceTracker = require('../modules/player-presence');
-const AutoMessages = require('../modules/auto-messages');
-const LogWatcher = require('../modules/log-watcher');
-const PlayerStatsChannel = require('../modules/player-stats-channel');
-const PvpScheduler = require('../modules/pvp-scheduler');
-const ServerScheduler = require('../modules/server-scheduler');
-const ActivityLog = require('../modules/activity-log');
+import HumanitZDB from '../db/database.js';
+import { seed as gameReferenceSeed } from '../parsers/game-reference.js';
+import SaveService from '../parsers/save-service.js';
+import ServerStatus from '../modules/server-status.js';
+import StatusChannels from '../modules/status-channels.js';
+import ChatRelay from '../modules/chat-relay.js';
+import PlayerPresenceTracker from '../modules/player-presence.js';
+import AutoMessages from '../modules/auto-messages.js';
+import LogWatcher from '../modules/log-watcher.js';
+import PlayerStatsChannel from '../modules/player-stats-channel.js';
+import PvpScheduler from '../modules/pvp-scheduler.js';
+import ServerScheduler from '../modules/server-scheduler.js';
+import ActivityLog from '../modules/activity-log.js';
 let AnticheatIntegration: any;
 try {
-  AnticheatIntegration = require('../modules/anticheat-integration');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
+  AnticheatIntegration = require('../modules/anticheat-integration').default;
 } catch {
   /* optional module */
 }
@@ -218,7 +220,7 @@ async function discoverPaths(sftpConfig: any, rawLabel = 'DISCOVER'): Promise<Re
     // from the SaveName setting (users can rename saves from the default DedicatedSaveMP)
     if (!found.has('__save_file__') && found.has('GameServerSettings.ini')) {
       try {
-        const iniBuf = await sftp.get(found.get('GameServerSettings.ini'));
+        const iniBuf = (await sftp.get(found.get('GameServerSettings.ini'))) as Buffer;
         const saveName = _extractSaveName(iniBuf.toString('utf8'));
         if (saveName) {
           // Search the SaveList directory for the custom-named save
@@ -426,7 +428,7 @@ class ServerInstance {
     });
     this.db.init();
     try {
-      gameReference.seed(this.db);
+      gameReferenceSeed(this.db);
     } catch (err: any) {
       this._log.warn('Game reference seed failed:', err.message);
     }
@@ -571,9 +573,9 @@ class ServerInstance {
           savePath: this.config.sftpSavePath,
           clanSavePath: (() => {
             const sp = this.config.sftpSavePath;
-            if (!sp) return null;
+            if (!sp) return undefined;
             const idx = sp.indexOf('SaveList/');
-            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : null;
+            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
           })(),
           pollInterval:
             typeof this.config.getEffectiveSavePollInterval === 'function'

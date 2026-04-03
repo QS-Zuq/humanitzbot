@@ -14,10 +14,18 @@
  *     game_ammo_types, game_repair_data, game_furniture, game_traps, game_sprays
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const _gameData = require('./game-data') as Record<string, unknown>;
+import * as _gameData from './game-data.js';
 
-const AFFLICTION_MAP = _gameData['AFFLICTION_MAP'] as string[];
+// Lazy-loaded; may fail if save-parser has circular issues at init time
+let _saveParserModule: { PERK_MAP: Record<string, string> } = { PERK_MAP: {} };
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
+  _saveParserModule = require('./save-parser') as unknown as typeof _saveParserModule;
+} catch {
+  // save-parser not available — PERK_MAP stays empty
+}
+
+const AFFLICTION_MAP = _gameData['AFFLICTION_MAP'];
 const AFFLICTION_DETAILS = _gameData['AFFLICTION_DETAILS'] as Record<string, { name: string; description: string }>;
 const PROFESSION_DETAILS = _gameData['PROFESSION_DETAILS'] as Record<
   string,
@@ -33,29 +41,29 @@ const CHALLENGE_DESCRIPTIONS = _gameData['CHALLENGE_DESCRIPTIONS'] as Record<
   string,
   { name: string; desc?: string; target?: number }
 >;
-const LOADING_TIPS = _gameData['LOADING_TIPS'] as string[];
-const SKILL_EFFECTS = _gameData['SKILL_EFFECTS'] as Record<string, string>;
+const LOADING_TIPS = _gameData['LOADING_TIPS'];
+const SKILL_EFFECTS = _gameData['SKILL_EFFECTS'];
 const SKILL_DETAILS = _gameData['SKILL_DETAILS'] as Record<
   string,
   { name: string; description: string; category?: string }
 >;
-const SERVER_SETTING_DESCRIPTIONS = _gameData['SERVER_SETTING_DESCRIPTIONS'] as Record<string, string>;
-const ITEM_DATABASE = _gameData['ITEM_DATABASE'] as Record<string, Record<string, unknown>>;
-const CRAFTING_RECIPES = _gameData['CRAFTING_RECIPES'] as Record<string, Record<string, unknown>>;
-const LORE_ENTRIES = _gameData['LORE_ENTRIES'] as Record<string, Record<string, unknown>>;
-const QUEST_DATA = _gameData['QUEST_DATA'] as Record<string, Record<string, unknown>>;
-const SPAWN_LOCATIONS = _gameData['SPAWN_LOCATIONS'] as Record<string, Record<string, unknown>>;
-const BUILDINGS = _gameData['BUILDINGS'] as Record<string, Record<string, unknown>>;
-const LOOT_TABLES = _gameData['LOOT_TABLES'] as Record<string, Record<string, unknown>>;
+const SERVER_SETTING_DESCRIPTIONS = _gameData['SERVER_SETTING_DESCRIPTIONS'];
+const ITEM_DATABASE = _gameData['ITEM_DATABASE'];
+const CRAFTING_RECIPES = _gameData['CRAFTING_RECIPES'];
+const LORE_ENTRIES = _gameData['LORE_ENTRIES'];
+const QUEST_DATA = _gameData['QUEST_DATA'];
+const SPAWN_LOCATIONS = _gameData['SPAWN_LOCATIONS'];
+const BUILDINGS = _gameData['BUILDINGS'];
+const LOOT_TABLES = _gameData['LOOT_TABLES'];
 const VEHICLES = _gameData['VEHICLES'] as Record<string, { name?: string }>;
-const ANIMALS = _gameData['ANIMALS'] as Record<string, Record<string, unknown>>;
-const CROP_DATA = _gameData['CROP_DATA'] as Record<string, Record<string, unknown>>;
-const CAR_UPGRADES = _gameData['CAR_UPGRADES'] as Record<string, Record<string, unknown>>;
-const AMMO_DAMAGE = _gameData['AMMO_DAMAGE'] as Record<string, Record<string, unknown>>;
-const REPAIR_RECIPES = _gameData['REPAIR_RECIPES'] as Record<string, Record<string, unknown>>;
-const FURNITURE_DROPS = _gameData['FURNITURE_DROPS'] as Record<string, Record<string, unknown>>;
-const TRAPS = _gameData['TRAPS'] as Record<string, Record<string, unknown>>;
-const SPRAYS = _gameData['SPRAYS'] as Record<string, Record<string, unknown>>;
+const ANIMALS = _gameData['ANIMALS'];
+const CROP_DATA = _gameData['CROP_DATA'];
+const CAR_UPGRADES = _gameData['CAR_UPGRADES'];
+const AMMO_DAMAGE = _gameData['AMMO_DAMAGE'];
+const REPAIR_RECIPES = _gameData['REPAIR_RECIPES'];
+const FURNITURE_DROPS = _gameData['FURNITURE_DROPS'];
+const TRAPS = _gameData['TRAPS'];
+const SPRAYS = _gameData['SPRAYS'];
 
 // ─── DB interface (loose — db module is not yet migrated) ──────────────────
 
@@ -161,8 +169,7 @@ function seedItems(db: GameDB): void {
 function seedProfessions(db: GameDB): void {
   let PERK_MAP: Record<string, string>;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    PERK_MAP = (require('./save-parser') as { PERK_MAP: Record<string, string> }).PERK_MAP;
+    PERK_MAP = _saveParserModule.PERK_MAP;
   } catch {
     PERK_MAP = {};
   }

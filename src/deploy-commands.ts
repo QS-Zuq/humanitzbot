@@ -23,19 +23,18 @@ const commandFiles = fs
   .readdirSync(commandsPath)
   .filter((f) => (f.endsWith('.js') || f.endsWith('.ts')) && !f.endsWith('.d.ts'));
 
-for (const file of commandFiles) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const command = require(path.join(commandsPath, file)) as { data?: { name: string; toJSON(): unknown } };
-  if (command.data) {
-    commands.push(command.data.toJSON());
-    console.log(`[DEPLOY] Loaded command: /${command.data.name}`);
-  }
-}
-
 const rest = new REST({ version: '10' }).setToken(token);
 
 void (async () => {
   try {
+    for (const file of commandFiles) {
+      const command = (await import(path.join(commandsPath, file))) as { data?: { name: string; toJSON(): unknown } };
+      if (command.data) {
+        commands.push(command.data.toJSON());
+        console.log(`[DEPLOY] Loaded command: /${command.data.name}`);
+      }
+    }
+
     console.log(`[DEPLOY] Registering ${String(commands.length)} slash commands...`);
 
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });

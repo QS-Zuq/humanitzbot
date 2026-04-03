@@ -5,13 +5,13 @@
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
    @typescript-eslint/no-floating-promises,
    @typescript-eslint/prefer-promise-reject-errors,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
 
 import { EmbedBuilder } from 'discord.js';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
+import { exec } from 'child_process';
 import _defaultConfig from '../config/index.js';
-const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+import _defaultRcon from '../rcon/rcon.js';
 import { createLogger } from '../utils/log.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
@@ -99,7 +99,7 @@ class PvpScheduler {
     const sftp = new SftpClient();
     try {
       await sftp.connect(this._config.sftpConnectConfig());
-      const content = (await sftp.get(this._config.sftpSettingsPath)).toString('utf8');
+      const content = ((await sftp.get(this._config.sftpSettingsPath)) as Buffer).toString('utf8');
       const match = content.match(/^PVP\s*=\s*(\d)/m);
       this._currentPvp = match ? match[1] === '1' : false;
       this._log.info(`Current server PvP state: ${this._currentPvp ? 'ON' : 'OFF'}`);
@@ -360,7 +360,7 @@ class PvpScheduler {
       }
 
       // Download current ini
-      const content = (await sftp.get(settingsPath)).toString('utf8');
+      const content = ((await sftp.get(settingsPath)) as Buffer).toString('utf8');
 
       // Toggle the PVP line
       if (!content.match(/^PVP\s*=\s*\d/m)) {
@@ -422,7 +422,6 @@ class PvpScheduler {
     // Falls back to docker stop+start if LinuxGSM fails.
     if (container) {
       try {
-        const { exec } = require('child_process');
         await new Promise<void>((resolve, reject) => {
           exec(
             `docker exec -u linuxgsm ${container} /app/hzserver restart`,
@@ -441,7 +440,6 @@ class PvpScheduler {
       } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
-          const { exec } = require('child_process');
           await new Promise<void>((resolve, reject) => {
             exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
               if (err) reject(err);
@@ -510,7 +508,6 @@ class PvpScheduler {
         clearInterval(timer);
         this._log.warn(`RCON health check FAILED — no connection after ${maxWait / 1000}s, restarting game process`);
         try {
-          const { exec } = require('child_process');
           // Try LinuxGSM first, fall back to docker stop+start
           await new Promise<void>((resolve, reject) => {
             exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err: any) => {

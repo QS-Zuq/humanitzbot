@@ -15,13 +15,7 @@
  * @module ue4-names
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const gameData = require('./game-data') as {
-  ITEM_NAMES: Record<string, string>;
-  BUILDING_NAMES: Record<string, string>;
-};
-
-const { ITEM_NAMES, BUILDING_NAMES } = gameData;
+import { ITEM_NAMES, BUILDING_NAMES } from './game-data.js';
 
 // ─── Common container aliases ────────────────────────────────────────────────
 // These fire first to catch well-known patterns before generic cleanup.

@@ -1,14 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
 
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey, safeEditMessage } from './discord-utils.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
-const _defaultServerResources =
-  require('../server/server-resources') as import('../server/server-resources.js').ServerResources;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
+import _defaultServerResources from '../server/server-resources.js';
+import {
+  getServerInfo as _defaultGetServerInfo,
+  getPlayerList as _defaultGetPlayerList,
+  sendAdminMessage as _defaultSendAdminMessage,
+} from '../rcon/server-info.js';
 import { createLogger } from '../utils/log.js';
 
 // Embed builders — presentation layer (mixed into prototype below)
@@ -22,11 +25,11 @@ class ServerStatus {
     this._playerStats = deps.playerStats || _defaultPlayerStats;
     this._serverResources = deps.serverResources || _defaultServerResources;
 
-    this._getServerInfo = deps.getServerInfo || require('../rcon/server-info').getServerInfo;
+    this._getServerInfo = deps.getServerInfo || _defaultGetServerInfo;
 
-    this._getPlayerList = deps.getPlayerList || require('../rcon/server-info').getPlayerList;
+    this._getPlayerList = deps.getPlayerList || _defaultGetPlayerList;
 
-    this._sendAdminMessage = deps.sendAdminMessage || require('../rcon/server-info').sendAdminMessage;
+    this._sendAdminMessage = deps.sendAdminMessage || _defaultSendAdminMessage;
     this._db = deps.db || null;
     this._log = createLogger(deps.label, 'STATUS');
     this._label = this._log.label;

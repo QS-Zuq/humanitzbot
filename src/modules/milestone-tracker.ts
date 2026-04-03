@@ -24,6 +24,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
+import _defaultConfig from '../config/index.js';
 
 // ── Milestone Thresholds ─────────────────────────────────────────────────────
 
@@ -103,8 +104,7 @@ class MilestoneTracker {
     this._client = client;
     this._db = opts.db || null;
     this._logWatcher = opts.logWatcher || null;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._config = opts.config || require('../config');
+    this._config = opts.config || _defaultConfig;
     this._log = createLogger(opts.label, 'MILESTONES');
     this._locale = getLocale({ serverConfig: this._config });
 

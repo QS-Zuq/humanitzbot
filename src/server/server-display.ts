@@ -13,6 +13,8 @@
    @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any */
 
 import { getDayOffset, getRotatedProfileIndex } from '../modules/schedule-utils.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
+const { formatBytes: _fmtBytes } = require('./server-resources') as typeof import('./server-resources');
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Label constants
@@ -328,8 +330,7 @@ function buildWeatherOdds(s: Record<string, any>): string | null {
 function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => string): FieldEntry[] {
   if (!fmtBytes) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      fmtBytes = (require('./server-resources') as { formatBytes: (v: number) => string }).formatBytes;
+      fmtBytes = _fmtBytes;
     } catch {
       fmtBytes = (v: number) => String(v);
     }

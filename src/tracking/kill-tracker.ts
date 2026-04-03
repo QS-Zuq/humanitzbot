@@ -16,8 +16,10 @@
  */
 
 import config from '../config/index.js';
-import { PlaytimeTracker } from './playtime-tracker.js';
-import { PlayerStats } from './player-stats.js';
+import playtimeSingleton from './playtime-tracker.js';
+import type { PlaytimeTracker } from './playtime-tracker.js';
+import playerStatsSingleton from './player-stats.js';
+import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
 
 type ConfigType = typeof config;
@@ -323,10 +325,8 @@ export class KillTracker {
 
   constructor(deps: KillTrackerDeps = {}) {
     this._config = deps.config ?? config;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._playtime = deps.playtime ?? (require('./playtime-tracker') as PlaytimeType);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._playerStats = deps.playerStats ?? (require('./player-stats') as PlayerStatsType);
+    this._playtime = deps.playtime ?? playtimeSingleton;
+    this._playerStats = deps.playerStats ?? playerStatsSingleton;
     this._db = deps.db ?? null;
     this._log = createLogger(deps.label, 'KillTracker');
 

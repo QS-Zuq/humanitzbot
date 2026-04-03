@@ -25,6 +25,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { t, getLocale } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
+import _defaultConfig from '../config/index.js';
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
@@ -45,8 +46,7 @@ class GitHubTracker {
    */
   constructor(client: any, deps: any = {}) {
     this.client = client;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._config = deps.config || require('../config');
+    this._config = deps.config || _defaultConfig;
     this._db = deps.db || null;
     this._log = createLogger(null, 'GITHUB');
     this._locale = getLocale({ serverConfig: this._config });

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-require-imports */
+   @typescript-eslint/restrict-plus-operands */
 
 /**
  * Auto-messages content layer — text generation for RCON and WelcomeMessage.txt.
@@ -15,9 +15,8 @@
  */
 
 import _defaultConfig from '../config/index.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
 import { getServerInfo } from '../rcon/server-info.js';
 import { getDayOffset, getRotatedProfileIndex } from './schedule-utils.js';
 import { difficultyLabel as diffLabel, spawnLabel } from '../server/server-display.js';

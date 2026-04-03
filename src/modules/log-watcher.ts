@@ -2,19 +2,20 @@
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
    @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-confusing-void-expression */
 
 import { EmbedBuilder } from 'discord.js';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
 import path from 'path';
+import fs from 'fs';
 import _defaultConfig from '../config/index.js';
 import { cleanName } from '../parsers/ue4-names.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
 import { classifyDamageSource, isNpcDamageSource } from '../tracking/damage-classifier.js';
 import { createLogger } from '../utils/log.js';
+import * as logWatcherThreads from './log-watcher-threads.js';
+import * as logWatcherEvents from './log-watcher-events.js';
 
 class LogWatcher {
   [key: string]: any;
@@ -1302,8 +1303,6 @@ class LogWatcher {
         if (this._dataDir) {
           try {
             const logsDir = path.join(this._dataDir, 'logs');
-
-            const fs = require('fs') as typeof import('fs');
             if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
             fs.writeFileSync(path.join(logsDir, 'PlayerIDMapped.txt'), text, 'utf8');
           } catch (_: any) {
@@ -1342,9 +1341,9 @@ class LogWatcher {
   }
 }
 
-Object.assign(LogWatcher.prototype, require('./log-watcher-threads'));
+Object.assign(LogWatcher.prototype, logWatcherThreads);
 
-Object.assign(LogWatcher.prototype, require('./log-watcher-events'));
+Object.assign(LogWatcher.prototype, logWatcherEvents);
 
 export default LogWatcher;
 export { LogWatcher };

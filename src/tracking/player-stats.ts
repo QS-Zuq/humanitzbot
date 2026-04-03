@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { PlaytimeTracker } from './playtime-tracker.js';
+import playtimeSingleton from './playtime-tracker.js';
+import type { PlaytimeTracker } from './playtime-tracker.js';
 import { classifyDamageLabel } from './damage-classifier.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
@@ -136,9 +137,7 @@ export class PlayerStats {
   constructor(options: PlayerStatsOptions = {}) {
     this._db = options.db ?? null;
     this._dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const defaultPt = require('./playtime-tracker') as PlaytimeTrackerType;
-    this._playtime = options.playtime ?? defaultPt;
+    this._playtime = options.playtime ?? playtimeSingleton;
     this._log = createLogger(options.label, 'PLAYER STATS');
   }
 

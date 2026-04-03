@@ -9,8 +9,8 @@ import {
 import config from '../config/index.js';
 import { t, getLocalizations } from '../i18n/index.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const SftpClient = require('ssh2-sftp-client') as new () => {
+import _SftpClient from 'ssh2-sftp-client';
+const SftpClient = _SftpClient as unknown as new () => {
   connect(config: unknown): Promise<void>;
   get(path: string): Promise<Buffer>;
   end(): Promise<void>;

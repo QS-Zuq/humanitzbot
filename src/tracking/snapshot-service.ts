@@ -11,8 +11,7 @@
  * @module snapshot-service
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { cleanName } = require('../parsers/ue4-names') as { cleanName: (raw: string) => string };
+import { cleanName } from '../parsers/ue4-names.js';
 import { createLogger, type Logger } from '../utils/log.js';
 
 // ── AI type → display name mapping ──────────────────────────

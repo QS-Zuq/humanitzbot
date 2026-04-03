@@ -11,7 +11,7 @@
  * @module game-data
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS lazy getters via Object.defineProperty, ESM import cannot resolve them
 const extract = require('./game-data-extract') as Record<string, unknown>;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -364,13 +364,13 @@ const EXTRACTED_LOADING_TIPS = extract['LOADING_TIPS'] as ExtractedTip[];
 const SPRAYS = extract['SPRAYS'] as Record<string, Record<string, unknown>>;
 const FOLIAGE = extract['FOLIAGE'] as Record<string, Record<string, unknown>>;
 const CHARACTERS = extract['CHARACTERS'] as Record<string, Record<string, unknown>>;
-const TABLE_SUMMARY = extract['TABLE_SUMMARY'] as Record<string, number>;
-const deepClean = extract['deepClean'] as (val: unknown) => unknown;
-const resolveEnum = extract['resolveEnum'] as (value: unknown) => unknown;
-const getTable = extract['getTable'] as (name: string) => Record<string, Record<string, unknown>>;
-const getTableCleaned = extract['getTableCleaned'] as (name: string) => Record<string, Record<string, unknown>>;
+const TABLE_SUMMARY = extract['TABLE_SUMMARY'] as Record<string, unknown>;
+const deepClean = extract['deepClean'] as (obj: Record<string, unknown>) => Record<string, unknown>;
+const resolveEnum = extract['resolveEnum'] as (map: string, key: string) => string;
+const getTable = extract['getTable'] as (name: string) => Record<string, unknown>[] | undefined;
+const getTableCleaned = extract['getTableCleaned'] as (name: string) => Record<string, Record<string, unknown>>[];
 const ENUM_MAPS = extract['ENUM_MAPS'] as Record<string, Record<string, string>>;
-const cleanKey = extract['cleanKey'] as (key: string) => string;
+const cleanKey = extract['cleanKey'] as (k: string) => string;
 const cleanRow = extract['cleanRow'] as (row: Record<string, unknown>) => Record<string, unknown>;
 
 // ─── Challenges (from extracted STATISTICS + STAT_CONFIG) ───────────────────

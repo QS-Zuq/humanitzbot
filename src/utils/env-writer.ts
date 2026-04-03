@@ -10,8 +10,7 @@ import path from 'node:path';
 import { getDirname } from './paths.js';
 import { createLogger } from './log.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS module not yet migrated
-const { BOOTSTRAP_KEYS } = require('../db/config-migration') as { BOOTSTRAP_KEYS: Set<string> };
+import { BOOTSTRAP_KEYS } from '../db/config-migration.js';
 
 const _auditLog = createLogger(null, 'NUKE-AUDIT');
 

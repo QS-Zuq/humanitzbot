@@ -5,7 +5,7 @@
    @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
    @typescript-eslint/no-floating-promises,
    @typescript-eslint/prefer-promise-reject-errors,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-non-null-assertion */
 
 /**
  * Server Scheduler — Timed server restarts with dynamic settings profiles.
@@ -30,11 +30,11 @@
  */
 
 import { EmbedBuilder } from 'discord.js';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
 import SftpClient from 'ssh2-sftp-client';
+import { exec } from 'child_process';
 import _defaultConfig from '../config/index.js';
-const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
-const _defaultPanelApi = require('../server/panel-api') as import('../server/panel-api.js').PanelApi;
+import _defaultRcon from '../rcon/rcon.js';
+import _defaultPanelApi from '../server/panel-api.js';
 import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
 import { createLogger } from '../utils/log.js';
 
@@ -365,7 +365,7 @@ class ServerScheduler {
         }
 
         // Read, modify, write
-        const content = (await sftp.get(settingsPath)).toString('utf8');
+        const content = ((await sftp.get(settingsPath)) as Buffer).toString('utf8');
         let updated = content;
 
         for (const [key, value] of Object.entries(profileSettings)) {
@@ -432,7 +432,6 @@ class ServerScheduler {
     // Falls back to docker stop+start if LinuxGSM restart fails.
     if (container) {
       try {
-        const { exec } = require('child_process');
         await new Promise<void>((resolve, reject) => {
           exec(
             `docker exec -u linuxgsm ${container} /app/hzserver restart`,
@@ -451,7 +450,6 @@ class ServerScheduler {
       } catch (lgsmErr: any) {
         this._log.warn(`LinuxGSM restart failed: ${lgsmErr.message}, falling back to docker stop+start`);
         try {
-          const { exec } = require('child_process');
           await new Promise<void>((resolve, reject) => {
             exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err: any) => {
               if (err) reject(err);
@@ -560,7 +558,6 @@ class ServerScheduler {
         // Try Docker first (if configured)
         if (container) {
           try {
-            const { exec } = require('child_process');
             await new Promise<void>((resolve, reject) => {
               exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err: any) => {
                 if (err) {

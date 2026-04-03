@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
 /**
  * Dev server for web map with SFTP live position fetching
  */
@@ -19,7 +17,7 @@ function parseSave(buf: Buffer): Map<string, any> {
   return (_parseSaveFull(buf) as any).players;
 }
 
-const Client = require('ssh2-sftp-client');
+import Client from 'ssh2-sftp-client';
 
 function rateLimit(windowMs: number, maxReqs: number) {
   return expressRateLimit({
@@ -36,7 +34,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const CAL_FILE = path.join(DATA_DIR, 'map-calibration.json');
 
 // Load .env if not already loaded (dev-server can run standalone)
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+import dotenv from 'dotenv';
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const SFTP_CONFIG = {
   host: process.env.SFTP_HOST || process.env.FTP_HOST,
@@ -129,7 +128,7 @@ async function fetchOnlinePlayers(): Promise<Set<string>> {
   const sftp = new Client();
   try {
     await sftp.connect(SFTP_CONFIG);
-    const buf: Buffer = await sftp.get(REMOTE_CONNECTED);
+    const buf = (await sftp.get(REMOTE_CONNECTED)) as Buffer;
     await sftp.end();
     const ids = new Set<string>();
     for (const line of buf.toString().split('\n')) {
@@ -234,7 +233,7 @@ app.get('/api/refresh', async (_req, res) => {
 
     sendEvent('progress', 'Downloading online players...');
     try {
-      const connBuf: Buffer = await sftp.get(REMOTE_CONNECTED);
+      const connBuf = (await sftp.get(REMOTE_CONNECTED)) as Buffer;
       const ids = new Set<string>();
       for (const line of connBuf.toString().split('\n')) {
         const m = line.trim().match(/\|NETID\|(\d{17})_\+_\|/);

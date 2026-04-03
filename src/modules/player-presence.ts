@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports, @typescript-eslint/no-misused-promises */
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, @typescript-eslint/no-misused-promises */
 
 /**
  * Player Presence Tracker — polls RCON for online players, tracks peak/unique stats,
@@ -13,8 +13,7 @@ import EventEmitter from 'events';
 import _defaultConfig from '../config/index.js';
 import { createLogger } from '../utils/log.js';
 import { getPlayerList as _defaultGetPlayerList } from '../rcon/server-info.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
 
 class PlayerPresenceTracker extends EventEmitter {
   [key: string]: any;

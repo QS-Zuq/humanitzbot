@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const _defaultRcon = require('./rcon') as import('./rcon').RconManager;
+import _defaultRcon from './rcon.js';
 
 export const COMMANDS = {
   INFO: 'info',

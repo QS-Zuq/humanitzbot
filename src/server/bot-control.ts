@@ -63,8 +63,7 @@ class BotControlService {
   }
 
   envSync(): EnvSyncResult {
-    // Lazy require — avoids circular dependency at startup
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require avoids circular dependency at startup
     const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync') as {
       needsSync: () => boolean;
       syncEnv: () => { added: number; deprecated: number };

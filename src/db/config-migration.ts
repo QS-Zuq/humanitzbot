@@ -10,18 +10,15 @@
  *   - migrateDisplaySettings() — merges bot_state.display_settings into app document
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const panelConstants = require('../modules/panel-constants') as {
-  ENV_CATEGORIES: Array<{
-    fields: Array<{
-      env: string;
-      type?: string;
-      sensitive?: boolean;
-      cfg?: string;
-    }>;
+import { ENV_CATEGORIES as _ENV_CATEGORIES } from '../modules/panel-constants.js';
+const ENV_CATEGORIES = _ENV_CATEGORIES as Array<{
+  fields: Array<{
+    env: string;
+    type?: string;
+    sensitive?: boolean;
+    cfg?: string;
   }>;
-};
-const { ENV_CATEGORIES } = panelConstants;
+}>;
 
 // ── Types ──────────────────────────────────────────────────────
 

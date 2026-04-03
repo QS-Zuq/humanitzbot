@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 /**
  * Session store factory for express-session.
  *
@@ -12,6 +11,7 @@
 
 import type { Store } from 'express-session';
 import { createLogger } from '../utils/log.js';
+import { SqliteSessionStore } from './session-stores/sqlite-store.js';
 
 const _log = createLogger(null, 'SESSION');
 
@@ -22,9 +22,10 @@ function createSessionStore(config: any, db?: any): Store | undefined {
     // @ts-expect-error — intentional fallthrough from redis to sqlite
     case 'redis': {
       try {
-        // Lazy require — only loaded if redis + connect-redis are installed
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dep, lazy-loaded in sync factory
         const connectRedis = require('connect-redis');
         const RedisStore = connectRedis.RedisStore || connectRedis.default || connectRedis;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dep, lazy-loaded in sync factory
         const { createClient } = require('redis');
 
         const redisClient = createClient({ url: (config.sessionRedisUrl as string) || 'redis://localhost:6379' });
@@ -70,10 +71,11 @@ function createSessionStore(config: any, db?: any): Store | undefined {
         _log.warn('No database provided for SQLite store — falling back to memory');
         return undefined;
       }
-      const { SqliteSessionStore } = require('./session-stores/sqlite-store');
-      const store = new SqliteSessionStore(db, { table: 'web_sessions' });
+      const store = new (SqliteSessionStore as unknown as new (db: any, opts: any) => Store)(db, {
+        table: 'web_sessions',
+      });
       _log.info('Using SQLite session store');
-      return store as Store;
+      return store;
     }
     default: {
       // 'memory' or any unrecognized value

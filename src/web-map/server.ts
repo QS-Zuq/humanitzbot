@@ -6,7 +6,7 @@
    @typescript-eslint/prefer-promise-reject-errors, @typescript-eslint/no-floating-promises,
    @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-conversion,
    @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-dynamic-delete,
-   @typescript-eslint/no-require-imports, @typescript-eslint/no-unnecessary-type-assertion */
+   @typescript-eslint/no-unnecessary-type-assertion */
 /**
  * Web Map Server — Interactive Leaflet-based player map served via Express.
  *
@@ -27,20 +27,27 @@ import config from '../config/index.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
-const playerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
-const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const rcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+import playerStats from '../tracking/player-stats.js';
+import playtime from '../tracking/playtime-tracker.js';
+import rcon from '../rcon/rcon.js';
 import { setupAuth, requireTier } from './auth.js';
 import { API_ERRORS, sendError, sendOk } from './api-errors.js';
 
-const serverResources = require('../server/server-resources');
-const { formatBytes, formatUptime } = serverResources as {
-  formatBytes: (b: number | null | undefined) => string;
-  formatUptime: (s: number | null | undefined) => string | null;
-};
+import serverResources from '../server/server-resources.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance, named exports inaccessible
+const { formatBytes, formatUptime } =
+  require('../server/server-resources') as typeof import('../server/server-resources');
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
 import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
 import { readPrivateKey } from '../utils/security.js';
+import {
+  getPlayerList as _getPlayerList,
+  getServerInfo as _getServerInfo,
+  sendAdminMessage as _sendAdminMessage,
+} from '../rcon/server-info.js';
+import _panelApiInstance from '../server/panel-api.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class
+const { discoverPaths: _discoverPaths } = require('../server/multi-server') as typeof import('../server/multi-server');
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
@@ -393,10 +400,10 @@ class WebMapServer {
         config,
         playerStats,
         playtime,
-        getPlayerList: require('../rcon/server-info').getPlayerList,
-        getServerInfo: require('../rcon/server-info').getServerInfo,
-        sendAdminMessage: require('../rcon/server-info').sendAdminMessage,
-        panelApi: require('../server/panel-api'),
+        getPlayerList: _getPlayerList,
+        getServerInfo: _getServerInfo,
+        sendAdminMessage: _sendAdminMessage,
+        panelApi: _panelApiInstance,
         scheduler: this._scheduler,
         dataDir: DATA_DIR,
         idMap: this._idMap,
@@ -2401,7 +2408,7 @@ class WebMapServer {
       }
 
       // Fall back to Docker CLI (VPS setup)
-      const { execFile } = require('child_process') as typeof import('child_process');
+      const { execFile } = await import('child_process');
       // Use server-specific container name, fall back to env
       const dockerContainer = (req.srv.config.dockerContainer || process.env.DOCKER_CONTAINER || 'hzserver').replace(
         /[^a-zA-Z0-9_.-]/g,
@@ -2463,7 +2470,6 @@ class WebMapServer {
       // Fall back to local data/backups/ directory
       const backupsDir = path.join(req.srv.dataDir, 'backups');
       try {
-        const fs = require('fs');
         if (fs.existsSync(backupsDir)) {
           const entries = fs.readdirSync(backupsDir, { withFileTypes: true });
           for (const entry of entries) {
@@ -2515,14 +2521,14 @@ class WebMapServer {
       // Try reading via SFTP
       if (srv.config.sftpHost && srv.config.sftpUser) {
         try {
-          const SftpClient = require('ssh2-sftp-client');
+          const SftpClient = (await import('ssh2-sftp-client')).default;
           const sftp = new SftpClient();
           await sftp.connect(srv.config.sftpConnectConfig());
           const content = await sftp.get(srv.config.sftpSettingsPath);
           await sftp.end();
 
           const settings: Record<string, string> = {};
-          const lines = content.toString().split('\n');
+          const lines = (content as Buffer).toString().split('\n');
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('[') || trimmed.startsWith(';')) continue;
@@ -2571,12 +2577,12 @@ class WebMapServer {
       }
 
       try {
-        const SftpClient = require('ssh2-sftp-client');
+        const SftpClient = (await import('ssh2-sftp-client')).default;
         const sftp = new SftpClient();
         await sftp.connect(req.srv.config.sftpConnectConfig());
 
         // Read current file
-        const content = (await sftp.get(req.srv.config.sftpSettingsPath)).toString();
+        const content = ((await sftp.get(req.srv.config.sftpSettingsPath)) as Buffer).toString();
         const lines = content.split('\n');
 
         // Update values in-place
@@ -3400,11 +3406,11 @@ class WebMapServer {
         // Try reading the actual file from the game server via SFTP
         const welcomePath = req.srv.config.sftpWelcomePath;
         if (welcomePath) {
-          const SftpClient = require('ssh2-sftp-client');
+          const SftpClient = (await import('ssh2-sftp-client')).default;
           const sftp = new SftpClient();
           try {
             await sftp.connect(req.srv.config.sftpConnectConfig());
-            const buf = await sftp.get(welcomePath);
+            const buf = (await sftp.get(welcomePath)) as Buffer;
             const content = buf.toString('utf8');
             sendOk(res, { content, placeholders, source: 'sftp' });
             return;
@@ -3472,7 +3478,7 @@ class WebMapServer {
         const welcomePath = config.sftpWelcomePath;
         if (welcomePath) {
           try {
-            const SftpClient = require('ssh2-sftp-client');
+            const SftpClient = (await import('ssh2-sftp-client')).default;
             const sftp = new SftpClient();
             await sftp.connect(config.sftpConnectConfig());
             await sftp.put(Buffer.from(content, 'utf8'), welcomePath);
@@ -3635,7 +3641,7 @@ class WebMapServer {
     }
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
-    function _testRconAuth(
+    async function _testRconAuth(
       host: string,
       port: number | string,
       password: string,
@@ -3650,7 +3656,7 @@ class WebMapServer {
         return Promise.resolve({ ok: false, error: 'Invalid port (must be 1-65535)' });
       }
       console.log('[WebMap] RCON test: %s:%d by admin', host, numPort);
-      const net = require('net');
+      const net = await import('net');
       return new Promise((resolve) => {
         const socket = new net.Socket();
         let resolved = false;
@@ -3709,7 +3715,7 @@ class WebMapServer {
 
     /** Test SFTP auth + directory listing. Resolves { ok, error? }. */
     async function _testSftpAuth(sftpCfg: any, timeout = 10000): Promise<{ ok: boolean; error?: string }> {
-      const SftpClient = require('ssh2-sftp-client');
+      const SftpClient = (await import('ssh2-sftp-client')).default;
       const client = new SftpClient();
       try {
         const opts: any = {
@@ -3939,7 +3945,6 @@ class WebMapServer {
       _discoveryJobs.set(jobId, job);
 
       // Run discovery in background
-      const { discoverPaths } = require('../server/multi-server');
       const timeoutHandle = setTimeout(() => {
         if (job.state === 'running') {
           job.state = 'failed';
@@ -3948,7 +3953,7 @@ class WebMapServer {
         }
       }, 120000);
 
-      discoverPaths(
+      _discoverPaths(
         {
           host: sftpCfg.host,
           port: sftpCfg.port || 22,
@@ -3968,11 +3973,11 @@ class WebMapServer {
           if (!result) job.error = 'No game files found';
           job.currentStep = null;
         })
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           clearTimeout(timeoutHandle);
           if (job.state !== 'running') return;
           job.state = 'failed';
-          job.error = (err.message || 'Discovery failed').substring(0, 200);
+          job.error = ((err as Error).message || 'Discovery failed').substring(0, 200);
           job.currentStep = null;
         });
 
@@ -4692,8 +4697,7 @@ class WebMapServer {
     const additional = this._loadServerList();
     const primaryRcon = (async () => {
       try {
-        const { getServerInfo, getPlayerList } = require('../rcon/server-info');
-        const [info, list] = await Promise.all([rconTimeout(getServerInfo()), rconTimeout(getPlayerList())]);
+        const [info, list] = await Promise.all([rconTimeout(_getServerInfo()), rconTimeout(_getPlayerList())]);
         if (info) {
           result.primary.status = 'online';
           result.primary.maxPlayers = info.maxPlayers || null;

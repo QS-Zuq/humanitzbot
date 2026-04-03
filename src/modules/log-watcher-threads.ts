@@ -14,6 +14,7 @@
  */
 
 import { EmbedBuilder } from 'discord.js';
+import { cleanName } from '../parsers/ue4-names.js';
 
 // ═════════════════════════════════════════════════════════════════════
 //  Day rollover detection
@@ -332,8 +333,6 @@ function sendToThread(this: any, embed: any) {
  */
 function getRecentContainerAccess(this: any, actorName: any) {
   if (!actorName || this._recentContainerAccess.size === 0) return null;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { cleanName } = require('../parsers/ue4-names') as { cleanName: (s: string) => string };
   const clean = cleanName(actorName).toLowerCase();
   // Check exact match first
   if (this._recentContainerAccess.has(clean)) {

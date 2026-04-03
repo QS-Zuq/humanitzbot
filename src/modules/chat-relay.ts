@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
    @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
+   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion */
 
 import { Events, EmbedBuilder } from 'discord.js';
 import _defaultConfig from '../config/index.js';
-const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+import _defaultRcon from '../rcon/rcon.js';
 import { t, getLocale } from '../i18n/index.js';
 import { createLogger } from '../utils/log.js';
 

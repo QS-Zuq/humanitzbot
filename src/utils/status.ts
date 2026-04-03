@@ -1,25 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string, @typescript-eslint/no-unnecessary-type-conversion */
 import { ActivityType, type Client } from 'discord.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const config = require('../config') as {
-  publicHost?: string;
-  gamePort?: string | number;
-  enableStatusChannels?: boolean;
-  enableServerStatus?: boolean;
-  enablePlayerStats?: boolean;
-  enableChatRelay?: boolean;
-  enableLogWatcher?: boolean;
-  enableAutoMsgLink?: boolean;
-  enableAutoMsgPromo?: boolean;
-  enablePvpScheduler?: boolean;
-  enableServerScheduler?: boolean;
-  enableRecaps?: boolean;
-  enableMilestones?: boolean;
-  enableActivityLog?: boolean;
-  enableAnticheat?: boolean;
-};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const panelApi = require('../server/panel-api') as { available: boolean };
+import config from '../config/index.js';
+import panelApi from '../server/panel-api.js';
 import { getServerInfo as _getServerInfo } from '../rcon/server-info.js';
 
 interface ActivityItem {

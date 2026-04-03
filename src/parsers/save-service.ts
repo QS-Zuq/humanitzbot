@@ -17,15 +17,8 @@ import path from 'node:path';
 import { parseSave, parseClanData } from './save-parser.js';
 import { createLogger, type Logger } from '../utils/log.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const diffEngineModule = require('../db/diff-engine') as { diffSaveState: (...args: unknown[]) => unknown[] };
-const { diffSaveState } = diffEngineModule;
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const itemTrackerModule = require('../db/item-tracker') as {
-  reconcileItems: (...args: unknown[]) => Record<string, unknown> | null;
-};
-const { reconcileItems } = itemTrackerModule;
+import { diffSaveState } from '../db/diff-engine.js';
+import { reconcileItems } from '../db/item-tracker.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -92,6 +85,23 @@ interface SaveServiceOptions {
   agentPanelDelay?: number;
   panelApi?: PanelApi;
   dataDir?: string;
+}
+
+// Optional modules — preloaded at module scope, null if not installed
+let _rconModule: RconModule | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
+  _rconModule = require('../rcon/rcon') as unknown as RconModule;
+} catch {
+  /* rcon not available */
+}
+
+let _panelApiModule: PanelApi | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
+  _panelApiModule = require('../server/panel-api') as unknown as PanelApi;
+} catch {
+  /* panel-api not available */
 }
 
 interface GameDB {
@@ -336,19 +346,15 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = (require('ssh2-sftp-client') as { default?: unknown; new (): unknown })
-        .constructor as typeof SFTPClient;
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      const _sftpMod = (await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient };
+      SFTPClient = _sftpMod.default;
     } catch {
       throw new Error('ssh2-sftp-client not installed');
     }
 
     let buildAgentScript: () => string;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ({ buildAgentScript } = require('./agent-builder') as { buildAgentScript: () => string });
+      ({ buildAgentScript } = (await import('./agent-builder.js')) as unknown as { buildAgentScript: () => string });
     } catch (err: unknown) {
       throw new Error(`Failed to load agent-builder: ${(err as Error).message}`, { cause: err });
     }
@@ -441,8 +447,7 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ({ Client: SSHClient } = require('ssh2') as { Client: typeof SSHClient });
+      ({ Client: SSHClient } = (await import('ssh2')) as unknown as { Client: typeof SSHClient });
     } catch {
       throw new Error('ssh2 not installed — needed for SSH exec');
     }
@@ -672,12 +677,8 @@ class SaveService extends EventEmitter {
 
   _isRconAvailable(): boolean {
     if (!this._rcon) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._rcon = require('../rcon/rcon') as RconModule;
-      } catch {
-        return false;
-      }
+      if (!_rconModule) return false;
+      this._rcon = _rconModule;
     }
     if (!this._rcon) return false;
     return this._rcon.connected;
@@ -685,12 +686,8 @@ class SaveService extends EventEmitter {
 
   async _triggerViaRcon(): Promise<void> {
     if (!this._rcon) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._rcon = require('../rcon/rcon') as RconModule;
-      } catch {
-        throw new Error('RCON module not available');
-      }
+      if (!_rconModule) throw new Error('RCON module not available');
+      this._rcon = _rconModule;
     }
     this._log.info(`Sending RCON command: "${this._agentPanelCommand}"`);
     await this._rcon.send(this._agentPanelCommand);
@@ -735,8 +732,7 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
     } catch {
       throw new Error('ssh2-sftp-client not installed — needed for SFTP polling');
     }
@@ -772,13 +768,9 @@ class SaveService extends EventEmitter {
 
   _hasPanelApi(): boolean {
     if (this._panelApi) return this._panelApi.available !== false;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      this._panelApi = require('../server/panel-api') as PanelApi;
-      return !!this._panelApi.available;
-    } catch {
-      return false;
-    }
+    if (!_panelApiModule) return false;
+    this._panelApi = _panelApiModule;
+    return !!this._panelApi.available;
   }
 
   async _readPanelApi(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
@@ -863,8 +855,7 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
     } catch {
       return undefined;
     }
@@ -936,8 +927,7 @@ class SaveService extends EventEmitter {
         end: () => Promise<void>;
       };
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+        SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
       } catch {
         /* ignore */
       }
@@ -1114,14 +1104,14 @@ class SaveService extends EventEmitter {
         this._db,
         {
           players,
-          containers: (parsed['containers'] as unknown[]) ?? [],
-          vehicles: (parsed['vehicles'] as unknown[]) ?? [],
-          horses: (parsed['horses'] as unknown[]) ?? [],
-          structures: (parsed['structures'] as unknown[]) ?? [],
+          containers: (parsed['containers'] as Record<string, unknown>[]) ?? [],
+          vehicles: (parsed['vehicles'] as Record<string, unknown>[]) ?? [],
+          horses: (parsed['horses'] as Record<string, unknown>[]) ?? [],
+          structures: (parsed['structures'] as Record<string, unknown>[]) ?? [],
           worldState: (parsed['worldState'] as Record<string, unknown>) ?? {},
         },
         nameResolver,
-      );
+      ) as unknown as Record<string, unknown>;
       if (this._syncCount % 100 === 0) {
         this._db.purgeOldLostItems('-7 days');
         this._db.purgeOldLostGroups('-7 days');

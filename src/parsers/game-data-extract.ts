@@ -109,7 +109,7 @@ function _projectEnum(prefixedMap: Record<string, string>, reservedSlots: number
 // Load save-parser enum maps; fall back to empty objects if unavailable
 let _saveParserEnums: SaveParserEnums;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
   const sp = require('./save-parser') as SaveParserEnums;
   _saveParserEnums = { PERK_MAP: sp.PERK_MAP, CLAN_RANK_MAP: sp.CLAN_RANK_MAP };
 } catch (err: unknown) {

@@ -146,8 +146,7 @@ class PanelRcon extends EventEmitter {
 
     if (!this._panelApi) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._panelApi = require('../server/panel-api') as PanelApi;
+        this._panelApi = (await import('../server/panel-api.js')).default as unknown as PanelApi;
       } catch {
         throw new Error('Panel API module not available');
       }

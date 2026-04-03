@@ -19,6 +19,9 @@
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
+import HumanitZDB from './database.js';
+import { seed as gameReferenceSeed } from '../parsers/game-reference.js';
+import { SCHEMA_VERSION } from './schema.js';
 
 const TEMPLATE_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz-template.db');
 const RAW_JSON_PATH = path.join(__dirname, '..', '..', 'data', 'game-tables-raw.json');
@@ -38,22 +41,13 @@ if (fs.existsSync(TEMPLATE_PATH)) {
 }
 
 // Create fresh DB with schema + seed all game reference data
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const HumanitZDB = require('./database') as new (opts: { dbPath: string; label: string }) => Record<string, unknown>;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const gameReference = require('../parsers/game-reference') as { seed: (db: Record<string, unknown>) => void };
-
 const db = new HumanitZDB({ dbPath: TEMPLATE_PATH, label: 'TEMPLATE' });
 (db['init'] as () => void)();
-gameReference.seed(db);
+gameReferenceSeed(db as unknown as Parameters<typeof gameReferenceSeed>[0]);
 
 // Stamp the template with build metadata
 (db['setMeta'] as (k: string, v: string) => void)('template_built_at', new Date().toISOString());
-(db['setMeta'] as (k: string, v: string) => void)(
-  'template_schema_version',
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  String((require('./schema') as { SCHEMA_VERSION: number }).SCHEMA_VERSION),
-);
+(db['setMeta'] as (k: string, v: string) => void)('template_schema_version', String(SCHEMA_VERSION));
 
 // Verify row counts
 const handle = db['db'] as Database.Database;

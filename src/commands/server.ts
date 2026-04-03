@@ -11,10 +11,7 @@ import { LOADING_TIPS } from '../parsers/game-data.js';
 import config from '../config/index.js';
 import { t, getLocalizations } from '../i18n/index.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { buildScheduleField } = require('../server/server-display') as {
-  buildScheduleField: (cfg: unknown) => { name: string; value: string; inline?: boolean } | null;
-};
+import { buildScheduleField } from '../server/server-display.js';
 
 function _randomTip(): string | null {
   const tips = LOADING_TIPS.filter((tip) => tip.length > 20 && tip.length < 120);

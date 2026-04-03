@@ -18,6 +18,8 @@ import {
   buildResourceField as _buildResourceField,
 } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
+const { formatUptime: fmtUp } = require('../server/server-resources') as typeof import('../server/server-resources');
 
 function _ts(locale: any, key: any, vars: any = {}) {
   return t(`discord:status.${key}`, locale, vars);
@@ -183,8 +185,6 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
 
   let uptimeStr = '';
   if (resources?.uptime != null) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { formatUptime: fmtUp } = require('../server/server-resources') as { formatUptime: (n: number) => string };
     const up = fmtUp(resources.uptime);
     if (up) uptimeStr = ` \xB7 ${_ts(locale, 'uptime')}: ${up}`;
   } else if (this._onlineSince) {
