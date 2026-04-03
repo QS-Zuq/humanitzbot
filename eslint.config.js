@@ -188,6 +188,13 @@ module.exports = defineConfig([
         simplifyName: 'readonly', // app.js — UE4 name simplifier
         Panel: 'writable', // panel-core.js — modular panel namespace
         switchTab: 'writable', // panel-nav.js — global tab switcher
+        // app.js — functions called from HTML onclick attributes
+        selectPlayer: 'writable',
+        closePlayerPanel: 'writable',
+        refreshPlayers: 'writable',
+        kickPlayer: 'writable',
+        banPlayer: 'writable',
+        sendMessage: 'writable',
       },
     },
     rules: {
