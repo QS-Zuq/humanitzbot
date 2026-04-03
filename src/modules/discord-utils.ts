@@ -8,6 +8,7 @@
  */
 import type { Client, EmbedBuilder, Message, TextBasedChannel, ActionRowBuilder } from 'discord.js';
 import { createLogger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 interface DiscordError extends Error {
   code?: number;
@@ -83,7 +84,7 @@ async function cleanOwnMessages(channel: FetchableChannel, client: Client, optio
       }
     }
   } catch (err: unknown) {
-    log.info('Could not clean old messages:', (err as Error).message);
+    log.info('Could not clean old messages:', errMsg(err));
   }
 }
 

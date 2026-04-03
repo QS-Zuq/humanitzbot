@@ -12,6 +12,7 @@ import _defaultConfig from '../config/index.js';
 import { createLogger } from '../utils/log.js';
 import { getPlayerList as _defaultGetPlayerList } from '../rcon/server-info.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof _defaultConfig;
 
@@ -90,7 +91,7 @@ class PlayerPresenceTracker extends EventEmitter {
       this._initialised = true;
       this._log.info(`Seeded ${this._onlinePlayers.size} online player(s) (playtime sessions started)`);
     } catch (err: unknown) {
-      this._log.error('Failed to seed players:', (err as Error).message);
+      this._log.error('Failed to seed players:', errMsg(err));
       this._initialised = true; // continue anyway
     }
   }

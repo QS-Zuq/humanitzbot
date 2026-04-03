@@ -8,6 +8,7 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import playtime from '../tracking/playtime-tracker.js';
 import { t, getLocalizations, fmtDate } from '../i18n/index.js';
 import config from '../config/index.js';
+import { errMsg } from '../utils/error.js';
 
 export const data = new SlashCommandBuilder()
   .setName('playtime')
@@ -97,7 +98,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
       await interaction.editReply({ embeds: [embed] });
     }
   } catch (err) {
-    console.error('[CMD:playtime]', (err as Error).message);
+    console.error('[CMD:playtime]', errMsg(err));
     await interaction.editReply(t('commands:playtime.reply.fetch_failed', locale));
   }
 }

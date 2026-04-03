@@ -6,6 +6,7 @@ import { createLogger } from '../utils/log.js';
 
 // Content layer: text generation, color helpers, welcome file builder
 import * as content from './auto-messages-content.js';
+import { errMsg } from '../utils/error.js';
 const { _rconColorLink, buildWelcomeContent } = content;
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
@@ -99,7 +100,7 @@ class AutoMessages {
       await this._sendAdminMessage(msg);
       this._log.info('Sent Discord link to game chat');
     } catch (err: unknown) {
-      this._log.error('Failed to send Discord link:', (err as Error).message);
+      this._log.error('Failed to send Discord link:', errMsg(err));
     }
   }
 
@@ -112,7 +113,7 @@ class AutoMessages {
       await this._sendAdminMessage(msg);
       this._log.info('Sent promo message to game chat');
     } catch (err: unknown) {
-      this._log.error('Failed to send promo message:', (err as Error).message);
+      this._log.error('Failed to send promo message:', errMsg(err));
     }
   }
 
@@ -147,7 +148,7 @@ class AutoMessages {
       this._lastWelcomeTime = Date.now();
       this._log.info(`Sent welcome to ${joiner.name} (${pt?.isReturning ? 'returning' : 'first-time'})`);
     } catch (err: unknown) {
-      this._log.error(`Failed to send welcome to ${joiner.name}:`, (err as Error).message);
+      this._log.error(`Failed to send welcome to ${joiner.name}:`, errMsg(err));
     }
   }
 }

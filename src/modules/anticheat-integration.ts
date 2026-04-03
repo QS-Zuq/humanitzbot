@@ -10,6 +10,7 @@
  */
 
 import _defaultConfig from '../config/index.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof _defaultConfig;
 
@@ -147,7 +148,7 @@ class AnticheatIntegration {
         baselineInterval / 1000,
       );
     } catch (err: unknown) {
-      console.error('[ANTICHEAT] Failed to start engine:', (err as Error).message);
+      console.error('[ANTICHEAT] Failed to start engine:', errMsg(err));
       _available = false;
     }
   }
@@ -163,7 +164,7 @@ class AnticheatIntegration {
         this._processFlags(flags);
       }
     } catch (err: unknown) {
-      console.error('[ANTICHEAT] Analysis error:', (err as Error).message);
+      console.error('[ANTICHEAT] Analysis error:', errMsg(err));
     }
   }
 
@@ -180,7 +181,7 @@ class AnticheatIntegration {
         }
       }
     } catch (err: unknown) {
-      console.error('[ANTICHEAT] Save sync analysis error:', (err as Error).message);
+      console.error('[ANTICHEAT] Save sync analysis error:', errMsg(err));
     }
   }
 
@@ -197,7 +198,7 @@ class AnticheatIntegration {
         // Update risk score for the player
         this._updateRiskScore(flag.steam_id);
       } catch (err: unknown) {
-        console.error('[ANTICHEAT] Failed to insert flag:', (err as Error).message);
+        console.error('[ANTICHEAT] Failed to insert flag:', errMsg(err));
       }
     }
   }
@@ -249,7 +250,7 @@ class AnticheatIntegration {
         baseline_data: {},
       });
     } catch (err: unknown) {
-      console.error('[ANTICHEAT] Risk score update error:', (err as Error).message);
+      console.error('[ANTICHEAT] Risk score update error:', errMsg(err));
     }
   }
 
@@ -263,7 +264,7 @@ class AnticheatIntegration {
         await this._engine.recalibrateBaseline();
       }
     } catch (err: unknown) {
-      console.error('[ANTICHEAT] Baseline recalibration error:', (err as Error).message);
+      console.error('[ANTICHEAT] Baseline recalibration error:', errMsg(err));
     }
   }
 

@@ -5,6 +5,7 @@ import type { PlaytimeTracker } from './playtime-tracker.js';
 import { classifyDamageLabel } from './damage-classifier.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
+import { errMsg } from '../utils/error.js';
 
 type PlaytimeTrackerType = InstanceType<typeof PlaytimeTracker>;
 
@@ -215,7 +216,7 @@ export class PlayerStats {
         this._log.info(`Loaded ${String(entries.length)} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err) {
-      this._log.error('Failed to load cached ID map:', (err as Error).message);
+      this._log.error('Failed to load cached ID map:', errMsg(err));
     }
   }
 
@@ -259,7 +260,7 @@ export class PlayerStats {
       }
       this._log.info(`Loaded ${String(rows.length)} player(s) from database`);
     } catch (err) {
-      this._log.warn('DB load failed, falling back to JSON:', (err as Error).message);
+      this._log.warn('DB load failed, falling back to JSON:', errMsg(err));
       this._data = null; // ensure fallback triggers
     }
   }
@@ -300,7 +301,7 @@ export class PlayerStats {
     } catch (err) {
       // Non-critical: in-memory cache is still correct
       if (!this._persistWarnLogged) {
-        this._log.warn('DB persist failed (will suppress further):', (err as Error).message);
+        this._log.warn('DB persist failed (will suppress further):', errMsg(err));
         this._persistWarnLogged = true;
       }
     }

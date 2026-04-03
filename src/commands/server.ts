@@ -12,6 +12,7 @@ import config from '../config/index.js';
 import { t, getLocalizations } from '../i18n/index.js';
 
 import { buildScheduleField } from '../server/server-display.js';
+import { errMsg } from '../utils/error.js';
 
 function _randomTip(): string | null {
   const tips = LOADING_TIPS.filter((tip) => tip.length > 20 && tip.length < 120);
@@ -75,7 +76,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:server]', (err as Error).message);
+    console.error('[CMD:server]', errMsg(err));
     await interaction.editReply({
       content: t('commands:server.reply.unreachable', locale),
     });

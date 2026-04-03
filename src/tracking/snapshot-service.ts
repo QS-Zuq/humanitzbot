@@ -13,6 +13,7 @@
 
 import { cleanName } from '../parsers/ue4-names.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 // ── AI type → display name mapping ──────────────────────────
 
@@ -492,7 +493,7 @@ export class SnapshotService {
 
       return snapId;
     } catch (err) {
-      this._log.error('Failed to record snapshot:', (err as Error).message);
+      this._log.error('Failed to record snapshot:', errMsg(err));
       return null;
     }
   }
@@ -578,7 +579,7 @@ export class SnapshotService {
         this._log.info(`Pruned ${String(result.changes)} old timeline snapshots (>${String(this._retentionDays)}d)`);
       }
     } catch (err) {
-      this._log.warn('Failed to prune timeline:', (err as Error).message);
+      this._log.warn('Failed to prune timeline:', errMsg(err));
     }
   }
 }

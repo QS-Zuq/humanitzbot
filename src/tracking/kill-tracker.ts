@@ -21,6 +21,7 @@ import type { PlaytimeTracker } from './playtime-tracker.js';
 import playerStatsSingleton from './player-stats.js';
 import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof config;
 type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
@@ -392,7 +393,7 @@ export class KillTracker {
         }
       }
     } catch (err) {
-      this._log.error('Failed to load kill tracker, starting fresh:', (err as Error).message);
+      this._log.error('Failed to load kill tracker, starting fresh:', errMsg(err));
       this._data = { players: {} };
     }
   }
@@ -403,7 +404,7 @@ export class KillTracker {
       if (this._db) this._db.setStateJSON('kill_tracker', this._data);
       this._dirty = false;
     } catch (err) {
-      this._log.error('Failed to save kill tracker:', (err as Error).message);
+      this._log.error('Failed to save kill tracker:', errMsg(err));
     }
   }
 
@@ -954,7 +955,7 @@ export class KillTracker {
         if (this._db) this._db.setStateJSON('weekly_baseline', baseline);
         this._log.info('Weekly baseline reset');
       } catch (err) {
-        this._log.error('Failed to write weekly baseline:', (err as Error).message);
+        this._log.error('Failed to write weekly baseline:', errMsg(err));
       }
     }
 

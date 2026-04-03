@@ -11,6 +11,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { errMsg } from '../utils/error.js';
 
 interface HumanitZDBLike {
   _db?: Database.Database | null;
@@ -93,7 +94,7 @@ class ConfigRepository {
     try {
       return JSON.parse(row.data) as Record<string, unknown>;
     } catch (err) {
-      console.error('[CONFIG-REPO] Corrupt JSON in scope:', scope, (err as Error).message);
+      console.error('[CONFIG-REPO] Corrupt JSON in scope:', scope, errMsg(err));
       return null;
     }
   }
@@ -137,7 +138,7 @@ class ConfigRepository {
           updatedAt: row.updated_at,
         });
       } catch (err) {
-        console.error(`[CONFIG-REPO] Skipping unparseable row scope="${row.scope}":`, (err as Error).message);
+        console.error(`[CONFIG-REPO] Skipping unparseable row scope="${row.scope}":`, errMsg(err));
       }
     }
     return map;
@@ -153,7 +154,7 @@ class ConfigRepository {
         updatedAt: row.updated_at,
       };
     } catch (err) {
-      console.error(`[CONFIG-REPO] Corrupt JSON in scope="${scope}" (getMeta):`, (err as Error).message);
+      console.error(`[CONFIG-REPO] Corrupt JSON in scope="${scope}" (getMeta):`, errMsg(err));
       return null;
     }
   }

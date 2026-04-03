@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from '../utils/paths.js';
+import { errMsg } from '../utils/error.js';
 
 const __dirname = getDirname(import.meta.url);
 
@@ -114,7 +115,7 @@ try {
   _saveParserEnums = { PERK_MAP: sp.PERK_MAP, CLAN_RANK_MAP: sp.CLAN_RANK_MAP };
 } catch (err: unknown) {
   if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
-    console.warn('[game-data-extract] save-parser load error:', (err as Error).message);
+    console.warn('[game-data-extract] save-parser load error:', errMsg(err));
   }
   _saveParserEnums = { PERK_MAP: {}, CLAN_RANK_MAP: {} };
 }

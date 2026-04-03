@@ -715,6 +715,7 @@ class ServerInstance {
     if (hasAnyAutoMsg && this.config.rconHost) {
       try {
         const mod = new AutoMessages({ ...deps, presenceTracker: this._modules.presenceTracker || null });
+        // Note: start() is synchronous; if it ever returns Promise, callers must await
         mod.start();
         this._modules.autoMessages = mod;
         this._log.info('AutoMessages active');

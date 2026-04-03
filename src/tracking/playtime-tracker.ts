@@ -3,6 +3,7 @@ import path from 'node:path';
 import config from '../config/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof config;
 
@@ -225,7 +226,7 @@ export class PlaytimeTracker {
           }
         }
       } catch (err) {
-        this._log.warn('DB reload on setDb() failed:', (err as Error).message);
+        this._log.warn('DB reload on setDb() failed:', errMsg(err));
       }
     }
   }
@@ -510,7 +511,7 @@ export class PlaytimeTracker {
       }
       this._log.info(`Loaded ${String(rows.length)} player(s) from database`);
     } catch (err) {
-      this._log.error('DB load failed:', (err as Error).message);
+      this._log.error('DB load failed:', errMsg(err));
       this._data = null;
     }
   }
@@ -531,7 +532,7 @@ export class PlaytimeTracker {
       });
     } catch (err) {
       if (!this._persistWarnLogged) {
-        this._log.warn('DB persist failed (will suppress further):', (err as Error).message);
+        this._log.warn('DB persist failed (will suppress further):', errMsg(err));
         this._persistWarnLogged = true;
       }
     }
@@ -657,7 +658,7 @@ export class PlaytimeTracker {
         this._log.info(`Backfilled uniqueDayPeak: ${String(bestCount)} on ${bestDate}`);
       }
     } catch (err) {
-      this._log.warn('Could not backfill uniqueDayPeak:', (err as Error).message);
+      this._log.warn('Could not backfill uniqueDayPeak:', errMsg(err));
     }
   }
 

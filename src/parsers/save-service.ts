@@ -19,6 +19,7 @@ import { createLogger, type Logger } from '../utils/log.js';
 
 import { diffSaveState } from '../db/diff-engine.js';
 import { reconcileItems } from '../db/item-tracker.js';
+import { errMsg } from '../utils/error.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -269,7 +270,7 @@ class SaveService extends EventEmitter {
         this._log.info(`Loaded ${String(count)} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err: unknown) {
-      this._log.warn('Could not load cached ID map:', (err as Error).message);
+      this._log.warn('Could not load cached ID map:', errMsg(err));
     }
   }
 
@@ -303,7 +304,7 @@ class SaveService extends EventEmitter {
         this._log.info(`Repaired ${String(fixed)} activity_log row(s) with resolved player names`);
       }
     } catch (err: unknown) {
-      this._log.warn('DB name repair failed (non-fatal):', (err as Error).message);
+      this._log.warn('DB name repair failed (non-fatal):', errMsg(err));
     }
   }
 
@@ -356,7 +357,7 @@ class SaveService extends EventEmitter {
     try {
       ({ buildAgentScript } = (await import('./agent-builder.js')) as unknown as { buildAgentScript: () => string });
     } catch (err: unknown) {
-      throw new Error(`Failed to load agent-builder: ${(err as Error).message}`, { cause: err });
+      throw new Error(`Failed to load agent-builder: ${errMsg(err)}`, { cause: err });
     }
 
     const script = buildAgentScript();
@@ -424,7 +425,7 @@ class SaveService extends EventEmitter {
         return true;
       }
     } catch (err: unknown) {
-      this._log.info(`SSH check failed: ${(err as Error).message}`);
+      this._log.info(`SSH check failed: ${errMsg(err)}`);
     }
     this._agentCapable = false;
     return false;
@@ -536,8 +537,8 @@ class SaveService extends EventEmitter {
         }
       }
     } catch (err: unknown) {
-      this._lastError = (err as Error).message;
-      this._log.error('Sync error:', (err as Error).message);
+      this._lastError = errMsg(err);
+      this._log.error('Sync error:', errMsg(err));
       this.emit('error', err);
     } finally {
       this._syncing = false;
@@ -571,7 +572,7 @@ class SaveService extends EventEmitter {
       try {
         clans = parseClanData(clanBuf);
       } catch (err: unknown) {
-        this._log.warn('Failed to parse clan data:', (err as Error).message);
+        this._log.warn('Failed to parse clan data:', errMsg(err));
       }
     }
 
@@ -614,7 +615,7 @@ class SaveService extends EventEmitter {
       this._log.warn(`Agent triggered (${trigger}) but cache not found at ${this._cachePath}`);
       return false;
     } catch (err: unknown) {
-      this._log.warn(`Agent mode failed: ${(err as Error).message}`);
+      this._log.warn(`Agent mode failed: ${errMsg(err)}`);
       return false;
     }
   }
@@ -790,7 +791,7 @@ class SaveService extends EventEmitter {
           this._lastMtime = mtime;
         }
       } catch (err: unknown) {
-        this._log.warn('Panel file list failed (will download anyway):', (err as Error).message);
+        this._log.warn('Panel file list failed (will download anyway):', errMsg(err));
       }
     }
 
@@ -893,7 +894,7 @@ class SaveService extends EventEmitter {
       const json = await api.readFile(this._cachePath);
       return this._parseCache(json, mtime);
     } catch (err: unknown) {
-      this._log.warn('Panel cache read failed:', (err as Error).message);
+      this._log.warn('Panel cache read failed:', errMsg(err));
       return null;
     }
   }
@@ -903,7 +904,7 @@ class SaveService extends EventEmitter {
     try {
       cache = JSON.parse(json) as Record<string, unknown>;
     } catch (err: unknown) {
-      this._log.warn(`Invalid cache JSON: ${(err as Error).message}`);
+      this._log.warn(`Invalid cache JSON: ${errMsg(err)}`);
       return null;
     }
     if (!cache || typeof cache['v'] !== 'number' || cache['v'] < 1) {
@@ -1018,7 +1019,7 @@ class SaveService extends EventEmitter {
         diffEvents = diffSaveState(oldState, newState, nameResolver);
       }
     } catch (err: unknown) {
-      this._log.warn('Diff engine error (non-fatal):', (err as Error).message);
+      this._log.warn('Diff engine error (non-fatal):', errMsg(err));
     }
 
     const worldDrops: unknown[] = [];
@@ -1076,7 +1077,7 @@ class SaveService extends EventEmitter {
         }
       }
     } catch (err: unknown) {
-      this._log.warn('World drops build error (non-fatal):', (err as Error).message);
+      this._log.warn('World drops build error (non-fatal):', errMsg(err));
     }
 
     this._db.syncAllFromSave({
@@ -1118,7 +1119,7 @@ class SaveService extends EventEmitter {
         this._db.purgeOldMovements('-30 days');
       }
     } catch (err: unknown) {
-      this._log.warn('Item tracker error (non-fatal):', (err as Error).message);
+      this._log.warn('Item tracker error (non-fatal):', errMsg(err));
     }
 
     if (diffEvents.length > 0) {
@@ -1126,7 +1127,7 @@ class SaveService extends EventEmitter {
         this._db.insertActivities(diffEvents);
         this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
       } catch (err: unknown) {
-        this._log.warn('Failed to write activity log:', (err as Error).message);
+        this._log.warn('Failed to write activity log:', errMsg(err));
       }
     }
 
@@ -1211,7 +1212,7 @@ class SaveService extends EventEmitter {
         structures: structuresList,
       };
     } catch (err: unknown) {
-      this._log.warn('Could not read old state for diff:', (err as Error).message);
+      this._log.warn('Could not read old state for diff:', errMsg(err));
       return null;
     }
   }
@@ -1240,7 +1241,7 @@ class SaveService extends EventEmitter {
       const cachePath = path.join(__dirname, '..', '..', 'data', 'save-cache.json');
       fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
     } catch (err: unknown) {
-      this._log.error('Failed to write save-cache.json:', (err as Error).message);
+      this._log.error('Failed to write save-cache.json:', errMsg(err));
     }
   }
 }

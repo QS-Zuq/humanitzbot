@@ -18,6 +18,7 @@ import playtime from '../tracking/playtime-tracker.js';
 import { t, getLocalizations } from '../i18n/index.js';
 import config from '../config/index.js';
 import { buildPlayerEmbed } from '../modules/player-embed.js';
+import { errMsg } from '../utils/error.js';
 
 export const data = new SlashCommandBuilder()
   .setName('playerstats')
@@ -118,7 +119,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
       } catch (err) {
         const code = (err as { code?: number }).code;
         if (![10062, 10008, 40060].includes(code ?? -1)) {
-          console.error('[CMD:playerstats] Select interaction error:', (err as Error).message);
+          console.error('[CMD:playerstats] Select interaction error:', errMsg(err));
         }
       }
     })();

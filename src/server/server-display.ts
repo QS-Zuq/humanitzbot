@@ -10,8 +10,7 @@
  */
 
 import { getDayOffset, getRotatedProfileIndex } from '../modules/schedule-utils.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
-const { formatBytes: _fmtBytes } = require('./server-resources') as typeof import('./server-resources');
+import { formatBytes as _fmtBytes } from './server-resources.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Label constants

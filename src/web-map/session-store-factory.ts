@@ -10,6 +10,7 @@
 import type { Store } from 'express-session';
 import { createLogger } from '../utils/log.js';
 import { SqliteSessionStore } from './session-stores/sqlite-store.js';
+import { errMsg } from '../utils/error.js';
 
 const _log = createLogger(null, 'SESSION');
 
@@ -42,7 +43,7 @@ function createSessionStore(config: any, db?: any): Store | undefined {
             _log.info('Redis connected');
           })
           .catch((err: unknown) => {
-            _log.error('Redis connect failed:', (err as Error).message);
+            _log.error('Redis connect failed:', errMsg(err));
             _log.error('Sessions will fail until Redis is available');
           });
 

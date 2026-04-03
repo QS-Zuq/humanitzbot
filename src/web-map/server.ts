@@ -24,10 +24,7 @@ import rcon from '../rcon/rcon.js';
 import { setupAuth, requireTier } from './auth.js';
 import { API_ERRORS, sendError, sendOk } from './api-errors.js';
 
-import serverResources from '../server/server-resources.js';
-const { formatBytes, formatUptime } =
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance, named exports inaccessible
-  require('../server/server-resources') as typeof import('../server/server-resources');
+import serverResources, { formatBytes, formatUptime } from '../server/server-resources.js';
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
 import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
 import { readPrivateKey } from '../utils/security.js';
@@ -39,6 +36,7 @@ import {
 import _panelApiInstance from '../server/panel-api.js';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class
 const { discoverPaths: _discoverPaths } = require('../server/multi-server') as typeof import('../server/multi-server');
+import { errMsg } from '../utils/error.js';
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
@@ -3978,7 +3976,7 @@ class WebMapServer {
           clearTimeout(timeoutHandle);
           if (job.state !== 'running') return;
           job.state = 'failed';
-          job.error = ((err as Error).message || 'Discovery failed').substring(0, 200);
+          job.error = (errMsg(err) || 'Discovery failed').substring(0, 200);
           job.currentStep = null;
         });
 

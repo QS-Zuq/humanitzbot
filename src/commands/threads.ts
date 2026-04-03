@@ -10,6 +10,7 @@ import config from '../config/index.js';
 import { t, getLocalizations } from '../i18n/index.js';
 
 import _SftpClient from 'ssh2-sftp-client';
+import { errMsg } from '../utils/error.js';
 const SftpClient = _SftpClient as unknown as new () => {
   connect(config: unknown): Promise<void>;
   get(path: string): Promise<Buffer>;
@@ -423,14 +424,14 @@ export async function rebuildThreads(
       const buf = await sftp.get(cfg.sftpLogPath);
       hmzText = buf.toString('utf8');
     } catch (err) {
-      console.warn('[THREADS] HMZLog not found:', (err as Error).message);
+      console.warn('[THREADS] HMZLog not found:', errMsg(err));
     }
 
     try {
       const buf = await sftp.get(cfg.sftpConnectLogPath);
       connectText = buf.toString('utf8');
     } catch (err) {
-      console.warn('[THREADS] ConnectLog not found:', (err as Error).message);
+      console.warn('[THREADS] ConnectLog not found:', errMsg(err));
     }
   } catch (err) {
     return {
@@ -438,7 +439,7 @@ export async function rebuildThreads(
       deleted: 0,
       preserved: 0,
       cleaned: 0,
-      error: `SFTP connection failed: ${(err as Error).message}`,
+      error: `SFTP connection failed: ${errMsg(err)}`,
     };
   } finally {
     await sftp.end().catch(() => {
@@ -502,7 +503,7 @@ export async function rebuildThreads(
     }
     if (cleaned > 0) console.log(`[THREADS] Cleaned ${String(cleaned)} old summary/starter messages from channel`);
   } catch (err) {
-    console.warn('[THREADS] Could not clean channel messages:', (err as Error).message);
+    console.warn('[THREADS] Could not clean channel messages:', errMsg(err));
   }
 
   // ── Create threads (preserving existing content) ───────
@@ -529,7 +530,7 @@ export async function rebuildThreads(
         const msgs = await _fetchThreadMessages(oldThread);
         savedMessages.push(...msgs);
       } catch (err) {
-        console.warn(`[THREADS] Could not read messages from "${threadName}":`, (err as Error).message);
+        console.warn(`[THREADS] Could not read messages from "${threadName}":`, errMsg(err));
       }
     }
 
@@ -575,7 +576,7 @@ export async function rebuildThreads(
           await newThread.send(payload);
           preserved++;
         } catch (err) {
-          console.warn(`[THREADS] Could not re-post message in "${threadName}":`, (err as Error).message);
+          console.warn(`[THREADS] Could not re-post message in "${threadName}":`, errMsg(err));
         }
       }
 
@@ -586,7 +587,7 @@ export async function rebuildThreads(
         });
       }
     } catch (err) {
-      console.error(`[THREADS] Failed to create thread for ${dateStr}:`, (err as Error).message);
+      console.error(`[THREADS] Failed to create thread for ${dateStr}:`, errMsg(err));
     }
   }
 

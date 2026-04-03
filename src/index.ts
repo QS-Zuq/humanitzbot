@@ -791,6 +791,7 @@ client.once(Events.ClientReady, (readyClient) => {
         db,
         label: 'AUTO MSG',
       });
+      // Note: start() is synchronous; if it ever returns Promise, callers must await
       autoMessages.start();
       setStatus('Auto-Messages', '🟢 Active');
     } else {

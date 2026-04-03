@@ -13,8 +13,7 @@ import {
 } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-template-expression -- Phase 5: type class fields */
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
-const { formatUptime: fmtUp } = require('../server/server-resources') as typeof import('../server/server-resources');
+import { formatUptime as fmtUp } from '../server/server-resources.js';
 
 function _ts(locale: any, key: any, vars: any = {}) {
   return t(`discord:status.${key}`, locale, vars);

@@ -1,6 +1,7 @@
 import { ChannelType } from 'discord.js';
 import _defaultConfig from '../config/index.js';
 import { getPlayerList } from '../rcon/server-info.js';
+import { errMsg } from '../utils/error.js';
 
 const STATUS_CHANNELS = [{ key: 'players', template: '\u{1F465} Players: {value}', fallback: '\u{1F465} Players: --' }];
 
@@ -52,13 +53,13 @@ class StatusChannels {
 
       // Initial update
       void this._update().catch((err: unknown) => {
-        console.error('[STATUS] Initial update error:', (err as Error).message);
+        console.error('[STATUS] Initial update error:', errMsg(err));
       });
 
       // Start repeating updates
       this.interval = setInterval(() => void this._update(), this.updateIntervalMs);
     } catch (err: unknown) {
-      console.error('[STATUS] Failed to start:', (err as Error).message);
+      console.error('[STATUS] Failed to start:', errMsg(err));
     }
   }
 
