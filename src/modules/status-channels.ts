@@ -1,40 +1,55 @@
-import { ChannelType } from 'discord.js';
+import { type Client, type Guild, type VoiceChannel, ChannelType, type GuildBasedChannel } from 'discord.js';
 import _defaultConfig from '../config/index.js';
 import { getPlayerList } from '../rcon/server-info.js';
 import { errMsg } from '../utils/error.js';
 
-const STATUS_CHANNELS = [{ key: 'players', template: '\u{1F465} Players: {value}', fallback: '\u{1F465} Players: --' }];
+type ConfigType = typeof _defaultConfig;
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
+interface StatusSpec {
+  key: string;
+  template: string;
+  fallback: string;
+}
+
+const STATUS_CHANNELS: StatusSpec[] = [
+  { key: 'players', template: '\u{1F465} Players: {value}', fallback: '\u{1F465} Players: --' },
+];
+
+interface StatusChannelsDeps {
+  config?: ConfigType;
+  getPlayerList?: typeof getPlayerList;
+  categoryName?: string;
+}
+
 class StatusChannels {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 5: replace index signature with typed fields
-  [key: string]: any;
-  /**
-   * @param {import('discord.js').Client} client
-   * @param {object} [deps]
-   * @param {object} [deps.config]        Config overrides (for multi-server)
-   * @param {Function} [deps.getPlayerList] Custom getPlayerList function (bound to a specific rcon)
-   * @param {string} [deps.categoryName]   Category name hint — used to find (NOT create) the category
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps shape varies by caller
-  constructor(client: any, deps: any = {}) {
+  private client: Client;
+  private guild: Guild | null;
+  private channels: Map<string, VoiceChannel>;
+  private interval: ReturnType<typeof setInterval> | null;
+  private _config: ConfigType;
+  private _getPlayerList: typeof getPlayerList;
+  private _categoryHint: string;
+  private updateIntervalMs: number;
+
+  constructor(client: Client, deps: StatusChannelsDeps = {}) {
     this.client = client;
     this.guild = null;
     this.channels = new Map(); // key -> channel
     this.interval = null;
-    this._config = deps.config || _defaultConfig;
-    this._getPlayerList = deps.getPlayerList || getPlayerList;
-    this._categoryHint = deps.categoryName || '';
+    this._config = deps.config ?? _defaultConfig;
+    this._getPlayerList = deps.getPlayerList ?? getPlayerList;
+    this._categoryHint = deps.categoryName ?? '';
     this.updateIntervalMs = Math.max(this._config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
   }
 
   async start() {
     try {
-      this.guild = await this.client.guilds.fetch(this._config.guildId);
-      if (!this.guild) {
+      const guildId = this._config.guildId;
+      if (!guildId) {
         console.error('[STATUS] Guild not found! Check DISCORD_GUILD_ID.');
         return;
       }
+      this.guild = await this.client.guilds.fetch(guildId);
 
       // Find existing voice channels matching the "👥 Players:" pattern.
       // Search in the hinted category first, then across all categories.
@@ -75,40 +90,40 @@ class StatusChannels {
    * Searches by prefix ("👥 Pl") in any category. If a category hint is provided,
    * prefer channels inside that category.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- spec shape is internal
-  _findChannel(spec: any) {
-    const prefix = spec.template.split('{value}')[0].substring(0, 5);
+  private _findChannel(spec: StatusSpec) {
+    const prefix = (spec.template.split('{value}')[0] ?? '').substring(0, 5);
+    if (!this.guild) return;
     const allChannels = this.guild.channels.cache;
 
     // Prefer channel in hinted category
     if (this._categoryHint) {
       const cat = allChannels.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discord.js channel union
-        (c: any) =>
+        (c: GuildBasedChannel) =>
           c.type === ChannelType.GuildCategory &&
           c.name.toLowerCase().includes(this._categoryHint.replace(/📊\s*/g, '').toLowerCase().substring(0, 10)),
       );
       if (cat) {
         const inCat = allChannels.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discord.js channel union
-          (c: any) => c.parentId === cat.id && c.type === ChannelType.GuildVoice && c.name.startsWith(prefix),
+          (c: GuildBasedChannel) =>
+            c.parentId === cat.id && c.type === ChannelType.GuildVoice && c.name.startsWith(prefix),
         );
         if (inCat) {
-          this.channels.set(spec.key, inCat);
+          this.channels.set(spec.key, inCat as VoiceChannel);
           return;
         }
       }
     }
 
     // Fallback: search across all categories
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- discord.js channel union
-    const found = allChannels.find((c: any) => c.type === ChannelType.GuildVoice && c.name.startsWith(prefix));
+    const found = allChannels.find(
+      (c: GuildBasedChannel) => c.type === ChannelType.GuildVoice && c.name.startsWith(prefix),
+    );
     if (found) {
-      this.channels.set(spec.key, found);
+      this.channels.set(spec.key, found as VoiceChannel);
     }
   }
 
-  async _update() {
+  private async _update() {
     try {
       const playerList = await this._getPlayerList();
 
@@ -120,7 +135,7 @@ class StatusChannels {
         const channel = this.channels.get(spec.key);
         if (!channel) continue;
 
-        const value = values[spec.key] || '--';
+        const value = values[spec.key] ?? '--';
         const newName = spec.template.replace('{value}', value);
 
         if (channel.name !== newName) {

@@ -210,7 +210,7 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
   try {
     const [resources, details] = await Promise.all([panelApi.getResources(), panelApi.getServerDetails()]);
 
-    const si = _stateInfo(resources.state, locale);
+    const si = _stateInfo(resources.state ?? '', locale);
     const embed = new EmbedBuilder()
       .setTitle(t('commands:qspanel.embeds.status_title', locale))
       .setColor(si.color)
@@ -375,7 +375,7 @@ async function _backups(interaction: import('discord.js').ChatInputCommandIntera
         return t('commands:qspanel.reply.backup_line', locale, {
           status,
           lock,
-          name: b.name ?? t('commands:qspanel.reply.backup_fallback_name', locale, { index: i + 1 }),
+          name: b.name || t('commands:qspanel.reply.backup_fallback_name', locale, { index: i + 1 }),
           size,
           date,
           uuid: b.uuid,

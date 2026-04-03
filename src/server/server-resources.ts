@@ -9,10 +9,7 @@
 import _defaultConfig from '../config/index.js';
 import panelApi from './panel-api.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/prefer-promise-reject-errors
-   -- SSH/Panel API responses and config are untyped; ssh2 Client has no TS types */
+// SSH/Panel API responses typed via interfaces; ssh2 Client typed locally
 
 // ── Result shape ────────────────────────────────────────────
 
@@ -70,7 +67,7 @@ function formatUptime(seconds: number | null | undefined): string | null {
 async function _fetchPterodactyl(): Promise<ResourceResult> {
   const result = _emptyResult();
   result.source = 'pterodactyl';
-  const r: any = await (panelApi as any).getResources();
+  const r = await panelApi.getResources();
   if (r.cpu != null) result.cpu = r.cpu;
   if (r.memUsed != null) result.memUsed = r.memUsed;
   if (r.memTotal != null) result.memTotal = r.memTotal;
@@ -118,7 +115,7 @@ function parseSshOutput(output: string): ResourceResult {
   }
 
   const dfLines = output.split('\n').filter((l: string) => /^\S+\s+\d/.test(l));
-  const gamePath: string = (_defaultConfig as any).sftpBasePath || '/';
+  const gamePath: string = _defaultConfig.sftpBasePath || '/';
   let bestLine: string[] | null = null;
   let bestMountLen = 0;
   for (const line of dfLines) {
@@ -150,11 +147,23 @@ function parseSshOutput(output: string): ResourceResult {
   return result;
 }
 
+interface SshStream {
+  on(event: string, cb: (data: Buffer | number) => void): void;
+  stderr: { on(event: string, cb: (data: Buffer) => void): void };
+}
+
+interface SshClient {
+  on(event: string, cb: (err?: Error) => void): SshClient;
+  connect(opts: Record<string, unknown>): void;
+  exec(cmd: string, cb: (err: Error | null, stream: SshStream) => void): void;
+  end(): void;
+}
+
 async function _fetchSsh(): Promise<ResourceResult> {
-  const { Client } = (await import('ssh2')) as { Client: any };
+  const { Client } = (await import('ssh2')) as { Client: new () => SshClient };
 
   return new Promise((resolve, reject) => {
-    const conn = new Client();
+    const conn: SshClient = new Client();
     const timeout = setTimeout(() => {
       conn.end();
       reject(new Error('SSH command timed out'));
@@ -164,7 +173,7 @@ async function _fetchSsh(): Promise<ResourceResult> {
       const cmd =
         'cat /proc/stat 2>/dev/null; echo "---MEMINFO---"; cat /proc/meminfo 2>/dev/null; echo "---DF---"; df -k 2>/dev/null; echo "---UPTIME---"; cat /proc/uptime 2>/dev/null';
 
-      conn.exec(cmd, (err: any, stream: any) => {
+      conn.exec(cmd, (err: Error | null, stream: SshStream) => {
         if (err) {
           clearTimeout(timeout);
           conn.end();
@@ -172,8 +181,8 @@ async function _fetchSsh(): Promise<ResourceResult> {
           return;
         }
         let data = '';
-        stream.on('data', (chunk: Buffer) => {
-          data += chunk.toString();
+        stream.on('data', (chunk: Buffer | number) => {
+          data += String(chunk);
         });
         stream.stderr.on('data', () => {
           /* ignore stderr */
@@ -183,22 +192,22 @@ async function _fetchSsh(): Promise<ResourceResult> {
           conn.end();
           try {
             resolve(parseSshOutput(data));
-          } catch (e) {
-            reject(e);
+          } catch (e: unknown) {
+            reject(e instanceof Error ? e : new Error(String(e)));
           }
         });
       });
     });
 
-    conn.on('error', (err: any) => {
+    conn.on('error', (err?: Error) => {
       clearTimeout(timeout);
-      reject(err);
+      reject(err ?? new Error('SSH connection error'));
     });
 
-    const sftpCfg = (_defaultConfig as any).sftpConnectConfig();
+    const sftpCfg = _defaultConfig.sftpConnectConfig();
     conn.connect({
       host: sftpCfg.host,
-      port: (_defaultConfig as any).sshPort || sftpCfg.port,
+      port: _defaultConfig.sshPort || sftpCfg.port,
       username: sftpCfg.username,
       password: sftpCfg.password,
       privateKey: sftpCfg.privateKey,
@@ -218,18 +227,13 @@ class ServerResources {
   constructor() {
     this._cache = null;
     this._cacheTime = 0;
-    this._ttl = parseInt(String((_defaultConfig as any).resourceCacheTtl), 10) || 30000;
+    this._ttl = parseInt(String(_defaultConfig.resourceCacheTtl), 10) || 30000;
     this._backend = this._detectBackend();
   }
 
   private _detectBackend(): 'pterodactyl' | 'ssh' | null {
-    if ((panelApi as any).available) return 'pterodactyl';
-    if (
-      (_defaultConfig as any).enableSshResources &&
-      (_defaultConfig as any).sftpHost &&
-      (_defaultConfig as any).sftpUser
-    )
-      return 'ssh';
+    if (panelApi.available) return 'pterodactyl';
+    if (_defaultConfig.enableSshResources && _defaultConfig.sftpHost && _defaultConfig.sftpUser) return 'ssh';
     return null;
   }
 

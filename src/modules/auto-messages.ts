@@ -1,29 +1,62 @@
 import _defaultConfig from '../config/index.js';
-import { sendAdminMessage, getServerInfo } from '../rcon/server-info.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
-import _defaultPlayerStats from '../tracking/player-stats.js';
-import { createLogger } from '../utils/log.js';
+import { sendAdminMessage, getServerInfo, type ServerInfo } from '../rcon/server-info.js';
+import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
+import { createLogger, type Logger } from '../utils/log.js';
 
 // Content layer: text generation, color helpers, welcome file builder
 import * as content from './auto-messages-content.js';
 import { errMsg } from '../utils/error.js';
 const { _rconColorLink, buildWelcomeContent } = content;
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
-class AutoMessages {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 5: replace index signature with typed fields
-  [key: string]: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps shape varies by caller
-  constructor(deps: any = {}) {
-    this._config = deps.config || _defaultConfig;
-    this._playtime = deps.playtime || _defaultPlaytime;
-    this._playerStats = deps.playerStats || _defaultPlayerStats;
-    this._getServerInfo = deps.getServerInfo || getServerInfo;
-    this._sendAdminMessage = deps.sendAdminMessage || sendAdminMessage;
-    this._presenceTracker = deps.presenceTracker || null;
-    this._log = createLogger(deps.label, 'AUTO MSG');
-    this._db = deps.db || null;
+type ConfigType = typeof _defaultConfig;
+interface Joiner {
+  name: string;
+  steamId?: string;
+}
 
+interface PresenceTracker {
+  on(event: string, listener: (...args: unknown[]) => void): void;
+  removeListener(event: string, listener: (...args: unknown[]) => void): void;
+}
+
+interface AutoMessagesDeps {
+  config?: ConfigType;
+  playtime?: PlaytimeTracker;
+  playerStats?: unknown;
+  getServerInfo?: typeof getServerInfo;
+  sendAdminMessage?: typeof sendAdminMessage;
+  presenceTracker?: PresenceTracker | null;
+  label?: string;
+  db?: unknown;
+}
+
+class AutoMessages {
+  private _config: ConfigType;
+  private _playtime: PlaytimeTracker;
+  private _getServerInfo: typeof getServerInfo;
+  private _sendAdminMessage: typeof sendAdminMessage;
+  private _presenceTracker: PresenceTracker | null;
+  private _log: Logger;
+  private discordLink: string;
+  private linkInterval: number;
+  private promoInterval: number;
+  private _linkTimer: ReturnType<typeof setInterval> | null;
+  private _promoTimer: ReturnType<typeof setInterval> | null;
+  private _onPlayerJoined: ((joiner: Joiner) => void) | null;
+  private _lastWelcomeTime: number;
+  private _welcomeCooldown: number;
+
+  // Mixed-in from auto-messages-content.ts via Object.assign
+  _difficultyText!: (this: AutoMessages) => string;
+  _pvpScheduleText!: (this: AutoMessages) => string;
+
+  constructor(deps: AutoMessagesDeps = {}) {
+    this._config = deps.config ?? _defaultConfig;
+    this._playtime = deps.playtime ?? _defaultPlaytime;
+    this._getServerInfo = deps.getServerInfo ?? getServerInfo;
+    this._sendAdminMessage = deps.sendAdminMessage ?? sendAdminMessage;
+    this._presenceTracker = deps.presenceTracker ?? null;
+    this._log = createLogger(deps.label, 'AUTO MSG');
     this.discordLink = this._config.discordInviteLink;
 
     // Intervals (configurable via .env, defaults in ms)
@@ -59,9 +92,8 @@ class AutoMessages {
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joiner shape from event emitter
-      this._onPlayerJoined = (joiner: any) => void this._sendWelcomeMessage(joiner);
-      this._presenceTracker.on('playerJoined', this._onPlayerJoined);
+      this._onPlayerJoined = (joiner: Joiner) => void this._sendWelcomeMessage(joiner);
+      this._presenceTracker.on('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
       this._log.info('RCON welcome messages enabled (on player join)');
     } else if (this._config.enableWelcomeMsg) {
       this._log.info('RCON welcome messages enabled but no presence tracker \u2014 skipping');
@@ -75,7 +107,7 @@ class AutoMessages {
     if (this._linkTimer) clearInterval(this._linkTimer);
     if (this._promoTimer) clearInterval(this._promoTimer);
     if (this._onPlayerJoined && this._presenceTracker) {
-      this._presenceTracker.removeListener('playerJoined', this._onPlayerJoined);
+      this._presenceTracker.removeListener('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
       this._onPlayerJoined = null;
     }
     this._linkTimer = null;
@@ -85,12 +117,7 @@ class AutoMessages {
 
   // ── Private methods ────────────────────────────────────────
 
-  /** Colorize a Discord invite link (instance wrapper). */
-  _colorLink(link: string) {
-    return content._colorLink(link);
-  }
-
-  async _sendDiscordLink() {
+  private async _sendDiscordLink() {
     if (!this.discordLink) return;
     try {
       const custom = this._config.autoMsgLinkText;
@@ -104,7 +131,7 @@ class AutoMessages {
     }
   }
 
-  async _sendPromoMessage() {
+  private async _sendPromoMessage() {
     try {
       const custom = this._config.autoMsgPromoText;
       const msg = custom
@@ -118,13 +145,33 @@ class AutoMessages {
   }
 
   /** Resolve placeholders in custom broadcast messages. */
-  async _resolveMessagePlaceholders(text: string) {
+  private async _resolveMessagePlaceholders(text: string): Promise<string> {
     const info = await this._getServerInfoSafe();
     return this._resolvePlaceholders(text, info);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- joiner shape from event emitter
-  async _sendWelcomeMessage(joiner: any) {
+  /** Safely fetch server info, returning an empty-fields object on failure. */
+  private async _getServerInfoSafe(): Promise<ServerInfo> {
+    try {
+      return await this._getServerInfo();
+    } catch {
+      return { raw: '', fields: {} };
+    }
+  }
+
+  /** Replace {placeholder} tokens in a text template with server info values. */
+  private _resolvePlaceholders(text: string, info: ServerInfo): string {
+    return text
+      .replace(/\{players\}/gi, String(info.players ?? '?'))
+      .replace(/\{maxPlayers\}/gi, String(info.maxPlayers ?? '?'))
+      .replace(/\{serverName\}/gi, info.name ?? this._config.serverName)
+      .replace(/\{time\}/gi, info.time ?? '?')
+      .replace(/\{season\}/gi, info.season ?? '?')
+      .replace(/\{day\}/gi, info.day ?? '?')
+      .replace(/\{discord\}/gi, this.discordLink || '');
+  }
+
+  private async _sendWelcomeMessage(joiner: Joiner) {
     // Anti-spam: don't stack welcome messages too close together
     const now = Date.now();
     if (now - this._lastWelcomeTime < this._welcomeCooldown) {
@@ -137,7 +184,7 @@ class AutoMessages {
       const link = this.discordLink ? `</><SP> | ${_rconColorLink(this.discordLink)}` : '';
 
       const sep = '</><SP> | </>';
-      let msg;
+      let msg: string;
       if (pt && pt.isReturning) {
         msg = `<FO>Welcome back, </>${joiner.name}<FO>!${sep}<FO>Playtime: ${pt.totalFormatted}${diffInfo}${link}`;
       } else {

@@ -9,29 +9,34 @@
  */
 import EventEmitter from 'events';
 import _defaultConfig from '../config/index.js';
-import { createLogger } from '../utils/log.js';
-import { getPlayerList as _defaultGetPlayerList } from '../rcon/server-info.js';
-import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { getPlayerList as _defaultGetPlayerList, type PlayerList } from '../rcon/server-info.js';
+import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
 import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof _defaultConfig;
 
 interface PresenceDeps {
   config?: ConfigType;
-  playtime?: typeof _defaultPlaytime;
+  playtime?: PlaytimeTracker;
   getPlayerList?: typeof _defaultGetPlayerList;
   label?: string;
 }
 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- class uses dynamic this._xxx via index signature */
 class PlayerPresenceTracker extends EventEmitter {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 5: replace index signature with typed fields
-  [key: string]: any;
+  private _config: ConfigType;
+  private _playtime: PlaytimeTracker;
+  private _getPlayerList: typeof _defaultGetPlayerList;
+  private _log: Logger;
+  private _onlinePlayers: Set<string>;
+  private _pollTimer: ReturnType<typeof setInterval> | null;
+  private _initialised: boolean;
+
   constructor(deps: PresenceDeps = {}) {
     super();
-    this._config = deps.config || _defaultConfig;
-    this._playtime = deps.playtime || _defaultPlaytime;
-    this._getPlayerList = deps.getPlayerList || _defaultGetPlayerList;
+    this._config = deps.config ?? _defaultConfig;
+    this._playtime = deps.playtime ?? _defaultPlaytime;
+    this._getPlayerList = deps.getPlayerList ?? _defaultGetPlayerList;
     // Sanitize label — may originate from user-configurable server names in multi-server mode
     this._log = createLogger(deps.label, 'PRESENCE');
 
@@ -73,19 +78,17 @@ class PlayerPresenceTracker extends EventEmitter {
    * Seed the online player set at startup so we don't treat
    * already-online players as new joiners.
    */
-  async _seedPlayers() {
+  private async _seedPlayers() {
     try {
       const list = await this._getPlayerList();
-      if (list.players && list.players.length > 0) {
-        for (const p of list.players) {
-          const hasSteamId = p.steamId && p.steamId !== 'N/A';
-          const id = hasSteamId ? p.steamId : p.name;
-          this._onlinePlayers.add(id);
+      for (const p of list.players) {
+        const hasSteamId = p.steamId && p.steamId !== 'N/A';
+        const id = hasSteamId ? p.steamId : p.name;
+        this._onlinePlayers.add(id);
 
-          // Start playtime session for players with a real SteamID
-          if (hasSteamId) {
-            this._playtime.playerJoin(id, p.name || 'Unknown');
-          }
+        // Start playtime session for players with a real SteamID
+        if (hasSteamId) {
+          this._playtime.playerJoin(id, p.name || 'Unknown');
         }
       }
       this._initialised = true;
@@ -100,10 +103,10 @@ class PlayerPresenceTracker extends EventEmitter {
    * Poll the RCON player list, update peak/unique stats,
    * and emit events for player joins and leaves.
    */
-  async _poll() {
+  private async _poll() {
     if (!this._initialised) return;
 
-    let list;
+    let list: PlayerList;
     try {
       list = await this._getPlayerList();
     } catch {
@@ -112,18 +115,16 @@ class PlayerPresenceTracker extends EventEmitter {
     }
 
     try {
-      const currentOnline = new Set();
+      const currentOnline = new Set<string>();
       const newJoiners: { id: string; name: string; steamId: string | null }[] = [];
 
-      if (list.players && list.players.length > 0) {
-        for (const p of list.players) {
-          const hasSteamId = p.steamId && p.steamId !== 'N/A';
-          const id = hasSteamId ? p.steamId : p.name;
-          currentOnline.add(id);
+      for (const p of list.players) {
+        const hasSteamId = p.steamId && p.steamId !== 'N/A';
+        const id = hasSteamId ? p.steamId : p.name;
+        currentOnline.add(id);
 
-          if (!this._onlinePlayers.has(id)) {
-            newJoiners.push({ id, name: p.name || 'Unknown', steamId: hasSteamId ? p.steamId : null });
-          }
+        if (!this._onlinePlayers.has(id)) {
+          newJoiners.push({ id, name: p.name || 'Unknown', steamId: hasSteamId ? p.steamId : null });
         }
       }
 
