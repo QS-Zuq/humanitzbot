@@ -16,14 +16,8 @@
 
 import * as _gameData from './game-data.js';
 
-// Lazy-loaded; may fail if save-parser has circular issues at init time
-let _saveParserModule: { PERK_MAP: Record<string, string> } = { PERK_MAP: {} };
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
-  _saveParserModule = require('./save-parser') as unknown as typeof _saveParserModule;
-} catch {
-  // save-parser not available — PERK_MAP stays empty
-}
+import { PERK_MAP as _PERK_MAP } from './save-parser.js';
+const _saveParserModule = { PERK_MAP: _PERK_MAP };
 
 const AFFLICTION_MAP = _gameData['AFFLICTION_MAP'];
 const AFFLICTION_DETAILS = _gameData['AFFLICTION_DETAILS'] as Record<string, { name: string; description: string }>;

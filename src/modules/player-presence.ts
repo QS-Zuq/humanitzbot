@@ -160,13 +160,6 @@ class PlayerPresenceTracker extends EventEmitter {
     }
   }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 
 export default PlayerPresenceTracker;
 export { PlayerPresenceTracker };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-_mod.exports = PlayerPresenceTracker;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports.PlayerPresenceTracker = PlayerPresenceTracker;

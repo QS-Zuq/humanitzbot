@@ -1340,12 +1340,5 @@ Object.assign(LogWatcher.prototype, logWatcherThreads);
 
 Object.assign(LogWatcher.prototype, logWatcherEvents);
 
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-confusing-void-expression */
-
 export default LogWatcher;
 export { LogWatcher };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-
-_mod.exports = LogWatcher;

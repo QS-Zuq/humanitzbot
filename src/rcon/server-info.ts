@@ -209,15 +209,4 @@ export function parsePlayerList(raw: string | null | undefined): PlayerList {
   return { count, players, raw };
 }
 
-// CJS compatibility — non-migrated .js files require() this module
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = {
-  COMMANDS,
-  getServerInfo,
-  getPlayerList,
-  sendAdminMessage,
-  // Exported for testing
-  _parseServerInfo: parseServerInfo,
-  _parsePlayerList: parsePlayerList,
-};
+export { parseServerInfo as _parseServerInfo, parsePlayerList as _parsePlayerList };

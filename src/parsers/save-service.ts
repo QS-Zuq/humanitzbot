@@ -20,6 +20,8 @@ import { createLogger, type Logger } from '../utils/log.js';
 import { diffSaveState } from '../db/diff-engine.js';
 import { reconcileItems } from '../db/item-tracker.js';
 import { errMsg } from '../utils/error.js';
+import _rconDefault from '../rcon/rcon.js';
+import _panelApiDefault from '../server/panel-api.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -88,22 +90,9 @@ interface SaveServiceOptions {
   dataDir?: string;
 }
 
-// Optional modules — preloaded at module scope, null if not installed
-let _rconModule: RconModule | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
-  _rconModule = require('../rcon/rcon') as unknown as RconModule;
-} catch {
-  /* rcon not available */
-}
-
-let _panelApiModule: PanelApi | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
-  _panelApiModule = require('../server/panel-api') as unknown as PanelApi;
-} catch {
-  /* panel-api not available */
-}
+// Module-scope references to singletons (always available as internal modules)
+const _rconModule: RconModule | null = _rconDefault as unknown as RconModule;
+const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi;
 
 interface GameDB {
   db?: unknown;
@@ -1248,9 +1237,3 @@ class SaveService extends EventEmitter {
 
 export default SaveService;
 export { SaveService };
-
-// CJS compatibility — .js consumers use require('./save-service')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = SaveService;

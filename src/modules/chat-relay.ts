@@ -450,12 +450,5 @@ Object.assign(ChatRelay.prototype, {
   _sanitizeRcon: chatParser._sanitizeRcon,
 });
 
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion */
-
 export default ChatRelay;
 export { ChatRelay };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-
-_mod.exports = ChatRelay;

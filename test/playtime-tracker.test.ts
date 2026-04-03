@@ -71,12 +71,12 @@ function freshTracker(today = '2026-02-20') {
   delete require.cache[modPath];
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const tracker = require(modPath);
+  const tracker = require(modPath).default;
 
   // Stub config.getToday
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const config = require('../src/config');
+  const config = require('../src/config').default;
   const origGetToday = config.getToday;
   config.getToday = () => today;
 

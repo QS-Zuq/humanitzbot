@@ -134,7 +134,7 @@ describe('_cleanItemName', () => {
 
 describe('_isNewWeek (via KillTracker)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = require('../src/tracking/kill-tracker');
 
   function makeTracker(resetDay = 1, tz = 'UTC') {
     return new KillTracker({
@@ -203,7 +203,7 @@ describe('_isNewWeek (via KillTracker)', () => {
 
 describe('_snapshotPlayerStats (via KillTracker)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = require('../src/tracking/kill-tracker');
 
   function makeTracker(_saveData: Map<string, unknown>, logStats?: unknown, ptData?: unknown) {
     return new KillTracker({
@@ -267,7 +267,7 @@ describe('_resolveUdsWeather', () => {
 
 describe('Challenge tracking (via KillTracker)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = require('../src/tracking/kill-tracker');
 
   it('CHALLENGE_KEYS contains all 19 challenge fields', () => {
     assert.equal(KillTracker.CHALLENGE_KEYS.length, 19);

@@ -15,15 +15,11 @@ import fs from 'fs';
 import path from 'path';
 import SftpClient from 'ssh2-sftp-client';
 import _defaultConfig from '../config/index.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton, named ESM exports inaccessible
-const { RconManager } = require('../rcon/rcon') as typeof import('../rcon/rcon');
+import { RconManager } from '../rcon/rcon.js';
 import { PanelRcon } from '../rcon/panel-rcon.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = instance
-const { createPanelApi } = require('./panel-api') as typeof import('./panel-api');
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton
-const { PlayerStats } = require('../tracking/player-stats') as typeof import('../tracking/player-stats');
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = singleton
-const { PlaytimeTracker } = require('../tracking/playtime-tracker') as typeof import('../tracking/playtime-tracker');
+import { createPanelApi } from './panel-api.js';
+import { PlayerStats } from '../tracking/player-stats.js';
+import { PlaytimeTracker } from '../tracking/playtime-tracker.js';
 import { getServerInfo, getPlayerList, sendAdminMessage } from '../rcon/server-info.js';
 import { createLogger } from '../utils/log.js';
 import { readPrivateKey } from '../utils/security.js';
@@ -1095,15 +1091,3 @@ export {
   _extractSaveName,
   SAVE_FILE_PATTERN,
 };
-
-const _mod = module as { exports: any };
-_mod.exports = MultiServerManager;
-_mod.exports.MultiServerManager = MultiServerManager;
-_mod.exports.ServerInstance = ServerInstance;
-_mod.exports.loadServers = loadServers;
-_mod.exports.saveServers = saveServers;
-_mod.exports.createServerConfig = createServerConfig;
-_mod.exports.discoverPaths = discoverPaths;
-_mod.exports.SERVERS_FILE = SERVERS_FILE;
-_mod.exports._extractSaveName = _extractSaveName;
-_mod.exports.SAVE_FILE_PATTERN = SAVE_FILE_PATTERN;

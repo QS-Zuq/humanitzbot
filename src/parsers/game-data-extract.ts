@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from '../utils/paths.js';
-import { errMsg } from '../utils/error.js';
+// errMsg was used only by the removed CJS try/catch for save-parser
 
 const __dirname = getDirname(import.meta.url);
 
@@ -107,18 +107,9 @@ function _projectEnum(prefixedMap: Record<string, string>, reservedSlots: number
   return map;
 }
 
-// Load save-parser enum maps; fall back to empty objects if unavailable
-let _saveParserEnums: SaveParserEnums;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- sync module-scope init, top-level await incompatible with CJS
-  const sp = require('./save-parser') as SaveParserEnums;
-  _saveParserEnums = { PERK_MAP: sp.PERK_MAP, CLAN_RANK_MAP: sp.CLAN_RANK_MAP };
-} catch (err: unknown) {
-  if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
-    console.warn('[game-data-extract] save-parser load error:', errMsg(err));
-  }
-  _saveParserEnums = { PERK_MAP: {}, CLAN_RANK_MAP: {} };
-}
+// Load save-parser enum maps
+import { PERK_MAP as _PERK_MAP, CLAN_RANK_MAP as _CLAN_RANK_MAP } from './save-parser.js';
+const _saveParserEnums: SaveParserEnums = { PERK_MAP: _PERK_MAP, CLAN_RANK_MAP: _CLAN_RANK_MAP };
 
 // ── Enum resolution ────────────────────────────────────────────────────────
 
@@ -1397,48 +1388,4 @@ function getTABLE_SUMMARY(): Record<string, number> {
   });
 }
 
-// CJS compatibility — .js consumers use require('./game-data-extract')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  cleanKey,
-  cleanRow,
-  deepClean,
-  resolveEnum,
-  ENUM_MAPS,
-  getTable,
-  getTableCleaned,
-  _test: { _projectEnum },
-};
-
-// Lazy-loaded game data (extracted on first access)
-Object.defineProperty(_mod.exports, 'ITEMS', { get: getITEMS, enumerable: true });
-Object.defineProperty(_mod.exports, 'ITEM_NAMES', { get: getITEM_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'LOOT_TABLES', { get: getLOOT_TABLES, enumerable: true });
-Object.defineProperty(_mod.exports, 'BUILDINGS', { get: getBUILDINGS, enumerable: true });
-Object.defineProperty(_mod.exports, 'BUILDING_NAMES', { get: getBUILDING_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'RECIPES', { get: getRECIPES, enumerable: true });
-Object.defineProperty(_mod.exports, 'SKILLS', { get: getSKILLS, enumerable: true });
-Object.defineProperty(_mod.exports, 'PROFESSIONS', { get: getPROFESSIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'STATISTICS', { get: getSTATISTICS, enumerable: true });
-Object.defineProperty(_mod.exports, 'STAT_CONFIG', { get: getSTAT_CONFIG, enumerable: true });
-Object.defineProperty(_mod.exports, 'CROPS', { get: getCROPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'VEHICLES', { get: getVEHICLES, enumerable: true });
-Object.defineProperty(_mod.exports, 'VEHICLE_NAMES', { get: getVEHICLE_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'CAR_UPGRADES', { get: getCAR_UPGRADES, enumerable: true });
-Object.defineProperty(_mod.exports, 'AMMO_DAMAGE', { get: getAMMO_DAMAGE, enumerable: true });
-Object.defineProperty(_mod.exports, 'REPAIR_DATA', { get: getREPAIR_DATA, enumerable: true });
-Object.defineProperty(_mod.exports, 'FURNITURE', { get: getFURNITURE, enumerable: true });
-Object.defineProperty(_mod.exports, 'TRAPS', { get: getTRAPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'ANIMALS', { get: getANIMALS, enumerable: true });
-Object.defineProperty(_mod.exports, 'XP_DATA', { get: getXP_DATA, enumerable: true });
-Object.defineProperty(_mod.exports, 'SPAWN_LOCATIONS', { get: getSPAWN_LOCATIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'LORE', { get: getLORE, enumerable: true });
-Object.defineProperty(_mod.exports, 'QUESTS', { get: getQUESTS, enumerable: true });
-Object.defineProperty(_mod.exports, 'AFFLICTIONS', { get: getAFFLICTIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'LOADING_TIPS', { get: getLOADING_TIPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'SPRAYS', { get: getSPRAYS, enumerable: true });
-Object.defineProperty(_mod.exports, 'FOLIAGE', { get: getFOLIAGE, enumerable: true });
-Object.defineProperty(_mod.exports, 'CHARACTERS', { get: getCHARACTERS, enumerable: true });
-Object.defineProperty(_mod.exports, 'TABLE_SUMMARY', { get: getTABLE_SUMMARY, enumerable: true });
+export const _test = { _projectEnum };

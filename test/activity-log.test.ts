@@ -1,15 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import _config from '../src/config/index.js';
 const config = _config as any;
 
-import _activity_log from '../src/modules/activity-log.js';
-const ActivityLog = _activity_log as any;
+import { _cleanActorName, _formatLocation, _test as _activityTest } from '../src/modules/activity-log.js';
 
-const { _cleanActorName, _formatLocation } = ActivityLog;
-const { _filterEvents, _formatTime, _categoryTitle } = ActivityLog._test;
+const { _filterEvents, _formatTime, _categoryTitle } = _activityTest;
 
 // ── _cleanActorName ─────────────────────────────────────────────────────────
 

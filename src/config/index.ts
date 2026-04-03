@@ -1132,28 +1132,3 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
 }
 
 export default config;
-
-// CJS compatibility — when .js files do require('../config'), they get the config
-// object directly (not wrapped in { default: config }).
-// This will be removed when all consumers are migrated to ESM imports.
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = config;
-_mod.exports.default = config;
-_mod.exports.canShow = function (toggleKey: string, isAdmin = false): boolean {
-  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
-};
-_mod.exports.isAdminView = function (member: import('discord.js').GuildMember | null): boolean {
-  return _isAdminView(config.adminViewPermissions, member);
-};
-_mod.exports.addAdminMembers = async function (
-  thread: import('discord.js').ThreadChannel,
-  guild: import('discord.js').Guild,
-): Promise<void> {
-  return _addAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
-};
-_mod.exports._envBool = envBool;
-_mod.exports._envTime = envTime;
-_mod.exports._tzOffsetMs = tzOffsetMs;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

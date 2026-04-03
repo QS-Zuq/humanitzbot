@@ -198,10 +198,10 @@ describe('SaveService agent mode', () => {
   // We test the logic without actual SFTP/SSH connections
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const SaveService = require('../src/parsers/save-service');
+  const SaveService = require('../src/parsers/save-service').default;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const HumanitZDB = require('../src/db/database');
+  const HumanitZDB = require('../src/db/database').default;
 
   let db: any;
 

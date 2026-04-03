@@ -7,11 +7,22 @@ const {
   _envBool: envBool,
   _envTime: envTime,
   _tzOffsetMs: tzOffsetMs,
-  canShow,
-  isAdminView,
-  addAdminMembers,
+  canShow: _rawCanShow,
+  isAdminView: _rawIsAdminView,
+  addAdminMembers: _rawAddAdminMembers,
 } = _configMod as any;
 const config = (_configMod as any).default;
+
+// Wrappers matching the old CJS curried signatures
+function canShow(toggleKey: string, isAdmin = false): boolean {
+  return _rawCanShow(config, toggleKey, isAdmin);
+}
+function isAdminView(member: any): boolean {
+  return _rawIsAdminView(config.adminViewPermissions, member);
+}
+async function addAdminMembers(thread: any, guild: any): Promise<void> {
+  return _rawAddAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
+}
 
 // ══════════════════════════════════════════════════════════
 // envBool — string to boolean coercion
@@ -789,7 +800,7 @@ describe('FTP\u2192SFTP backward compatibility', () => {
     delete require.cache[configPath];
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    return require(configPath);
+    return require(configPath).default;
   }
 
   it('falls back to FTP_HOST when SFTP_HOST is not set', () => {

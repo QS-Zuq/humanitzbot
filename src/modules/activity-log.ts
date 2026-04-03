@@ -503,15 +503,3 @@ const _test = {
 };
 
 export { _cleanActorName, _formatLocation, _test };
-
-const _mod = module as { exports: any };
-
-_mod.exports = ActivityLog;
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/unbound-method, @typescript-eslint/no-unnecessary-boolean-literal-compare */
-
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._cleanActorName = _cleanActorName;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._formatLocation = _formatLocation;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._test = _test;

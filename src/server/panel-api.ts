@@ -374,10 +374,6 @@ Object.assign(PanelApi.prototype, {
   },
 });
 
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-
 // ── Per-server instance factory ─────────────────────────────
 
 function createPanelApi(opts?: { serverUrl?: string; apiKey?: string }): PanelApi | null {
@@ -397,43 +393,5 @@ export default instance;
 
 export { PanelApi, createPanelApi };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS interop
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any */
-_mod.exports = instance;
-_mod.exports.PanelApi = PanelApi;
-_mod.exports.createPanelApi = createPanelApi;
-// Individual function exports as bound wrappers for destructured use
-const _BOUND_METHODS = [
-  'getResources',
-  'sendPowerAction',
-  'sendCommand',
-  'getServerDetails',
-  'listBackups',
-  'createBackup',
-  'deleteBackup',
-  'getBackupDownloadUrl',
-  'getFileDownloadUrl',
-  'downloadFile',
-  'listFiles',
-  'readFile',
-  'writeFile',
-  'getWebsocketAuth',
-  'listSchedules',
-  'createSchedule',
-  'deleteSchedule',
-  'getStartupVariables',
-  'updateStartupVariable',
-  'listAllocations',
-  'listServers',
-];
-for (const method of _BOUND_METHODS) {
-  if (typeof (instance as any)[method] !== 'function') {
-    throw new Error(`PanelApi: _BOUND_METHODS contains unknown method '${method}'`);
-  }
-  _mod.exports[method] = ((instance as any)[method] as (...args: any[]) => any).bind(instance);
-}
-
 // ── Test escape hatch ───────────────────────────────────────
-_mod.exports._test = { _parseUrl };
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any */
+export const _test = { _parseUrl };

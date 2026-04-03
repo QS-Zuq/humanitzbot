@@ -152,7 +152,6 @@ class AutoMessages {
     }
   }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 
 // Mix in content-layer methods (difficulty text, PvP schedule text)
 Object.assign(AutoMessages.prototype, {
@@ -164,11 +163,3 @@ export default AutoMessages;
 export { AutoMessages };
 
 export { buildWelcomeContent };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-_mod.exports = AutoMessages;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports.AutoMessages = AutoMessages;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports.buildWelcomeContent = buildWelcomeContent;

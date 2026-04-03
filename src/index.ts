@@ -15,8 +15,7 @@ import { createLogger } from './utils/log.js';
 initLogger();
 
 import config from './config/index.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = config object
-const { isAdminView: _isAdminViewRaw } = require('./config/index') as typeof import('./config/index');
+import { isAdminView as _isAdminViewRaw } from './config/index.js';
 import rcon from './rcon/rcon.js';
 import { getServerInfo, getPlayerList, sendAdminMessage } from './rcon/server-info.js';
 import ChatRelay from './modules/chat-relay.js';
@@ -47,13 +46,11 @@ import { createBotStatusManager } from './utils/status.js';
 import { needsSync, syncEnv, getVersion, getExampleVersion } from './env-sync.js';
 import ConfigRepository from './db/config-repository.js';
 import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from './db/config-migration.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class
-const { loadServers, createServerConfig } = require('./server/multi-server') as typeof import('./server/multi-server');
+import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
 
-// Convenience wrapper: the ESM export has 2-arg signature (permissions[], member).
-// The old CJS require() had a 1-arg wrapper that curried config.adminViewPermissions.
+// Convenience wrapper: isAdminView has 2-arg signature (permissions[], member).
 function isAdminView(member: GuildMember | null): boolean {
   return _isAdminViewRaw(config.adminViewPermissions, member);
 }

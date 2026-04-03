@@ -311,10 +311,10 @@ describe('simplifyBlueprintName', () => {
 
 describe('_nukeActive thread suppression', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = require('../src/modules/log-watcher').default;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const ChatRelay = require('../src/modules/chat-relay');
+  const ChatRelay = require('../src/modules/chat-relay').default;
 
   const mockClient = { channels: { fetch: async () => null }, on: () => {}, user: { id: '1' } };
   const mockChannel = {
@@ -368,7 +368,7 @@ describe('_nukeActive thread suppression', () => {
 
 describe('PvP NPC source detection', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = require('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(
@@ -448,7 +448,7 @@ describe('PvP NPC source detection', () => {
 
 describe('PvP damage to death correlation', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = require('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(

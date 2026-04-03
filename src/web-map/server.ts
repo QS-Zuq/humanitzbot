@@ -34,8 +34,7 @@ import {
   sendAdminMessage as _sendAdminMessage,
 } from '../rcon/server-info.js';
 import _panelApiInstance from '../server/panel-api.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class
-const { discoverPaths: _discoverPaths } = require('../server/multi-server') as typeof import('../server/multi-server');
+import { discoverPaths as _discoverPaths } from '../server/multi-server.js';
 import { errMsg } from '../utils/error.js';
 import { getDirname } from '../utils/paths.js';
 
@@ -5153,6 +5152,3 @@ function _cleanInventorySlots(slots: any[]): any[] {
 
 export default WebMapServer;
 export { WebMapServer };
-
-const _mod = module as { exports: any };
-_mod.exports = WebMapServer;

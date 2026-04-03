@@ -328,9 +328,3 @@ class AnticheatIntegration {
 
 export default AnticheatIntegration;
 export { AnticheatIntegration };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-_mod.exports = AnticheatIntegration;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports.AnticheatIntegration = AnticheatIntegration;

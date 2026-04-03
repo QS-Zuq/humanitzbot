@@ -257,14 +257,3 @@ const instance = new ServerResources();
 
 export default instance;
 export { ServerResources, parseSshOutput, formatBytes, formatUptime, _fetchPterodactyl, _emptyResult };
-
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = instance;
-_mod.exports.ServerResources = ServerResources;
-_mod.exports.parseSshOutput = parseSshOutput;
-_mod.exports.formatBytes = formatBytes;
-_mod.exports.formatUptime = formatUptime;
-_mod.exports._fetchPterodactyl = _fetchPterodactyl;
-_mod.exports._emptyResult = _emptyResult;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

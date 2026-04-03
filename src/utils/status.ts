@@ -503,8 +503,3 @@ function createBotStatusManager(client: Client, opts: BotStatusManagerOptions = 
 
 export { createBotStatusManager };
 export type { BotStatusManager, BotStatusManagerOptions };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = { createBotStatusManager };

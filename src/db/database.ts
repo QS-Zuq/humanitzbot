@@ -4487,6 +4487,3 @@ function _parseFingerprintEventRow(row: any): any {
 
 export default HumanitZDB;
 export { HumanitZDB };
-
-const _mod = module as { exports: any };
-_mod.exports = HumanitZDB;

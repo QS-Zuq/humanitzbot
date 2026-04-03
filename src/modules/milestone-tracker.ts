@@ -483,11 +483,5 @@ class MilestoneTracker {
 
 // Export thresholds for testing
 
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
-
 export default MilestoneTracker;
 export { MilestoneTracker };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-_mod.exports = MilestoneTracker;

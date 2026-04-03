@@ -7,8 +7,7 @@ import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey } from './discord-utils.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
 import _defaultPlayerStats from '../tracking/player-stats.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS interop: _mod.exports = class directly
-const KillTracker = require('../tracking/kill-tracker') as typeof import('../tracking/kill-tracker').KillTracker;
+import { KillTracker } from '../tracking/kill-tracker.js';
 import { parseSave, parseClanData, PERK_MAP, PERK_INDEX_MAP } from '../parsers/save-parser.js';
 import * as gameData from '../parsers/game-data.js';
 import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
@@ -1090,23 +1089,7 @@ function _resolveUdsWeather(enumValue: any) {
 
 Object.assign(PlayerStatsChannel.prototype, playerStatsEmbeds);
 
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-non-null-assertion */
-
 export default PlayerStatsChannel;
 export { PlayerStatsChannel };
 
 export { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS compat
-const _mod = module as { exports: any };
-_mod.exports = PlayerStatsChannel;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports.PlayerStatsChannel = PlayerStatsChannel;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._parseIni = _parseIni;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._cleanItemName = _cleanItemName;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._resolveUdsWeather = _resolveUdsWeather;
-// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- CJS compat
-_mod.exports._dbRowToSave = _dbRowToSave;
