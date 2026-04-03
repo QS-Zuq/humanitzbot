@@ -389,8 +389,8 @@ for (const s of Object.values(STATISTICS)) {
 for (const sc of Object.values(STAT_CONFIG)) {
   if (_challengeMap.has(sc.id)) {
     // Merge — StatConfig has better descriptions and XP values
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- guarded by .has() above
-    const existing = _challengeMap.get(sc.id)!;
+    const existing = _challengeMap.get(sc.id);
+    if (!existing) continue;
     if (sc.description && !existing.description) existing.description = sc.description;
     if (sc.xp > existing.xp) existing.xp = sc.xp;
     if (sc.skillPoint > existing.skillPoint) existing.skillPoint = sc.skillPoint;

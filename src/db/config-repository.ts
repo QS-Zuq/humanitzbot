@@ -56,8 +56,9 @@ class ConfigRepository {
 
   constructor(db: HumanitZDBLike) {
     this._db = db;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- one of _db or db is always non-null
-    this._handle = (db._db ?? db.db)!;
+    const handle = db._db ?? db.db;
+    if (!handle) throw new Error('ConfigRepository requires a database handle');
+    this._handle = handle;
     this._prepareStatements();
   }
 

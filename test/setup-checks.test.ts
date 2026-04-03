@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-dynamic-delete */
 /**
  * Tests for src/utils/setup-checks.js — checkPrerequisites + testRconReachability
  * Run: npm test
@@ -42,13 +41,13 @@ describe('setup-checks', () => {
     beforeEach(() => {
       for (const key of KEYS) {
         originalEnv[key] = process.env[key];
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     });
 
     afterEach(() => {
       for (const [key, val] of Object.entries(originalEnv)) {
-        if (val === undefined) delete process.env[key];
+        if (val === undefined) Reflect.deleteProperty(process.env, key);
         else process.env[key] = val;
       }
     });
@@ -216,13 +215,13 @@ describe('setup-checks', () => {
     beforeEach(() => {
       for (const key of KEYS) {
         originalEnv[key] = process.env[key];
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     });
 
     afterEach(() => {
       for (const [key, val] of Object.entries(originalEnv)) {
-        if (val === undefined) delete process.env[key];
+        if (val === undefined) Reflect.deleteProperty(process.env, key);
         else process.env[key] = val;
       }
     });

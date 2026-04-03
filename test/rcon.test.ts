@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-deprecated */
 /**
  * Tests for rcon.js — Source Engine RCON binary packet parsing & building.
  * Run: node --test test/rcon.test.js
@@ -103,10 +102,10 @@ describe('_onData', () => {
     const packet = buildRconPacket(101, 0, 'fragmented');
     const mid = Math.floor(packet.length / 2);
 
-    rcon._onData(packet.slice(0, mid));
+    rcon._onData(packet.subarray(0, mid));
     assert.deepEqual(cb.calls, [], 'should not fire after first fragment');
 
-    rcon._onData(packet.slice(mid));
+    rcon._onData(packet.subarray(mid));
     assert.deepEqual(cb.calls, ['fragmented']);
   });
 
@@ -119,11 +118,11 @@ describe('_onData', () => {
     const a = Math.floor(packet.length / 3);
     const b = Math.floor((packet.length * 2) / 3);
 
-    rcon._onData(packet.slice(0, a));
-    rcon._onData(packet.slice(a, b));
+    rcon._onData(packet.subarray(0, a));
+    rcon._onData(packet.subarray(a, b));
     assert.deepEqual(cb.calls, [], 'should not fire after 2 of 3 fragments');
 
-    rcon._onData(packet.slice(b));
+    rcon._onData(packet.subarray(b));
     assert.deepEqual(cb.calls, ['three-part']);
   });
 
@@ -134,7 +133,7 @@ describe('_onData', () => {
 
     // Only send the first 12 bytes (header) of a longer packet
     const packet = buildRconPacket(101, 0, 'long body text');
-    rcon._onData(packet.slice(0, 12));
+    rcon._onData(packet.subarray(0, 12));
 
     assert.deepEqual(cb.calls, [], 'should wait for rest of packet');
     assert.equal(rcon._responseBuffer.length, 12, 'buffer should retain header');
@@ -324,7 +323,7 @@ describe('_onData', () => {
     rcon._commandCallback = collector();
 
     const complete = buildRconPacket(1, 0, 'done');
-    const incomplete = buildRconPacket(2, 0, 'pending').slice(0, 8);
+    const incomplete = buildRconPacket(2, 0, 'pending').subarray(0, 8);
     rcon._onData(Buffer.concat([complete, incomplete]));
 
     assert.equal(rcon._commandCallback.calls.length, 1);
@@ -372,7 +371,8 @@ describe('_sendPacket', () => {
     rcon._sendPacket(42, 3, 'test');
 
     assert.equal(written.length, 1);
-    const pkt = written[0]!;
+    const pkt = written[0];
+    assert.ok(pkt, 'should have written a packet');
 
     // size = 4(id) + 4(type) + 4(body "test") + 1 + 1 = 14
     assert.equal(pkt.readInt32LE(0), 14, 'size field');
@@ -387,7 +387,8 @@ describe('_sendPacket', () => {
   it('builds a packet with empty body', () => {
     rcon._sendPacket(1, 2, '');
 
-    const pkt = written[0]!;
+    const pkt = written[0];
+    assert.ok(pkt, 'should have written a packet');
     // size = 4 + 4 + 0 + 1 + 1 = 10
     assert.equal(pkt.readInt32LE(0), 10, 'size field for empty body');
     assert.equal(pkt.length, 14, 'total = 4 + 10');
@@ -400,7 +401,8 @@ describe('_sendPacket', () => {
     const bodyLen = Buffer.byteLength(body, 'utf8'); // 6 bytes
     rcon._sendPacket(5, 0, body);
 
-    const pkt = written[0]!;
+    const pkt = written[0];
+    assert.ok(pkt, 'should have written a packet');
     const expectedSize = 4 + 4 + bodyLen + 1 + 1;
     assert.equal(pkt.readInt32LE(0), expectedSize, 'size accounts for UTF-8 byte length');
     assert.equal(pkt.toString('utf8', 12, 12 + bodyLen), body);
@@ -432,7 +434,8 @@ describe('buildRconPacket helper', () => {
     rcon.socket = { write: (buf: Buffer) => writtenBufs.push(Buffer.from(buf)) };
 
     rcon._sendPacket(42, 3, 'match');
-    const fromSend = writtenBufs[0]!;
+    const fromSend = writtenBufs[0];
+    assert.ok(fromSend, 'should have written a packet');
     const fromHelper = buildRconPacket(42, 3, 'match');
 
     assert.ok(fromSend.equals(fromHelper), '_sendPacket and buildRconPacket should produce identical buffers');

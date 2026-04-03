@@ -23,8 +23,6 @@
 
 import * as crypto from 'node:crypto';
 
-/* eslint-disable @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-assertion -- runtime JSON fields may be absent despite static types */
-
 interface ItemInput {
   item: string;
   durability?: number;
@@ -59,7 +57,7 @@ interface RawSlotProperty {
 /**
  * Generate a fingerprint hash for an item instance.
  */
-function generateFingerprint(item: ItemInput): string {
+function generateFingerprint(item: ItemInput | null | undefined): string {
   if (!item || !item.item) return '';
 
   // Build deterministic string from all distinguishing properties
@@ -102,8 +100,8 @@ function normalizeSlot(slot: ItemInput | RawSlotProperty[] | null | undefined): 
   if (!slot) return null;
 
   // Already in clean format (from agent or post-processing)
-  if (!Array.isArray(slot) && typeof (slot as ItemInput).item === 'string') {
-    const s = slot as ItemInput;
+  if (!Array.isArray(slot) && typeof slot.item === 'string') {
+    const s = slot;
     if (!s.item || s.item === 'None' || s.item === 'Empty') return null;
     return {
       item: s.item,
@@ -136,17 +134,17 @@ function normalizeSlot(slot: ItemInput | RawSlotProperty[] | null | undefined): 
     for (const prop of slot) {
       if (prop.name === 'Item' && prop.children) {
         for (const c of prop.children) {
-          if (c.name === 'RowName') parsed.item = (c.value as string) ?? '';
+          if (c.name === 'RowName') parsed.item = (c.value as string | undefined) ?? '';
         }
       }
-      if (prop.name === 'Amount') parsed.amount = (prop.value as number) ?? 0;
-      if (prop.name === 'Durability') parsed.durability = (prop.value as number) ?? 0;
-      if (prop.name === 'Ammo') parsed.ammo = (prop.value as number) ?? 0;
+      if (prop.name === 'Amount') parsed.amount = (prop.value as number | undefined) ?? 0;
+      if (prop.name === 'Durability') parsed.durability = (prop.value as number | undefined) ?? 0;
+      if (prop.name === 'Ammo') parsed.ammo = (prop.value as number | undefined) ?? 0;
       if (prop.name === 'Attachments' && Array.isArray(prop.value)) parsed.attachments = prop.value as string[];
-      if (prop.name === 'Cap') parsed.cap = (prop.value as number) ?? 0;
-      if (prop.name === 'MaxDur') parsed.maxDur = (prop.value as number) ?? 0;
-      if (prop.name === 'Weight') parsed.weight = (prop.value as number) ?? 0;
-      if (prop.name === 'Wetness') parsed.wetness = (prop.value as number) ?? 0;
+      if (prop.name === 'Cap') parsed.cap = (prop.value as number | undefined) ?? 0;
+      if (prop.name === 'MaxDur') parsed.maxDur = (prop.value as number | undefined) ?? 0;
+      if (prop.name === 'Weight') parsed.weight = (prop.value as number | undefined) ?? 0;
+      if (prop.name === 'Wetness') parsed.wetness = (prop.value as number | undefined) ?? 0;
     }
     if (!parsed.item || parsed.item === 'None' || parsed.item === 'Empty') return null;
     parsed.fingerprint = generateFingerprint(parsed);

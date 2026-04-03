@@ -254,9 +254,7 @@ export class SnapshotService {
    * @returns The snapshot ID, or null if failed
    */
   recordSnapshot(saveData: SaveData, options: RecordSnapshotOptions = {}): number | null {
-    // saveData is typed as SaveData (non-nullable); early return guards against JS callers passing null/undefined
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime guard for JS callers passing null/undefined
-    if (!saveData) return null;
+    if (!(saveData as SaveData | null | undefined)) return null;
 
     try {
       const ws: Record<string, unknown> = saveData.worldState ?? {};

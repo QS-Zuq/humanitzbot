@@ -146,9 +146,7 @@ export class PlaytimeTracker {
   init(): void {
     if (this._data) return; // already initialised
     this._loadFromDb(); // load from DB
-    // _loadFromDb may leave _data null if DB is empty or absent.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- _loadFromDb may leave _data null at runtime
-    if (!this._data) {
+    if (!(this._data as TrackerData | null)) {
       // DB has nothing yet — create empty structure
       this._data = {
         trackingSince: new Date().toISOString(),

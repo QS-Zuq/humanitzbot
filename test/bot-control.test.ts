@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-dynamic-delete */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -57,7 +56,7 @@ describe('BotControlService', () => {
       if (v !== undefined) {
         process.env[k] = v;
       } else {
-        delete process.env[k];
+        Reflect.deleteProperty(process.env, k);
       }
     }
     // Clean up temp directory

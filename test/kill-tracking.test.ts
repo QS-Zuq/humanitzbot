@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/restrict-plus-operands */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -54,10 +53,10 @@ function getAllTimeKills(save: any, record: any): KillRecord | null {
     return allTime;
   }
   if (record) {
-    for (const k of KILL_KEYS) allTime[k] += record.cumulative[k];
+    for (const k of KILL_KEYS) allTime[k] += Number(record.cumulative[k]);
   }
   if (save) {
-    for (const k of KILL_KEYS) allTime[k] += save[k] || 0;
+    for (const k of KILL_KEYS) allTime[k] += Number(save[k]) || 0;
   }
   return allTime;
 }
@@ -140,8 +139,9 @@ describe('getAllTimeKills', () => {
   it('returns lifetime values from ExtendedStats', () => {
     const save = mockSave({ lifetime: 143, session: 9, lifetimeHS: 35, headshots: 5 });
     const at = getAllTimeKills(save, null);
-    assert.equal(at!.zeeksKilled, 143);
-    assert.equal(at!.headshots, 35);
+    assert.ok(at);
+    assert.equal(at.zeeksKilled, 143);
+    assert.equal(at.headshots, 35);
   });
 
   it('returns null when no data', () => {
@@ -152,7 +152,8 @@ describe('getAllTimeKills', () => {
     const save = mockSave({ lifetime: 0, session: 10, hasExtended: false });
     const record = { cumulative: { ...emptyKills(), zeeksKilled: 50 } };
     const at = getAllTimeKills(save, record);
-    assert.equal(at!.zeeksKilled, 60);
+    assert.ok(at);
+    assert.equal(at.zeeksKilled, 60);
   });
 });
 
@@ -161,24 +162,27 @@ describe('getCurrentLifeKills', () => {
     const save = mockSave({ lifetime: 143, session: 9, lifetimeHS: 35, headshots: 5 });
     const record = { deathCheckpoint: { ...emptyKills(), zeeksKilled: 100 } };
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, 9);
-    assert.equal(cl!.headshots, 5);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 9);
+    assert.equal(cl.headshots, 5);
   });
 
   it('computes from lifetime-checkpoint when offline (session=0, has checkpoint)', () => {
     const save = mockSave({ lifetime: 143, session: 0, lifetimeHS: 35, headshots: 0 });
     const record = { deathCheckpoint: { ...emptyKills(), zeeksKilled: 134, headshots: 30 } };
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, 9);
-    assert.equal(cl!.headshots, 5);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 9);
+    assert.equal(cl.headshots, 5);
   });
 
   it('returns full lifetime when never died (no checkpoint)', () => {
     const save = mockSave({ lifetime: 50, session: 0, lifetimeHS: 10 });
     const record = { deathCheckpoint: null };
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, 50);
-    assert.equal(cl!.headshots, 10);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 50);
+    assert.equal(cl.headshots, 10);
   });
 
   it('returns null with no save data', () => {
@@ -188,14 +192,16 @@ describe('getCurrentLifeKills', () => {
   it('returns legacy GameStats for non-ExtendedStats players', () => {
     const save = mockSave({ lifetime: 0, session: 15, hasExtended: false });
     const cl = getCurrentLifeKills(save, null);
-    assert.equal(cl!.zeeksKilled, 15);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 15);
   });
 
   it('handles zero lifetime-checkpoint difference', () => {
     const save = mockSave({ lifetime: 100, session: 0 });
     const record = { deathCheckpoint: { ...emptyKills(), zeeksKilled: 100 } };
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, 0);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 0);
   });
 });
 
@@ -223,14 +229,17 @@ describe('end-to-end scenario', () => {
     const record1 = { deathCheckpoint: null, lastKnownDeaths: 0 };
 
     let cl = getCurrentLifeKills(save1, record1);
-    assert.equal(cl!.zeeksKilled, 9, 'Online: should show 9 from GameStats');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 9, 'Online: should show 9 from GameStats');
 
     let at = getAllTimeKills(save1, record1);
-    assert.equal(at!.zeeksKilled, 143, 'All-time: should show 143');
+    assert.ok(at);
+    assert.equal(at.zeeksKilled, 143, 'All-time: should show 143');
 
     const save2 = mockSave({ lifetime: 143, session: 0 });
     cl = getCurrentLifeKills(save2, record1);
-    assert.equal(cl!.zeeksKilled, 143, 'Offline, never died: all 143 are this life');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 143, 'Offline, never died: all 143 are this life');
 
     const save3 = mockSave({ lifetime: 145, session: 2 });
     const currentKills3 = snapshotKills(save3);
@@ -239,21 +248,26 @@ describe('end-to-end scenario', () => {
 
     const record3 = { deathCheckpoint: cp, lastKnownDeaths: 1 };
     cl = getCurrentLifeKills(save3, record3);
-    assert.equal(cl!.zeeksKilled, 2, 'After death + 2 kills: should show 2');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 2, 'After death + 2 kills: should show 2');
 
     at = getAllTimeKills(save3, record3);
-    assert.equal(at!.zeeksKilled, 145, 'All-time: should show 145');
+    assert.ok(at);
+    assert.equal(at.zeeksKilled, 145, 'All-time: should show 145');
 
     const save4 = mockSave({ lifetime: 145, session: 0 });
     cl = getCurrentLifeKills(save4, record3);
-    assert.equal(cl!.zeeksKilled, 2, 'Offline after death: should still show 2 (145 - 143)');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 2, 'Offline after death: should still show 2 (145 - 143)');
 
     const save5 = mockSave({ lifetime: 150, session: 7 });
     cl = getCurrentLifeKills(save5, record3);
-    assert.equal(cl!.zeeksKilled, 7, 'Online with 7 session kills: should show 7 from GameStats');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 7, 'Online with 7 session kills: should show 7 from GameStats');
 
     at = getAllTimeKills(save5, record3);
-    assert.equal(at!.zeeksKilled, 150, 'All-time: should show 150');
+    assert.ok(at);
+    assert.equal(at.zeeksKilled, 150, 'All-time: should show 150');
   });
 
   it('handles first-time player with existing deaths', () => {
@@ -265,11 +279,13 @@ describe('end-to-end scenario', () => {
 
     const record = { deathCheckpoint: cp, lastKnownDeaths: logDeaths };
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, 10, 'Current life: 10 from GameStats (online)');
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, 10, 'Current life: 10 from GameStats (online)');
 
     const saveOffline = mockSave({ lifetime: 200, session: 0 });
     const clOffline = getCurrentLifeKills(saveOffline, record);
-    assert.equal(clOffline!.zeeksKilled, 10, 'Offline: 200 - 190 = 10');
+    assert.ok(clOffline);
+    assert.equal(clOffline.zeeksKilled, 10, 'Offline: 200 - 190 = 10');
   });
 });
 
@@ -279,10 +295,12 @@ describe('display logic', () => {
     const record = { deathCheckpoint: { ...emptyKills(), zeeksKilled: 134, headshots: 30 } };
     const at = getAllTimeKills(save, record);
     const cl = getCurrentLifeKills(save, record);
+    assert.ok(at);
+    assert.ok(cl);
 
-    assert.equal(cl!.zeeksKilled, 9);
-    assert.equal(at!.zeeksKilled, 143);
-    assert.notEqual(cl!.zeeksKilled, at!.zeeksKilled);
+    assert.equal(cl.zeeksKilled, 9);
+    assert.equal(at.zeeksKilled, 143);
+    assert.notEqual(cl.zeeksKilled, at.zeeksKilled);
   });
 
   it('shows single value when life equals all-time (never died)', () => {
@@ -290,6 +308,8 @@ describe('display logic', () => {
     const record = { deathCheckpoint: null };
     const at = getAllTimeKills(save, record);
     const cl = getCurrentLifeKills(save, record);
-    assert.equal(cl!.zeeksKilled, at!.zeeksKilled, 'Should be equal — no AT suffix needed');
+    assert.ok(at);
+    assert.ok(cl);
+    assert.equal(cl.zeeksKilled, at.zeeksKilled, 'Should be equal — no AT suffix needed');
   });
 });

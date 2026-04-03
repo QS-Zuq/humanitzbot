@@ -1,10 +1,11 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-dynamic-delete */
 /**
  * Tests for PlaytimeTracker._formatDuration()
  * Run: npm test
  */
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const cjsRequire = createRequire(__filename);
 
 import _playtime_tracker from '../src/tracking/playtime-tracker.js';
 const playtime = _playtime_tracker as any;
@@ -67,16 +68,14 @@ describe('_formatDuration', () => {
 function freshTracker(today = '2026-02-20') {
   // Clear the module cache so we get a fresh singleton
 
-  const modPath = require.resolve('../src/tracking/playtime-tracker');
-  delete require.cache[modPath];
+  const modPath = cjsRequire.resolve('../src/tracking/playtime-tracker');
+  Reflect.deleteProperty(cjsRequire.cache, modPath);
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const tracker = require(modPath).default;
+  const tracker = cjsRequire(modPath).default;
 
   // Stub config.getToday
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const config = require('../src/config').default;
+  const config = cjsRequire('../src/config').default;
   const origGetToday = config.getToday;
   config.getToday = () => today;
 
@@ -109,7 +108,7 @@ describe('Peak tracking', () => {
   after(() => {
     // Restore config.getToday and clean up
     if (origGetToday) config.getToday = origGetToday;
-    if (modPath) delete require.cache[modPath];
+    if (modPath) Reflect.deleteProperty(cjsRequire.cache, modPath);
   });
 
   it('recordPlayerCount updates allTimePeak and todayPeak', () => {

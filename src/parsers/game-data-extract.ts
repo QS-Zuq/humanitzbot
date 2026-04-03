@@ -1,7 +1,5 @@
 'use strict';
 
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime JSON fields may be absent despite static types */
-
 // ═══════════════════════════════════════════════════════════════════════════
 //  game-data-extract.ts — Dynamic extraction from game-tables-raw.json
 //
@@ -480,7 +478,7 @@ function extractBuildings(): Record<string, RawObject> {
         resources.push({
           type: resolveEnum(rc['ResourceType']),
           typeRaw: (rc['ResourceType'] as string) || '',
-          amount: (rc['Amount'] as number) ?? 0,
+          amount: (rc['Amount'] as number | undefined) ?? 0,
         });
       }
     }
@@ -500,7 +498,7 @@ function extractBuildings(): Record<string, RawObject> {
           }
         }
         upgrades.push({
-          health: (uc['NewHealth'] as number) ?? 0,
+          health: (uc['NewHealth'] as number | undefined) ?? 0,
           resources: upgResources,
         });
       }
@@ -620,7 +618,7 @@ function extractSkills(): Record<string, RawObject> {
   for (const [id, row] of Object.entries(raw)) {
     const c = deepClean(row) as RawObject;
 
-    const perk = (c['PerkModifier'] as RawObject) || {};
+    const perk = (c['PerkModifier'] as RawObject | undefined) ?? {};
     const effects: RawObject = {
       fuelPercentage: perk['FuelPercentage'] ?? 1,
       repairPercentage: perk['RepairPercentage'] ?? 1,
@@ -644,7 +642,7 @@ function extractSkills(): Record<string, RawObject> {
       for (const mod of perk['AttributeModifiers']) {
         const m = mod as RawObject;
         attributeModifiers.push({
-          conditions: (m['Conditions'] as RawArray) || [],
+          conditions: (m['Conditions'] as RawArray | undefined) ?? [],
           gainMultiplier: m['GainMultiplier'] ?? 0,
           drainMultiplier: m['DrainMultiplier'] ?? 0,
           valueModifier: m['ValueModifier'] ?? 0,
@@ -662,7 +660,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const gm of s['ModifiersGeneral']) {
             const g = gm as RawObject;
             generalMods.push({
-              effect: (g['Effect'] as RawArray) || [],
+              effect: (g['Effect'] as RawArray | undefined) ?? [],
               value: g['Value'] ?? 0,
               isPercentage: g['IsPercentage'] ?? false,
             });
@@ -673,7 +671,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const am of s['ModifiersAttributes']) {
             const a = am as RawObject;
             attrMods.push({
-              conditions: (a['Conditions'] as RawArray) || [],
+              conditions: (a['Conditions'] as RawArray | undefined) ?? [],
               gainMultiplier: a['GainMultiplier'] ?? 0,
               drainMultiplier: a['DrainMultiplier'] ?? 0,
               valueModifier: a['ValueModifier'] ?? 0,
@@ -682,8 +680,8 @@ function extractSkills(): Record<string, RawObject> {
           }
         }
         skillModifiers.push({
-          targetClassifications: (s['TargetClassifications'] as RawArray) || [],
-          conditions: (s['Conditions'] as RawArray) || [],
+          targetClassifications: (s['TargetClassifications'] as RawArray | undefined) ?? [],
+          conditions: (s['Conditions'] as RawArray | undefined) ?? [],
           generalModifiers: generalMods,
           attributeModifiers: attrMods,
         });
@@ -726,7 +724,7 @@ function extractProfessions(): Record<string, RawObject> {
             .map(parseRawObject)
             .filter((r): r is RawObject => r !== null && !!r.itemId && r.itemId !== 'None' && r.itemId !== 'Empty')
         : [],
-      passivePerks: (c['PassivePerks'] as RawArray) || [],
+      passivePerks: (c['PassivePerks'] as RawArray | undefined) ?? [],
     };
   }
   return professions;
@@ -749,8 +747,8 @@ function extractStatistics(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number) ?? 0,
-      progressMax: (progress?.['y'] as number) ?? 1,
+      progressMin: (progress?.['x'] as number | undefined) ?? 0,
+      progressMax: (progress?.['y'] as number | undefined) ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -775,8 +773,8 @@ function extractStatConfig(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number) ?? 0,
-      progressMax: (progress?.['y'] as number) ?? 1,
+      progressMin: (progress?.['x'] as number | undefined) ?? 0,
+      progressMax: (progress?.['y'] as number | undefined) ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -800,11 +798,11 @@ function extractCrops(): Record<string, RawObject> {
       seedItemId: id,
       cropId: c['ID'] ?? 0,
       growthTimeDays: c['GrowthTimeDays'] ?? 0,
-      growSeasons: (c['GrowSeasons'] as RawArray) || [],
-      gridColumns: (colRow?.['x'] as number) ?? 1,
-      gridRows: (colRow?.['y'] as number) ?? 1,
-      spacingX: (spacing?.['x'] as number) ?? 0,
-      spacingY: (spacing?.['y'] as number) ?? 0,
+      growSeasons: (c['GrowSeasons'] as RawArray | undefined) ?? [],
+      gridColumns: (colRow?.['x'] as number | undefined) ?? 1,
+      gridRows: (colRow?.['y'] as number | undefined) ?? 1,
+      spacingX: (spacing?.['x'] as number | undefined) ?? 0,
+      spacingY: (spacing?.['y'] as number | undefined) ?? 0,
       stageCount: Array.isArray(c['Stages']) ? c['Stages'].length : 0,
       harvestResult: c['HarvestResult'] || '',
       harvestCount: c['Count'] ?? 0,
@@ -1171,7 +1169,7 @@ function extractFoliage(): Record<string, RawObject> {
       for (const drop of c['Drops']) {
         const d = drop as RawObject;
         drops.push({
-          itemId: (d['ItemID'] as string) || ((d['Item'] as RawObject)?.['RowName'] as string) || '',
+          itemId: (d['ItemID'] as string) || ((d['Item'] as RawObject | undefined)?.['RowName'] as string) || '',
           chance: d['Chance'] ?? d['ChancePercentage'] ?? 100,
           min: d['Min'] ?? 1,
           max: d['Max'] ?? 1,

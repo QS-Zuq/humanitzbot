@@ -181,7 +181,7 @@ function _coerce(value: string, type: string): boolean | number | string {
 // ── Migration functions ──────────────────────────────────────
 
 function migrateEnvToDb(
-  envValues: Record<string, string>,
+  envValues: Record<string, string | null | undefined>,
   configRepo: ConfigRepo,
 ): { appKeys: number; serverKeys: number; skipped: number } {
   const migrationMap = buildMigrationMap();
@@ -190,7 +190,6 @@ function migrateEnvToDb(
   let skipped = 0;
 
   for (const [envKey, rawValue] of Object.entries(envValues)) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime data may be absent
     if (rawValue === '' || rawValue == null) {
       skipped++;
       continue;

@@ -64,13 +64,11 @@ module.exports = defineConfig([
     },
   },
 
-  // ── Shared TypeScript config ─────────────────────────────────
-  // Extracted to avoid duplication between backend and test configs.
-  ...[
-    { name: 'backend/node-ts', files: ['src/**/*.ts'], ignores: ['src/web-map/public/**'] },
-    { name: 'tests/node-test-ts', files: ['test/**/*.ts'] },
-  ].map((target) => ({
-    ...target,
+  // ── Backend TypeScript config ─────────────────────────────────
+  {
+    name: 'backend/node-ts',
+    files: ['src/**/*.ts'],
+    ignores: ['src/web-map/public/**'],
     extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
     languageOptions: {
       ecmaVersion: 2022,
@@ -99,7 +97,49 @@ module.exports = defineConfig([
       'no-var': 'error',
       'prefer-const': 'error',
     },
-  })),
+  },
+
+  // ── Test TypeScript config ──────────────────────────────────
+  {
+    name: 'tests/node-test-ts',
+    files: ['test/**/*.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
+      'no-var': 'error',
+      'prefer-const': 'error',
+      // Tests use mocks with partial interfaces — these rules are too strict for test code
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
 
   // ── Tests: node:test framework (JS) ────────────────────────
   {

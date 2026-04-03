@@ -9,18 +9,18 @@
  * This file provides the DB handle, config, and event hooks.
  */
 
+import { createRequire } from 'node:module';
 import _defaultConfig from '../config/index.js';
 import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof _defaultConfig;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- optional private package, shape unknown
-let AnticheatEngine: any = null;
+let AnticheatEngine: unknown = null;
 let _available = false;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional module, top-level await incompatible with CJS
-  const _acMod = require('@humanitzbot/qs-anticheat') as Record<string, unknown>;
+  const _require = createRequire(import.meta.url);
+  const _acMod = _require('@humanitzbot/qs-anticheat') as Record<string, unknown>;
   AnticheatEngine = (_acMod as { default?: unknown }).default ?? _acMod;
   _available = true;
 } catch {
@@ -114,14 +114,17 @@ class AnticheatIntegration {
     }
 
     try {
-      /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- dynamic optional package */
-      this._engine =
-        typeof AnticheatEngine === 'function'
-          ? new AnticheatEngine({ db: this._db, config: this._config })
-          : AnticheatEngine.create
-            ? AnticheatEngine.create({ db: this._db, config: this._config })
-            : null;
-      /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+      type EngineFactory =
+        | (new (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance)
+        | { create?: (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance };
+      const EngineRef = AnticheatEngine as EngineFactory | null;
+      if (typeof EngineRef === 'function') {
+        this._engine = new EngineRef({ db: this._db, config: this._config });
+      } else if (EngineRef && typeof EngineRef.create === 'function') {
+        this._engine = EngineRef.create({ db: this._db, config: this._config });
+      } else {
+        this._engine = null;
+      }
 
       if (!this._engine) {
         console.warn('[ANTICHEAT] Could not instantiate engine — check package version');

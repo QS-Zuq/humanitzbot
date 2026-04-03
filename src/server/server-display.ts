@@ -33,64 +33,70 @@ function formatTime(timeStr: string | null | undefined): string | null {
   return timeStr;
 }
 
-function spawnLabel(val: string | number | null | undefined): string | null {
+function _valStr(val: unknown): string {
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean' || typeof val === 'bigint') return String(val);
+  return '';
+}
+
+function spawnLabel(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(String(val));
-  if (isNaN(num)) return String(val);
+  const num = parseFloat(_valStr(val));
+  if (isNaN(num)) return _valStr(val);
   if (num === 0) return 'None';
   if (num === 1) return 'x1 (Default)';
   return `x${String(num)}`;
 }
 
-function difficultyLabel(val: string | number | null | undefined): string | null {
+function difficultyLabel(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  const idx = Math.round(parseFloat(String(val)));
-  if (isNaN(idx)) return String(val);
-  return DIFFICULTY_LABELS[idx] || String(val);
+  const idx = Math.round(parseFloat(_valStr(val)));
+  if (isNaN(idx)) return _valStr(val);
+  return DIFFICULTY_LABELS[idx] || _valStr(val);
 }
 
-function difficultyBar(val: string | number | null | undefined): string | null {
+function difficultyBar(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  const idx = Math.round(parseFloat(String(val)));
-  if (isNaN(idx)) return String(val);
-  const label = DIFFICULTY_LABELS[idx] || String(val);
+  const idx = Math.round(parseFloat(_valStr(val)));
+  if (isNaN(idx)) return _valStr(val);
+  const label = DIFFICULTY_LABELS[idx] || _valStr(val);
   const bar = progressBar((idx + 1) / DIFFICULTY_LABELS.length, 5);
   return `${bar} ${label}`;
 }
 
-function settingBool(val: string | null | undefined): string | null {
+function settingBool(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  return val === '1' || val.toLowerCase() === 'true' ? 'On' : 'Off';
+  return val === '1' || _valStr(val).toLowerCase() === 'true' ? 'On' : 'Off';
 }
 
-function settingLabel(val: string | number | null | undefined, labels: string[]): string | null {
+function settingLabel(val: unknown, labels: string[]): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(String(val));
-  if (isNaN(num)) return String(val);
+  const num = parseFloat(_valStr(val));
+  if (isNaN(num)) return _valStr(val);
   const idx = Math.round(num);
-  return labels[idx] || String(val);
+  return labels[idx] || _valStr(val);
 }
 
-function settingMultiplier(val: string | number | null | undefined): string | null {
+function settingMultiplier(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(String(val));
-  if (isNaN(num)) return String(val);
+  const num = parseFloat(_valStr(val));
+  if (isNaN(num)) return _valStr(val);
   if (num === 0) return 'Off';
   if (num === 1) return 'Default';
   return `${String(num)}x`;
 }
 
-function settingDays(val: string | number | null | undefined, unit = 'days'): string | null {
+function settingDays(val: unknown, unit = 'days'): string | null {
   if (val === undefined || val === null) return null;
-  const num = parseFloat(String(val));
-  if (isNaN(num)) return String(val);
+  const num = parseFloat(_valStr(val));
+  if (isNaN(num)) return _valStr(val);
   if (num === 0) return 'Off';
   return `${String(num)} ${unit}`;
 }
 
-function settingPermaDeath(val: string | number | null | undefined): string | null {
+function settingPermaDeath(val: unknown): string | null {
   if (val === undefined || val === null) return null;
-  const s = String(val).toLowerCase();
+  const s = _valStr(val).toLowerCase();
   if (s === 'true') return 'On';
   if (s === 'false') return 'Off';
   return settingLabel(val, ['Off', 'Individual', 'All']);
@@ -160,9 +166,7 @@ interface FieldEntry {
   inline: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings from INI parser
-function buildSettingsFields(s: Record<string, any>, cfg: Record<string, any> = {}): FieldEntry[] {
-  /* eslint-disable @typescript-eslint/no-unsafe-argument -- values from dynamic Record<string, any> settings */
+function buildSettingsFields(s: Record<string, unknown>, cfg: Record<string, unknown> = {}): FieldEntry[] {
   const fields: FieldEntry[] = [];
 
   function section(emoji: string, title: string, entries: [string, string | null][]): void {
@@ -274,16 +278,12 @@ function buildSettingsFields(s: Record<string, any>, cfg: Record<string, any> = 
     }
   }
 
-  /* eslint-enable @typescript-eslint/no-unsafe-argument */
   return fields;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings
-function buildLootScarcity(s: Record<string, any>): string | null {
-  /* eslint-disable @typescript-eslint/no-unsafe-assignment -- values from dynamic Record<string, any> */
+function buildLootScarcity(s: Record<string, unknown>): string | null {
   const fb = s.LootRarity ?? undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values from settings record
-  const map: [string, string, any][] = [
+  const map: [string, string, unknown][] = [
     ['\uD83C\uDF56', 'Food', s.RarityFood ?? fb],
     ['\uD83E\uDD64', 'Drink', s.RarityDrink ?? fb],
     ['\uD83D\uDD2A', 'Melee', s.RarityMelee ?? fb],
@@ -302,14 +302,11 @@ function buildLootScarcity(s: Record<string, any>): string | null {
       return `${emoji} **${label}:** ${name}`;
     });
 
-  /* eslint-enable @typescript-eslint/no-unsafe-assignment */
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic game settings
-function buildWeatherOdds(s: Record<string, any>): string | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values from settings record
-  const weatherKeys: [string, string, any][] = [
+function buildWeatherOdds(s: Record<string, unknown>): string | null {
+  const weatherKeys: [string, string, unknown][] = [
     ['\u2600\uFE0F', 'Clear Sky', s.Weather_ClearSky],
     ['\u2601\uFE0F', 'Cloudy', s.Weather_Cloudy],
     ['\uD83C\uDF2B\uFE0F', 'Foggy', s.Weather_Foggy],
@@ -332,8 +329,7 @@ function buildWeatherOdds(s: Record<string, any>): string | null {
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic resource metrics
-function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => string): FieldEntry[] {
+function buildResourceField(res: Record<string, unknown>, fmtBytes?: (v: number) => string): FieldEntry[] {
   if (!fmtBytes) {
     try {
       fmtBytes = _fmtBytes;
@@ -361,8 +357,7 @@ function buildResourceField(res: Record<string, any>, fmtBytes?: (v: number) => 
   return [{ name: '\uD83D\uDCE1 Host Resources', value: parts.join('\n'), inline: false }];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic config object
-function buildScheduleField(cfg: Record<string, any>): { name: string; value: string } | null {
+function buildScheduleField(cfg: Record<string, unknown>): { name: string; value: string } | null {
   if (!cfg.enableServerScheduler) return null;
   const timesStr = (cfg.restartTimes as string) || process.env.RESTART_TIMES || '';
   const profilesStr = (cfg.restartProfiles as string) || process.env.RESTART_PROFILES || '';

@@ -44,7 +44,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
       .setTimestamp();
 
     // Schedule always first
-    const schedField = buildScheduleField(config);
+    const schedField = buildScheduleField(config as unknown as Record<string, unknown>);
     if (schedField) embed.addFields(schedField);
 
     // Server fields from RCON

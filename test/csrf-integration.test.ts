@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/restrict-plus-operands */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -44,7 +43,10 @@ function buildApp() {
 
   // Skip CSRF for /auth/callback (mirrors production config)
   app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.path === '/auth/callback') return next();
+    if (req.path === '/auth/callback') {
+      next();
+      return;
+    }
     doubleCsrfProtection(req, res, next);
   });
 
@@ -90,7 +92,7 @@ function request(opts: RequestOpts): Promise<{ status: number; headers: http.Inc
       (res) => {
         let body = '';
         res.on('data', (chunk: Buffer) => {
-          body += chunk;
+          body += String(chunk);
         });
         res.on('end', () => {
           let parsed: unknown;
@@ -99,7 +101,7 @@ function request(opts: RequestOpts): Promise<{ status: number; headers: http.Inc
           } catch {
             parsed = body;
           }
-          resolve({ status: res.statusCode!, headers: res.headers, body: parsed });
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body: parsed });
         });
       },
     );
@@ -152,7 +154,13 @@ describe('CSRF integration', () => {
   after(
     () =>
       new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
+        server.close((err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
       }),
   );
 

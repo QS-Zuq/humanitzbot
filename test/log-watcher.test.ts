@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const cjsRequire = createRequire(__filename);
 
 // Regex patterns extracted from LogWatcher for isolated testing
 
@@ -233,7 +234,7 @@ describe('raid regex', () => {
     );
     assert.ok(m);
     assert.equal(m[1], 'BP_Wall_C');
-    assert.ok(m[2]!.startsWith('76561100000000002'));
+    assert.ok(m[2]?.startsWith('76561100000000002'));
     assert.equal(m[4], '76561100000000001');
     assert.ok(m[5]);
   });
@@ -310,11 +311,9 @@ describe('simplifyBlueprintName', () => {
 });
 
 describe('_nukeActive thread suppression', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher').default;
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const ChatRelay = require('../src/modules/chat-relay').default;
+  const ChatRelay = cjsRequire('../src/modules/chat-relay').default;
 
   const mockClient = { channels: { fetch: async () => null }, on: () => {}, user: { id: '1' } };
   const mockChannel = {
@@ -367,8 +366,7 @@ describe('_nukeActive thread suppression', () => {
 });
 
 describe('PvP NPC source detection', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher').default;
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(
@@ -447,8 +445,7 @@ describe('PvP NPC source detection', () => {
 });
 
 describe('PvP damage to death correlation', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const LogWatcher = require('../src/modules/log-watcher').default;
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(

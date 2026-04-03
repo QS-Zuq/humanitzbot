@@ -10,9 +10,6 @@
  * @module diff-engine
  */
 
-/* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-condition,
-   @typescript-eslint/no-unnecessary-type-assertion -- runtime save-data fields may be absent; non-null assertions follow Map.set() guarantees */
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface DiffItem {
@@ -345,7 +342,7 @@ function diffPlayerInventories(
     const oldP = oldMap.get(steamId);
     if (!oldP) continue;
 
-    const playerName = nameResolver ? nameResolver(steamId) : ((newP.name as string) ?? steamId);
+    const playerName = nameResolver ? nameResolver(steamId) : (newP.name ?? steamId);
 
     for (const slot of slots) {
       const oldItems = _normalizeItems(_getField(oldP, slot));
@@ -618,7 +615,7 @@ function diffStructures(oldStructures: EntityRecord[], newStructures: EntityReco
           category: 'structure',
           actor: key,
           actorName: sName,
-          steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
+          steam_id: newS.owner_steam_id ?? newS.ownerSteamId ?? '',
           item: '',
           amount: 0,
           details: { owner: newS.owner_steam_id ?? newS.ownerSteamId, oldHealth },
@@ -632,7 +629,7 @@ function diffStructures(oldStructures: EntityRecord[], newStructures: EntityReco
           category: 'structure',
           actor: key,
           actorName: sName,
-          steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
+          steam_id: newS.owner_steam_id ?? newS.ownerSteamId ?? '',
           item: '',
           amount: Math.round(newHealth - oldHealth),
           details: {
@@ -656,7 +653,7 @@ function diffStructures(oldStructures: EntityRecord[], newStructures: EntityReco
         category: 'structure',
         actor: key,
         actorName: sName,
-        steam_id: (newS.owner_steam_id ?? newS.ownerSteamId ?? '') as string,
+        steam_id: newS.owner_steam_id ?? newS.ownerSteamId ?? '',
         item: '',
         amount: newLevel - oldLevel,
         details: { oldLevel, newLevel, owner: newS.owner_steam_id ?? newS.ownerSteamId },
@@ -669,7 +666,7 @@ function diffStructures(oldStructures: EntityRecord[], newStructures: EntityReco
 
   for (const [key, oldS] of oldByKey) {
     if (!newByKey.has(key)) {
-      const owner = (oldS.owner_steam_id ?? oldS.ownerSteamId ?? '') as string;
+      const owner = oldS.owner_steam_id ?? oldS.ownerSteamId ?? '';
       if (!owner) continue;
       const sName = oldS.display_name ?? oldS.displayName ?? oldS.actor_class ?? oldS.actorClass ?? key;
       events.push({
@@ -706,7 +703,10 @@ function _normalizeItems(items: unknown): DiffItem[] {
     }
   }
   if (!Array.isArray(parsed)) return [];
-  return (parsed as DiffItem[]).filter((i) => i && i.item && i.item !== 'None' && i.item !== 'Empty');
+  return parsed.filter((i): i is DiffItem => {
+    const rec = i as DiffItem | null | undefined;
+    return !!rec && !!rec.item && rec.item !== 'None' && rec.item !== 'Empty';
+  });
 }
 
 function _diffItemLists(oldItems: DiffItem[], newItems: DiffItem[]): { added: DiffItem[]; removed: DiffItem[] } {
@@ -736,8 +736,12 @@ function _buildItemBag(items: DiffItem[]): Map<string, DiffItem[]> {
   const bag = new Map<string, DiffItem[]>();
   for (const item of items) {
     const name = item.item;
-    if (!bag.has(name)) bag.set(name, []);
-    bag.get(name)!.push(item);
+    let list = bag.get(name);
+    if (!list) {
+      list = [];
+      bag.set(name, list);
+    }
+    list.push(item);
   }
   return bag;
 }
@@ -760,7 +764,7 @@ function _indexHorses(horses: EntityRecord[]): Map<string, EntityRecord> {
   const counters = new Map<string, number>();
   for (const h of horses) {
     const cls = h.class ?? '';
-    const owner = (h.owner_steam_id ?? h.ownerSteamId ?? '') as string;
+    const owner = h.owner_steam_id ?? h.ownerSteamId ?? '';
     const base = `${cls}::${owner}`;
     const n = (counters.get(base) ?? 0) + 1;
     counters.set(base, n);
@@ -773,7 +777,7 @@ function _indexVehicles(vehicles: EntityRecord[]): Map<string, EntityRecord> {
   const map = new Map<string, EntityRecord>();
   const counters = new Map<string, number>();
   for (const v of vehicles) {
-    const cls = (v.class ?? v.display_name ?? v.displayName ?? '') as string;
+    const cls = v.class ?? v.display_name ?? v.displayName ?? '';
     const n = (counters.get(cls) ?? 0) + 1;
     counters.set(cls, n);
     map.set(`${cls}::${String(n)}`, v);
@@ -785,8 +789,8 @@ function _indexStructures(structures: EntityRecord[]): Map<string, EntityRecord>
   const map = new Map<string, EntityRecord>();
   const counters = new Map<string, number>();
   for (const s of structures) {
-    const cls = (s.actor_class ?? s.actorClass ?? '') as string;
-    const owner = (s.owner_steam_id ?? s.ownerSteamId ?? '') as string;
+    const cls = s.actor_class ?? s.actorClass ?? '';
+    const owner = s.owner_steam_id ?? s.ownerSteamId ?? '';
     const px = Math.round((s.x ?? s.pos_x ?? 0) / 100);
     const py = Math.round((s.y ?? s.pos_y ?? 0) / 100);
     const base = `${cls}::${owner}::${String(px)},${String(py)}`;
@@ -844,7 +848,8 @@ function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
         lost: new Map(),
       });
     }
-    const pc = playerChanges.get(steamId)!;
+    const pc = playerChanges.get(steamId);
+    if (!pc) continue;
     if (e.type === 'inventory_item_added') {
       pc.gained.set(e.item, (pc.gained.get(e.item) ?? 0) + e.amount);
     } else if (e.type === 'inventory_item_removed') {
@@ -868,12 +873,8 @@ function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
         if (distSq > MAX_DISTANCE_SQ) continue;
       }
 
-      let matchAmount = 0;
-      if (ce.type === 'container_item_removed') {
-        matchAmount = pc.gained.get(ce.item) ?? 0;
-      } else if (ce.type === 'container_item_added') {
-        matchAmount = pc.lost.get(ce.item) ?? 0;
-      }
+      const matchAmount =
+        ce.type === 'container_item_removed' ? (pc.gained.get(ce.item) ?? 0) : (pc.lost.get(ce.item) ?? 0);
 
       const score = Math.min(matchAmount, ce.amount);
       if (score > 0 && score > bestScore) {

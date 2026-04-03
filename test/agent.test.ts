@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression */
 /**
  * Tests for the save-agent system (agent-builder + updated save-service).
  *
@@ -132,7 +131,9 @@ describe('agent execution', () => {
   });
 
   if (!SAV_EXISTS) {
-    it('skipped — no LIVE .sav file', () => assert.ok(true));
+    it('skipped — no LIVE .sav file', () => {
+      assert.ok(true);
+    });
     return;
   }
 
@@ -162,7 +163,9 @@ describe('agent execution', () => {
     assert.ok(steamIds.length > 0);
 
     // Validate first player has expected fields
-    const player = cache.players[steamIds[0]!];
+    const firstId = steamIds[0];
+    assert.ok(firstId, 'Expected at least one steam ID');
+    const player = cache.players[firstId];
     assert.ok('zeeksKilled' in player || 'health' in player, 'Player should have stats');
   });
 
@@ -197,15 +200,13 @@ describe('agent execution', () => {
 describe('SaveService agent mode', () => {
   // We test the logic without actual SFTP/SSH connections
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const SaveService = require('../src/parsers/save-service').default;
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-  const HumanitZDB = require('../src/db/database').default;
-
+  let SaveService: any;
+  let HumanitZDB: any;
   let db: any;
 
-  before(() => {
+  before(async () => {
+    SaveService = (await import('../src/parsers/save-service')).default;
+    HumanitZDB = (await import('../src/db/database')).default;
     db = new HumanitZDB({ memory: true, label: 'AgentTest' });
     db.init();
   });
@@ -472,7 +473,9 @@ describe('SaveService agent mode', () => {
 
 describe('agent output consistency', () => {
   if (!SAV_EXISTS) {
-    it('skipped — no LIVE .sav file', () => assert.ok(true));
+    it('skipped — no LIVE .sav file', () => {
+      assert.ok(true);
+    });
     return;
   }
 
@@ -508,8 +511,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same structure count as direct parse', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -517,8 +519,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same vehicle count as direct parse', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -526,8 +527,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves player steam IDs', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -538,8 +538,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves world state', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 

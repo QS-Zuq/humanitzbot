@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -481,8 +480,8 @@ describe('parseSave — real .sav files', () => {
 
       it('players have reasonable vital values', () => {
         for (const [, p] of result.players) {
-          if ((p as any).health > 0) {
-            assert.ok((p as any).health <= 200, `Health ${(p as any).health} too high for ${(p as any).startingPerk}`);
+          if (p.health > 0) {
+            assert.ok(p.health <= 200, `Health ${p.health} too high for ${p.startingPerk}`);
           }
         }
       });

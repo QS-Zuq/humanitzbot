@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -187,12 +186,8 @@ describe('Multi-Server API — GET /api/panel/servers', () => {
     const res = mockRes();
     handler.call(_server, req, res);
     for (const srv of res._json.servers) {
-      if ((srv as any).rcon?.password) {
-        assert.notEqual(
-          typeof (srv as any).rcon.password,
-          'string',
-          `${(srv as any).id} rcon password should not be plain string`,
-        );
+      if (srv.rcon?.password) {
+        assert.notEqual(typeof srv.rcon.password, 'string', `${srv.id} rcon password should not be plain string`);
       }
     }
   });
@@ -202,7 +197,7 @@ describe('Multi-Server API — GET /api/panel/servers', () => {
     const res = mockRes();
     handler.call(_server, req, res);
     for (const srv of res._json.servers) {
-      assert.ok('status' in (srv as any), `${(srv as any).id} should have status`);
+      assert.ok('status' in srv, `${srv.id} should have status`);
     }
   });
 
@@ -211,8 +206,8 @@ describe('Multi-Server API — GET /api/panel/servers', () => {
     const res = mockRes();
     handler.call(_server, req, res);
     for (const srv of res._json.servers) {
-      assert.ok('players' in (srv as any), `${(srv as any).id} should have players`);
-      assert.ok('current' in (srv as any).players, `${(srv as any).id} should have players.current`);
+      assert.ok('players' in srv, `${srv.id} should have players`);
+      assert.ok('current' in srv.players, `${srv.id} should have players.current`);
     }
   });
 });

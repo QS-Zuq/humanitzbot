@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -55,8 +54,8 @@ describe('CHALLENGES', () => {
 
   it('each challenge has id and name', () => {
     for (const challenge of gameData.CHALLENGES) {
-      assert.ok((challenge as any).id, 'Missing challenge id');
-      assert.ok((challenge as any).name, 'Missing challenge name');
+      assert.ok(challenge.id, 'Missing challenge id');
+      assert.ok(challenge.name, 'Missing challenge name');
     }
   });
 });
@@ -137,7 +136,7 @@ describe('BUILDING_NAMES', () => {
 
   it('each building name is a string', () => {
     for (const [id, name] of Object.entries(gameData.BUILDING_NAMES)) {
-      assert.ok(typeof name === 'string' && (name as string).length > 0, `${id} missing name`);
+      assert.ok(typeof name === 'string' && name.length > 0, `${id} missing name`);
     }
   });
 
@@ -153,7 +152,7 @@ describe('VEHICLE_NAMES', () => {
 
   it('each value is a string', () => {
     for (const [id, name] of Object.entries(gameData.VEHICLE_NAMES)) {
-      assert.ok(typeof name === 'string' && (name as string).length > 0, `${id} should have a name`);
+      assert.ok(typeof name === 'string' && name.length > 0, `${id} should have a name`);
     }
   });
 });
@@ -306,11 +305,11 @@ describe('Enum map consistency (save-parser ↔ ENUM_MAPS)', () => {
 
   it('ENUM_MAPS.Enum_Professions matches PERK_MAP for all active professions', () => {
     for (const [key, value] of Object.entries(PERK_MAP)) {
-      const suffix = (key as string).split('::')[1]!;
+      const suffix = key.split('::')[1] ?? '';
       assert.equal(
         ENUM_MAPS.Enum_Professions[suffix],
         value,
-        `Mismatch for ${suffix}: PERK_MAP='${value}', ENUM_MAPS='${ENUM_MAPS.Enum_Professions[suffix]}'`,
+        `Mismatch for ${suffix}: PERK_MAP='${String(value)}', ENUM_MAPS='${String(ENUM_MAPS.Enum_Professions[suffix])}'`,
       );
     }
   });
@@ -320,18 +319,18 @@ describe('Enum map consistency (save-parser ↔ ENUM_MAPS)', () => {
       if (value === 'Reserved') continue;
       assert.ok(
         PERK_MAP[`Enum_Professions::${key}`],
-        `ENUM_MAPS has '${key}' → '${value}' but PERK_MAP has no matching entry`,
+        `ENUM_MAPS has '${key}' → '${String(value)}' but PERK_MAP has no matching entry`,
       );
     }
   });
 
   it('ENUM_MAPS.E_ClanRank matches CLAN_RANK_MAP for all ranks', () => {
     for (const [key, value] of Object.entries(CLAN_RANK_MAP)) {
-      const suffix = (key as string).split('::')[1]!;
+      const suffix = key.split('::')[1] ?? '';
       assert.equal(
         ENUM_MAPS.E_ClanRank[suffix],
         value,
-        `Mismatch for ${suffix}: CLAN_RANK_MAP='${value}', ENUM_MAPS='${ENUM_MAPS.E_ClanRank[suffix]}'`,
+        `Mismatch for ${suffix}: CLAN_RANK_MAP='${String(value)}', ENUM_MAPS='${String(ENUM_MAPS.E_ClanRank[suffix])}'`,
       );
     }
   });
@@ -340,15 +339,15 @@ describe('Enum map consistency (save-parser ↔ ENUM_MAPS)', () => {
     for (const [key, value] of Object.entries(ENUM_MAPS.E_ClanRank)) {
       assert.ok(
         CLAN_RANK_MAP[`E_ClanRank::${key}`],
-        `ENUM_MAPS has '${key}' → '${value}' but CLAN_RANK_MAP has no matching entry`,
+        `ENUM_MAPS has '${key}' → '${String(value)}' but CLAN_RANK_MAP has no matching entry`,
       );
     }
   });
 
   it('PERK_INDEX_MAP is consistent with PERK_MAP', () => {
     for (const [key, value] of Object.entries(PERK_MAP)) {
-      const idx = parseInt((key as string).split('NewEnumerator')[1]!, 10);
-      assert.equal(PERK_INDEX_MAP[idx], value, `PERK_INDEX_MAP[${idx}] should be '${value}'`);
+      const idx = parseInt(key.split('NewEnumerator')[1] ?? '0', 10);
+      assert.equal(PERK_INDEX_MAP[idx], value, `PERK_INDEX_MAP[${idx}] should be '${String(value)}'`);
     }
     assert.equal(Object.keys(PERK_INDEX_MAP).length, 12, 'PERK_INDEX_MAP should have 12 entries');
   });

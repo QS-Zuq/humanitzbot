@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 'use strict';
 
 import { describe, it } from 'node:test';
@@ -319,8 +318,10 @@ describe('Web Map Admin — POST endpoints', () => {
       const res = mockRes();
       await handler(req, res);
       assert.equal((res._json as Record<string, unknown>).ok, true);
-      assert.ok(rconCmd!.startsWith('admin '));
-      assert.ok(rconCmd!.includes('Hello world'));
+      const cmd = rconCmd as unknown as string;
+      assert.ok(cmd, 'rconCmd should be set');
+      assert.ok(cmd.startsWith('admin '));
+      assert.ok(cmd.includes('Hello world'));
     });
 
     it('logs to DB insertChat when db is available', async () => {

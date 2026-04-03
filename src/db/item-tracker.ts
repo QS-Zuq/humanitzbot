@@ -20,10 +20,6 @@
 
 import { normalizeInventory } from './item-fingerprint.js';
 
-/* eslint-disable @typescript-eslint/no-unsafe-call -- HumanitZDBLike index signature is untyped; full typing is Phase 5 scope */
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- Map.get() after .has() checks throughout */
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime JSON fields may be absent despite casts */
-
 // ── Types ──────────────────────────────────────────────────────
 
 interface ReconcileStats {
@@ -127,8 +123,19 @@ interface SnapshotData {
 }
 
 interface HumanitZDBLike {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+  [key: string]: unknown;
+  getActiveItemInstances(): ItemInstance[];
+  touchItemInstance(id: number): void;
+  moveItemInstance(id: number, data: Record<string, unknown>, attribution: unknown, reason: string): void;
+  createItemInstance(data: Record<string, unknown>): number;
+  markItemLost(id: number): void;
+  getActiveItemGroups(): ItemGroup[];
+  touchItemGroup(id: number): void;
+  updateItemGroupQuantity(id: number, qty: number): void;
+  upsertItemGroup(data: Record<string, unknown>): { id: number };
+  markItemGroupLost(id: number): void;
+  getItemGroup(id: number): { item?: string } | undefined;
+  recordGroupMovement(data: Record<string, unknown>): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -174,7 +181,7 @@ function reconcileItems(
           currentItems,
           normalizeInventory(c['items'] as unknown[]),
           'container',
-          (c['actorName'] as string) ?? (c['name'] as string) ?? '',
+          (c['actorName'] as string | undefined) ?? (c['name'] as string | undefined) ?? '',
           'items',
           c,
         );
@@ -195,7 +202,7 @@ function reconcileItems(
           currentItems,
           normalizeInventory(items as unknown[]),
           'vehicle',
-          (v['actorName'] as string) ?? (v['name'] as string) ?? '',
+          (v['actorName'] as string | undefined) ?? (v['name'] as string | undefined) ?? '',
           slotName,
           v,
         );
@@ -211,7 +218,7 @@ function reconcileItems(
           currentItems,
           normalizeInventory(h['saddleItems'] as unknown[]),
           'horse',
-          (h['actorName'] as string) ?? (h['name'] as string) ?? '',
+          (h['actorName'] as string | undefined) ?? (h['name'] as string | undefined) ?? '',
           'saddle',
           h,
         );
@@ -227,7 +234,7 @@ function reconcileItems(
           currentItems,
           normalizeInventory(s['inventory'] as unknown[]),
           'structure',
-          (s['actorName'] as string) ?? (s['name'] as string) ?? '',
+          (s['actorName'] as string | undefined) ?? (s['name'] as string | undefined) ?? '',
           'items',
           s,
         );
@@ -259,7 +266,7 @@ function reconcileItems(
         currentItems,
         normalizeInventory(gc['items'] as unknown[]),
         'global_container',
-        (gc['actorName'] as string) ?? '',
+        (gc['actorName'] as string | undefined) ?? '',
         'items',
         gc,
       );
@@ -270,10 +277,17 @@ function reconcileItems(
   const locationGroups = new Map<string, Map<string, LocationItem[]>>();
   for (const item of currentItems) {
     const locKey = `${item.locationType}|${item.locationId}|${item.locationSlot}`;
-    if (!locationGroups.has(locKey)) locationGroups.set(locKey, new Map());
-    const fpMap = locationGroups.get(locKey)!;
-    if (!fpMap.has(item.fingerprint)) fpMap.set(item.fingerprint, []);
-    fpMap.get(item.fingerprint)!.push(item);
+    let fpMap = locationGroups.get(locKey);
+    if (!fpMap) {
+      fpMap = new Map();
+      locationGroups.set(locKey, fpMap);
+    }
+    let fpList = fpMap.get(item.fingerprint);
+    if (!fpList) {
+      fpList = [];
+      fpMap.set(item.fingerprint, fpList);
+    }
+    fpList.push(item);
   }
 
   const uniqueItems: LocationItem[] = [];
@@ -281,20 +295,22 @@ function reconcileItems(
 
   for (const [, fpMap] of locationGroups) {
     for (const [fingerprint, items] of fpMap) {
+      const first = items[0];
+      if (!first) continue;
       if (items.length === 1) {
-        uniqueItems.push(items[0]!);
+        uniqueItems.push(first);
       } else {
         fungibleGroups.push({
           fingerprint,
           items,
-          locationType: items[0]!.locationType,
-          locationId: items[0]!.locationId,
-          locationSlot: items[0]!.locationSlot,
-          x: items[0]!.x,
-          y: items[0]!.y,
-          z: items[0]!.z,
+          locationType: first.locationType,
+          locationId: first.locationId,
+          locationSlot: first.locationSlot,
+          x: first.x,
+          y: first.y,
+          z: first.z,
           quantity: items.length,
-          representative: items[0]!,
+          representative: first,
         });
       }
     }
@@ -313,12 +329,16 @@ function _reconcileUniqueItems(
   nameResolver: ((steamId: string) => string) | undefined,
   stats: ReconcileStats,
 ): void {
-  const existing = db.getActiveItemInstances() as ItemInstance[];
+  const existing = db.getActiveItemInstances();
   const existingByFP = new Map<string, ItemInstance[]>();
   for (const inst of existing) {
     if (inst.group_id) continue;
-    if (!existingByFP.has(inst.fingerprint)) existingByFP.set(inst.fingerprint, []);
-    existingByFP.get(inst.fingerprint)!.push(inst);
+    let list = existingByFP.get(inst.fingerprint);
+    if (!list) {
+      list = [];
+      existingByFP.set(inst.fingerprint, list);
+    }
+    list.push(inst);
   }
 
   // Pass 1: exact match
@@ -390,7 +410,7 @@ function _reconcileUniqueItems(
       z: ci.z,
       amount: ci.amount,
       groupId: null,
-    }) as number;
+    });
     ci._matchedInstanceId = id;
     stats.created++;
   }
@@ -413,11 +433,15 @@ function _reconcileFungibleGroups(
   nameResolver: ((steamId: string) => string) | undefined,
   stats: ReconcileStats,
 ): void {
-  const existingGroups = db.getActiveItemGroups() as ItemGroup[];
+  const existingGroups = db.getActiveItemGroups();
   const existingByFP = new Map<string, ItemGroup[]>();
   for (const g of existingGroups) {
-    if (!existingByFP.has(g.fingerprint)) existingByFP.set(g.fingerprint, []);
-    existingByFP.get(g.fingerprint)!.push(g);
+    let list = existingByFP.get(g.fingerprint);
+    if (!list) {
+      list = [];
+      existingByFP.set(g.fingerprint, list);
+    }
+    list.push(g);
   }
 
   const deltas = new Map<string, { increases: DeltaEntry[]; decreases: DeltaEntry[] }>();
@@ -447,8 +471,11 @@ function _reconcileFungibleGroups(
         db.updateItemGroupQuantity(exact.id, newQty);
         stats.groups.adjusted++;
 
-        if (!deltas.has(cg.fingerprint)) deltas.set(cg.fingerprint, { increases: [], decreases: [] });
-        const delta = deltas.get(cg.fingerprint)!;
+        let delta = deltas.get(cg.fingerprint);
+        if (!delta) {
+          delta = { increases: [], decreases: [] };
+          deltas.set(cg.fingerprint, delta);
+        }
         if (newQty > oldQty) {
           delta.increases.push({
             groupId: exact.id,
@@ -490,12 +517,16 @@ function _reconcileFungibleGroups(
         z: cg.z,
         quantity: cg.quantity,
         stackSize: rep.amount || 1,
-      }) as { id: number };
+      });
       cg._matchedGroupId = id;
       stats.groups.created++;
 
-      if (!deltas.has(cg.fingerprint)) deltas.set(cg.fingerprint, { increases: [], decreases: [] });
-      deltas.get(cg.fingerprint)!.increases.push({
+      let delta2 = deltas.get(cg.fingerprint);
+      if (!delta2) {
+        delta2 = { increases: [], decreases: [] };
+        deltas.set(cg.fingerprint, delta2);
+      }
+      delta2.increases.push({
         groupId: id,
         amount: cg.quantity,
         locationType: cg.locationType,
@@ -515,8 +546,12 @@ function _reconcileFungibleGroups(
         db.markItemGroupLost(g.id);
         stats.groups.lost++;
 
-        if (!deltas.has(fp)) deltas.set(fp, { increases: [], decreases: [] });
-        deltas.get(fp)!.decreases.push({
+        let deltaFp = deltas.get(fp);
+        if (!deltaFp) {
+          deltaFp = { increases: [], decreases: [] };
+          deltas.set(fp, deltaFp);
+        }
+        deltaFp.decreases.push({
           groupId: g.id,
           amount: g.quantity,
           locationType: g.location_type,

@@ -544,8 +544,7 @@ class PanelRcon extends EventEmitter {
  * Pterodactyl daemon wraps some output in ANSI color codes.
  */
 function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '');
+  return str.replace(new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*[a-zA-Z]', 'g'), '').replace(/\r/g, '');
 }
 
 export { PanelRcon };

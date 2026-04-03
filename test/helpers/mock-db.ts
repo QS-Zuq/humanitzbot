@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
-
 interface MockDbOpts {
   players?: any[];
   clans?: any[];

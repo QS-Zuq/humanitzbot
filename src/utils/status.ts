@@ -46,27 +46,30 @@ interface BotStatusManager {
   refreshNow: (forceRotate?: boolean) => Promise<void>;
 }
 
+function _toStr(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return JSON.stringify(value);
+}
+
 function _toInt(value: unknown): number | null {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-  const n = Number.parseInt(String(value ?? ''), 10);
+  const n = Number.parseInt(_toStr(value), 10);
   return Number.isFinite(n) ? n : null;
 }
 
 function _limitActivityName(name: unknown, max = 128): string {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-  const text = String(name ?? '');
+  const text = _toStr(name);
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
 }
 
 function _hasValue(value: unknown): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-  return value !== undefined && value !== null && String(value).trim() !== '';
+  return value !== undefined && value !== null && _toStr(value).trim() !== '';
 }
 
 function _moduleState(rawStatus: unknown): 'active' | 'disabled' | 'warning' | 'unknown' {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- intentional String() on unknown runtime value
-  const text = String(rawStatus ?? '').toLowerCase();
+  const text = _toStr(rawStatus).toLowerCase();
   if (!text) return 'unknown';
   if (/(active|running|online|healthy|ok)\b/.test(text)) return 'active';
   if (/(disabled|off|inactive|not set)\b/.test(text)) return 'disabled';

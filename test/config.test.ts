@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-dynamic-delete */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 
 import * as _configMod from '../src/config/index.js';
 const {
@@ -788,7 +788,7 @@ describe('FTP\u2192SFTP backward compatibility', () => {
       if (savedEnv[key] !== undefined) {
         process.env[key] = savedEnv[key];
       } else {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     }
     // Restore original module so other tests use the original singleton
@@ -797,10 +797,9 @@ describe('FTP\u2192SFTP backward compatibility', () => {
 
   /** Delete config from require cache and re-require with current process.env */
   function reloadConfig() {
-    delete require.cache[configPath];
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require for test isolation
-    return require(configPath).default;
+    Reflect.deleteProperty(require.cache, configPath);
+    const cjsRequire = createRequire(__filename);
+    return cjsRequire(configPath).default;
   }
 
   it('falls back to FTP_HOST when SFTP_HOST is not set', () => {

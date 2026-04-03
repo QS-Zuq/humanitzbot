@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- parsing untrusted binary data; guards are intentional */
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- Map.get() after .has() checks */
-
 /**
  * Comprehensive HumanitZ save file parser.
  *
@@ -539,8 +536,11 @@ function parseSave(buf: Buffer): ParseResult {
   let currentSteamID: string | null = null;
 
   function ensurePlayer(id: string): PlayerData {
-    if (!players.has(id)) players.set(id, createPlayerData());
-    return players.get(id)!;
+    const existing = players.get(id);
+    if (existing) return existing;
+    const fresh = createPlayerData();
+    players.set(id, fresh);
+    return fresh;
   }
 
   function prescanSteamId(props: GvasProperty[]): void {
@@ -555,7 +555,7 @@ function parseSave(buf: Buffer): ParseResult {
     }
   }
 
-  function handleProp(prop: GvasProperty): void {
+  function handleProp(prop: GvasProperty | null | undefined): void {
     if (!prop) return;
     const n = prop.name;
 
@@ -634,7 +634,7 @@ function parseSave(buf: Buffer): ParseResult {
         buildActorTransforms = (prop.value as GvasProperty[][]).map((elem) => {
           if (Array.isArray(elem)) {
             const t = elem.find((c: GvasProperty) => c.name === 'Translation');
-            return (t?.value as { x: number; y: number; z: number }) ?? null;
+            return (t?.value as { x: number; y: number; z: number } | undefined) ?? null;
           }
           return null;
         });
@@ -788,7 +788,7 @@ function parseSave(buf: Buffer): ParseResult {
         for (const ap of elemProps) {
           if (ap.name === 'Class') {
             actor['class'] = ap.value ?? '';
-            actor['displayName'] = simplifyBlueprint((ap.value as string) ?? '');
+            actor['displayName'] = simplifyBlueprint((ap.value as string | undefined) ?? '');
           }
           if (ap.name === 'Transform') {
             const tv = ap.value as { translation?: { x: number; y: number; z: number } } | null;
@@ -868,7 +868,7 @@ function parseSave(buf: Buffer): ParseResult {
     if (n === 'DestroyedRandCars') {
       if (Array.isArray(prop.value)) {
         worldState['destroyedRandCars'] = (prop.value as unknown[]).length;
-        worldState['destroyedRandCarPositions'] = (prop.value as Array<{ x: number; y: number; z: number }>)
+        worldState['destroyedRandCarPositions'] = (prop.value as Array<{ x: number; y: number; z: number } | null>)
           .map((elem) => {
             if (elem && typeof elem.x === 'number') {
               return { x: _round2(elem.x), y: _round2(elem.y), z: _round2(elem.z) };
@@ -932,7 +932,7 @@ function parseSave(buf: Buffer): ParseResult {
           for (const ep of elemProps) {
             if (ep.name === 'Class') {
               actor['class'] = ep.value ?? '';
-              actor['displayName'] = simplifyBlueprint((ep.value as string) ?? '');
+              actor['displayName'] = simplifyBlueprint((ep.value as string | undefined) ?? '');
             }
             if (ep.name === 'Transform') {
               const tv = ep.value as { translation?: { x: number; y: number; z: number } } | null;
@@ -954,7 +954,7 @@ function parseSave(buf: Buffer): ParseResult {
     if (n === 'SGlobalContainerSave') {
       worldState['globalContainers'] = [];
       if (Array.isArray(prop.value)) {
-        for (const entry of prop.value as Array<{ value?: GvasProperty[] }>) {
+        for (const entry of prop.value as Array<{ value?: GvasProperty[] } | null>) {
           if (!entry?.value) continue;
           const props = Array.isArray(entry.value) ? entry.value : [];
           const container: Record<string, unknown> = {
@@ -984,7 +984,7 @@ function parseSave(buf: Buffer): ParseResult {
       worldState['modularLootActors'] = [];
       worldState['modularLootSlotCount'] = 0;
       if (Array.isArray(prop.value)) {
-        for (const entry of prop.value as Array<{ key?: GvasProperty[]; value?: GvasProperty[] }>) {
+        for (const entry of prop.value as Array<{ key?: GvasProperty[]; value?: GvasProperty[] } | null>) {
           if (!entry) continue;
           const entryProps = [...(entry.key ?? []), ...(entry.value ?? [])];
           if (entryProps.length === 0) continue;
@@ -1058,7 +1058,7 @@ function parseSave(buf: Buffer): ParseResult {
 
     if (n === 'LODHouseData' && Array.isArray(prop.value)) {
       worldState['houses'] = [];
-      for (const entry of prop.value as Array<{ key?: GvasProperty[]; value?: GvasProperty[] }>) {
+      for (const entry of prop.value as Array<{ key?: GvasProperty[]; value?: GvasProperty[] } | null>) {
         if (!entry) continue;
         const entryProps = [...(entry.key ?? []), ...(entry.value ?? [])];
         if (entryProps.length === 0) continue;
@@ -1390,7 +1390,7 @@ function parseSave(buf: Buffer): ParseResult {
       p.x === null &&
       prop.type === 'StructProperty' &&
       prop.structType === 'Transform' &&
-      (prop.value as { translation?: unknown })?.translation
+      (prop.value as { translation?: unknown } | undefined)?.translation
     ) {
       const SKIP_TRANSFORMS = ['PlayerRespawnPoint', 'BackpackTransform', 'Transform', 'CompanionTransform'];
       if (!SKIP_TRANSFORMS.includes(n)) _extractTransform(prop, p);
@@ -1464,7 +1464,7 @@ function parseSave(buf: Buffer): ParseResult {
         for (const cp of cd) {
           if (cp.name === 'Class') {
             comp['class'] = cp.value ?? '';
-            comp['displayName'] = simplifyBlueprint((cp.value as string) ?? '');
+            comp['displayName'] = simplifyBlueprint((cp.value as string | undefined) ?? '');
           }
           if (cp.name === 'Transform') {
             const tv = cp.value as { translation?: { x: number; y: number; z: number } } | null;
@@ -1488,7 +1488,7 @@ function parseSave(buf: Buffer): ParseResult {
         companions.push({
           type: 'dog',
           actorName: (comp['displayName'] as string) || (comp['class'] as string),
-          ownerSteamId: currentSteamID ?? '',
+          ownerSteamId: currentSteamID || '',
           x: comp['x'] as number | null,
           y: comp['y'] as number | null,
           z: comp['z'] as number | null,
@@ -1552,7 +1552,8 @@ function parseSave(buf: Buffer): ParseResult {
     for (const nsp of nsProps as GvasProperty[]) {
       if (nsp.name === 'BuildActor' && typeof nsp.value === 'string') {
         const idx = structures.findIndex((s) => s.extraData === nsp.value || s.actorClass === nsp.value);
-        if (idx >= 0) structures[idx]!.noSpawn = true;
+        const target = idx >= 0 ? structures[idx] : undefined;
+        if (target) target.noSpawn = true;
       }
     }
   }
@@ -1928,23 +1929,23 @@ function parseClanData(buf: Buffer): Clan[] {
         const clan: Clan = { name: '', members: [] };
 
         for (const cp of clanProps) {
-          if (cp.name?.startsWith('ClanName') && typeof cp.value === 'string') clan.name = cp.value;
-          if (cp.name?.startsWith('Members') && cp.type === 'ArrayProperty') {
+          if (cp.name.startsWith('ClanName') && typeof cp.value === 'string') clan.name = cp.value;
+          if (cp.name.startsWith('Members') && cp.type === 'ArrayProperty') {
             if (Array.isArray(cp.value)) {
               for (const memberProps of cp.value as GvasProperty[][]) {
                 if (!Array.isArray(memberProps)) continue;
                 const member: ClanMember = { name: '', steamId: '', rank: 'Member', canInvite: false, canKick: false };
                 for (const mp of memberProps) {
-                  if (mp.name?.startsWith('Name') && typeof mp.value === 'string') member.name = mp.value;
-                  if (mp.name?.startsWith('NetID') && typeof mp.value === 'string') {
+                  if (mp.name.startsWith('Name') && typeof mp.value === 'string') member.name = mp.value;
+                  if (mp.name.startsWith('NetID') && typeof mp.value === 'string') {
                     const match = mp.value.match(/(7656\d+)/);
                     if (match?.[1]) member.steamId = match[1];
                   }
-                  if (mp.name?.startsWith('Rank') && typeof mp.value === 'string') {
+                  if (mp.name.startsWith('Rank') && typeof mp.value === 'string') {
                     member.rank = CLAN_RANK_MAP[mp.value] ?? mp.value;
                   }
-                  if (mp.name?.startsWith('CanInvite')) member.canInvite = !!mp.value;
-                  if (mp.name?.startsWith('CanKick')) member.canKick = !!mp.value;
+                  if (mp.name.startsWith('CanInvite')) member.canInvite = !!mp.value;
+                  if (mp.name.startsWith('CanKick')) member.canKick = !!mp.value;
                 }
                 if (member.steamId) clan.members.push(member);
               }
