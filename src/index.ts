@@ -1146,7 +1146,10 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
         console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
       } else {
-        pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+        pvpScheduler = new PvpScheduler(
+          readyClient,
+          (logWatcher ?? null) as ConstructorParameters<typeof PvpScheduler>[1],
+        );
         await pvpScheduler.start();
         setStatus('PvP Scheduler', '🟢 Active');
         if (!logWatcher) {
@@ -1164,7 +1167,10 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
         console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
       } else {
-        serverScheduler = new ServerScheduler(readyClient, logWatcher);
+        serverScheduler = new ServerScheduler(
+          readyClient,
+          (logWatcher ?? null) as ConstructorParameters<typeof ServerScheduler>[1],
+        );
         await serverScheduler.start();
         if (webMapServer)
           (webMapServer as unknown as { setScheduler: (s: typeof serverScheduler) => void }).setScheduler(

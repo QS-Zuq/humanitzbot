@@ -221,14 +221,8 @@ module.exports = defineConfig([
       'src/web-map/server.ts',
       'src/server/multi-server.ts',
       'src/modules/log-watcher.ts',
-      'src/modules/log-watcher-events.ts',
-      'src/modules/log-watcher-threads.ts',
       'src/modules/player-stats-channel.ts',
       'src/modules/player-stats-embeds.ts',
-      'src/modules/server-scheduler.ts',
-      'src/modules/github-tracker.ts',
-      'src/modules/chat-relay.ts',
-      'src/modules/pvp-scheduler.ts',
     ],
     rules: {
       // Core any/unsafe rules — every file in the list needs these
