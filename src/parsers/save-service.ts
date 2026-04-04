@@ -19,6 +19,7 @@ import { reconcileItems } from '../db/item-tracker.js';
 import { errMsg } from '../utils/error.js';
 import _rconDefault from '../rcon/rcon.js';
 import _panelApiDefault from '../server/panel-api.js';
+import { importSftpClient, importSsh2Client, importBuildAgentScript } from '../utils/dynamic-imports.js';
 import type { HumanitZDB } from '../db/database.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
@@ -314,21 +315,16 @@ class SaveService extends EventEmitter {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async deployAgent(): Promise<void> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      put: (buf: Buffer, path: string) => Promise<void>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      const _sftpMod = (await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient };
-      SFTPClient = _sftpMod.default;
+      SFTPClient = await importSftpClient();
     } catch {
       throw new Error('ssh2-sftp-client not installed');
     }
 
-    let buildAgentScript: () => string;
+    let buildAgentScript: Awaited<ReturnType<typeof importBuildAgentScript>>;
     try {
-      ({ buildAgentScript } = (await import('./agent-builder.js')) as unknown as { buildAgentScript: () => string });
+      buildAgentScript = await importBuildAgentScript();
     } catch (err: unknown) {
       throw new Error(`Failed to load agent-builder: ${errMsg(err)}`, { cause: err });
     }
@@ -354,7 +350,7 @@ class SaveService extends EventEmitter {
       this._checkNodeScriptPath = checkScriptPath;
       this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
-      sftp.end();
+      void sftp.end();
     }
   }
 
@@ -406,23 +402,9 @@ class SaveService extends EventEmitter {
   }
 
   async _sshExec(command: string): Promise<SshExecResult> {
-    let SSHClient: new () => {
-      on: (event: string, cb: (...args: unknown[]) => void) => void;
-      connect: (config: SshConfig) => void;
-      exec: (
-        cmd: string,
-        cb: (
-          err: Error | null,
-          stream: NodeJS.ReadableStream & {
-            stderr: NodeJS.ReadableStream;
-            on: (event: string, cb: (...args: unknown[]) => void) => void;
-          },
-        ) => void,
-      ) => void;
-      end: () => void;
-    };
+    let SSHClient: Awaited<ReturnType<typeof importSsh2Client>>;
     try {
-      ({ Client: SSHClient } = (await import('ssh2')) as unknown as { Client: typeof SSHClient });
+      SSHClient = await importSsh2Client();
     } catch {
       throw new Error('ssh2 not installed — needed for SSH exec');
     }
@@ -700,14 +682,9 @@ class SaveService extends EventEmitter {
   }
 
   async _readSftp(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      stat: (p: string) => Promise<{ modifyTime: number }>;
-      get: (p: string) => Promise<Buffer>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
+      SFTPClient = await importSftpClient();
     } catch {
       throw new Error('ssh2-sftp-client not installed — needed for SFTP polling');
     }
@@ -722,14 +699,14 @@ class SaveService extends EventEmitter {
         return { saveBuf: null, clanBuf: null };
       }
       this._log.info('Downloading save file (direct mode)...');
-      const saveBuf = await sftp.get(this._savePath);
+      const saveBuf = (await sftp.get(this._savePath)) as Buffer;
       this._lastMtime = mtime;
       let clanBuf: Buffer | null = null;
       if (this._clanSavePath) {
         try {
           const clanStat = await sftp.stat(this._clanSavePath);
           if (!this._lastClanMtime || clanStat.modifyTime !== this._lastClanMtime) {
-            clanBuf = await sftp.get(this._clanSavePath);
+            clanBuf = (await sftp.get(this._clanSavePath)) as Buffer;
             this._lastClanMtime = clanStat.modifyTime;
           }
         } catch {
@@ -738,7 +715,7 @@ class SaveService extends EventEmitter {
       }
       return { saveBuf, clanBuf };
     } finally {
-      sftp.end();
+      void sftp.end();
     }
   }
 
@@ -824,14 +801,9 @@ class SaveService extends EventEmitter {
   }
 
   async _readCacheViaSftp(force: boolean): Promise<unknown> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      stat: (p: string) => Promise<{ modifyTime: number }>;
-      get: (p: string) => Promise<Buffer>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
+      SFTPClient = await importSftpClient();
     } catch {
       return undefined;
     }
@@ -848,11 +820,11 @@ class SaveService extends EventEmitter {
       }
       const mtime = stat.modifyTime;
       if (!force && this._lastCacheMtime && mtime === this._lastCacheMtime) return null;
-      const buf = await sftp.get(this._cachePath);
+      const buf = (await sftp.get(this._cachePath)) as Buffer;
       const json = buf.toString('utf-8');
       return this._parseCache(json, mtime);
     } finally {
-      sftp.end();
+      void sftp.end();
     }
   }
 
@@ -897,15 +869,9 @@ class SaveService extends EventEmitter {
 
   async _fetchClanData(): Promise<unknown[]> {
     if (this._sftpConfig) {
-      type SFTPClientType = new () => {
-        connect: (config: SftpConfig) => Promise<void>;
-        stat: (p: string) => Promise<{ modifyTime: number }>;
-        get: (p: string) => Promise<Buffer>;
-        end: () => Promise<void>;
-      };
-      let SFTPClient: SFTPClientType | undefined;
+      let SFTPClient: Awaited<ReturnType<typeof importSftpClient>> | undefined;
       try {
-        SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: SFTPClientType }).default;
+        SFTPClient = await importSftpClient();
       } catch {
         /* ignore */
       }
@@ -915,7 +881,7 @@ class SaveService extends EventEmitter {
           await sftp.connect(this._sftpConfig);
           const clanStat = await sftp.stat(this._clanSavePath);
           if (!this._lastClanMtime || clanStat.modifyTime !== this._lastClanMtime) {
-            const clanBuf = await sftp.get(this._clanSavePath);
+            const clanBuf = (await sftp.get(this._clanSavePath)) as Buffer;
             this._lastClanMtime = clanStat.modifyTime;
             return parseClanData(clanBuf);
           }
