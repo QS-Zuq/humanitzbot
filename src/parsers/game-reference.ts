@@ -73,7 +73,7 @@ const GAME_REF_VERSION = 2;
 function seed(db: HumanitZDB): void {
   // Check if re-seed is needed (version mismatch or empty)
   try {
-    const count = db._db?.prepare('SELECT COUNT(*) as n FROM game_items').get() as { n: number } | undefined;
+    const count = db.db?.prepare('SELECT COUNT(*) as n FROM game_items').get() as { n: number } | undefined;
     const storedVersion = db._getMeta('game_ref_version');
     const currentVersion = String(GAME_REF_VERSION);
 

@@ -655,8 +655,8 @@ class RecapService {
 
   // ── Utility ────────────────────────────────────────────────
 
-  /** Return yesterday's date string (YYYY-MM-DD), or null if unavailable. */
-  getYesterday(): string | null {
+  /** Return yesterday's date string (YYYY-MM-DD). */
+  getYesterday(): string {
     return this._getYesterday();
   }
 

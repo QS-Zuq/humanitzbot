@@ -1047,7 +1047,7 @@ class SaveService extends EventEmitter {
       };
       itemStats = reconcileItems(
         // SAFETY: HumanitZDBLike requires index signature not present on class
-        this._db as unknown as Parameters<typeof reconcileItems>[0], // SAFETY: HumanitZDBLike requires index signature
+        this._db as unknown as Parameters<typeof reconcileItems>[0],
         {
           players,
           containers: (parsed['containers'] as Record<string, unknown>[] | undefined) ?? [],
