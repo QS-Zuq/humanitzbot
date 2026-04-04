@@ -275,9 +275,9 @@ function _onDeath(this: LogWatcherThis, playerName: string, timestamp: Date) {
     const threshold = this._config.deathLoopThreshold;
     const existing = this._deathLoopTracker.get(key);
 
-    if (existing && (timestamp as unknown as number) - existing.firstTimestamp < windowMs) {
+    if (existing && timestamp.getTime() - existing.firstTimestamp < windowMs) {
       existing.count++;
-      existing.lastTimestamp = timestamp as unknown as number;
+      existing.lastTimestamp = timestamp.getTime();
 
       if (existing.count >= threshold) {
         // In a loop — don't post individual embeds; _flushDeathLoop will summarise
@@ -295,8 +295,8 @@ function _onDeath(this: LogWatcherThis, playerName: string, timestamp: Date) {
       }
       this._deathLoopTracker.set(key, {
         count: 1,
-        firstTimestamp: timestamp as unknown as number,
-        lastTimestamp: timestamp as unknown as number,
+        firstTimestamp: timestamp.getTime(),
+        lastTimestamp: timestamp.getTime(),
         timer: null,
       });
     }
