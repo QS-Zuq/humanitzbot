@@ -961,7 +961,7 @@ client.once(Events.ClientReady, (readyClient) => {
         const prevCb = logWatcher.getDayRolloverCallback();
         logWatcher.setDayRolloverCallback(async () => {
           if (typeof prevCb === 'function') await prevCb();
-          const yesterday: string = _recap.getYesterday() ?? '';
+          const yesterday: string = _recap.getYesterday();
           await _recap.onDayRollover(yesterday);
         });
       }
@@ -1315,7 +1315,7 @@ client.once(Events.ClientReady, (readyClient) => {
         logWatcher.setNukeActive(false);
         logWatcher.resetThreadCache();
         // Send the startup notification that was deferred during nuke
-        const thread = await logWatcher._getOrCreateDailyThread();
+        const thread = await logWatcher.getOrCreateDailyThread();
         const startEmbed = new EmbedBuilder()
           .setDescription('Log watcher connected. Monitoring game server activity.')
           .setColor(0x3498db)
