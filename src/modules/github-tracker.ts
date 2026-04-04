@@ -366,9 +366,9 @@ class GitHubTracker {
         autoArchiveDuration: 10080, // 7 days
         reason: t('discord:github_tracker.thread_reason', this._locale, { repo }),
       });
-      this._threads.set(repo, thread as unknown as ThreadLike);
+      this._threads.set(repo, thread as ThreadLike);
       this._log.info(`Created thread for ${repo}: ${threadName}`);
-      return thread as unknown as ThreadLike;
+      return thread as ThreadLike;
     } catch (err: unknown) {
       this._log.error(`Failed to create thread for ${repo}:`, errMsg(err));
       // Fallback to main channel

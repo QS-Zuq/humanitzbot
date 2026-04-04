@@ -86,6 +86,7 @@ function createSessionStore(config: SessionConfig, db?: unknown): Store | undefi
         return undefined;
       }
       const store = new (SqliteSessionStore as unknown as new (db: unknown, opts: { table: string }) => Store)(db, {
+        // SAFETY: express-session Store inheritance not typed
         table: 'web_sessions',
       });
       _log.info('Using SQLite session store');

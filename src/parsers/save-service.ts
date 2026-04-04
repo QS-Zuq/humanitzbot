@@ -90,8 +90,8 @@ interface SaveServiceOptions {
 }
 
 // Module-scope references to singletons (always available as internal modules)
-const _rconModule: RconModule | null = _rconDefault as unknown as RconModule;
-const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi;
+const _rconModule: RconModule | null = _rconDefault as unknown as RconModule; // SAFETY: module default import shape
+const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi; // SAFETY: module default import shape
 
 class SaveService extends EventEmitter {
   private _db: HumanitZDB;
@@ -246,7 +246,7 @@ class SaveService extends EventEmitter {
   _repairSteamIdNames(): void {
     if (Object.keys(this._idMap).length === 0) return;
     try {
-      const rawDb = (this._db._db ?? this._db) as unknown as Record<string, unknown>;
+      const rawDb = (this._db._db ?? this._db) as unknown as Record<string, unknown>; // SAFETY: raw DB handle access for _repairSteamIdNames
       if (typeof rawDb['prepare'] !== 'function') return;
       const prepare = rawDb['prepare'] as (sql: string) => {
         all: () => Array<{ actor: string }>;
@@ -522,7 +522,7 @@ class SaveService extends EventEmitter {
 
     if (!buf) return;
 
-    const parsed = parseSave(buf) as unknown as Record<string, unknown>;
+    const parsed = parseSave(buf) as unknown as Record<string, unknown>; // SAFETY: parseSave returns untyped game data structure
     let clans: unknown[] = [];
     if (clanBuf) {
       try {
@@ -1047,7 +1047,7 @@ class SaveService extends EventEmitter {
       };
       itemStats = reconcileItems(
         // SAFETY: HumanitZDBLike requires index signature not present on class
-        this._db as unknown as Parameters<typeof reconcileItems>[0],
+        this._db as unknown as Parameters<typeof reconcileItems>[0], // SAFETY: HumanitZDBLike requires index signature
         {
           players,
           containers: (parsed['containers'] as Record<string, unknown>[] | undefined) ?? [],
@@ -1057,7 +1057,7 @@ class SaveService extends EventEmitter {
           worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
         },
         nameResolver,
-      ) as unknown as Record<string, unknown>;
+      ) as unknown as Record<string, unknown>; // SAFETY: reconcileItems returns untyped diff data
       if (this._syncCount % 100 === 0) {
         this._db.purgeOldLostItems('-7 days');
         this._db.purgeOldLostGroups('-7 days');

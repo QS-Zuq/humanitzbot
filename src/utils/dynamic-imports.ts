@@ -30,7 +30,7 @@ export type SFTPClientConstructor = typeof SFTPClientLib;
 export async function importSftpClient(): Promise<SFTPClientConstructor> {
   // ssh2-sftp-client uses `export =` (CJS), so ESM dynamic import wraps it
   // in a synthetic default — the cast through unknown is unavoidable here.
-  const mod = (await import('ssh2-sftp-client')) as unknown as { default: SFTPClientConstructor };
+  const mod = (await import('ssh2-sftp-client')) as unknown as { default: SFTPClientConstructor }; // SAFETY: ESM dynamic import requires cast for CJS module
   return mod.default;
 }
 

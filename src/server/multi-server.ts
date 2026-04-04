@@ -49,6 +49,7 @@ type ConfigType = typeof _defaultConfig;
 
 // ── Server definition interface (servers.json / config_documents) ────────
 interface ServerDef {
+  [key: string]: unknown;
   id: string;
   name?: string;
   enabled?: boolean;
@@ -716,7 +717,7 @@ class ServerInstance {
     // Server Status
     if (this.config.serverStatusChannelId && this.config.rconHost) {
       try {
-        const mod = new ServerStatus(this.client, deps as unknown as ConstructorParameters<typeof ServerStatus>[1]);
+        const mod = new ServerStatus(this.client, deps as unknown as ConstructorParameters<typeof ServerStatus>[1]); // SAFETY: deps satisfies ServerStatus ctor param shape at runtime
         await mod.start();
         this._modules.serverStatus = mod;
         this._log.info('ServerStatus active');
@@ -1002,7 +1003,7 @@ class MultiServerManager {
         const defs: ServerDef[] = [];
         for (const [scope, { data }] of all) {
           if (scope.startsWith('server:') && scope !== 'server:primary') {
-            const def = data as unknown as ServerDef;
+            const def = data as ServerDef;
             // Ensure id is present (scope is 'server:srv_xxx')
             if (!def.id) def.id = scope.slice(7);
             defs.push(def);
@@ -1024,7 +1025,7 @@ class MultiServerManager {
    */
   _persistServer(id: string, serverDef: ServerDef) {
     if (this._configRepo) {
-      this._configRepo.set('server:' + id, serverDef as unknown as Record<string, unknown>);
+      this._configRepo.set('server:' + id, serverDef);
       return;
     }
     // Legacy fallback: read-modify-write servers.json

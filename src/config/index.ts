@@ -363,7 +363,10 @@ interface ConfigMethods {
   saveDisplaySettings(db: unknown, settings: Record<string, unknown>): void;
   canShow(toggleKey: string, isAdmin?: boolean): boolean;
   isAdminView(member: import('discord.js').GuildMember | null): boolean;
-  addAdminMembers(thread: import('discord.js').ThreadChannel, guild: import('discord.js').Guild): Promise<void>;
+  addAdminMembers(
+    thread: { members?: { add(id: string): Promise<unknown> } },
+    guild: import('discord.js').Guild,
+  ): Promise<void>;
 }
 
 // ── Config object ──────────────────────────────────────────────
@@ -1085,7 +1088,7 @@ config.saveDisplaySettings = function (db: unknown, settings: Record<string, unk
  * @param isAdmin    - Whether the requesting user passes isAdminView()
  */
 config.canShow = function (toggleKey: string, isAdmin = false): boolean {
-  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
+  return _canShow(config, toggleKey, isAdmin);
 };
 
 /**

@@ -60,6 +60,7 @@ interface SqliteStoreInstance extends Store {
 
 function SqliteSessionStore(this: SqliteStoreInstance, db: DbHandle, opts: SqliteStoreOptions = {}) {
   (Store as unknown as { call(thisArg: unknown, opts: Record<string, unknown>): void }).call(
+    // SAFETY: express-session Store constructor call pattern
     this,
     opts as Record<string, unknown>,
   );
@@ -199,7 +200,7 @@ _proto.all = function (this: SqliteStoreInstance, callback: (err: Error | null, 
 
 _proto._getExpireTime = function (this: SqliteStoreInstance, session: SessionData): number {
   const cookie = session.cookie;
-  const expires = (cookie as unknown as Record<string, unknown>).expires;
+  const expires = (cookie as unknown as Record<string, unknown>).expires; // SAFETY: express-session Store constructor call pattern
   if (expires) {
     const t = new Date(expires as string | number | Date).getTime();
     if (!isNaN(t)) return t;

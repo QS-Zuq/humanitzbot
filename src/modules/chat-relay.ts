@@ -1,12 +1,4 @@
-import {
-  Events,
-  EmbedBuilder,
-  type Client,
-  type TextChannel,
-  type ThreadChannel,
-  type Guild,
-  type Message,
-} from 'discord.js';
+import { Events, EmbedBuilder, type Client, type TextChannel, type Guild, type Message } from 'discord.js';
 import _defaultConfig from '../config/index.js';
 import _defaultRcon from '../rcon/rcon.js';
 import { t, getLocale } from '../i18n/index.js';
@@ -40,7 +32,11 @@ interface ThreadLike {
   archived?: boolean;
   id?: string;
   guild?: unknown;
-  threads?: unknown;
+  members?: { add(id: string): Promise<unknown> };
+  threads?: {
+    fetchActive(): Promise<{ threads: Map<string, ThreadLike> }>;
+    fetchArchived(opts: { limit: number }): Promise<{ threads: Map<string, ThreadLike> }>;
+  };
   messages?: { fetch(options: { limit: number }): Promise<Map<string, Message>> };
   setArchived?(archived: boolean): Promise<unknown>;
 }
@@ -53,7 +49,7 @@ interface ChatRelayDeps {
 }
 
 interface ChatRelayDB {
-  insertChat(entry: Record<string, unknown>): void;
+  insertChat(entry: ChatEntry | Record<string, unknown>): void;
 }
 
 class ChatRelay {
@@ -300,12 +296,9 @@ class ChatRelay {
     });
 
     try {
-      // Check active threads
-      const channel = this.adminChannel as unknown as Record<string, unknown>;
-      const threadManager = channel['threads'] as {
-        fetchActive(): Promise<{ threads: Map<string, ThreadLike> }>;
-        fetchArchived(opts: { limit: number }): Promise<{ threads: Map<string, ThreadLike> }>;
-      };
+      const channel = this.adminChannel;
+      const threadManager = channel?.threads;
+      if (!threadManager) throw new Error('No thread manager on channel');
       const active = await threadManager.fetchActive();
       const existing = [...active.threads.values()].find((th) => th.name === threadName);
       if (existing) {
@@ -313,9 +306,7 @@ class ChatRelay {
         this._chatThreadDate = today;
         this._log.info(`Using existing thread: ${threadName}`);
         // Re-add admin members (they may have been removed if bot restarted)
-        void this._config
-          .addAdminMembers(this._chatThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
-          .catch(() => {});
+        void this._config.addAdminMembers(this._chatThread, (channel as { guild: Guild }).guild).catch(() => {});
         return this._chatThread;
       }
 
@@ -327,9 +318,7 @@ class ChatRelay {
         this._chatThread = archivedMatch;
         this._chatThreadDate = today;
         this._log.info(`Unarchived existing thread: ${threadName}`);
-        void this._config
-          .addAdminMembers(this._chatThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
-          .catch(() => {});
+        void this._config.addAdminMembers(this._chatThread, (channel as { guild: Guild }).guild).catch(() => {});
         return this._chatThread;
       }
     } catch (err: unknown) {
@@ -358,16 +347,13 @@ class ChatRelay {
         autoArchiveDuration: 1440,
         reason: t('discord:chat_relay.daily_thread_reason', this._locale),
       });
-      this._chatThread = started as unknown as ThreadLike;
+      this._chatThread = started as ThreadLike;
       this._chatThreadDate = today;
       this._log.info(`Created daily thread: ${threadName}`);
 
       // Auto-join admin users/roles so the thread stays visible for them
       void this._config
-        .addAdminMembers(
-          this._chatThread as unknown as ThreadChannel,
-          (this.adminChannel as unknown as { guild: Guild }).guild,
-        )
+        .addAdminMembers(this._chatThread, (this.adminChannel as { guild: Guild }).guild)
         .catch(() => {});
     } catch (err: unknown) {
       this._log.error('Failed to create chat thread:', errMsg(err));
@@ -497,7 +483,7 @@ class ChatRelay {
   _logChat(entry: ChatEntry) {
     if (!this._db) return;
     try {
-      this._db.insertChat(entry as unknown as Record<string, unknown>);
+      this._db.insertChat(entry);
     } catch (err: unknown) {
       if (!this._logChatWarned) {
         this._log.warn('DB chat insert failed:', errMsg(err));

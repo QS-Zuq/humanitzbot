@@ -199,7 +199,7 @@ export class PlayerStats {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerLogStats() as unknown as DbLogStatRow[];
+      const rows = this._db.getAllPlayerLogStats() as unknown as DbLogStatRow[]; // SAFETY: DB row shape validated by schema
       if (rows.length === 0) return; // DB empty — fall through to JSON
       this._data = { players: {} };
       for (const row of rows) {

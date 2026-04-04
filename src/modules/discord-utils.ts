@@ -51,7 +51,7 @@ async function cleanOwnMessages(channel: FetchableChannel, client: Client, optio
   if (savedIds.length > 0) {
     for (const savedId of savedIds) {
       try {
-        const msg = (await channel.messages.fetch(savedId)) as unknown as Message;
+        const msg = await channel.messages.fetch(savedId);
         if (msg.author.id === botUserId) {
           await msg.delete();
           log.info(`Cleaned previous message ${savedId}`);
@@ -140,6 +140,7 @@ async function safeEditMessage(
       log.info('Message was deleted, re-creating...');
       try {
         const newMsg: Message = await (channel as unknown as { send(p: MessagePayload): Promise<Message> }).send(
+          // SAFETY: channel.send exists at runtime but type overloads don't align
           payload,
         );
         if (typeof onRecreate === 'function') onRecreate(newMsg);

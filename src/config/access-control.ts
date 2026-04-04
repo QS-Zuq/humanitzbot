@@ -2,17 +2,18 @@
  * Config access-control helpers — Discord permission checks.
  */
 
-import type { Guild, GuildMember, PermissionResolvable, ThreadChannel } from 'discord.js';
+import type { Guild, GuildMember, PermissionResolvable } from 'discord.js';
 
 /**
  * Check whether a section is visible for a given user.
  * Returns true when the toggle is enabled AND either the admin-only flag is off
  * or the user is a Discord admin.
  */
-export function canShow(config: Record<string, unknown>, toggleKey: string, isAdmin = false): boolean {
-  if (!config[toggleKey]) return false;
+export function canShow(config: unknown, toggleKey: string, isAdmin = false): boolean {
+  const cfg = config as Record<string, unknown>;
+  if (!cfg[toggleKey]) return false;
   const adminOnlyKey = toggleKey + 'AdminOnly';
-  if (config[adminOnlyKey] && !isAdmin) return false;
+  if (cfg[adminOnlyKey] && !isAdmin) return false;
   return true;
 }
 
@@ -32,12 +33,12 @@ export function isAdminView(adminViewPermissions: string[], member: GuildMember 
 export async function addAdminMembers(
   adminUserIds: string[],
   adminRoleIds: string[],
-  thread: ThreadChannel,
+  thread: { members?: { add(id: string): Promise<unknown> } },
   guild: Guild,
 ): Promise<void> {
   // Explicit user IDs
   for (const uid of adminUserIds) {
-    thread.members.add(uid).catch(() => {});
+    thread.members?.add(uid).catch(() => {});
   }
   // Role-based — requires GuildMembers privileged intent
   // Fetch all members once (not per-role) so the role.members cache is populated.
@@ -61,7 +62,7 @@ export async function addAdminMembers(
       const role = guild.roles.cache.get(roleId) ?? (await guild.roles.fetch(roleId));
       if (!role) continue;
       for (const [uid] of role.members) {
-        thread.members.add(uid).catch(() => {});
+        thread.members?.add(uid).catch(() => {});
       }
     } catch (e) {
       const err = e as Error & { code?: number };

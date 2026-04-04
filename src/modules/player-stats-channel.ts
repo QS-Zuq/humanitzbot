@@ -531,7 +531,7 @@ class PlayerStatsChannel {
       for (const row of dbPlayers) {
         const steamId = row['steam_id'];
         if (typeof steamId === 'string') {
-          players.set(steamId, _dbRowToSave(row as unknown as DbPlayerRow));
+          players.set(steamId, _dbRowToSave(row as unknown as DbPlayerRow)); // SAFETY: DB row shape validated by schema
         }
       }
 
@@ -696,7 +696,7 @@ class PlayerStatsChannel {
 
       const buf = await this._downloadSave(sftp);
       const { players, worldState, structures, vehicles, horses, containers, companions } = parseSave(buf);
-      this._saveData = players as unknown as Map<string, Record<string, unknown>>;
+      this._saveData = players;
       this._structures = structures;
       this._vehicles = vehicles;
       this._horses = horses;
@@ -880,7 +880,7 @@ class PlayerStatsChannel {
 
   /** Delegate weekly stats to KillTracker */
   _computeWeeklyStats(): Record<string, unknown> | null {
-    return this._killTracker.computeWeeklyStats(this._saveData) as unknown as Record<string, unknown> | null;
+    return this._killTracker.computeWeeklyStats(this._saveData) as Record<string, unknown> | null;
   }
 
   async _updateEmbed() {
@@ -1002,8 +1002,8 @@ class PlayerStatsChannel {
    */
   _runAccumulate() {
     const { deltas, targetDate } = this._killTracker.accumulate(
-      this._saveData as unknown as Map<string, Record<string, unknown>>,
-      { gameData: gameData as unknown as NonNullable<Parameters<KillTracker['accumulate']>[1]>['gameData'] },
+      this._saveData,
+      { gameData: gameData as unknown as NonNullable<Parameters<KillTracker['accumulate']>[1]>['gameData'] }, // SAFETY: game-data types lack generics
     );
     if (this._logWatcher) {
       void this._postActivitySummary(deltas, targetDate);

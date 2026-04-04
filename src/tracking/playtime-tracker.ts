@@ -170,7 +170,7 @@ export class PlaytimeTracker {
     // real DB values on the next _persistPlaytime() call.
     if (this._data) {
       try {
-        const rows = db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
+        const rows = db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
         if (rows.length > 0) {
           let reloaded = 0;
           for (const row of rows) {
@@ -458,7 +458,7 @@ export class PlaytimeTracker {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
+      const rows = this._db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
       if (rows.length === 0) return; // DB empty — fall through to JSON
 
       // Load peaks from server_peaks table

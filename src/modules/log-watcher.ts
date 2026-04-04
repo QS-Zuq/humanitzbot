@@ -1047,6 +1047,7 @@ class LogWatcher {
     return new Promise<string>((resolve, reject) => {
       const sftpSession = (
         sftpClient as unknown as {
+          // SAFETY: ssh2-sftp-client exposes underlying sftp session not in type defs
           sftp?: { createReadStream(path: string, opts: Record<string, unknown>): import('stream').Readable };
         }
       ).sftp;

@@ -158,7 +158,7 @@ async function loadOptionalModules(): Promise<void> {
   try {
     AnticheatIntegration = (
       (await import('./modules/anticheat-integration.js')) as unknown as { default: typeof AnticheatIntegration }
-    ).default;
+    ).default; // SAFETY: optional private module dynamic import
   } catch {
     /* optional module */
   }
@@ -257,7 +257,8 @@ client.on(Events.InteractionCreate, (interaction) => {
 
       const embed: EmbedBuilder = (
         psc as unknown as { buildFullPlayerEmbed: (id: string, opts: { isAdmin: boolean }) => EmbedBuilder }
-      ).buildFullPlayerEmbed(selectedId, { isAdmin });
+      ) // SAFETY: buildFullPlayerEmbed injected via mixin at runtime
+        .buildFullPlayerEmbed(selectedId, { isAdmin });
       await interaction.editReply({ embeds: [embed] });
       return;
     }
@@ -284,7 +285,8 @@ client.on(Events.InteractionCreate, (interaction) => {
 
       const embed: EmbedBuilder = (
         psc as unknown as { buildClanEmbed: (name: string, opts: { isAdmin: boolean }) => EmbedBuilder }
-      ).buildClanEmbed(clanName, { isAdmin });
+      ) // SAFETY: buildClanEmbed injected via mixin at runtime
+        .buildClanEmbed(clanName, { isAdmin });
       await interaction.editReply({ embeds: [embed] });
       return;
     }
@@ -871,7 +873,7 @@ client.once(Events.ClientReady, (readyClient) => {
             try {
               const list = await getPlayerList();
               // getPlayerList returns loosely typed data — defensive runtime access
-              const raw = list as unknown as Record<string, unknown>;
+              const raw = list as unknown as Record<string, unknown>; // SAFETY: getPlayerList returns loosely typed data
               const arr: unknown[] = Array.isArray(raw.players)
                 ? raw.players
                 : Array.isArray(list)
@@ -1061,7 +1063,7 @@ client.once(Events.ClientReady, (readyClient) => {
               _logEvent?: (type: string, data: unknown) => void;
               _onPlayerConnect?: (playerName: string, steamId: string) => void;
             };
-            const lwHooks = logWatcher as unknown as LwHooks;
+            const lwHooks = logWatcher as unknown as LwHooks; // SAFETY: accessing private hooks for anticheat integration
             const origLogEvent = lwHooks._logEvent?.bind(logWatcher);
             if (origLogEvent) {
               lwHooks._logEvent = function (type: string, data: unknown) {
