@@ -29,7 +29,9 @@ const _path = require('path');
 function createReader(buf) {
   let offset = 0;
   function readU8() {
-    return buf[offset++];
+    const val = buf[offset++];
+    if (val === void 0) throw new Error(`readU8: out of bounds at offset ${String(offset - 1)}`);
+    return val;
   }
   function readU16() {
     const v = buf.readUInt16LE(offset);
@@ -824,8 +826,11 @@ function parseSave(buf) {
   let buildActorTransforms = [];
   let currentSteamID = null;
   function ensurePlayer(id) {
-    if (!players.has(id)) players.set(id, createPlayerData());
-    return players.get(id);
+    const existing = players.get(id);
+    if (existing) return existing;
+    const fresh = createPlayerData();
+    players.set(id, fresh);
+    return fresh;
   }
   function prescanSteamId(props) {
     for (const prop of props) {
@@ -1704,7 +1709,7 @@ function parseSave(buf) {
         companions.push({
           type: 'dog',
           actorName: comp['displayName'] || comp['class'],
-          ownerSteamId: currentSteamID ?? '',
+          ownerSteamId: currentSteamID || '',
           x: comp['x'],
           y: comp['y'],
           z: comp['z'],
@@ -1757,7 +1762,8 @@ function parseSave(buf) {
     for (const nsp of nsProps) {
       if (nsp.name === 'BuildActor' && typeof nsp.value === 'string') {
         const idx = structures.findIndex((s) => s.extraData === nsp.value || s.actorClass === nsp.value);
-        if (idx >= 0) structures[idx].noSpawn = true;
+        const target = idx >= 0 ? structures[idx] : void 0;
+        if (target) target.noSpawn = true;
       }
     }
   }
@@ -2076,7 +2082,6 @@ function _round2(v) {
   return v;
 }
 function parseClanData(buf) {
-  var _a, _b, _c, _d, _e, _f, _g;
   const r = createReader(buf);
   parseHeader(r);
   const clans = [];
@@ -2093,25 +2098,23 @@ function parseClanData(buf) {
         if (!Array.isArray(clanProps)) continue;
         const clan = { name: '', members: [] };
         for (const cp of clanProps) {
-          if (((_a = cp.name) == null ? void 0 : _a.startsWith('ClanName')) && typeof cp.value === 'string')
-            clan.name = cp.value;
-          if (((_b = cp.name) == null ? void 0 : _b.startsWith('Members')) && cp.type === 'ArrayProperty') {
+          if (cp.name.startsWith('ClanName') && typeof cp.value === 'string') clan.name = cp.value;
+          if (cp.name.startsWith('Members') && cp.type === 'ArrayProperty') {
             if (Array.isArray(cp.value)) {
               for (const memberProps of cp.value) {
                 if (!Array.isArray(memberProps)) continue;
                 const member = { name: '', steamId: '', rank: 'Member', canInvite: false, canKick: false };
                 for (const mp of memberProps) {
-                  if (((_c = mp.name) == null ? void 0 : _c.startsWith('Name')) && typeof mp.value === 'string')
-                    member.name = mp.value;
-                  if (((_d = mp.name) == null ? void 0 : _d.startsWith('NetID')) && typeof mp.value === 'string') {
+                  if (mp.name.startsWith('Name') && typeof mp.value === 'string') member.name = mp.value;
+                  if (mp.name.startsWith('NetID') && typeof mp.value === 'string') {
                     const match = mp.value.match(/(7656\d+)/);
                     if (match == null ? void 0 : match[1]) member.steamId = match[1];
                   }
-                  if (((_e = mp.name) == null ? void 0 : _e.startsWith('Rank')) && typeof mp.value === 'string') {
+                  if (mp.name.startsWith('Rank') && typeof mp.value === 'string') {
                     member.rank = CLAN_RANK_MAP[mp.value] ?? mp.value;
                   }
-                  if ((_f = mp.name) == null ? void 0 : _f.startsWith('CanInvite')) member.canInvite = !!mp.value;
-                  if ((_g = mp.name) == null ? void 0 : _g.startsWith('CanKick')) member.canKick = !!mp.value;
+                  if (mp.name.startsWith('CanInvite')) member.canInvite = !!mp.value;
+                  if (mp.name.startsWith('CanKick')) member.canKick = !!mp.value;
                 }
                 if (member.steamId) clan.members.push(member);
               }

@@ -11,12 +11,6 @@
  * Integrates with: save-parser, player-stats, playtime-tracker, rcon
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-unnecessary-condition
-   -- 5000+ line Express server; method bodies process untyped config/save/RCON data */
-
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -29,6 +23,14 @@ import playtime from '../tracking/playtime-tracker.js';
 import rcon from '../rcon/rcon.js';
 import { setupAuth, requireTier } from './auth.js';
 import { API_ERRORS, sendError, sendOk } from './api-errors.js';
+
+import type { HumanitZDB } from '../db/database.js';
+import type { SaveService } from '../parsers/save-service.js';
+import type { ServerScheduler } from '../modules/server-scheduler.js';
+import type MultiServerManager from '../server/multi-server.js';
+import type { BotControlService } from '../server/bot-control.js';
+import type { Client } from 'discord.js';
+import type { PanelApi } from '../server/panel-api.js';
 
 import serverResources, { formatBytes, formatUptime } from '../server/server-resources.js';
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
@@ -45,6 +47,241 @@ import { errMsg } from '../utils/error.js';
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
+
+// ── Server context injected by multi-server middleware ──────────────────────
+
+/** Resolved per-request server context (primary or multi-server instance). */
+interface ServerContext {
+  db: HumanitZDB | null;
+  rcon: typeof rcon | { send(cmd: string): Promise<string>; connected?: boolean };
+  config: typeof config;
+  playerStats: typeof playerStats;
+  playtime: typeof playtime;
+  getPlayerList: typeof _getPlayerList;
+  getServerInfo: typeof _getServerInfo;
+  sendAdminMessage: typeof _sendAdminMessage;
+  panelApi: PanelApi | null;
+  scheduler: Record<string, unknown> | null;
+  dataDir: string;
+  idMap: Record<string, string>;
+  isPrimary: boolean;
+  serverId: string;
+}
+
+// Augment Express Request with custom properties set by auth + multi-server middleware
+declare module 'express-serve-static-core' {
+  interface Request {
+    srv: ServerContext;
+  }
+}
+declare module 'express-session' {
+  interface SessionData {
+    user?: {
+      userId: string;
+      username: string;
+      displayName: string;
+      avatar: string | null;
+      roles: string[];
+      tier: string;
+      tierLevel?: number;
+      inGuild: boolean;
+      lastRoleCheck: number;
+    };
+    username?: string;
+    discordId?: string;
+  }
+}
+
+/** Minimal interface for ConfigRepository (get/set/update config documents). */
+interface ConfigRepo {
+  get(doc: string): Record<string, unknown> | undefined;
+  set(doc: string, data: Record<string, unknown>): void;
+  update(doc: string, data: Record<string, unknown>): void;
+  delete(doc: string): void;
+  loadAll(): Iterable<[string, { data: Record<string, unknown> }]>;
+}
+
+/** Row shape returned by better-sqlite3 .get() / .all() */
+type DbRow = Record<string, unknown>;
+
+// ── Typed DB row interfaces (match CREATE TABLE schemas in db/schema.ts) ──
+
+interface StructureRow {
+  id: number;
+  actor_class: string;
+  display_name: string;
+  owner_steam_id: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  current_health: number;
+  max_health: number;
+  upgrade_level: number;
+  inventory: string;
+  attached_to_trailer: number;
+  no_spawn: number;
+  extra_data: string;
+}
+
+interface VehicleRow {
+  id: number;
+  class: string;
+  display_name: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  health: number;
+  max_health: number;
+  fuel: number;
+  inventory: string;
+  upgrades: string;
+  extra: string;
+}
+
+interface ContainerRow {
+  actor_name: string;
+  items: string;
+  quick_slots: string;
+  locked: number;
+  does_spawn_loot: number;
+  alarm_off: number;
+  crafting_content: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  extra: string;
+}
+
+interface CompanionRow {
+  id: number;
+  type: string;
+  actor_name: string;
+  owner_steam_id: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  health: number;
+  extra: string;
+}
+
+interface DeadBodyRow {
+  actor_name: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+}
+
+interface ActivityRow {
+  id: number;
+  type: string;
+  category: string;
+  actor: string;
+  actor_name: string;
+  item: string;
+  amount: number;
+  details: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  created_at: string;
+  steam_id?: string;
+  target_steam_id?: string;
+  target_name?: string;
+}
+
+interface ItemInstanceRow {
+  id: number;
+  fingerprint: string;
+  item: string;
+  durability: number;
+  ammo: number;
+  attachments: string | string[];
+  cap: number;
+  max_dur: number;
+  location_type: string;
+  location_id: string;
+  location_slot: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  amount: number;
+  active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ItemGroupRow {
+  id: number;
+  fingerprint: string;
+  item: string;
+  durability: number;
+  ammo: number;
+  attachments: string | string[];
+  cap: number;
+  max_dur: number;
+  location_type: string;
+  location_id: string;
+  location_slot: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  quantity: number;
+  active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ItemMovementRow {
+  id: number;
+  instance_id: number;
+  item: string;
+  from_type: string;
+  from_id: string;
+  from_slot: string;
+  to_type: string;
+  to_id: string;
+  to_slot: string;
+  amount: number;
+  attributed_steam_id: string;
+  attributed_name: string;
+  pos_x: number;
+  pos_y: number;
+  pos_z: number;
+  created_at: string;
+}
+
+interface DeathCauseRow {
+  id: number;
+  victim_name: string;
+  victim_steam_id: string;
+  cause_type: string;
+  cause_name: string;
+  cause_raw: string;
+  damage_total: number;
+  pos_x: number | null;
+  pos_y: number | null;
+  pos_z: number | null;
+  created_at: string;
+}
+
+interface ChatRow {
+  id: number;
+  type: string;
+  player_name: string;
+  steam_id: string;
+  message: string;
+  direction: string;
+  discord_user: string;
+  is_admin: number;
+  created_at: string;
+}
+
+interface EnvEntry {
+  type: 'section' | 'keyval' | 'commented' | 'empty';
+  label?: string;
+  key?: string;
+  value?: string;
+}
 
 // ── Rate limiter (express-rate-limit, per-IP + path) ──
 import expressRateLimit from 'express-rate-limit';
@@ -68,7 +305,10 @@ function rateLimit(windowMs: number, maxReqs: number) {
 }
 
 // ── Discovery job tracking (multi-server SFTP auto-discovery) ──
-const _discoveryJobs = new Map();
+const _discoveryJobs = new Map<
+  string,
+  { startTime: number; state?: string; result?: unknown; error?: string | null; currentStep?: string | null }
+>();
 setInterval(() => {
   const now = Date.now();
   for (const [jid, job] of _discoveryJobs) {
@@ -77,14 +317,15 @@ setInterval(() => {
 }, 300000).unref();
 
 /** Sanitize error messages for client responses — strip file paths and stack traces */
-function safeError(err: any): string {
-  const msg = (err && err.message) || 'Internal server error';
+function safeError(err: unknown): string {
+  const msg = err ? errMsg(err) : 'Internal server error';
   // Strip absolute paths
   return msg.replace(/\/[\w/.-]+/g, '[path]').substring(0, 200);
 }
 
-function stripControlChars(value: any): string {
-  const input = String(value ?? '');
+function stripControlChars(value: unknown): string {
+  const input =
+    value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value as string | number | boolean);
   let out = '';
   for (let i = 0; i < input.length; i++) {
     const code = input.charCodeAt(i);
@@ -96,12 +337,18 @@ function stripControlChars(value: any): string {
   return out;
 }
 
-function sendErrorWithData(res: any, code: string, data: any, status = 400, details?: any): void {
+function sendErrorWithData(
+  res: import('express').Response,
+  code: string,
+  data: Record<string, unknown>,
+  status = 400,
+  details?: string,
+): void {
   const originalJson = res.json.bind(res);
-  res.json = (payload: any) => {
+  res.json = ((payload: unknown) => {
     res.json = originalJson;
-    return originalJson({ ...payload, ...data });
-  };
+    return originalJson({ ...(payload as Record<string, unknown>), ...data });
+  }) as typeof res.json;
   sendError(res, code, status, details);
 }
 
@@ -117,14 +364,14 @@ const CALIBRATION_FILE = path.join(DATA_DIR, 'map-calibration.json');
  * @param {object} ss — Full server_settings object from bot_state
  * @returns {object} Curated settings for frontend rendering
  */
-function _extractLandingSettings(ss: any): any {
-  if (!ss || typeof ss !== 'object') return null;
+function _extractLandingSettings(ss: Record<string, string | undefined> | null): Record<string, unknown> | null {
+  if (!ss) return null;
   const n = (k: string, fb: number) => {
-    const v = parseFloat(ss[k]);
+    const v = parseFloat(ss[k] ?? '');
     return isNaN(v) ? fb : v;
   };
   const i = (k: string, fb: number) => {
-    const v = parseInt(ss[k], 10);
+    const v = parseInt(ss[k] ?? '', 10);
     return isNaN(v) ? fb : v;
   };
   return {
@@ -172,31 +419,40 @@ function _extractLandingSettings(ss: any): any {
 }
 
 class WebMapServer {
-  _client: any;
+  _client: Client;
   _app: ReturnType<typeof express>;
   _server: import('http').Server | null;
   _port: number;
-  _db: any;
-  _scheduler: any;
-  _saveService: any;
-  _multiServerManager: any;
-  _plugins: any[];
-  _configRepo: any;
-  _worldBounds: any;
-  _responseCache: Map<string, { data: any; ts: number }>;
-  _playerCache: Map<string, any>;
+  _db: HumanitZDB | null;
+  _scheduler: ServerScheduler | null;
+  _saveService: SaveService | null;
+  _multiServerManager: MultiServerManager | null;
+  _plugins: Array<Record<string, unknown>>;
+  _configRepo: ConfigRepo | null;
+  _worldBounds: { xMin: number; xMax: number; yMin: number; yMax: number };
+  _responseCache: Map<string, { data: unknown; ts: number }>;
+  _playerCache: Map<string, unknown>;
   _lastParse: number;
   _idMap: Record<string, string>;
-  _botControl: any;
-  _moduleStatus: any;
+  _botControl: BotControlService | null = null;
+  _moduleStatus: Record<string, string> | null = null;
   _pollTimer: ReturnType<typeof setInterval> | null = null;
-  setScheduler!: (scheduler: any) => void;
-  setSaveService!: (saveService: any) => void;
-  setMultiServerManager!: (msm: any) => void;
-  setBotControl!: (bc: any) => void;
-  setModuleStatus!: (status: any) => void;
+  setScheduler!: (scheduler: ServerScheduler) => void;
+  setSaveService!: (saveService: SaveService) => void;
+  setMultiServerManager!: (msm: MultiServerManager) => void;
+  setBotControl!: (bc: BotControlService) => void;
+  setModuleStatus!: (status: Record<string, string>) => void;
 
-  constructor(client: any, opts: any = {}) {
+  constructor(
+    client: Client,
+    opts: {
+      db?: HumanitZDB | null;
+      scheduler?: ServerScheduler | null;
+      saveService?: SaveService | null;
+      multiServerManager?: MultiServerManager | null;
+      configRepo?: unknown;
+    } = {},
+  ) {
     this._client = client;
     this._app = express();
     // Trust proxy — 'loopback' for local reverse proxy (Caddy/nginx),
@@ -211,30 +467,30 @@ class WebMapServer {
     this._saveService = opts.saveService || null;
     this._multiServerManager = opts.multiServerManager || null;
     this._plugins = []; // Registered plugins (private modules)
-    this._configRepo = opts.configRepo || config._configRepo || null;
+    this._configRepo = (opts.configRepo || config._configRepo || null) as ConfigRepo | null;
 
     // World coordinate bounds — loaded from calibration file or defaults
     this._worldBounds = this._loadCalibration();
 
     // Setter methods — allow late-binding of dependencies that start after the web panel
     /** @param {object} scheduler ServerScheduler instance */
-    this.setScheduler = (scheduler: any) => {
+    this.setScheduler = (scheduler: ServerScheduler) => {
       this._scheduler = scheduler;
     };
     /** @param {object} saveService SaveService instance */
-    this.setSaveService = (saveService: any) => {
+    this.setSaveService = (saveService: SaveService) => {
       this._saveService = saveService;
     };
     /** @param {object} msm MultiServerManager instance */
-    this.setMultiServerManager = (msm: any) => {
+    this.setMultiServerManager = (msm: MultiServerManager) => {
       this._multiServerManager = msm;
     };
     /** @param {import('../server/bot-control')} bc BotControlService instance */
-    this.setBotControl = (bc: any) => {
+    this.setBotControl = (bc: BotControlService) => {
       this._botControl = bc;
     };
     /** @param {object} status Module status map { moduleName: statusString } */
-    this.setModuleStatus = (status: any) => {
+    this.setModuleStatus = (status: Record<string, string>) => {
       this._moduleStatus = status;
     };
 
@@ -247,7 +503,7 @@ class WebMapServer {
     this._idMap = {} as Record<string, string>;
 
     // Security headers
-    this._app.use((_req: any, res: any, next: any) => {
+    this._app.use((_req, res, next) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('X-XSS-Protection', '0'); // Disabled — modern browsers don't need it, can cause XSS in old ones
@@ -279,15 +535,20 @@ class WebMapServer {
   }
 
   /** Load calibration data from file, or return defaults. */
-  _loadCalibration(): any {
+  _loadCalibration(): { xMin: number; xMax: number; yMin: number; yMax: number } {
     try {
       if (fs.existsSync(CALIBRATION_FILE)) {
-        const data = JSON.parse(fs.readFileSync(CALIBRATION_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(CALIBRATION_FILE, 'utf8')) as {
+          xMin: number;
+          xMax: number;
+          yMin: number;
+          yMax: number;
+        };
         console.log('[WEB MAP] Loaded calibration from file');
         return data;
       }
-    } catch (err: any) {
-      console.error('[WEB MAP] Failed to load calibration:', err.message);
+    } catch (err: unknown) {
+      console.error('[WEB MAP] Failed to load calibration:', errMsg(err));
     }
 
     // Defaults — UE4 X = North (up), Y = East (right)
@@ -304,13 +565,13 @@ class WebMapServer {
   }
 
   /** Save calibration to file. */
-  _saveCalibration(bounds: any): void {
+  _saveCalibration(bounds: { xMin: number; xMax: number; yMin: number; yMax: number }): void {
     this._worldBounds = bounds;
     try {
       fs.writeFileSync(CALIBRATION_FILE, JSON.stringify(bounds, null, 2));
       console.log('[WEB MAP] Saved calibration:', JSON.stringify(bounds));
-    } catch (err: any) {
-      console.error('[WEB MAP] Failed to save calibration:', err.message);
+    } catch (err: unknown) {
+      console.error('[WEB MAP] Failed to save calibration:', errMsg(err));
     }
   }
 
@@ -318,7 +579,7 @@ class WebMapServer {
    * Server-side response cache — prevents repeated RCON/DB/file hits for the same data.
    * Keyed by "endpoint:serverId". Returns cached JSON or null if expired/missing.
    */
-  _getCached(endpoint: string, serverId: string, maxAgeMs = 15000): any {
+  _getCached(endpoint: string, serverId: string, maxAgeMs = 15000): unknown {
     const key = `${endpoint}:${serverId || 'primary'}`;
     const entry = this._responseCache.get(key);
     if (entry && Date.now() - entry.ts < maxAgeMs) return entry.data;
@@ -326,7 +587,7 @@ class WebMapServer {
   }
 
   /** Store a response in the cache. */
-  _setCache(endpoint: string, serverId: string, data: any): void {
+  _setCache(endpoint: string, serverId: string, data: unknown): void {
     const key = `${endpoint}:${serverId || 'primary'}`;
     this._responseCache.set(key, { data, ts: Date.now() });
   }
@@ -336,18 +597,23 @@ class WebMapServer {
    * Private modules (e.g. howyagarn/web-plugin) call this to extend the panel.
    * @param {object} plugin — { name, css[], js[], dashboardHtml, registerRoutes(app, helpers), getLandingData() }
    */
-  registerPlugin(plugin: any): void {
-    if (!plugin || !plugin.name) return;
+  registerPlugin(plugin: Record<string, unknown>): void {
+    if (!plugin.name) return;
     this._plugins.push(plugin);
     // If the server is already running, register routes immediately
     if (this._server && typeof plugin.registerRoutes === 'function') {
       try {
-        plugin.registerRoutes(this._app, { rateLimit, requireTier });
-      } catch (err: any) {
-        console.error(`[WEB MAP] Plugin ${plugin.name} late route registration failed:`, err.message);
+        (
+          plugin.registerRoutes as (
+            app: typeof this._app,
+            helpers: { rateLimit: typeof rateLimit; requireTier: typeof requireTier },
+          ) => void
+        )(this._app, { rateLimit, requireTier });
+      } catch (err: unknown) {
+        console.error(`[WEB MAP] Plugin ${plugin.name as string} late route registration failed:`, errMsg(err));
       }
     }
-    console.log(`[WEB MAP] Plugin registered: ${plugin.name}`);
+    console.log(`[WEB MAP] Plugin registered: ${plugin.name as string}`);
   }
 
   /** Load player ID map from file. */
@@ -360,15 +626,15 @@ class WebMapServer {
         if (m?.[1] && m[2]) map[m[1]] = m[2].trim();
       }
       this._idMap = map;
-    } catch (err: any) {
-      console.error('[WEB MAP] Failed to load ID map:', err.message);
+    } catch (err: unknown) {
+      console.error('[WEB MAP] Failed to load ID map:', errMsg(err));
     }
   }
 
   // ── Multi-server helpers ──────────────────────────────────
 
   /** Load the list of additional (managed) servers. DB-first, fallback to servers.json. */
-  _loadServerList(): any[] {
+  _loadServerList(): Array<Record<string, unknown> & { id: string; name?: string }> {
     // DB-backed: read from config_documents
     if (this._configRepo) {
       try {
@@ -376,20 +642,22 @@ class WebMapServer {
         const servers = [];
         for (const [scope, { data }] of all) {
           if (!scope.startsWith('server:') || scope === 'server:primary') continue;
-          if (data && data.id) servers.push(data);
+          if (data.id) servers.push(data as Record<string, unknown> & { id: string });
         }
         return servers;
-      } catch (err: any) {
-        console.error('[WEB MAP] Failed to load servers from DB:', err.message);
+      } catch (err: unknown) {
+        console.error('[WEB MAP] Failed to load servers from DB:', errMsg(err));
       }
     }
     // Legacy fallback: read from servers.json
     try {
       if (fs.existsSync(SERVERS_FILE)) {
-        return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
+        return JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8')) as Array<
+          Record<string, unknown> & { id: string; name?: string }
+        >;
       }
-    } catch (err: any) {
-      console.error('[WEB MAP] Failed to load servers.json:', err.message);
+    } catch (err: unknown) {
+      console.error('[WEB MAP] Failed to load servers.json:', errMsg(err));
     }
     return [];
   }
@@ -408,7 +676,7 @@ class WebMapServer {
    * Returns { db, rcon, config, playerStats, playtime, getPlayerList, getServerInfo,
    *           scheduler, dataDir, isPrimary, serverId } or null if server not found.
    */
-  _resolveServer(serverId: string): any {
+  _resolveServer(serverId: string): ServerContext | null {
     const isPrimary = !serverId || serverId === 'primary';
     if (isPrimary) {
       return {
@@ -421,7 +689,7 @@ class WebMapServer {
         getServerInfo: _getServerInfo,
         sendAdminMessage: _sendAdminMessage,
         panelApi: _panelApiInstance,
-        scheduler: this._scheduler,
+        scheduler: this._scheduler as unknown as Record<string, unknown>,
         dataDir: DATA_DIR,
         idMap: this._idMap,
         isPrimary: true,
@@ -442,7 +710,10 @@ class WebMapServer {
       getServerInfo: instance.getServerInfo,
       sendAdminMessage: instance.sendAdminMessage,
       panelApi: instance.panelApi || null,
-      scheduler: instance._modules?.serverScheduler || null,
+      scheduler: ((instance._modules as Record<string, unknown> | undefined)?.serverScheduler ?? null) as Record<
+        string,
+        unknown
+      > | null,
       dataDir: instance.dataDir,
       idMap: this._loadIdMapFrom(instance.dataDir, instance.db),
       isPrimary: false,
@@ -451,7 +722,7 @@ class WebMapServer {
   }
 
   /** Load player ID map from a specific data directory, falling back to DB names. */
-  _loadIdMapFrom(dataDir: string, db: any): Record<string, string> {
+  _loadIdMapFrom(dataDir: string, db: HumanitZDB | null): Record<string, string> {
     const map: Record<string, string> = {};
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'logs', 'PlayerIDMapped.txt'), 'utf8');
@@ -466,9 +737,12 @@ class WebMapServer {
     // Fall back to DB player names if file was empty/missing
     if (Object.keys(map).length === 0 && db) {
       try {
-        const rows = db._db.prepare("SELECT steam_id, name FROM players WHERE name != ''").all();
-        for (const row of rows as any[]) {
-          if (row.steam_id && row.name) map[row.steam_id as string] = row.name as string;
+        const rows = (db._db?.prepare("SELECT steam_id, name FROM players WHERE name != ''").all() ?? []) as {
+          steam_id: string;
+          name: string;
+        }[];
+        for (const row of rows) {
+          if (row.steam_id && row.name) map[row.steam_id] = row.name;
         }
       } catch {
         /* DB may not have players yet */
@@ -481,19 +755,22 @@ class WebMapServer {
    * Load player-stats.json from a data directory.
    * Returns a { getStats(steamId), getStatsByName(name) } interface.
    */
-  _loadLogStatsFrom(dataDir: string): any {
+  _loadLogStatsFrom(dataDir: string): {
+    getStats(steamId: string): Record<string, unknown> | null;
+    getStatsByName(name: string): Record<string, unknown> | null;
+  } {
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'player-stats.json'), 'utf8');
-      const data = JSON.parse(raw);
-      const players: Record<string, any> = data.players || {};
+      const data = JSON.parse(raw) as { players?: Record<string, Record<string, unknown>> };
+      const players: Record<string, Record<string, unknown>> = data.players ?? {};
       return {
         getStats(steamId: string) {
-          return (players as any)[steamId] || null;
+          return players[steamId] || null;
         },
         getStatsByName(name: string) {
           const lower = (name || '').toLowerCase();
           for (const rec of Object.values(players)) {
-            if ((rec.name || '').toLowerCase() === lower) return rec;
+            if (((rec.name as string) || '').toLowerCase() === lower) return rec;
           }
           return null;
         },
@@ -511,16 +788,16 @@ class WebMapServer {
   }
 
   /** Load playtime.json from a data directory. */
-  _loadPlaytimeFrom(dataDir: string): any {
+  _loadPlaytimeFrom(dataDir: string): { getPlaytime(steamId: string): Record<string, unknown> | null } {
     try {
       const raw = fs.readFileSync(path.join(dataDir, 'playtime.json'), 'utf8');
-      const data = JSON.parse(raw);
-      const players: Record<string, any> = data.players || {};
+      const data = JSON.parse(raw) as { players?: Record<string, Record<string, unknown>> };
+      const players: Record<string, Record<string, unknown>> = data.players ?? {};
       return {
         getPlaytime(steamId: string) {
           const p = players[steamId];
           if (!p) return null;
-          return { totalMs: p.totalMs || 0, lastSeen: p.lastSeen || null };
+          return { totalMs: (p.totalMs as number) || 0, lastSeen: (p.lastSeen as string) || null };
         },
       };
     } catch {
@@ -536,7 +813,7 @@ class WebMapServer {
    * Parse save data for a specific server.
    * Tries (in order): save-cache.json, humanitz-cache.json, raw .sav files.
    */
-  _parseSaveDataForServer(dataDir: string): Map<string, any> {
+  _parseSaveDataForServer(dataDir: string): Map<string, unknown> {
     // 1. Try save-cache.json (written by PlayerStatsChannel)
     try {
       const cachePath = path.join(dataDir, 'save-cache.json');
@@ -544,9 +821,9 @@ class WebMapServer {
         const stat = fs.statSync(cachePath);
         // Use cache if less than 10 minutes old
         if (Date.now() - stat.mtimeMs < 600000) {
-          const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-          const map = new Map();
-          for (const [steamId, pData] of Object.entries(data.players || {})) {
+          const data = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { players?: Record<string, unknown> };
+          const map = new Map<string, unknown>();
+          for (const [steamId, pData] of Object.entries(data.players ?? {})) {
             map.set(steamId, pData);
           }
           return map;
@@ -560,9 +837,9 @@ class WebMapServer {
     try {
       const agentPath = path.join(dataDir, 'humanitz-cache.json');
       if (fs.existsSync(agentPath)) {
-        const data = JSON.parse(fs.readFileSync(agentPath, 'utf8'));
-        const map = new Map();
-        for (const [steamId, pData] of Object.entries(data.players || {})) {
+        const data = JSON.parse(fs.readFileSync(agentPath, 'utf8')) as { players?: Record<string, unknown> };
+        const map = new Map<string, unknown>();
+        for (const [steamId, pData] of Object.entries(data.players ?? {})) {
           map.set(steamId, pData);
         }
         return map;
@@ -591,7 +868,7 @@ class WebMapServer {
   }
 
   /** Parse save file and cache results. Uses save-cache.json when available. */
-  _parseSaveData(): Map<string, any> {
+  _parseSaveData(): Map<string, unknown> {
     const now = Date.now();
     // Cache for 30s
     if (now - this._lastParse < 30000 && this._playerCache.size > 0) {
@@ -622,8 +899,8 @@ class WebMapServer {
         this._lastParse = now;
         this._loadIdMap();
         return this._playerCache;
-      } catch (err: any) {
-        console.error(`[WEB MAP] Failed to parse ${path.basename(savePath)}:`, err.message);
+      } catch (err: unknown) {
+        console.error(`[WEB MAP] Failed to parse ${path.basename(savePath)}:`, errMsg(err));
       }
     }
     return this._playerCache;
@@ -640,7 +917,7 @@ class WebMapServer {
   }
 
   /** Return SHOW_* toggles for the frontend to conditionally display sections. */
-  _getToggles(): Record<string, any> {
+  _getToggles(): Record<string, unknown> {
     return {
       showVitals: config.showVitals,
       showHealth: config.showHealth,
@@ -683,25 +960,31 @@ class WebMapServer {
     // ── Root page → panel.html (must come before static middleware) ──
     // If plugins are registered, inject their CSS/JS/HTML before serving
 
-    app.get('/', (_req: any, res: any) => {
+    app.get('/', (_req, res) => {
       if (!this._plugins.length) {
-        return res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
+        res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
+        return;
       }
       // Read panel.html and inject plugin assets
       let html;
       try {
         html = fs.readFileSync(path.join(PUBLIC_DIR, 'panel.html'), 'utf8');
       } catch {
-        return res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
+        res.sendFile(path.join(PUBLIC_DIR, 'panel.html'));
+        return;
       }
       const cssLinks = this._plugins
-        .flatMap((p: any) => ((p.css || []) as string[]).map((href: string) => `<link rel="stylesheet" href="${href}"`))
+        .flatMap((p: Record<string, unknown>) =>
+          ((p.css || []) as string[]).map((href: string) => `<link rel="stylesheet" href="${href}"`),
+        )
         .join('\n    ');
       const jsScripts = this._plugins
-        .flatMap((p: any) => ((p.js || []) as string[]).map((src: string) => `<script src="${src}"></script>`))
+        .flatMap((p: Record<string, unknown>) =>
+          ((p.js || []) as string[]).map((src: string) => `<script src="${src}"></script>`),
+        )
         .join('\n    ');
       const dashHtml = this._plugins
-        .map((p: any) => p.dashboardHtml || '')
+        .map((p: Record<string, unknown>) => (p.dashboardHtml as string) || '')
         .filter(Boolean)
         .join('\n            ');
       if (cssLinks) html = html.replace('</head>', `    ${cssLinks}\n  </head>`);
@@ -720,15 +1003,18 @@ class WebMapServer {
     // ── Multi-server context middleware ──
     // Resolves ?server=<id> query param into a server context object on req.srv
     // Falls back to primary server if not specified or not found
-    app.use('/api', (req: any, _res: any, next: any) => {
-      const serverId = req.query.server || req.body?.server || 'primary';
-      req.srv = this._resolveServer(serverId) || this._resolveServer('primary');
+    app.use('/api', (req, _res, next) => {
+      const serverId =
+        (req.query.server as string | undefined) ??
+        ((req.body as Record<string, unknown> | undefined)?.server as string | undefined) ??
+        'primary';
+      req.srv = (this._resolveServer(serverId) ?? this._resolveServer('primary')) as ServerContext;
       next();
     });
 
     // ── API: List available servers (multi-server support) ──
-    app.get('/api/servers', requireTier('survivor'), (_req: any, res: any) => {
-      const servers = [{ id: 'primary', name: (config as any).serverName || 'Primary Server' }];
+    app.get('/api/servers', requireTier('survivor'), (_req, res) => {
+      const servers = [{ id: 'primary', name: config.serverName || 'Primary Server' }];
       const additional = this._loadServerList();
       for (const s of additional) {
         const dir = this._getServerDataDir(s.id);
@@ -738,31 +1024,33 @@ class WebMapServer {
     });
 
     // ── API: Calibration data — all entity positions for map alignment ──
-    app.get('/api/calibration-data', requireTier('admin'), (req: any, res: any) => {
+    app.get('/api/calibration-data', requireTier('admin'), (req, res) => {
       try {
         const srv = req.srv;
         const cachePath = path.join(srv.dataDir, 'save-cache.json');
         if (!fs.existsSync(cachePath)) return res.json([]);
-        const data = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as {
+          players?: Record<string, DbRow>;
+          worldState?: Record<string, DbRow[]>;
+        };
 
-        const points = [];
-        const add = (arr: any, type: string) => {
+        const points: (number | string)[][] = [];
+        const add = (arr: DbRow[] | undefined, type: string) => {
           if (!arr) return;
           for (const item of arr) {
             const x = item.x ?? item.worldX ?? null;
             const y = item.y ?? item.worldY ?? null;
-            if (x !== null && y !== null && !(x === 0 && y === 0)) points.push([x, y, type]);
+            if (x !== null && y !== null && !(x === 0 && y === 0)) points.push([x as number, y as number, type]);
           }
         };
 
         // Players
-        for (const [, pRaw] of Object.entries(data.players || {})) {
-          const p = pRaw as any;
-          if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x, p.y, 'P']);
+        for (const [, p] of Object.entries(data.players ?? {})) {
+          if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x as number, p.y as number, 'P']);
         }
 
         // World entities
-        const ws = data.worldState || {};
+        const ws = data.worldState ?? {};
         add(ws.preBuildActors, 'p');
         add(ws.droppedBackpacks, 'b');
         add(ws.explodableBarrelPositions, 'e');
@@ -772,35 +1060,35 @@ class WebMapServer {
 
         // LOD pickups (positions extracted)
         if (ws.lodPickups) {
-          for (const p of ws.lodPickups as any[]) {
-            if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x, p.y, 'l']);
+          for (const p of ws.lodPickups) {
+            if (p.x != null && !(p.x === 0 && p.y === 0)) points.push([p.x as number, p.y as number, 'l']);
           }
         }
 
         // Houses
         if (ws.houses) {
-          for (const h of ws.houses as any[]) {
-            if (h.x != null && !(h.x === 0 && h.y === 0)) points.push([h.x, h.y, 'H']);
+          for (const h of ws.houses) {
+            if (h.x != null && !(h.x === 0 && h.y === 0)) points.push([h.x as number, h.y as number, 'H']);
           }
         }
 
         // Global containers
         if (ws.globalContainers) {
-          for (const c of ws.globalContainers as any[]) {
-            if (c.x != null && !(c.x === 0 && c.y === 0)) points.push([c.x, c.y, 'c']);
+          for (const c of ws.globalContainers) {
+            if (c.x != null && !(c.x === 0 && c.y === 0)) points.push([c.x as number, c.y as number, 'c']);
           }
         }
 
         console.log(`[WEB MAP] Calibration data: ${points.length} positions`);
         res.json(points);
-      } catch (err: any) {
-        console.error('[WEB MAP] Calibration data error:', err.message);
+      } catch (err: unknown) {
+        console.error('[WEB MAP] Calibration data error:', errMsg(err));
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Get all player positions ──
-    app.get('/api/players', requireTier('survivor'), rateLimit(10000, 10), async (req: any, res: any) => {
+    app.get('/api/players', requireTier('survivor'), rateLimit(10000, 10), async (req, res) => {
       const srv = req.srv;
 
       // Resolve data sources based on server
@@ -813,20 +1101,23 @@ class WebMapServer {
       const onlineSteamIds = new Set();
       try {
         const list = await srv.getPlayerList();
-        const playerArr = list?.players || (Array.isArray(list) ? list : []);
+        const playerArr = list.players;
         for (const p of playerArr) {
-          if (p.steamId) onlineSteamIds.add(p.steamId);
+          onlineSteamIds.add(p.steamId);
         }
       } catch {
         /* RCON unavailable — all players show offline */
       }
 
       // Build clan membership lookup from DB
-      const clanLookup: Record<string, any> = {}; // steamId → { clanName, rank }
+      const clanLookup: Record<string, { clanName: string; rank: string }> = {}; // steamId → { clanName, rank }
       if (srv.db) {
         try {
-          const clans = srv.db.getAllClans?.() || [];
-          for (const clan of clans) {
+          const clans = srv.db.getAllClans();
+          for (const clan of clans as unknown as Array<{
+            name: string;
+            members?: Array<{ steam_id: string; rank: string }>;
+          }>) {
             for (const m of clan.members || []) {
               clanLookup[m.steam_id] = { clanName: clan.name, rank: m.rank };
             }
@@ -838,14 +1129,18 @@ class WebMapServer {
 
       const result = [];
 
-      for (const [steamId, data] of players) {
-        const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
+      for (const [steamId, rawData] of players) {
+        const data = rawData as Record<string, unknown>;
+        const dx = data.x as number | null;
+        const dy = data.y as number | null;
+        const dz = data.z as number | null;
+        const hasPosition = dx !== null && !(dx === 0 && dy === 0 && dz === 0);
 
         const name = idMap[steamId] || steamId;
         let lat = null,
           lng = null;
         if (hasPosition) {
-          [lat, lng] = this._worldToLeaflet(data.x, data.y);
+          [lat, lng] = this._worldToLeaflet(dx, dy as number);
         }
 
         // Get log-based stats
@@ -855,7 +1150,7 @@ class WebMapServer {
         const ptData = playtimeProvider.getPlaytime(steamId);
 
         // Resolve profession display name from enum code
-        const professionName = PERK_MAP[data.startingPerk] || data.startingPerk || 'Unknown';
+        const professionName = PERK_MAP[data.startingPerk as string] || (data.startingPerk as string) || 'Unknown';
 
         result.push({
           steamId,
@@ -863,16 +1158,18 @@ class WebMapServer {
           hasPosition,
           lat,
           lng,
-          worldX: hasPosition ? Math.round(data.x) : null,
-          worldY: hasPosition ? Math.round(data.y) : null,
-          worldZ: hasPosition ? Math.round(data.z) : null,
+          worldX: hasPosition ? Math.round(dx) : null,
+          worldY: hasPosition ? Math.round(dy as number) : null,
+          worldZ: hasPosition ? Math.round(dz as number) : null,
           isOnline: onlineSteamIds.has(steamId),
 
           // Character
           male: data.male,
           profession: professionName,
-          affliction: AFFLICTION_MAP[data.affliction] || 'Unknown',
-          unlockedProfessions: (data.unlockedProfessions || []).map((p: any) => PERK_MAP[p] || p),
+          affliction: AFFLICTION_MAP[data.affliction as number] || 'Unknown',
+          unlockedProfessions: ((data.unlockedProfessions as unknown[] | undefined) ?? []).map(
+            (p: unknown) => PERK_MAP[p as string] || p,
+          ),
 
           // Current-life kill stats
           zeeksKilled: data.zeeksKilled || 0,
@@ -923,30 +1220,37 @@ class WebMapServer {
           infectionBuildup: data.infectionBuildup,
 
           // Status effects (cleaned)
-          playerStates: (data.playerStates || []).map((s: any) => cleanItemName(s)),
-          bodyConditions: (data.bodyConditions || []).map((s: any) => cleanItemName(s)),
+          playerStates: ((data.playerStates as unknown[] | undefined) ?? []).map((s: unknown) =>
+            cleanItemName(s as string),
+          ),
+          bodyConditions: ((data.bodyConditions as unknown[] | undefined) ?? []).map((s: unknown) =>
+            cleanItemName(s as string),
+          ),
 
           // Inventory (server-side cleaned)
-          equipment: _cleanInventorySlots(data.equipment),
-          quickSlots: _cleanInventorySlots(data.quickSlots),
-          inventory: _cleanInventorySlots(data.inventory),
-          backpackItems: _cleanInventorySlots(data.backpackItems),
+          equipment: _cleanInventorySlots((data.equipment as unknown[] | undefined) ?? []),
+          quickSlots: _cleanInventorySlots((data.quickSlots as unknown[] | undefined) ?? []),
+          inventory: _cleanInventorySlots((data.inventory as unknown[] | undefined) ?? []),
+          backpackItems: _cleanInventorySlots((data.backpackItems as unknown[] | undefined) ?? []),
 
           // Recipes & skills (cleaned — cleanItemArray filters out hex GUIDs)
-          craftingRecipes: cleanItemArray(data.craftingRecipes || []),
-          buildingRecipes: cleanItemArray(data.buildingRecipes || []),
-          unlockedSkills: cleanItemArray(data.unlockedSkills || []),
+          craftingRecipes: cleanItemArray((data.craftingRecipes as unknown[] | undefined) ?? []),
+          buildingRecipes: cleanItemArray((data.buildingRecipes as unknown[] | undefined) ?? []),
+          unlockedSkills: cleanItemArray((data.unlockedSkills as unknown[] | undefined) ?? []),
 
           // Lore
-          lore: data.lore || [],
-          uniqueLoots: cleanItemArray(data.uniqueLoots || []),
-          craftedUniques: cleanItemArray(data.craftedUniques || []),
+          lore: (data.lore as unknown[] | undefined) ?? [],
+          uniqueLoots: cleanItemArray((data.uniqueLoots as unknown[] | undefined) ?? []),
+          craftedUniques: cleanItemArray((data.craftedUniques as unknown[] | undefined) ?? []),
 
           // Companions (cleaned)
-          companionData: (data.companionData || []).map((c: any) =>
-            typeof c === 'object' ? { ...c, type: cleanItemName(c.type || '') } : cleanItemName(c),
+          companionData: ((data.companionData as Record<string, unknown>[] | undefined) ?? []).map(
+            (c: Record<string, unknown>) =>
+              typeof c === 'object'
+                ? { ...c, type: cleanItemName((c.type as string | undefined) ?? '') }
+                : cleanItemName(c as string),
           ),
-          horses: data.horses || [],
+          horses: (data.horses as unknown[] | undefined) ?? [],
 
           // Log-derived stats
           deaths: logStats?.deaths || 0,
@@ -978,27 +1282,32 @@ class WebMapServer {
     });
 
     // ── API: Get single player detail ──
-    app.get('/api/players/:steamId', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/players/:steamId', requireTier('survivor'), (req, res) => {
       const srv = req.srv;
+      const steamId = req.params.steamId as string;
       const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
-      const data = players.get(req.params.steamId);
-      if (!data) {
+      const rawPlayerData = players.get(steamId);
+      if (!rawPlayerData) {
         sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
         return;
       }
+      const data = rawPlayerData as Record<string, unknown>;
 
-      const name = srv.idMap[req.params.steamId] || req.params.steamId;
-      const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
+      const name = srv.idMap[steamId] || steamId;
+      const pdx = data.x as number | null;
+      const pdy = data.y as number | null;
+      const pdz = data.z as number | null;
+      const hasPosition = pdx !== null && !(pdx === 0 && pdy === 0 && pdz === 0);
       let lat = null,
         lng = null;
       if (hasPosition) {
-        [lat, lng] = this._worldToLeaflet(data.x, data.y);
+        [lat, lng] = this._worldToLeaflet(pdx, pdy as number);
       }
 
       // Resolve display names
-      const professionName = PERK_MAP[data.startingPerk] || data.startingPerk || 'Unknown';
-      const logStats = srv.playerStats.getStats(req.params.steamId) || srv.playerStats.getStatsByName(name);
-      const ptData = srv.playtime.getPlaytime(req.params.steamId);
+      const professionName = PERK_MAP[data.startingPerk as string] || (data.startingPerk as string) || 'Unknown';
+      const logStats = srv.playerStats.getStats(steamId) || srv.playerStats.getStatsByName(name);
+      const ptData = srv.playtime.getPlaytime(steamId);
 
       res.json({
         steamId: req.params.steamId,
@@ -1006,12 +1315,14 @@ class WebMapServer {
         hasPosition,
         lat,
         lng,
-        worldX: data.x,
-        worldY: data.y,
-        worldZ: data.z,
+        worldX: pdx,
+        worldY: pdy,
+        worldZ: pdz,
         profession: professionName,
-        affliction: AFFLICTION_MAP[data.affliction] || 'Unknown',
-        unlockedProfessions: (data.unlockedProfessions || []).map((p: any) => PERK_MAP[p] || p),
+        affliction: AFFLICTION_MAP[data.affliction as number] || 'Unknown',
+        unlockedProfessions: ((data.unlockedProfessions as unknown[] | undefined) ?? []).map(
+          (p: unknown) => PERK_MAP[p as string] || p,
+        ),
         ...data,
         // Override raw enum values with resolved names
         startingPerk: professionName,
@@ -1034,13 +1345,14 @@ class WebMapServer {
 
     // ── API: Get world bounds / calibration ──
 
-    app.get('/api/calibration', requireTier('admin'), (_req: any, res: any) => {
+    app.get('/api/calibration', requireTier('admin'), (_req, res) => {
       res.json(this._worldBounds);
     });
 
     // ── API: Save calibration ──
-    app.post('/api/calibration', requireTier('admin'), (req: any, res: any) => {
-      const { xMin, xMax, yMin, yMax } = req.body;
+    app.post('/api/calibration', requireTier('admin'), (req, res) => {
+      const body1187 = req.body as { xMin: number; xMax: number; yMin: number; yMax: number };
+      const { xMin, xMax, yMin, yMax } = body1187;
       if ([xMin, xMax, yMin, yMax].some((v) => typeof v !== 'number' || isNaN(v))) {
         sendError(res, API_ERRORS.INVALID_BOUNDS, 400);
         return;
@@ -1050,9 +1362,12 @@ class WebMapServer {
     });
 
     // ── API: Calibrate from two reference points ──
-    app.post('/api/calibrate-from-points', requireTier('admin'), (req: any, res: any) => {
+    app.post('/api/calibrate-from-points', requireTier('admin'), (req, res) => {
       // Each point: { worldX, worldY, pixelX, pixelY } where pixel is 0-4096
-      const { point1, point2 } = req.body;
+      const { point1, point2 } = req.body as {
+        point1?: { worldX: number; worldY: number; pixelX: number; pixelY: number };
+        point2?: { worldX: number; worldY: number; pixelX: number; pixelY: number };
+      };
       if (!point1 || !point2) {
         sendError(res, API_ERRORS.MISSING_POINTS, 400);
         return;
@@ -1100,8 +1415,8 @@ class WebMapServer {
     });
 
     // ── API: Admin action — kick ──
-    app.post('/api/admin/kick', requireTier('mod'), rateLimit(5000, 5), async (req: any, res: any) => {
-      const { steamId } = req.body;
+    app.post('/api/admin/kick', requireTier('mod'), rateLimit(5000, 5), async (req, res) => {
+      const { steamId } = req.body as { steamId?: string };
       if (!steamId || typeof steamId !== 'string') {
         sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
         return;
@@ -1114,14 +1429,14 @@ class WebMapServer {
       try {
         const result = await req.srv.rcon.send(`kick ${steamId}`);
         res.json({ ok: true, result });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Admin action — ban ──
-    app.post('/api/admin/ban', requireTier('admin'), rateLimit(5000, 3), async (req: any, res: any) => {
-      const { steamId } = req.body;
+    app.post('/api/admin/ban', requireTier('admin'), rateLimit(5000, 3), async (req, res) => {
+      const { steamId } = req.body as { steamId?: string };
       if (!steamId || typeof steamId !== 'string') {
         sendError(res, API_ERRORS.MISSING_STEAM_ID, 400);
         return;
@@ -1133,14 +1448,14 @@ class WebMapServer {
       try {
         const result = await req.srv.rcon.send(`ban ${steamId}`);
         res.json({ ok: true, result });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: RCON send message ──
-    app.post('/api/admin/message', requireTier('mod'), rateLimit(3000, 5), async (req: any, res: any) => {
-      const { message } = req.body;
+    app.post('/api/admin/message', requireTier('mod'), rateLimit(3000, 5), async (req, res) => {
+      const { message } = req.body as { message?: string };
       if (!message || typeof message !== 'string') {
         sendError(res, API_ERRORS.MISSING_MESSAGE, 400);
         return;
@@ -1171,28 +1486,28 @@ class WebMapServer {
               playerName: '',
               message: safe,
               direction: 'outbound',
-              discordUser: req.session?.user?.displayName || 'Panel',
+              discordUser: req.session.user?.displayName || 'Panel',
               isAdmin: true,
             });
           } catch (_) {}
         }
 
         res.json({ ok: true, result });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── API: Get RCON player list (online status) ──
-    app.get('/api/online', requireTier('survivor'), async (req: any, res: any) => {
+    app.get('/api/online', requireTier('survivor'), async (req, res) => {
       // Serve from background-polled player cache — instant response
-      const cached = this._getCached('online', req.srv.serverId, 30000);
+      const cached = this._getCached('online', req.srv.serverId, 30000) as Record<string, unknown> | null;
       if (cached) return res.json({ players: cached });
       try {
         const list = await req.srv.getPlayerList();
         this._setCache('online', req.srv.serverId, list);
         res.json({ players: list });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -1205,13 +1520,13 @@ class WebMapServer {
      * Returns server status, connect info, and multi-server data for the
      * public landing page. No authentication needed.
      */
-    app.get('/api/landing', rateLimit(30000, 20), async (_req: any, res: any) => {
+    app.get('/api/landing', rateLimit(30000, 20), async (_req, res) => {
       // Serve from background-polled cache — instant response
-      const cached = this._getCached('landing', 'global', 30000);
+      const cached = this._getCached('landing', 'global', 30000) as Record<string, unknown> | null;
       if (cached) return res.json(cached);
       // First request before background poller has run — build on demand
       try {
-        const rconTimeout = (promise: any) =>
+        const rconTimeout = (promise: Promise<unknown>) =>
           Promise.race([
             promise,
             new Promise((_, rej) =>
@@ -1221,14 +1536,14 @@ class WebMapServer {
             ),
           ]);
         await this._buildLandingData(rconTimeout);
-        const built = this._getCached('landing', 'global', 30000);
+        const built = this._getCached('landing', 'global', 30000) as Record<string, unknown> | null;
         if (built) return res.json(built);
       } catch {
         /* build failed */
       }
       res.json({
         primary: {
-          name: (config as any).serverName || 'HumanitZ Server',
+          name: config.serverName || 'HumanitZ Server',
           status: 'unknown',
           onlineCount: 0,
           totalPlayers: 0,
@@ -1241,9 +1556,14 @@ class WebMapServer {
     for (const plugin of this._plugins) {
       if (typeof plugin.registerRoutes === 'function') {
         try {
-          plugin.registerRoutes(app, { rateLimit, requireTier });
-        } catch (err: any) {
-          console.error(`[WEB MAP] Plugin ${plugin.name} route registration failed:`, err.message);
+          (
+            plugin.registerRoutes as (
+              app: typeof this._app,
+              helpers: { rateLimit: typeof rateLimit; requireTier: typeof requireTier },
+            ) => void
+          )(app, { rateLimit, requireTier });
+        } catch (err: unknown) {
+          console.error(`[WEB MAP] Plugin ${plugin.name as string} route registration failed:`, errMsg(err));
         }
       }
     }
@@ -1253,19 +1573,19 @@ class WebMapServer {
     // ═══════════════════════════════════════════════════════
 
     // ── Status: Module status ──
-    app.get('/api/status/modules', requireTier('admin'), (_req: any, res: any) => {
+    app.get('/api/status/modules', requireTier('admin'), (_req, res) => {
       res.json({ modules: this._moduleStatus || {} });
     });
 
     // ── Panel: Server status (RCON info + resources) — served from background cache ──
-    app.get('/api/panel/status', requireTier('survivor'), async (req: any, res: any) => {
+    app.get('/api/panel/status', requireTier('survivor'), async (req, res) => {
       const srv = req.srv;
       // Serve from background-polled cache — instant response
-      const cached = this._getCached('status', srv.serverId, 30000);
+      const cached = this._getCached('status', srv.serverId, 30000) as Record<string, unknown> | null;
       if (cached) return res.json(cached);
       // Fallback: build on demand if background poller hasn't run yet
       try {
-        const rconTimeout = (promise: any) =>
+        const rconTimeout = (promise: Promise<unknown>) =>
           Promise.race([
             promise,
             new Promise((_, rej) =>
@@ -1275,7 +1595,7 @@ class WebMapServer {
             ),
           ]);
         await this._buildStatusCache(srv, rconTimeout);
-        const built = this._getCached('status', srv.serverId, 30000);
+        const built = this._getCached('status', srv.serverId, 30000) as Record<string, unknown> | null;
         if (built) return res.json(built);
       } catch {
         /* build failed */
@@ -1284,14 +1604,14 @@ class WebMapServer {
     });
 
     // ── Panel: Quick stats — served from background cache ──
-    app.get('/api/panel/stats', requireTier('survivor'), async (req: any, res: any) => {
+    app.get('/api/panel/stats', requireTier('survivor'), async (req, res) => {
       const srv = req.srv;
       // Serve from background-polled cache — instant response
-      const cached = this._getCached('stats', srv.serverId, 30000);
+      const cached = this._getCached('stats', srv.serverId, 30000) as Record<string, unknown> | null;
       if (cached) return res.json(cached);
       // Fallback: build on demand if background poller hasn't run yet
       try {
-        const rconTimeout = (promise: any) =>
+        const rconTimeout = (promise: Promise<unknown>) =>
           Promise.race([
             promise,
             new Promise((_, rej) =>
@@ -1301,7 +1621,7 @@ class WebMapServer {
             ),
           ]);
         await this._buildStatsCache(srv, rconTimeout);
-        const built = this._getCached('stats', srv.serverId, 30000);
+        const built = this._getCached('stats', srv.serverId, 30000) as Record<string, unknown> | null;
         if (built) return res.json(built);
       } catch {
         /* build failed */
@@ -1310,25 +1630,27 @@ class WebMapServer {
     });
 
     // ── Panel: Server capabilities — tells the client what this server has ──
-    app.get('/api/panel/capabilities', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/panel/capabilities', requireTier('survivor'), (req, res) => {
       const srv = req.srv;
-      const cached = this._getCached('caps', srv.serverId, 30000);
+      const cached = this._getCached('caps', srv.serverId, 30000) as Record<string, unknown> | null;
       if (cached) return res.json(cached);
 
-      const caps: any = {
+      const caps: Record<string, unknown> = {
         db: !!srv.db,
         rcon: !!srv.rcon,
-        scheduler: !!(srv.scheduler && srv.scheduler.isActive?.()),
+        scheduler: !!(
+          srv.scheduler && (srv.scheduler as Record<string, unknown> & { isActive?: () => boolean }).isActive?.()
+        ),
         saveService: srv.isPrimary ? !!this._saveService : !!srv.db,
         resources: srv.isPrimary && !!serverResources,
-        hasPlugin: this._plugins.some((p: any) => {
+        hasPlugin: this._plugins.some((p: Record<string, unknown>) => {
           // Check if this plugin is associated with this server
           if (srv.isPrimary) return false; // plugins are typically non-primary
           return !!p.name;
         }),
         isPrimary: srv.isPrimary,
         serverId: srv.serverId,
-        serverName: srv.config?.serverName || '',
+        serverName: srv.config.serverName || '',
       };
       // Check if this is the hzmod-enabled server
       for (const plugin of this._plugins) {
@@ -1342,9 +1664,6 @@ class WebMapServer {
           if (pluginSrv === srv.serverId) {
             caps.hzmod = true;
           } // matches this server
-          else if (srv.isPrimary && !pluginSrv) {
-            caps.hzmod = true;
-          } // primary fallback
           break;
         }
       }
@@ -1353,14 +1672,14 @@ class WebMapServer {
     });
 
     // ── Panel: Activity feed from DB ──
-    app.get('/api/panel/activity', requireTier('survivor'), rateLimit(10000, 20), (req: any, res: any) => {
+    app.get('/api/panel/activity', requireTier('survivor'), rateLimit(10000, 20), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ events: [] });
 
-      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 500);
-      const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
-      const type = req.query.type || '';
-      const actor = req.query.actor || '';
+      const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 50, 500);
+      const offset = Math.max(parseInt((req.query.offset as string) || '0', 10) || 0, 0);
+      const type = (req.query.type as string) || '';
+      const actor = (req.query.actor as string) || '';
 
       try {
         let events;
@@ -1373,16 +1692,16 @@ class WebMapServer {
         }
 
         // Resolve steam IDs to player names + clean UE4 blueprint names
-        const idMap = srv.idMap || {};
-        const resolved = (events || []).map((e: any) => {
-          const out = { ...e };
+        const idMap = srv.idMap;
+        const resolved = (events as unknown as ActivityRow[]).map((e) => {
+          const out: ActivityRow & { actor_name?: string; target_name?: string; item?: string } = { ...e };
           if (!out.actor_name && out.steam_id && idMap[out.steam_id]) {
-            out.actor_name = idMap[out.steam_id];
+            out.actor_name = idMap[out.steam_id] as string;
           } else if (!out.actor_name && out.actor && idMap[out.actor]) {
-            out.actor_name = idMap[out.actor];
+            out.actor_name = idMap[out.actor] as string;
           }
           if (!out.target_name && out.target_steam_id && idMap[out.target_steam_id]) {
-            out.target_name = idMap[out.target_steam_id];
+            out.target_name = idMap[out.target_steam_id] as string;
           }
           if (out.item) out.item = cleanActorName(out.item);
           if (out.actor && !out.actor_name) out.actor_name = cleanActorName(out.actor);
@@ -1390,28 +1709,31 @@ class WebMapServer {
         });
 
         res.json({ events: resolved });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Activity stats (aggregated trends) ──
-    app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req: any, res: any) => {
+    app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ categories: {}, hourly: [], daily: [], types: {} });
 
       try {
         const db = srv.db.db;
+        if (!db) return res.json({ categories: {}, hourly: [], daily: [], types: {} });
 
         // Total count
-        const totalRow = db.prepare('SELECT COUNT(*) as total FROM activity_log').get();
+        const totalRow = db.prepare('SELECT COUNT(*) as total FROM activity_log').get() as
+          | { total: number }
+          | undefined;
 
         // Count by type
         const typeCounts = db
           .prepare('SELECT type, COUNT(*) as count FROM activity_log GROUP BY type ORDER BY count DESC')
-          .all();
+          .all() as { type: string; count: number }[];
         const types: Record<string, number> = {};
-        for (const r of typeCounts as any[]) types[r.type] = r.count;
+        for (const r of typeCounts) types[r.type] = r.count;
 
         // Count by category
         const categories: Record<string, number> = {};
@@ -1454,7 +1776,7 @@ class WebMapServer {
           GROUP BY hour ORDER BY hour
         `,
           )
-          .all();
+          .all() as { hour: number; count: number }[];
 
         // Daily totals (last 30 days)
         const daily = db
@@ -1466,7 +1788,7 @@ class WebMapServer {
           GROUP BY day ORDER BY day
         `,
           )
-          .all();
+          .all() as { day: string; count: number }[];
 
         // Daily by category (last 14 days, for stacked chart)
         const dailyByType = db
@@ -1478,7 +1800,7 @@ class WebMapServer {
           GROUP BY day, type ORDER BY day
         `,
           )
-          .all();
+          .all() as { day: string; type: string; count: number }[];
 
         // Top actors (last 7 days)
         const topActors = db
@@ -1490,19 +1812,18 @@ class WebMapServer {
           GROUP BY actor ORDER BY count DESC LIMIT 10
         `,
           )
-          .all();
+          .all() as { actor: string; count: number }[];
 
         // Resolve actor names
-        const idMap = srv.idMap || {};
-        for (const a of topActors as any[]) {
-          if (idMap[a.actor]) a.actor = idMap[a.actor];
-          else a.actor = cleanActorName(a.actor);
+        const idMap = srv.idMap;
+        for (const a of topActors) {
+          a.actor = idMap[a.actor] ?? cleanActorName(a.actor);
         }
 
         // Date range
         const range = db
           .prepare('SELECT MIN(created_at) as earliest, MAX(created_at) as latest FROM activity_log')
-          .get();
+          .get() as { earliest: string | null; latest: string | null } | undefined;
 
         res.json({
           total: totalRow?.total || 0,
@@ -1514,13 +1835,13 @@ class WebMapServer {
           topActors,
           dateRange: { earliest: range?.earliest, latest: range?.latest },
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: DB table list with row counts ──
-    app.get('/api/panel/db/tables', requireTier('admin'), rateLimit(10000, 5), (req: any, res: any) => {
+    app.get('/api/panel/db/tables', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ tables: [] });
 
@@ -1573,20 +1894,26 @@ class WebMapServer {
 
       try {
         const db = srv.db.db;
+        if (!db) return res.json({ tables: [] });
         const allTables = db
           .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-          .all();
+          .all() as Array<{ name: string }>;
         const tables = [];
 
         for (const t of allTables) {
           if (!ALLOWED.has(t.name)) continue;
           try {
-            const row = db.prepare(`SELECT COUNT(*) as c FROM "${t.name}"`).get();
-            const cols = db.prepare(`PRAGMA table_info("${t.name}")`).all();
+            const row = db.prepare(`SELECT COUNT(*) as c FROM "${t.name}"`).get() as { c: number } | undefined;
+            const cols = db.prepare(`PRAGMA table_info("${t.name}")`).all() as {
+              name: string;
+              type: string;
+              pk: number;
+              notnull: number;
+            }[];
             tables.push({
               name: t.name,
               rowCount: row?.c || 0,
-              columns: cols.map((c: any) => ({
+              columns: cols.map((c) => ({
                 name: c.name,
                 type: c.type,
                 pk: c.pk === 1,
@@ -1599,20 +1926,21 @@ class WebMapServer {
         }
 
         res.json({ tables });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Raw SQL query (SELECT only, admin) ──
-    app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req: any, res: any) => {
+    app.post('/api/panel/db/query', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
       const srv = req.srv;
       if (!srv.db) {
         sendErrorWithData(res, API_ERRORS.NO_DATABASE, { rows: [], columns: [] });
         return;
       }
 
-      const sql = (req.body.sql || '').trim();
+      const body = req.body as { sql?: string; limit?: string | number };
+      const sql = (body.sql || '').trim();
       if (!sql) {
         sendError(res, API_ERRORS.NO_SQL_PROVIDED, 400);
         return;
@@ -1634,60 +1962,67 @@ class WebMapServer {
         return;
       }
 
-      const limit = Math.min(parseInt(req.body.limit || '200', 10) || 200, 1000);
+      const limit = Math.min(parseInt(String(body.limit ?? '200'), 10) || 200, 1000);
 
       try {
         const db = srv.db.db;
+        if (!db) {
+          sendErrorWithData(res, API_ERRORS.NO_DATABASE, { rows: [], columns: [] });
+          return;
+        }
         // Wrap in a limited query if no LIMIT clause
         let query = sql;
         if (!/\bLIMIT\b/i.test(sql)) {
-          query = String(sql).replace(/;?\s*$/, '') + ' LIMIT ' + String(limit);
+          query = sql.replace(/;?\s*$/, '') + ' LIMIT ' + String(limit);
         }
 
-        const rows = db.prepare(query).all();
-        const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+        const rows = db.prepare(query).all() as Record<string, unknown>[];
+        const columns = rows.length > 0 ? Object.keys(rows[0] ?? {}) : [];
 
         res.json({ rows, columns, count: rows.length });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 400, safeError(err));
       }
     });
 
     // ── Panel: Clans from DB ──
-    app.get('/api/panel/clans', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/panel/clans', requireTier('survivor'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ clans: [] });
 
       try {
-        const clans = srv.db.getAllClans?.() || [];
+        const clans = srv.db.getAllClans();
         res.json({ clans });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Map world data (structures, vehicles, containers, companions, dead bodies) ──
-    app.get('/api/panel/mapdata', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/panel/mapdata', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ structures: [], vehicles: [], containers: [], companions: [], deadBodies: [] });
 
-      const layers = (req.query.layers || 'all').split(',');
+      const layers = ((req.query.layers as string) || 'all').split(',');
       const showAll = layers.includes('all');
-      const result: any = {};
+      const result: Record<string, unknown> = {};
 
       try {
+        const sdb = srv.db.db;
+        if (!sdb) return res.json({ structures: [], vehicles: [], containers: [], companions: [], deadBodies: [] });
+
         if (showAll || layers.includes('structures')) {
-          const rows = srv.db.db
+          const rows = sdb
             .prepare(
               'SELECT id, display_name, actor_class, owner_steam_id, pos_x, pos_y, pos_z, current_health, max_health, upgrade_level, inventory FROM structures WHERE pos_x IS NOT NULL',
             )
-            .all();
-          result.structures = rows.map((r: any) => {
+            .all() as StructureRow[];
+          result.structures = rows.map((r: StructureRow) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
             try {
-              const items = JSON.parse(r.inventory || '[]');
-              itemCount = items.filter((i: any) => i && i !== 'Empty' && i !== 'None').length;
+              const items = JSON.parse(r.inventory || '[]') as unknown[];
+              itemCount = items.filter((i: unknown) => i && i !== 'Empty' && i !== 'None').length;
             } catch {}
             return {
               id: r.id,
@@ -1704,12 +2039,12 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('vehicles')) {
-          const rows = srv.db.db
+          const rows = sdb
             .prepare(
               'SELECT id, display_name, class, pos_x, pos_y, pos_z, health, max_health, fuel FROM vehicles WHERE pos_x IS NOT NULL',
             )
-            .all();
-          result.vehicles = rows.map((r: any) => {
+            .all() as VehicleRow[];
+          result.vehicles = rows.map((r: VehicleRow) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return {
               id: r.id,
@@ -1724,39 +2059,46 @@ class WebMapServer {
         }
 
         if (showAll || layers.includes('containers')) {
-          const rows = srv.db.db
+          const rows = sdb
             .prepare(
               'SELECT actor_name, pos_x, pos_y, pos_z, items, locked FROM containers WHERE pos_x IS NOT NULL AND pos_x != 0',
             )
-            .all();
-          result.containers = rows.map((r: any) => {
+            .all() as ContainerRow[];
+          result.containers = rows.map((r: ContainerRow) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             let itemCount = 0;
             try {
-              const items = JSON.parse(r.items || '[]');
-              itemCount = items.filter((i: any) => i && i.item && i.item !== 'None' && i.item !== 'Empty').length;
+              const items = JSON.parse(r.items || '[]') as unknown[];
+              itemCount = items.filter(
+                (i: unknown) =>
+                  i &&
+                  typeof i === 'object' &&
+                  (i as Record<string, unknown>).item &&
+                  (i as Record<string, unknown>).item !== 'None' &&
+                  (i as Record<string, unknown>).item !== 'Empty',
+              ).length;
             } catch {}
             return { name: cleanActorName(r.actor_name), lat, lng, locked: !!r.locked, itemCount };
           });
         }
 
         if (showAll || layers.includes('companions')) {
-          const rows = srv.db.db
+          const rows = sdb
             .prepare(
               'SELECT id, type, actor_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra FROM companions WHERE pos_x IS NOT NULL',
             )
-            .all();
-          result.companions = rows.map((r: any) => {
+            .all() as CompanionRow[];
+          result.companions = rows.map((r: CompanionRow) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { id: r.id, type: r.type, owner: r.owner_steam_id, lat, lng, health: r.health };
           });
         }
 
         if (showAll || layers.includes('deadBodies')) {
-          const rows = srv.db.db
+          const rows = sdb
             .prepare('SELECT actor_name, pos_x, pos_y, pos_z FROM dead_bodies WHERE pos_x IS NOT NULL')
-            .all();
-          result.deadBodies = rows.map((r: any) => {
+            .all() as DeadBodyRow[];
+          result.deadBodies = rows.map((r: DeadBodyRow) => {
             const [lat, lng] = this._worldToLeaflet(r.pos_x, r.pos_y);
             return { name: r.actor_name, lat, lng };
           });
@@ -1767,15 +2109,21 @@ class WebMapServer {
           showAll || layers.includes('zombies') || layers.includes('animals') || layers.includes('bandits');
         if (wantAI) {
           try {
-            const latestSnap = srv.db.db
+            const latestSnap = sdb
               .prepare('SELECT id FROM timeline_snapshots ORDER BY created_at DESC LIMIT 1')
-              .get();
+              .get() as { id: number } | undefined;
             if (latestSnap) {
-              const aiRows = srv.db.db
+              const aiRows = sdb
                 .prepare(
                   'SELECT ai_type, category, display_name, pos_x, pos_y FROM timeline_ai WHERE snapshot_id = ? AND pos_x IS NOT NULL',
                 )
-                .all(latestSnap.id);
+                .all(latestSnap.id) as Array<{
+                ai_type: string;
+                category: string;
+                display_name: string;
+                pos_x: number;
+                pos_y: number;
+              }>;
               const zombies = [],
                 animals = [],
                 bandits = [];
@@ -1798,12 +2146,15 @@ class WebMapServer {
 
         // Build steam_id → name lookup for owner resolution
         const nameMap: Record<string, string> = {};
-        const nameRows = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-        for (const nr of nameRows as any[]) nameMap[nr.steam_id] = nr.name;
+        const nameRows = sdb.prepare('SELECT steam_id, name FROM players').all() as {
+          steam_id: string;
+          name: string;
+        }[];
+        for (const nr of nameRows) nameMap[nr.steam_id] = nr.name;
         result.nameMap = nameMap;
 
         res.json(result);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -1811,46 +2162,49 @@ class WebMapServer {
     // ── Panel: Item Tracking API ──
 
     // GET /api/panel/items — All tracked items (instances + groups), with filters
-    app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
+    app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ instances: [], groups: [], total: 0 });
       try {
-        const search = req.query.search || '';
-        const locationType = req.query.locationType || '';
-        const locationId = req.query.locationId || '';
-        const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 100, 500);
+        const search = (req.query.search as string) || '';
+        const locationType = (req.query.locationType as string) || '';
+        const locationId = (req.query.locationId as string) || '';
+        const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 100, 500);
 
-        let instances, groups;
+        let instances: ItemInstanceRow[], groups: ItemGroupRow[];
 
         if (search) {
-          instances = srv.db.searchItemInstances(search, limit);
-          groups = srv.db.searchItemGroups(search, limit);
+          instances = srv.db.searchItemInstances(search, limit) as ItemInstanceRow[];
+          groups = srv.db.searchItemGroups(search, limit) as ItemGroupRow[];
         } else if (locationType && locationId) {
-          instances = srv.db.getItemInstancesByLocation(locationType, locationId);
-          groups = srv.db.getItemGroupsByLocation(locationType, locationId);
+          instances = srv.db.getItemInstancesByLocation(locationType, locationId) as ItemInstanceRow[];
+          groups = srv.db.getItemGroupsByLocation(locationType, locationId) as ItemGroupRow[];
         } else {
-          instances = srv.db.getActiveItemInstances();
-          groups = srv.db.getActiveItemGroups();
+          instances = srv.db.getActiveItemInstances() as ItemInstanceRow[];
+          groups = srv.db.getActiveItemGroups() as ItemGroupRow[];
         }
 
         // Parse attachments JSON
         for (const inst of instances) {
           try {
-            inst.attachments = JSON.parse(inst.attachments);
+            inst.attachments = JSON.parse(inst.attachments as string) as string[];
           } catch {
             inst.attachments = [];
           }
         }
         for (const grp of groups) {
           try {
-            grp.attachments = JSON.parse(grp.attachments);
+            grp.attachments = JSON.parse(grp.attachments as string) as string[];
           } catch {
             grp.attachments = [];
           }
         }
 
         // Build location summary for sidebar
-        const locationSummary: Record<string, any> = {};
+        const locationSummary: Record<
+          string,
+          { type: string; id: string; instanceCount: number; groupCount: number; totalItems: number }
+        > = {};
         for (const inst of instances) {
           const key = `${inst.location_type}|${inst.location_id}`;
           if (!locationSummary[key])
@@ -1861,7 +2215,7 @@ class WebMapServer {
               groupCount: 0,
               totalItems: 0,
             };
-          locationSummary[key].totalItems += Number(inst.amount as string) || 1;
+          locationSummary[key].totalItems += inst.amount || 1;
           locationSummary[key].instanceCount++;
         }
         for (const grp of groups) {
@@ -1875,7 +2229,7 @@ class WebMapServer {
               totalItems: 0,
             };
           locationSummary[key].groupCount++;
-          locationSummary[key].totalItems += Number(grp.quantity as string) * (Number(grp.stack_size as string) || 1);
+          locationSummary[key].totalItems += grp.quantity;
         }
 
         res.json({
@@ -1887,82 +2241,84 @@ class WebMapServer {
             groups: srv.db.getItemGroupCount(),
           },
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/items/:id/movements — Movement history for an instance
-    app.get('/api/panel/items/:id/movements', requireTier('admin'), (req: any, res: any) => {
+    app.get('/api/panel/items/:id/movements', requireTier('admin'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ movements: [] });
       try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(req.params.id as string, 10);
         const instance = srv.db.getItemInstance(id);
         if (!instance) {
           sendError(res, API_ERRORS.INSTANCE_NOT_FOUND, 404);
           return;
         }
 
-        const movements = srv.db.getItemMovements(id);
+        const movements = srv.db.getItemMovements(id) as ItemMovementRow[];
         res.json({ instance, movements });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/groups/:id — Group detail with movement history
-    app.get('/api/panel/groups/:id', requireTier('admin'), (req: any, res: any) => {
+    app.get('/api/panel/groups/:id', requireTier('admin'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ group: null, movements: [] });
       try {
-        const id = parseInt(req.params.id, 10);
-        const group = srv.db.getItemGroup(id);
+        const id = parseInt(req.params.id as string, 10);
+        const group = srv.db.getItemGroup(id) as ItemGroupRow | undefined;
         if (!group) {
           sendError(res, API_ERRORS.GROUP_NOT_FOUND, 404);
           return;
         }
+        let groupAttachments: unknown = group.attachments;
         try {
-          group.attachments = JSON.parse(group.attachments);
+          groupAttachments = JSON.parse(group.attachments as string);
         } catch {
-          group.attachments = [];
+          groupAttachments = [];
         }
+        const groupOut = { ...group, attachments: groupAttachments };
 
-        const movements = srv.db.getItemMovementsByGroup(id);
-        res.json({ group, movements });
-      } catch (err: any) {
+        const movements = srv.db.getItemMovementsByGroup(id) as ItemMovementRow[];
+        res.json({ group: groupOut, movements });
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/movements — Recent item movements across all items
-    app.get('/api/panel/movements', requireTier('admin'), (req: any, res: any) => {
+    app.get('/api/panel/movements', requireTier('admin'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ movements: [] });
       try {
-        const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 500);
-        const steamId = req.query.steamId || '';
-        const locationType = req.query.locationType || '';
-        const locationId = req.query.locationId || '';
+        const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 50, 500);
+        const steamId = (req.query.steamId as string) || '';
+        const locationType = (req.query.locationType as string) || '';
+        const locationId = (req.query.locationId as string) || '';
 
         let movements;
         if (steamId) {
-          movements = srv.db.getItemMovementsByPlayer(steamId, limit);
+          movements = srv.db.getItemMovementsByPlayer(steamId, limit) as ItemMovementRow[];
         } else if (locationType && locationId) {
-          movements = srv.db.getItemMovementsByLocation(locationType, locationId, limit);
+          movements = srv.db.getItemMovementsByLocation(locationType, locationId, limit) as ItemMovementRow[];
         } else {
-          movements = srv.db.getRecentItemMovements(limit);
+          movements = srv.db.getRecentItemMovements(limit) as ItemMovementRow[];
         }
 
         res.json({ movements });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // GET /api/panel/items/lookup — Look up item instance/group by name + fingerprint data
     // Used by item popups across the entire UI to bridge save data → item tracking DB
-    app.get('/api/panel/items/lookup', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/panel/items/lookup', requireTier('survivor'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ match: null, movements: [] });
       try {
@@ -1972,68 +2328,72 @@ class WebMapServer {
           return;
         }
 
-        let match = null;
-        let movements = [];
+        let match: ((ItemInstanceRow | ItemGroupRow) & { attachments?: unknown }) | null = null;
+        let movements: ItemMovementRow[] = [];
         let matchType = null; // 'instance' or 'group'
 
         // Try exact fingerprint match first
         if (fingerprint) {
           // Check instances
-          const instances = srv.db.findItemsByFingerprint(fingerprint);
+          const instances = srv.db.findItemsByFingerprint(fingerprint as string) as ItemInstanceRow[];
           if (instances.length > 0) {
             // If steamId provided, prefer the instance at that player's location
-            if (steamId) {
-              match =
-                instances.find((i: any) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
-            } else {
-              match = instances[0];
-            }
+            const inst = steamId
+              ? (instances.find((i: ItemInstanceRow) => i.location_type === 'player' && i.location_id === steamId) ??
+                instances[0])
+              : instances[0];
+            match = inst ?? null;
             matchType = 'instance';
-            try {
-              match.attachments = JSON.parse(match.attachments);
-            } catch {
-              match.attachments = [];
+            if (match) {
+              try {
+                match.attachments = JSON.parse(match.attachments as string) as string[];
+              } catch {
+                match.attachments = [];
+              }
+              movements = srv.db.getItemMovements(match.id) as ItemMovementRow[];
             }
-            movements = srv.db.getItemMovements(match.id);
           }
 
           // Check groups if no instance match
           if (!match) {
-            const groups = srv.db.findActiveGroupsByFingerprint?.(fingerprint) || [];
+            const groups = srv.db.findActiveGroupsByFingerprint(fingerprint as string) as ItemGroupRow[];
             if (groups.length > 0) {
-              if (steamId) {
-                match = groups.find((g: any) => g.location_type === 'player' && g.location_id === steamId) || groups[0];
-              } else {
-                match = groups[0];
-              }
+              const grp = steamId
+                ? (groups.find((g: ItemGroupRow) => g.location_type === 'player' && g.location_id === steamId) ??
+                  groups[0])
+                : groups[0];
+              match = grp ?? null;
               matchType = 'group';
-              try {
-                match.attachments = JSON.parse(match.attachments);
-              } catch {
-                match.attachments = [];
+              if (match) {
+                try {
+                  match.attachments = JSON.parse(match.attachments as string) as string[];
+                } catch {
+                  match.attachments = [];
+                }
+                movements = srv.db.getItemMovementsByGroup(match.id) as ItemMovementRow[];
               }
-              movements = srv.db.getItemMovementsByGroup(match.id);
             }
           }
         }
 
         // Fall back to item name search if no fingerprint match
         if (!match && itemName) {
-          const instances = srv.db.getItemInstancesByItem(itemName);
+          const instances = srv.db.getItemInstancesByItem(itemName as string) as ItemInstanceRow[];
           if (instances.length > 0) {
-            if (steamId) {
-              match =
-                instances.find((i: any) => i.location_type === 'player' && i.location_id === steamId) || instances[0];
-            } else {
-              match = instances[0];
-            }
+            const inst = steamId
+              ? (instances.find((i: ItemInstanceRow) => i.location_type === 'player' && i.location_id === steamId) ??
+                instances[0])
+              : instances[0];
+            match = inst ?? null;
             matchType = 'instance';
-            try {
-              match.attachments = JSON.parse(match.attachments);
-            } catch {
-              match.attachments = [];
+            if (match) {
+              try {
+                match.attachments = JSON.parse(match.attachments as string) as string[];
+              } catch {
+                match.attachments = [];
+              }
+              movements = srv.db.getItemMovements(match.id) as ItemMovementRow[];
             }
-            movements = srv.db.getItemMovements(match.id);
           }
         }
 
@@ -2048,7 +2408,7 @@ class WebMapServer {
         };
 
         // Enrich movement data with resolved names
-        const enrichedMovements = movements.map((m: any) => ({
+        const enrichedMovements = movements.map((m: ItemMovementRow) => ({
           ...m,
           from_name: m.from_type === 'player' ? resolveName(m.from_id) : null,
           to_name: m.to_type === 'player' ? resolveName(m.to_id) : null,
@@ -2072,21 +2432,22 @@ class WebMapServer {
           ownershipChain,
           totalMovements: movements.length,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Entity lookup (survivor+) — lightweight reference data for info popups ──
-    app.get('/api/panel/lookup/:type/:name', requireTier('survivor'), rateLimit(5000, 20), (req: any, res: any) => {
+    app.get('/api/panel/lookup/:type/:name', requireTier('survivor'), rateLimit(5000, 20), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ found: false });
-      const type = req.params.type;
-      const name = decodeURIComponent(req.params.name || '');
+      const type = req.params.type as string;
+      const name = decodeURIComponent((req.params.name as string) || '');
       if (!name) return res.json({ found: false });
 
       const db = srv.db.db;
-      const result: any = { found: false, type, name, data: {} };
+      if (!db) return res.json({ found: false });
+      const result: Record<string, unknown> = { found: false, type, name, data: {} };
 
       try {
         // Route by type to appropriate reference/world table
@@ -2170,27 +2531,27 @@ class WebMapServer {
         const actCount = db
           .prepare('SELECT COUNT(*) as c FROM activity_log WHERE details LIKE ? OR item LIKE ?')
           .get(`%${name}%`, `%${name}%`);
-        result.activityCount = actCount?.c || 0;
+        result.activityCount = (actCount as Record<string, unknown>).c || 0;
 
         res.json(result);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Comprehensive DB query (admin only) ──
-    app.get('/api/panel/db/:table', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
+    app.get('/api/panel/db/:table', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ rows: [], columns: [] });
 
-      const table = req.params.table;
+      const table = req.params.table as string;
       // Defense-in-depth: validate table name is alphanumeric + underscores only
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
         sendError(res, API_ERRORS.INVALID_TABLE_NAME, 400);
         return;
       }
-      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 50, 1000);
-      const search = req.query.search || '';
+      const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 50, 1000);
+      const search = (req.query.search as string) || '';
 
       // Whitelist of queryable tables
       const ALLOWED = new Set([
@@ -2253,10 +2614,11 @@ class WebMapServer {
 
       try {
         const db = srv.db.db;
+        if (!db) return res.json({ rows: [], columns: [] });
 
         // Get column names
-        const pragma = db.prepare(`PRAGMA table_info("${table}")`).all();
-        const columns = pragma.map((c: any) => c.name);
+        const pragma = db.prepare(`PRAGMA table_info("${table}")`).all() as { name: string; type: string }[];
+        const columns = pragma.map((c) => c.name);
 
         // Build query with optional search
         let query = `SELECT * FROM "${table}"`;
@@ -2265,11 +2627,10 @@ class WebMapServer {
         if (search) {
           // Search across text columns
           const textCols = pragma.filter(
-            (c: any) =>
-              c.type.toUpperCase().includes('TEXT') || c.type === '' || c.type.toUpperCase().includes('VARCHAR'),
+            (c) => c.type.toUpperCase().includes('TEXT') || c.type === '' || c.type.toUpperCase().includes('VARCHAR'),
           );
           if (textCols.length > 0) {
-            const clauses = textCols.map((c: any) => `"${c.name}" LIKE ?`);
+            const clauses = textCols.map((c) => `"${c.name}" LIKE ?`);
             query += ` WHERE ${clauses.join(' OR ')}`;
             for (let i = 0; i < textCols.length; i++) params.push(`%${search}%`);
           }
@@ -2287,8 +2648,8 @@ class WebMapServer {
 
         // Resolve steam IDs in player-related tables
         if (columns.includes('steam_id') || columns.includes('owner_steam_id')) {
-          for (const row of rows as any[]) {
-            const sid = row.steam_id || row.owner_steam_id;
+          for (const row of rows as DbRow[]) {
+            const sid = (row.steam_id || row.owner_steam_id) as string;
             if (sid && srv.idMap[sid] && !row.name && !row.actor_name && !row.player_name) {
               row._resolved_name = srv.idMap[sid];
             }
@@ -2296,35 +2657,35 @@ class WebMapServer {
         }
 
         res.json({ table, columns, rows, total: rows.length });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Chat log from DB ──
-    app.get('/api/panel/chat', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/panel/chat', requireTier('survivor'), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json({ messages: [] });
 
-      const limit = Math.min(parseInt(String(req.query.limit || ''), 10) || 100, 1000);
-      const search = (req.query.search || '').trim();
+      const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 100, 1000);
+      const search = ((req.query.search as string) || '').trim();
 
       try {
-        let messages;
-        if (search && srv.db.searchChat) {
-          messages = srv.db.searchChat(search, limit);
+        let messages: ChatRow[];
+        if (search) {
+          messages = srv.db.searchChat(search, limit) as ChatRow[];
         } else {
-          messages = srv.db.getRecentChat(limit);
+          messages = srv.db.getRecentChat(limit) as ChatRow[];
         }
-        res.json({ messages: messages || [] });
-      } catch (err: any) {
+        res.json({ messages });
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: RCON command execution ──
-    app.post('/api/panel/rcon', requireTier('admin'), rateLimit(10000, 10), async (req: any, res: any) => {
-      const { command } = req.body;
+    app.post('/api/panel/rcon', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
+      const { command } = req.body as { command?: string };
       if (!command || typeof command !== 'string') {
         sendError(res, API_ERRORS.MISSING_COMMAND, 400);
         return;
@@ -2365,13 +2726,13 @@ class WebMapServer {
       try {
         const response = await req.srv.rcon.send(sanitized);
         res.json({ ok: true, response });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // POST /api/panel/refresh-snapshot — Force game save + re-poll save file + record fresh snapshot
-    app.post('/api/panel/refresh-snapshot', requireTier('mod'), rateLimit(30000, 2), async (req: any, res: any) => {
+    app.post('/api/panel/refresh-snapshot', requireTier('mod'), rateLimit(30000, 2), async (req, res) => {
       if (!this._saveService) {
         sendError(res, API_ERRORS.SAVE_SERVICE_NOT_AVAILABLE, 503);
         return;
@@ -2392,17 +2753,17 @@ class WebMapServer {
         await this._saveService._poll(true);
 
         sendOk(res, { message: 'Snapshot refreshed' });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     // ── Panel: Server power controls ──
     // Supports Docker CLI (VPS), Pterodactyl API, or SSH-based controls
-    app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req: any, res: any) => {
-      const { action } = req.body;
+    app.post('/api/panel/power', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
+      const { action } = req.body as { action?: string };
       const valid = ['start', 'stop', 'restart', 'backup', 'kill'];
-      if (!valid.includes(action)) {
+      if (!action || !valid.includes(action)) {
         sendError(res, API_ERRORS.INVALID_ACTION, 400, action);
         return;
       }
@@ -2419,7 +2780,7 @@ class WebMapServer {
           await srvPanelApi.sendPowerAction(action);
           sendOk(res, { message: `Server ${action} sent via panel API` });
           return;
-        } catch (err: any) {
+        } catch (err: unknown) {
           sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
           return;
         }
@@ -2439,7 +2800,7 @@ class WebMapServer {
           'docker',
           ['cp', `${dockerContainer}:/home/steam/hzserver/serverfiles/HumanitZServer/Saved`, backupDir],
           { timeout: 30000 },
-          (err: any) => {
+          (err: Error | null) => {
             if (err) {
               sendError(res, API_ERRORS.BACKUP_FAILED, 500);
               return;
@@ -2450,17 +2811,22 @@ class WebMapServer {
         return;
       }
 
-      execFile('docker', [action, dockerContainer], { timeout: 30000 }, (err: any, _stdout: any, _stderr: any) => {
-        if (err) {
-          sendError(res, API_ERRORS.DOCKER_COMMAND_FAILED, 500);
-          return;
-        }
-        sendOk(res, { message: `Server ${action} executed` });
-      });
+      execFile(
+        'docker',
+        [action, dockerContainer],
+        { timeout: 30000 },
+        (err: Error | null, _stdout: string, _stderr: string) => {
+          if (err) {
+            sendError(res, API_ERRORS.DOCKER_COMMAND_FAILED, 500);
+            return;
+          }
+          sendOk(res, { message: `Server ${action} executed` });
+        },
+      );
     });
 
     // ── Panel: List backups ──
-    app.get('/api/panel/backups', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
+    app.get('/api/panel/backups', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
       const backups = [];
 
       // Try Pterodactyl API first (per-server or primary singleton)
@@ -2468,7 +2834,7 @@ class WebMapServer {
         const srvPanelApi = req.srv.panelApi;
         if (srvPanelApi && srvPanelApi.available) {
           const list = await srvPanelApi.listBackups();
-          if (list && list.length) {
+          if (list.length) {
             for (const b of list) {
               backups.push({
                 name: b.name || b.uuid,
@@ -2502,7 +2868,8 @@ class WebMapServer {
             });
           }
           backups.sort(
-            (a: any, b: any) => new Date(b.created as string).getTime() - new Date(a.created as string).getTime(),
+            (a: Record<string, unknown>, b: Record<string, unknown>) =>
+              new Date(b.created as string).getTime() - new Date(a.created as string).getTime(),
           );
         }
       } catch (_e) {
@@ -2514,8 +2881,8 @@ class WebMapServer {
 
     // Sensitive keys that should never be exposed or written via API
     const HIDDEN_SETTINGS = new Set(['AdminPass', 'RCONPass', 'Password', 'RConPort', 'RCONEnabled']);
-    function filterSettings(settings: Record<string, any>): Record<string, any> {
-      const filtered: Record<string, any> = {};
+    function filterSettings(settings: Record<string, unknown>): Record<string, unknown> {
+      const filtered: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(settings)) {
         if (!HIDDEN_SETTINGS.has(k) && !k.startsWith('_')) filtered[k] = v;
       }
@@ -2523,13 +2890,13 @@ class WebMapServer {
     }
 
     // ── Panel: Game server settings (read) ──
-    app.get('/api/panel/settings', requireTier('admin'), async (req: any, res: any) => {
+    app.get('/api/panel/settings', requireTier('admin'), async (req, res) => {
       const srv = req.srv;
       // Try loading from cached file first
       const settingsFile = path.join(srv.dataDir, 'server-settings.json');
       try {
         if (fs.existsSync(settingsFile)) {
-          const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          const data = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>;
           return res.json({ settings: filterSettings(data) });
         }
       } catch {
@@ -2558,7 +2925,7 @@ class WebMapServer {
           // Cache for next time
           fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
           res.json({ settings: filterSettings(settings) });
-        } catch (err: any) {
+        } catch (err: unknown) {
           sendError(res, API_ERRORS.FAILED_TO_READ_SETTINGS, 500, safeError(err));
         }
       } else {
@@ -2567,8 +2934,8 @@ class WebMapServer {
     });
 
     // ── Panel: Game server settings (write) ──
-    app.post('/api/panel/settings', requireTier('admin'), rateLimit(30000, 5), async (req: any, res: any) => {
-      const { settings } = req.body;
+    app.post('/api/panel/settings', requireTier('admin'), rateLimit(30000, 5), async (req, res) => {
+      const { settings } = req.body as { settings?: Record<string, unknown> };
       if (!settings || typeof settings !== 'object') {
         sendError(res, API_ERRORS.MISSING_SETTINGS_OBJECT, 400);
         return;
@@ -2613,7 +2980,7 @@ class WebMapServer {
           const key = trimmed.substring(0, eq).trim();
           if (key in settings) {
             updated.add(key);
-            return `${key}=${settings[key]}`;
+            return `${key}=${String(settings[key])}`;
           }
           return line;
         });
@@ -2626,7 +2993,8 @@ class WebMapServer {
         const settingsFile = path.join(req.srv.dataDir, 'server-settings.json');
         try {
           let cached: Record<string, string> = {};
-          if (fs.existsSync(settingsFile)) cached = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          if (fs.existsSync(settingsFile))
+            cached = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string>;
           Object.assign(cached, settings);
           fs.writeFileSync(settingsFile, JSON.stringify(cached, null, 2));
         } catch {
@@ -2634,24 +3002,30 @@ class WebMapServer {
         }
 
         res.json({ ok: true, updated: [...updated] });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_SETTINGS, 500, safeError(err));
       }
     });
 
     // ── API: Server scheduler status ──
-    app.get('/api/panel/scheduler', requireTier('survivor'), (req: any, res: any) => {
+    app.get('/api/panel/scheduler', requireTier('survivor'), (req, res) => {
       // This will be populated by the bot when it passes the scheduler instance
       if (req.srv.scheduler) {
-        res.json(req.srv.scheduler.getStatus());
+        res.json((req.srv.scheduler as Record<string, unknown> & { getStatus(): unknown }).getStatus());
       } else {
         res.json({ active: false });
       }
     });
 
     // ── Schedule Editor: save restart times, profiles, and per-profile settings ──
-    app.post('/api/panel/scheduler', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
-      const { restartTimes, profiles, profileSettings, rotateDaily, serverNameTemplate } = req.body;
+    app.post('/api/panel/scheduler', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+      const { restartTimes, profiles, profileSettings, rotateDaily, serverNameTemplate } = req.body as {
+        restartTimes?: string[];
+        profiles?: string[];
+        profileSettings?: Record<string, unknown>;
+        rotateDaily?: boolean;
+        serverNameTemplate?: string;
+      };
       if (!restartTimes || !Array.isArray(restartTimes)) {
         sendError(res, API_ERRORS.RESTART_TIMES_INVALID, 400);
         return;
@@ -2664,9 +3038,12 @@ class WebMapServer {
         }
       }
       // Validate profiles
-      const profileList = Array.isArray(profiles) ? profiles.filter((p: any) => typeof p === 'string' && p.trim()) : [];
-      const settings: Record<string, any> =
-        profileSettings && typeof profileSettings === 'object' ? profileSettings : {};
+      const profileList = Array.isArray(profiles)
+        ? profiles.filter((p: unknown): p is string => typeof p === 'string' && !!p.trim())
+        : [];
+      const settings: Record<string, Record<string, unknown>> = profileSettings && typeof profileSettings === 'object'
+        ? (profileSettings as Record<string, Record<string, unknown>>)
+        : {};
 
       // Validate profile settings are JSON-safe objects
       for (const [name, val] of Object.entries(settings)) {
@@ -2684,7 +3061,7 @@ class WebMapServer {
       }
 
       const timesStr = restartTimes.join(',');
-      const profilesStr = profileList.map((p: any) => p.trim().toLowerCase()).join(',');
+      const profilesStr = profileList.map((p: string) => p.trim().toLowerCase()).join(',');
 
       // ── Non-primary: write to servers.json ──
       if (!req.srv.isPrimary) {
@@ -2694,16 +3071,16 @@ class WebMapServer {
             serverDef.restartTimes = timesStr;
             serverDef.restartProfiles = profilesStr;
             serverDef.enableServerScheduler = restartTimes.length > 0;
-            if (rotateDaily !== undefined) serverDef.restartRotateDaily = !!rotateDaily;
+            if (rotateDaily !== undefined) serverDef.restartRotateDaily = rotateDaily;
             if (typeof serverNameTemplate === 'string') serverDef.serverNameTemplate = serverNameTemplate;
             if (profileList.length > 0) {
-              serverDef.restartProfileSettings = {};
+              (serverDef.restartProfileSettings as Record<string, unknown>) = {};
               for (const name of profileList) {
                 const key = name.trim().toLowerCase();
-                if (settings[key]) serverDef.restartProfileSettings[key] = settings[key];
+                if (settings[key]) (serverDef.restartProfileSettings as Record<string, unknown>)[key] = settings[key];
               }
             } else {
-              delete serverDef.restartProfileSettings;
+              Reflect.deleteProperty(serverDef, 'restartProfileSettings');
             }
           });
           if (!ok) {
@@ -2715,7 +3092,7 @@ class WebMapServer {
             message: 'Schedule saved. Restart the bot for changes to take effect.',
           });
           return;
-        } catch (err: any) {
+        } catch (err: unknown) {
           sendError(res, API_ERRORS.FAILED_TO_SAVE, 500, safeError(err));
           return;
         }
@@ -2734,7 +3111,7 @@ class WebMapServer {
         const updated = new Set();
 
         // Build the changes map
-        const changes: Record<string, any> = {
+        const changes: Record<string, string> = {
           ENABLE_SERVER_SCHEDULER: restartTimes.length > 0 ? 'true' : 'false',
           RESTART_TIMES: timesStr,
           RESTART_PROFILES: profilesStr,
@@ -2752,7 +3129,7 @@ class WebMapServer {
         }
 
         // Remove old RESTART_PROFILE_* that are no longer in the profile list
-        const activeProfileKeys = new Set(profileList.map((p: any) => `RESTART_PROFILE_${p.trim().toUpperCase()}`));
+        const activeProfileKeys = new Set(profileList.map((p: string) => `RESTART_PROFILE_${p.trim().toUpperCase()}`));
 
         const newLines = lines.map((line: string) => {
           const trimmed = line.trim();
@@ -2797,7 +3174,7 @@ class WebMapServer {
           restartRequired: true,
           message: `Schedule saved (${updated.size} keys). Restart the bot for changes to take effect.`,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_SCHEDULE, 500, safeError(err));
       }
     });
@@ -2828,7 +3205,10 @@ class WebMapServer {
      * Each entry: { jsonPath, sensitive?, readOnly?, label? }
      * jsonPath uses dot notation: 'rcon.host', 'channels.serverStatus', etc.
      */
-    const ENV_TO_SERVERDEF: Record<string, any> = {
+    const ENV_TO_SERVERDEF: Record<
+      string,
+      { jsonPath: string; sensitive?: boolean; readOnly?: boolean; label?: string }
+    > = {
       // Identity
       SERVER_NAME: { jsonPath: 'name' },
       PUBLIC_HOST: { jsonPath: 'publicHost' },
@@ -2889,31 +3269,31 @@ class WebMapServer {
     };
 
     /** Read a nested value from an object using dot-path: 'rcon.host' → obj.rcon.host */
-    function _getNestedValue(obj: any, dotPath: string): any {
+    function _getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
       const parts = dotPath.split('.');
-      let cur = obj;
+      let cur: unknown = obj;
       for (const pk of parts) {
         if (cur == null || typeof cur !== 'object') return undefined;
-        cur = cur[pk];
+        cur = (cur as Record<string, unknown>)[pk];
       }
       return cur;
     }
 
     /** Set a nested value on an object using dot-path, creating intermediary objects. */
-    function _setNestedValue(obj: any, dotPath: string, value: any): void {
+    function _setNestedValue(obj: Record<string, unknown>, dotPath: string, value: unknown): void {
       const parts = dotPath.split('.');
-      let cur = obj;
+      let cur: Record<string, unknown> = obj;
       for (let i = 0; i < parts.length - 1; i++) {
         const p = parts[i] as string;
         if (cur[p] == null || typeof cur[p] !== 'object') cur[p] = {};
-        cur = cur[p];
+        cur = cur[p] as Record<string, unknown>;
       }
       const lastKey = parts[parts.length - 1];
       if (lastKey !== undefined) cur[lastKey] = value;
     }
 
     /** Build categorized bot-config sections from a servers.json serverDef entry. */
-    function _buildServerDefSections(serverDef: any): any[] {
+    function _buildServerDefSections(serverDef: Record<string, unknown>): Record<string, unknown>[] {
       const categories = [
         { label: 'Server Identity', keys: ['SERVER_NAME', 'PUBLIC_HOST', 'GAME_PORT', 'ENABLED'] },
         { label: 'RCON', keys: ['RCON_HOST', 'RCON_PORT', 'RCON_PASSWORD'] },
@@ -2965,14 +3345,19 @@ class WebMapServer {
       ];
 
       const sections = [];
-      for (const cat of categories as any[]) {
-        const keys: any[] = [];
-        for (const envKey of cat.keys as string[]) {
+      for (const cat of categories as { label: string; keys: string[] }[]) {
+        const keys: Record<string, unknown>[] = [];
+        for (const envKey of cat.keys) {
           const mapping = ENV_TO_SERVERDEF[envKey];
           if (!mapping) continue;
-          const raw: any = _getNestedValue(serverDef, mapping.jsonPath);
-          const value = raw != null ? String(raw) : '';
-          const isSensitive = !!(mapping.sensitive || ENV_SENSITIVE_KEYS.has(envKey));
+          const raw = _getNestedValue(serverDef, mapping.jsonPath);
+          const value =
+            raw != null
+              ? typeof raw === 'object'
+                ? JSON.stringify(raw)
+                : String(raw as string | number | boolean)
+              : '';
+          const isSensitive = Boolean(mapping.sensitive) || ENV_SENSITIVE_KEYS.has(envKey);
           keys.push({
             key: envKey,
             value: isSensitive ? '' : value,
@@ -2988,21 +3373,21 @@ class WebMapServer {
     }
 
     /** Find a server definition by id. DB-first, fallback to servers.json. */
-    function _getServerDef(serverId: string): any {
+    function _getServerDef(serverId: string): Record<string, unknown> | null {
       // DB-backed: read from config_documents
       if (configRepo) {
         try {
           const data = configRepo.get(`server:${serverId}`);
           if (data) return { data, source: 'database' };
-        } catch (err: any) {
-          console.warn('[WEB MAP] DB read failed for server, falling back to servers.json:', serverId, err.message);
+        } catch (err: unknown) {
+          console.warn('[WEB MAP] DB read failed for server, falling back to servers.json:', serverId, errMsg(err));
         }
       }
       // Legacy fallback: read from servers.json
       try {
         if (!fs.existsSync(SERVERS_FILE)) return null;
-        const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
-        const found = servers.find((s: any) => s.id === serverId) || null;
+        const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8')) as Array<Record<string, unknown>>;
+        const found = servers.find((s: Record<string, unknown>) => s.id === serverId) ?? null;
         return found ? { data: found, source: 'servers.json' } : null;
       } catch {
         return null;
@@ -3010,7 +3395,7 @@ class WebMapServer {
     }
 
     /** Write an updated server definition. DB-first, fallback to servers.json. */
-    function _saveServerDef(serverId: string, updater: (def: any) => void): boolean {
+    function _saveServerDef(serverId: string, updater: (def: Record<string, unknown>) => void): boolean {
       // DB-backed: read-update-write via configRepo
       if (configRepo) {
         try {
@@ -3020,17 +3405,17 @@ class WebMapServer {
           updater(data);
           configRepo.set(scope, data);
           return true;
-        } catch (err: any) {
-          console.error('[WEB MAP] Failed to save server def to DB:', serverId, err.message);
+        } catch (err: unknown) {
+          console.error('[WEB MAP] Failed to save server def to DB:', serverId, errMsg(err));
           return false;
         }
       }
       // Legacy fallback: read/write servers.json
       if (!fs.existsSync(SERVERS_FILE)) return false;
-      const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
-      const idx = servers.findIndex((s: any) => s.id === serverId);
+      const servers = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8')) as Array<Record<string, unknown>>;
+      const idx = servers.findIndex((s: Record<string, unknown>) => s.id === serverId);
       if (idx < 0) return false;
-      updater(servers[idx]);
+      updater(servers[idx] as Record<string, unknown>);
       const tmpPath = SERVERS_FILE + '.tmp';
       fs.writeFileSync(tmpPath, JSON.stringify(servers, null, 2));
       fs.renameSync(tmpPath, SERVERS_FILE);
@@ -3038,7 +3423,7 @@ class WebMapServer {
     }
 
     /** Parse a .env file into structured entries preserving comments and order */
-    function parseEnvFile(content: string): any[] {
+    function parseEnvFile(content: string): (EnvEntry | { type: string; raw?: string })[] {
       const entries = [];
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
@@ -3090,7 +3475,7 @@ class WebMapServer {
     }
 
     /** GET /api/panel/bot-config — read from DB (primary uses ENV_CATEGORIES, non-primary uses serverDef) */
-    app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/panel/bot-config', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       try {
         // ── Non-primary: read from config_documents / servers.json ──
         if (!req.srv.isPrimary) {
@@ -3099,7 +3484,7 @@ class WebMapServer {
             sendError(res, API_ERRORS.SERVER_NOT_FOUND_IN_SERVERS_JSON, 404);
             return;
           }
-          const sections = _buildServerDefSections(result.data);
+          const sections = _buildServerDefSections(result.data as Record<string, unknown>);
           return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: result.source });
         }
 
@@ -3108,23 +3493,29 @@ class WebMapServer {
           const appData = configRepo.get('app') || {};
           const serverData = configRepo.get('server:primary') || {};
 
-          const sections: any[] = [];
-          for (const cat of ENV_CATEGORIES as any[]) {
-            const keys: any[] = [];
-            for (const field of cat.fields as any[]) {
-              const isSensitive = !!(field.sensitive || ENV_SENSITIVE_KEYS.has(field.env));
+          const sections: Record<string, unknown>[] = [];
+          for (const cat of ENV_CATEGORIES) {
+            const keys: Record<string, unknown>[] = [];
+            for (const field of cat.fields) {
+              const isSensitive =
+                ('sensitive' in field && Boolean(field.sensitive)) || ENV_SENSITIVE_KEYS.has(field.env);
               const isReadOnly = ENV_READONLY_KEYS.has(field.env);
 
               // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
               let rawValue;
               if (field.cfg) {
-                rawValue = (config as any)[field.cfg];
+                rawValue = (config as unknown as Record<string, unknown>)[field.cfg];
               } else {
                 // Fields without cfg are stored under their env key in DB
                 const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
                 rawValue = doc[field.env];
               }
-              const value = rawValue != null ? String(rawValue) : '';
+              const value =
+                rawValue != null
+                  ? typeof rawValue === 'object'
+                    ? JSON.stringify(rawValue)
+                    : String(rawValue as string | number | boolean)
+                  : '';
 
               keys.push({
                 key: field.env,
@@ -3152,32 +3543,39 @@ class WebMapServer {
         const entries = parseEnvFile(content);
 
         // Build categorized output
-        const sections: any[] = [];
-        let currentSection: any = { label: 'General', keys: [] };
+        const sections: Record<string, unknown>[] = [];
+        let currentSection: { label: string | undefined; keys: Record<string, unknown>[] } = {
+          label: 'General',
+          keys: [],
+        };
 
         for (const entry of entries) {
           if (entry.type === 'section') {
             // Start a new section if current has keys
             if (currentSection.keys.length > 0) sections.push(currentSection);
-            currentSection = { label: entry.label, keys: [] };
+            currentSection = { label: (entry as EnvEntry).label, keys: [] };
             continue;
           }
           if (entry.type === 'keyval') {
-            const isSensitive = ENV_SENSITIVE_KEYS.has(entry.key);
-            const isReadOnly = ENV_READONLY_KEYS.has(entry.key);
+            const entryKey = (entry as EnvEntry).key as string;
+            const entryValue = (entry as EnvEntry).value as string;
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey);
+            const isReadOnly = ENV_READONLY_KEYS.has(entryKey);
             currentSection.keys.push({
-              key: entry.key,
-              value: isSensitive ? '' : entry.value,
+              key: entryKey,
+              value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: isReadOnly,
-              hasValue: isSensitive ? entry.value.length > 0 && !entry.value.startsWith('your_') : undefined,
+              hasValue: isSensitive ? entryValue.length > 0 && !entryValue.startsWith('your_') : undefined,
               commented: false,
             });
           } else if (entry.type === 'commented') {
-            const isSensitive = ENV_SENSITIVE_KEYS.has(entry.key);
+            const entryKey = (entry as EnvEntry).key as string;
+            const entryValue = (entry as EnvEntry).value as string;
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey);
             currentSection.keys.push({
-              key: entry.key,
-              value: isSensitive ? '' : entry.value,
+              key: entryKey,
+              value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: false,
               hasValue: false,
@@ -3188,14 +3586,14 @@ class WebMapServer {
         if (currentSection.keys.length > 0) sections.push(currentSection);
 
         res.json({ sections, groups: ENV_CATEGORY_GROUPS });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.FAILED_TO_READ_BOT_CONFIG, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/bot-config — update config in DB (primary) or serverDef (non-primary) */
-    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
-      const { changes } = req.body;
+    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+      const { changes } = req.body as { changes?: Record<string, unknown> };
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
         return;
@@ -3232,7 +3630,7 @@ class WebMapServer {
               if (!mapping) continue; // ignore keys not in the mapping
               const val = String(value);
               // Convert booleans for boolean-like fields
-              let coerced: any = val;
+              let coerced: string | boolean | number = val;
               if (val === 'true') coerced = true;
               else if (val === 'false') coerced = false;
               else if (
@@ -3259,12 +3657,12 @@ class WebMapServer {
               if (val === '') {
                 // Delete the nested key
                 const parts = mapping.jsonPath.split('.');
-                let cur = serverDef;
+                let cur: Record<string, unknown> = serverDef;
                 for (let i = 0; i < parts.length - 1; i++) {
-                  if (cur[parts[i]] == null) break;
-                  cur = cur[parts[i]];
+                  if (cur[parts[i] as string] == null) break;
+                  cur = cur[parts[i] as string] as Record<string, unknown>;
                 }
-                if (cur && typeof cur === 'object') {
+                if (typeof cur === 'object') {
                   const lastPart = parts[parts.length - 1];
                   if (lastPart !== undefined) {
                     Reflect.deleteProperty(cur, lastPart);
@@ -3288,7 +3686,7 @@ class WebMapServer {
             message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
           });
           return;
-        } catch (err: any) {
+        } catch (err: unknown) {
           sendError(res, API_ERRORS.FAILED_TO_SAVE_SERVER_CONFIG, 500, safeError(err));
           return;
         }
@@ -3301,10 +3699,11 @@ class WebMapServer {
           // Build envKey → restart lookup from ENV_CATEGORIES
           const restartByEnvKey = new Map();
           for (const cat of ENV_CATEGORIES) {
-            for (const f of (cat as any).fields as any[]) restartByEnvKey.set(f.env, cat.restart);
+            for (const f of (cat as { fields: { env: string }[]; restart?: boolean }).fields)
+              restartByEnvKey.set(f.env, (cat as { restart?: boolean }).restart);
           }
-          const appPatch: Record<string, any> = {};
-          const serverPatch: Record<string, any> = {};
+          const appPatch: Record<string, unknown> = {};
+          const serverPatch: Record<string, unknown> = {};
           const updated = new Set();
 
           for (const [envKey, rawValue] of Object.entries(changes)) {
@@ -3326,7 +3725,7 @@ class WebMapServer {
 
             // Only live-apply to config singleton if the field's category does NOT require restart
             if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
-              (config as any)[mapping.cfgKey] = coerced;
+              (config as unknown as Record<string, unknown>)[mapping.cfgKey] = coerced;
             }
 
             updated.add(envKey);
@@ -3341,7 +3740,7 @@ class WebMapServer {
             message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
           });
           return;
-        } catch (err: any) {
+        } catch (err: unknown) {
           sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
           return;
         }
@@ -3391,7 +3790,7 @@ class WebMapServer {
         // Any keys not found in the file — append them at the end
         for (const key of Object.keys(changes)) {
           if (!updated.has(key) && String(changes[key]) !== '') {
-            newLines.push(`${key}=${changes[key]}`);
+            newLines.push(`${key}=${String(changes[key])}`);
             updated.add(key);
           }
         }
@@ -3406,7 +3805,7 @@ class WebMapServer {
           restartRequired: true,
           message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.FAILED_TO_SAVE_BOT_CONFIG, 500, safeError(err));
       }
     });
@@ -3416,7 +3815,7 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/panel/welcome-file — read current welcome file from SFTP (fallback to config) */
-    app.get('/api/panel/welcome-file', requireTier('admin'), rateLimit(10000, 10), async (req: any, res: any) => {
+    app.get('/api/panel/welcome-file', requireTier('admin'), rateLimit(10000, 10), async (req, res) => {
       const placeholders = [
         '{server_name}',
         '{day}',
@@ -3438,28 +3837,28 @@ class WebMapServer {
             const content = buf.toString('utf8');
             sendOk(res, { content, placeholders, source: 'sftp' });
             return;
-          } catch (sftpErr: any) {
-            console.warn('[WelcomeFile] SFTP read failed, falling back to config:', sftpErr.message);
+          } catch (sftpErr: unknown) {
+            console.warn('[WelcomeFile] SFTP read failed, falling back to config:', errMsg(sftpErr));
           } finally {
             await sftp.end().catch(() => {});
           }
         }
 
         // Fallback: read from config (pipe-separated lines → newline-separated)
-        const lines = req.srv.config.welcomeFileLines || [];
+        const lines = (req.srv.config.welcomeFileLines as string[] | undefined) ?? [];
         const content = Array.isArray(lines) ? lines.join('\n') : String(lines);
         sendOk(res, { content, placeholders, source: content ? 'config' : 'empty' });
         return;
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, 'WELCOME_FILE_READ_FAILED', 500, safeError(err));
         return;
       }
     });
 
     /** POST /api/panel/welcome-file — save welcome file content + trigger SFTP upload */
-    app.post('/api/panel/welcome-file', requireTier('admin'), rateLimit(30000, 3), async (req: any, res: any) => {
+    app.post('/api/panel/welcome-file', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
       try {
-        const { content } = req.body;
+        const { content } = req.body as { content?: unknown };
         if (typeof content !== 'string') {
           sendError(res, 'INVALID_CONTENT', 400);
           return;
@@ -3485,15 +3884,14 @@ class WebMapServer {
             const envContent = fs.readFileSync(envPath, 'utf8');
             const envLines = envContent.split('\n');
             const pipeValue = lines.join('|');
-            let found = false;
-            const newEnvLines = envLines.map((l: any) => {
+            const hasKey = envLines.some((l: string) => l.startsWith('WELCOME_FILE_LINES='));
+            const newEnvLines = envLines.map((l: string) => {
               if (l.startsWith('WELCOME_FILE_LINES=')) {
-                found = true;
                 return `WELCOME_FILE_LINES=${pipeValue}`;
               }
               return l;
             });
-            if (!found) newEnvLines.push(`WELCOME_FILE_LINES=${pipeValue}`);
+            if (!hasKey) newEnvLines.push(`WELCOME_FILE_LINES=${pipeValue}`);
             fs.writeFileSync(envPath, newEnvLines.join('\n'));
           }
         }
@@ -3508,10 +3906,10 @@ class WebMapServer {
             await sftp.put(Buffer.from(content, 'utf8'), welcomePath);
             await sftp.end().catch(() => {});
             console.log('[WelcomeFile] Uploaded WelcomeMessage.txt via panel editor');
-          } catch (sftpErr: any) {
-            console.error('[WelcomeFile] SFTP upload failed:', sftpErr.message);
+          } catch (sftpErr: unknown) {
+            console.error('[WelcomeFile] SFTP upload failed:', errMsg(sftpErr));
             sendOk(res, {
-              message: 'Welcome file saved to config but SFTP upload failed: ' + String(sftpErr.message),
+              message: 'Welcome file saved to config but SFTP upload failed: ' + errMsg(sftpErr),
               lineCount: lines.length,
               uploaded: false,
             });
@@ -3526,7 +3924,7 @@ class WebMapServer {
           uploaded: !!welcomePath,
         });
         return;
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, 'WELCOME_FILE_SAVE_FAILED', 500, safeError(err));
         return;
       }
@@ -3537,104 +3935,109 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/panel/anticheat/flags — list flags with optional filters */
-    app.get('/api/panel/anticheat/flags', requireTier('admin'), rateLimit(10000, 15), (req: any, res: any) => {
+    app.get('/api/panel/anticheat/flags', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
       const srv = req.srv;
       if (!srv.db) return res.json([]);
       try {
         const { status, severity, steam_id, detector, limit } = req.query;
-        const maxRows = Math.min(parseInt(limit, 10) || 100, 500);
+        const maxRows = Math.min(parseInt(limit as string, 10) || 100, 500);
         let flags;
 
         if (steam_id) {
-          flags = srv.db.getAcFlagsBySteam(steam_id, maxRows);
+          flags = srv.db.getAcFlagsBySteam(steam_id as string, maxRows);
         } else if (detector) {
-          flags = srv.db.getAcFlagsByDetector(detector, status || 'open', maxRows);
+          flags = srv.db.getAcFlagsByDetector(detector as string, (status || 'open') as string, maxRows);
         } else if (status) {
-          flags = srv.db.getAcFlags(status, maxRows);
+          flags = srv.db.getAcFlags(status as string, maxRows);
         } else {
           flags = srv.db.getAcFlags('open', maxRows);
         }
 
         // Apply severity filter client-side if both status and severity are set
-        if (severity && flags) {
-          flags = flags.filter((f: any) => f.severity === severity);
+        if (severity) {
+          flags = (flags as Record<string, unknown>[]).filter((f) => f.severity === severity);
         }
 
         // Resolve player names from players table
-        const nameMap: Record<string, any> = {};
+        const nameMap: Record<string, string> = {};
         try {
-          const rows: any[] = srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-          for (const r of rows) nameMap[r.steam_id as string] = r.name;
+          const rows = (srv.db.db?.prepare('SELECT steam_id, name FROM players').all() ?? []) as {
+            steam_id: string;
+            name: string;
+          }[];
+          for (const r of rows) nameMap[r.steam_id] = r.name;
         } catch {
           /* */
         }
 
-        flags = (flags || []).map((f: any) => ({
+        flags = (flags as Record<string, unknown>[]).map((f) => ({
           ...f,
-          player_name: f.player_name || (nameMap as any)[f.steam_id] || f.steam_id,
+          player_name: (f.player_name as string | undefined) || nameMap[f.steam_id as string] || f.steam_id,
         }));
 
         res.json(flags);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/panel/anticheat/risk-scores — all player risk scores */
-    app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
-        const scores = req.srv.db.getAllRiskScores() || [];
+        const scores = req.srv.db.getAllRiskScores();
         res.json(scores);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/anticheat/flags/:id/review — confirm, dismiss, or whitelist a flag */
-    app.post(
-      '/api/panel/anticheat/flags/:id/review',
-      requireTier('admin'),
-      rateLimit(10000, 10),
-      (req: any, res: any) => {
-        if (!req.srv.db) {
-          sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 500);
+    app.post('/api/panel/anticheat/flags/:id/review', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      if (!req.srv.db) {
+        sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 500);
+        return;
+      }
+      try {
+        const flagId = parseInt(req.params.id as string, 10);
+        if (isNaN(flagId)) {
+          sendError(res, API_ERRORS.INVALID_FLAG_ID, 400);
           return;
         }
-        try {
-          const flagId = parseInt(req.params.id, 10);
-          if (isNaN(flagId)) {
-            sendError(res, API_ERRORS.INVALID_FLAG_ID, 400);
-            return;
-          }
 
-          const { status, notes } = req.body || {};
-          if (!status || !['confirmed', 'dismissed', 'whitelisted'].includes(status)) {
-            sendError(res, API_ERRORS.INVALID_STATUS, 400);
-            return;
-          }
-
-          // Get reviewer identity from session
-          const reviewedBy = req.session?.username || req.session?.discordId || 'admin';
-
-          req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes || '');
-          res.json({ ok: true, flagId, status });
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+        const { status, notes } = req.body as { status?: string; notes?: string };
+        if (!status || !['confirmed', 'dismissed', 'whitelisted'].includes(status)) {
+          sendError(res, API_ERRORS.INVALID_STATUS, 400);
+          return;
         }
-      },
-    );
+
+        // Get reviewer identity from session
+        const reviewedBy = req.session.username || req.session.discordId || 'admin';
+
+        req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes ?? '');
+        res.json({ ok: true, flagId, status });
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     /** GET /api/panel/anticheat/stats — summary counts for dashboard */
-    app.get('/api/panel/anticheat/stats', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/panel/anticheat/stats', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json({ open: 0, confirmed: 0, dismissed: 0, total: 0 });
       try {
         const srv = req.srv;
         const countByStatus = (s: string | null) => {
           try {
+            if (!srv.db?.db) return 0;
             if (s)
-              return srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags WHERE status = ?').get(s).count;
-            return srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags').get().count;
+              return (
+                srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags WHERE status = ?').get(s) as Record<
+                  string,
+                  unknown
+                >
+              ).count;
+            return (srv.db.db.prepare('SELECT COUNT(*) as count FROM anticheat_flags').get() as Record<string, unknown>)
+              .count;
           } catch {
             return 0;
           }
@@ -3644,7 +4047,7 @@ class WebMapServer {
         const dismissed = countByStatus('dismissed');
         const total = countByStatus(null);
         res.json({ open, confirmed, dismissed, total });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -3654,14 +4057,13 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** Mask sensitive fields in a server definition for API responses. */
-    function _maskServerDef(def: any): any {
-      if (!def) return def;
-      const masked = JSON.parse(JSON.stringify(def));
+    function _maskServerDef(def: Record<string, unknown>): Record<string, unknown> {
+      const masked = JSON.parse(JSON.stringify(def)) as Record<string, Record<string, unknown>>;
       if (masked.rcon?.password != null) masked.rcon.password = { hasValue: !!masked.rcon.password };
       if (masked.sftp?.password != null) masked.sftp.password = { hasValue: !!masked.sftp.password };
       if (masked.sftp?.privateKeyPath != null) masked.sftp.privateKeyPath = { hasValue: !!masked.sftp.privateKeyPath };
       if (masked.panel?.apiKey != null) masked.panel.apiKey = { hasValue: !!masked.panel.apiKey };
-      return masked;
+      return masked as unknown as Record<string, unknown>;
     }
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
@@ -3691,8 +4093,8 @@ class WebMapServer {
           clearTimeout(timer);
           try {
             socket.destroy();
-          } catch (cleanupErr: any) {
-            console.warn('[WebMap] RCON test socket cleanup error:', cleanupErr.message);
+          } catch (cleanupErr: unknown) {
+            console.warn('[WebMap] RCON test socket cleanup error:', errMsg(cleanupErr));
           }
           resolve(result);
         };
@@ -3709,7 +4111,7 @@ class WebMapServer {
           pkt.write(password, 12, 'utf8');
           socket.write(pkt);
         });
-        socket.on('data', (chunk: any) => {
+        socket.on('data', (chunk: Buffer) => {
           buf = Buffer.concat([buf, chunk]);
           while (buf.length >= 12) {
             const pktSize = buf.readInt32LE(0);
@@ -3727,8 +4129,8 @@ class WebMapServer {
             }
           }
         });
-        socket.on('error', (err: any) => {
-          done({ ok: false, error: err.message });
+        socket.on('error', (err: NodeJS.ErrnoException | null) => {
+          done({ ok: false, error: errMsg(err) });
         });
         socket.setTimeout(timeout);
         socket.on('timeout', () => {
@@ -3738,11 +4140,14 @@ class WebMapServer {
     }
 
     /** Test SFTP auth + directory listing. Resolves { ok, error? }. */
-    async function _testSftpAuth(sftpCfg: any, timeout = 10000): Promise<{ ok: boolean; error?: string }> {
+    async function _testSftpAuth(
+      sftpCfg: Record<string, unknown>,
+      timeout = 10000,
+    ): Promise<{ ok: boolean; error?: string }> {
       const SftpClient = (await import('ssh2-sftp-client')).default;
       const client = new SftpClient();
       try {
-        const opts: any = {
+        const opts: Record<string, unknown> = {
           host: sftpCfg.host,
           port: sftpCfg.port || 22,
           username: sftpCfg.user,
@@ -3751,34 +4156,34 @@ class WebMapServer {
         if (sftpCfg.password) opts.password = sftpCfg.password;
         if (sftpCfg.privateKeyPath) {
           try {
-            opts.privateKey = readPrivateKey(sftpCfg.privateKeyPath);
-          } catch (keyErr: any) {
-            return { ok: false, error: 'Cannot read private key: ' + String(keyErr.message) };
+            opts.privateKey = readPrivateKey(sftpCfg.privateKeyPath as string);
+          } catch (keyErr: unknown) {
+            return { ok: false, error: 'Cannot read private key: ' + errMsg(keyErr) };
           }
         }
-        await client.connect(opts);
+        await client.connect(opts as Parameters<typeof client.connect>[0]);
         await client.list('/');
         return { ok: true };
-      } catch (err: any) {
-        return { ok: false, error: (err.message || 'Connection failed').substring(0, 200) };
+      } catch (err: unknown) {
+        return { ok: false, error: (errMsg(err) || 'Connection failed').substring(0, 200) };
       } finally {
         try {
           await client.end();
-        } catch (endErr: any) {
-          console.warn('[WebMap] SFTP test client cleanup error:', endErr.message);
+        } catch (endErr: unknown) {
+          console.warn('[WebMap] SFTP test client cleanup error:', errMsg(endErr));
         }
       }
     }
 
     /** GET /api/panel/servers — List all servers with status */
-    app.get('/api/panel/servers', requireTier('admin'), rateLimit(10000, 10), (_req: any, res: any) => {
+    app.get('/api/panel/servers', requireTier('admin'), rateLimit(10000, 10), (_req, res) => {
       try {
         const servers = [];
 
         // ── Primary server ──
         const primaryInfo = {
           id: 'primary',
-          name: (config as any).serverName || 'Primary Server',
+          name: config.serverName || 'Primary Server',
           isPrimary: true,
           enabled: true,
           status: rcon.connected ? 'running' : 'offline',
@@ -3788,34 +4193,50 @@ class WebMapServer {
           lastSync: (() => {
             const ss = this._saveService;
             if (!ss) return null;
-            const t = ss._lastMtime || ss._lastCacheMtime;
-            return t ? new Date(t).toISOString() : ss._syncCount > 0 ? new Date().toISOString() : null;
+            const t =
+              (ss as unknown as Record<string, unknown>)._lastMtime ||
+              (ss as unknown as Record<string, unknown>)._lastCacheMtime;
+            return t
+              ? new Date(t as number).toISOString()
+              : ((ss as unknown as Record<string, unknown>)._syncCount as number) > 0
+                ? new Date().toISOString()
+                : null;
           })(),
           modules: [],
         };
-        const primaryStatusCache = this._getCached('status', 'primary', 30000);
+        const primaryStatusCache = this._getCached('status', 'primary', 30000) as Record<string, unknown> | null;
         if (primaryStatusCache) {
-          primaryInfo.status = primaryStatusCache.serverState || 'unknown';
-          primaryInfo.players.current = primaryStatusCache.onlineCount || 0;
-          primaryInfo.players.max = primaryStatusCache.maxPlayers || null;
+          primaryInfo.status = (primaryStatusCache.serverState as string) || 'unknown';
+          primaryInfo.players.current = (primaryStatusCache.onlineCount as number) || 0;
+          (primaryInfo as Record<string, unknown>).players = {
+            ...((primaryInfo as Record<string, unknown>).players as Record<string, unknown>),
+            max: (primaryStatusCache.maxPlayers as number) || null,
+          };
         }
         const primaryMods: string[] = [];
         if (rcon.connected) primaryMods.push('rcon');
         if (this._db) primaryMods.push('db');
         if (this._saveService) primaryMods.push('sftp');
-        if (this._scheduler?.isActive?.()) primaryMods.push('schedule');
-        (primaryInfo as any).modules = primaryMods;
+        if (
+          this._scheduler &&
+          ((this._scheduler as unknown as Record<string, unknown>).isActive as (() => boolean) | undefined)?.() === true
+        )
+          primaryMods.push('schedule');
+        (primaryInfo as Record<string, unknown>).modules = primaryMods;
         servers.push(primaryInfo);
 
         // ── Managed servers ──
         const managed = this._loadServerList();
-        const statuses: any[] = this._multiServerManager?.getStatuses?.() || [];
-        const statusMap = new Map(statuses.map((s: any) => [s.id, s]));
+        const statuses: Record<string, unknown>[] = (this._multiServerManager?.getStatuses() || []) as Record<
+          string,
+          unknown
+        >[];
+        const statusMap = new Map(statuses.map((s) => [s.id as string, s]));
 
         for (const def of managed) {
           const st = statusMap.get(def.id);
-          const inst = this._multiServerManager?.getInstance?.(def.id);
-          const info: any = {
+          const inst = this._multiServerManager?.getInstance(def.id);
+          const info: Record<string, unknown> = {
             id: def.id,
             name: def.name || def.id,
             isPrimary: false,
@@ -3823,44 +4244,73 @@ class WebMapServer {
             status: st?.running ? 'running' : 'stopped',
             players: { current: 0, max: null },
             rcon: {
-              host: def.rcon?.host || null,
-              port: def.rcon?.port || null,
-              connected: !!inst?.rcon?.connected,
+              host: (def.rcon as Record<string, unknown> | undefined)?.host || null,
+              port: (def.rcon as Record<string, unknown> | undefined)?.port || null,
+              connected: !!(inst?.rcon && inst.rcon.connected),
             },
             sftp: {
-              host: def.sftp?.host || null,
-              configured: !!(def.sftp?.host && def.sftp?.user),
+              host: (def.sftp as Record<string, unknown> | undefined)?.host || null,
+              configured: !!(
+                (def.sftp as Record<string, unknown> | undefined)?.host &&
+                (def.sftp as Record<string, unknown> | undefined)?.user
+              ),
             },
             lastSync: null,
             modules: [] as string[],
           };
-          const srvCache = this._getCached('status', def.id, 30000);
+          const srvCache = this._getCached('status', def.id, 30000) as Record<string, unknown> | null;
           if (srvCache) {
             if (srvCache.serverState === 'running') info.status = 'running';
-            info.players.current = srvCache.onlineCount || 0;
-            info.players.max = srvCache.maxPlayers || null;
+            (info.players as Record<string, unknown>).current = srvCache.onlineCount || 0;
+            (info.players as Record<string, unknown>).max = srvCache.maxPlayers || null;
           }
           const mods: string[] = [];
-          if (inst?.rcon?.connected) mods.push('rcon');
+          if (inst?.rcon && inst.rcon.connected) mods.push('rcon');
           if (inst?.db) mods.push('db');
           if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
-          if (inst?._modules?.serverScheduler?.isActive?.()) mods.push('schedule');
-          if (inst?._modules?.logWatcher) mods.push('logs');
-          if (inst?._modules?.chatRelay) mods.push('chat');
+          if (
+            (() => {
+              try {
+                const sc = (
+                  inst as unknown as Record<string, Record<string, Record<string, (() => boolean) | undefined>>>
+                )._modules?.serverScheduler;
+                return sc?.isActive?.();
+              } catch {
+                return false;
+              }
+            })()
+          )
+            mods.push('schedule');
+          if (inst?._modules && inst._modules.logWatcher) mods.push('logs');
+          if (inst?._modules && inst._modules.chatRelay) mods.push('chat');
           info.modules = mods;
           servers.push(info);
         }
 
         sendOk(res, { servers });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers — Create a new managed server */
-    app.post('/api/panel/servers', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
+    app.post('/api/panel/servers', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
       try {
-        const { name, rcon: rconCfg, sftp, channels, enabled, startImmediately } = req.body || {};
+        const {
+          name,
+          rcon: rconCfg,
+          sftp,
+          channels,
+          enabled,
+          startImmediately,
+        } = req.body as {
+          name?: string;
+          rcon?: { host: string; port: number; password: string };
+          sftp?: { host?: string; port?: number; user?: string; password?: string; privateKeyPath?: string };
+          channels?: unknown;
+          enabled?: boolean;
+          startImmediately?: boolean;
+        };
         if (!name || typeof name !== 'string' || !name.trim()) {
           sendError(res, API_ERRORS.MISSING_SERVER_NAME, 400);
           return;
@@ -3872,26 +4322,26 @@ class WebMapServer {
 
         // Check name uniqueness
         const existing = this._loadServerList();
-        if (existing.some((s: any) => s.name === name.trim())) {
+        if (existing.some((s: { name?: string }) => s.name === name.trim())) {
           sendError(res, API_ERRORS.SERVER_NAME_EXISTS, 409);
           return;
         }
 
         const id = 'srv_' + Date.now().toString(36);
-        const serverDef: any = {
+        const serverDef: Record<string, unknown> = {
           id,
           name: name.trim(),
           enabled: enabled !== false,
           rcon: {
-            host: String(rconCfg.host),
-            port: parseInt(rconCfg.port, 10) || 27015,
-            password: String(rconCfg.password),
+            host: rconCfg.host,
+            port: rconCfg.port || 27015,
+            password: rconCfg.password,
           },
         };
         if (sftp) {
           serverDef.sftp = {
             host: sftp.host || '',
-            port: parseInt(sftp.port, 10) || 22,
+            port: Number(sftp.port) || 22,
             user: sftp.user || '',
             ...(sftp.password ? { password: sftp.password } : {}),
             ...(sftp.privateKeyPath ? { privateKeyPath: sftp.privateKeyPath } : {}),
@@ -3900,31 +4350,42 @@ class WebMapServer {
         if (channels && typeof channels === 'object') serverDef.channels = channels;
 
         if (startImmediately && this._multiServerManager) {
-          await this._multiServerManager.addServer(serverDef);
+          await this._multiServerManager.addServer(
+            serverDef as unknown as Parameters<typeof this._multiServerManager.addServer>[0],
+          );
         } else if (configRepo) {
           configRepo.set(`server:${id}`, serverDef);
         }
 
         res.status(201).json({ ok: true, server: { id, name: serverDef.name, status: 'stopped' } });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers/discover — Start SFTP path discovery (202 + polling) */
-    app.post('/api/panel/servers/discover', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
-      let sftpCfg = (req.body || {}).sftp;
+    app.post('/api/panel/servers/discover', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+      type SftpCfg = {
+        host?: string;
+        port?: number;
+        user?: string;
+        password?: string;
+        privateKeyPath?: string;
+        privateKey?: string;
+        passphrase?: string;
+      };
+      let sftpCfg = (req.body as { sftp?: SftpCfg; useCurrentConfig?: boolean }).sftp;
 
       // Allow using the server's existing SFTP config (for settings page discover button)
       // Use sftpConnectConfig() to get fully resolved connect options
       // (reads private key from disk, handles passphrase fallback).
-      if (req.body?.useCurrentConfig) {
+      if ((req.body as { useCurrentConfig?: boolean }).useCurrentConfig) {
         let connectOpts;
         try {
-          const srvCfg = req.srv?.config || config;
+          const srvCfg = req.srv.config;
           connectOpts = srvCfg.sftpConnectConfig.call(srvCfg);
-        } catch (err: any) {
-          console.error('[DISCOVER] Failed to build SFTP config:', err.message);
+        } catch (err: unknown) {
+          console.error('[DISCOVER] Failed to build SFTP config:', errMsg(err));
           sendError(res, API_ERRORS.MISSING_SFTP_CONFIG, 400);
           return;
         }
@@ -3933,7 +4394,7 @@ class WebMapServer {
           port: connectOpts.port || 22,
           user: connectOpts.username,
           password: connectOpts.password,
-          privateKey: connectOpts.privateKey,
+          privateKey: connectOpts.privateKey as string | undefined,
           passphrase: connectOpts.passphrase,
         };
       }
@@ -3965,7 +4426,13 @@ class WebMapServer {
       }
 
       const jobId = 'disc_' + Date.now().toString(36);
-      const job: any = { state: 'running', startTime: now, result: null, error: null, currentStep: 'connecting' };
+      const job: {
+        state: string;
+        startTime: number;
+        result: unknown;
+        error: string | null;
+        currentStep: string | null;
+      } = { state: 'running', startTime: now, result: null, error: null, currentStep: 'connecting' };
       _discoveryJobs.set(jobId, job);
 
       // Run discovery in background
@@ -3989,7 +4456,7 @@ class WebMapServer {
         },
         'WEB_DISCOVER',
       )
-        .then((result: any) => {
+        .then((result: unknown) => {
           clearTimeout(timeoutHandle);
           if (job.state !== 'running') return;
           job.state = result ? 'completed' : 'failed';
@@ -4010,8 +4477,8 @@ class WebMapServer {
 
     /** GET /api/panel/servers/discover/:jobId — Poll discovery job status */
 
-    app.get('/api/panel/servers/discover/:jobId', requireTier('admin'), rateLimit(5000, 20), (req: any, res: any) => {
-      const job = _discoveryJobs.get(req.params.jobId);
+    app.get('/api/panel/servers/discover/:jobId', requireTier('admin'), rateLimit(5000, 20), (req, res) => {
+      const job = _discoveryJobs.get(req.params.jobId as string);
       if (!job) {
         sendError(res, API_ERRORS.DISCOVERY_JOB_NOT_FOUND, 404);
         return;
@@ -4026,56 +4493,53 @@ class WebMapServer {
     });
 
     /** POST /api/panel/servers/test-connection — Stateless connection validation */
-    app.post(
-      '/api/panel/servers/test-connection',
-      requireTier('admin'),
-      rateLimit(10000, 5),
-      async (req: any, res: any) => {
-        try {
-          const rconCfg = req.body?.rcon;
-          const sftpCfg = req.body?.sftp;
-          if (!rconCfg && !sftpCfg) {
-            sendError(res, API_ERRORS.MISSING_CONNECTION_CONFIG, 400);
-            return;
-          }
-
-          const result = {};
-          const promises: Promise<void>[] = [];
-
-          if (rconCfg) {
-            promises.push(
-              _testRconAuth(rconCfg.host, parseInt(rconCfg.port, 10) || 27015, rconCfg.password || '', 10000).then(
-                (r: any) => {
-                  (result as any).rcon = r;
-                },
-              ),
-            );
-          }
-          if (sftpCfg) {
-            promises.push(
-              _testSftpAuth(sftpCfg, 10000).then((r: any) => {
-                (result as any).sftp = r;
-              }),
-            );
-          }
-
-          await Promise.all(promises);
-          sendOk(res, result);
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+    app.post('/api/panel/servers/test-connection', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const bodyConn = req.body as {
+          rcon?: { host: string; port: number; password: string };
+          sftp?: Record<string, unknown>;
+        };
+        const rconCfg = bodyConn.rcon;
+        const sftpCfg = bodyConn.sftp;
+        if (!rconCfg && !sftpCfg) {
+          sendError(res, API_ERRORS.MISSING_CONNECTION_CONFIG, 400);
+          return;
         }
-      },
-    );
+
+        const result = {};
+        const promises: Promise<void>[] = [];
+
+        if (rconCfg) {
+          promises.push(
+            _testRconAuth(rconCfg.host, rconCfg.port || 27015, rconCfg.password || '', 10000).then((r) => {
+              (result as Record<string, unknown>).rcon = r;
+            }),
+          );
+        }
+        if (sftpCfg) {
+          promises.push(
+            _testSftpAuth(sftpCfg, 10000).then((r) => {
+              (result as Record<string, unknown>).sftp = r;
+            }),
+          );
+        }
+
+        await Promise.all(promises);
+        sendOk(res, result as unknown as Record<string, unknown>);
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     /** GET /api/panel/servers/:id — Get server detail (passwords masked) */
-    app.get('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       try {
-        const { id } = req.params;
+        const id = req.params.id as string;
 
         if (id === 'primary') {
-          const def: any = {
+          const def: Record<string, unknown> = {
             id: 'primary',
-            name: (config as any).serverName || 'Primary Server',
+            name: config.serverName || 'Primary Server',
             isPrimary: true,
             enabled: true,
             rcon: {
@@ -4101,7 +4565,7 @@ class WebMapServer {
             botTimezone: config.botTimezone || 'UTC',
             logTimezone: config.logTimezone || 'UTC',
           };
-          const statusCache = this._getCached('status', 'primary', 30000);
+          const statusCache = this._getCached('status', 'primary', 30000) as Record<string, unknown> | null;
           if (statusCache) {
             def.status = statusCache.serverState || 'unknown';
             def.players = { current: statusCache.onlineCount || 0, max: statusCache.maxPlayers || null };
@@ -4121,9 +4585,9 @@ class WebMapServer {
         }
 
         const masked = _maskServerDef(raw);
-        const inst = this._multiServerManager?.getInstance?.(id);
+        const inst = this._multiServerManager?.getInstance(id);
         masked.status = inst?.running ? 'running' : 'stopped';
-        const srvCache = this._getCached('status', id, 30000);
+        const srvCache = this._getCached('status', id, 30000) as Record<string, unknown> | null;
         if (srvCache) {
           masked.players = { current: srvCache.onlineCount || 0, max: srvCache.maxPlayers || null };
         } else {
@@ -4131,33 +4595,35 @@ class WebMapServer {
         }
 
         sendOk(res, { server: masked });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** PATCH /api/panel/servers/:id — Update server settings (partial) */
-    app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req: any, res: any) => {
+    app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
       try {
-        const { id } = req.params;
-        const updates: any = req.body;
-        if (!updates || typeof updates !== 'object') {
+        const id = req.params.id as string;
+        const updates: Record<string, unknown> = req.body as Record<string, unknown>;
+        if (typeof updates !== 'object' || Array.isArray(updates)) {
           sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
           return;
         }
 
         if (id === 'primary') {
           if (configRepo) {
-            const patch: any = { ...updates };
+            const patch: Record<string, unknown> = { ...updates };
             // Empty-string sensitive fields = "keep existing"
             if (patch.rcon) {
-              patch.rcon = { ...patch.rcon };
-              if (patch.rcon.password === '') delete patch.rcon.password;
+              const rcon = { ...(patch.rcon as Record<string, unknown>) };
+              if (rcon.password === '') delete rcon.password;
+              patch.rcon = rcon;
             }
             if (patch.sftp) {
-              patch.sftp = { ...patch.sftp };
-              if (patch.sftp.password === '') delete patch.sftp.password;
-              if (patch.sftp.privateKeyPath === '') delete patch.sftp.privateKeyPath;
+              const sftp = { ...(patch.sftp as Record<string, unknown>) };
+              if (sftp.password === '') delete sftp.password;
+              if (sftp.privateKeyPath === '') delete sftp.privateKeyPath;
+              patch.sftp = sftp;
             }
             configRepo.update('server:primary', patch);
           }
@@ -4171,60 +4637,72 @@ class WebMapServer {
           sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
           return;
         }
-        const existing: any = configRepo.get(`server:${id}`);
-        if (!existing) {
+        const existing: Record<string, unknown> = configRepo.get(`server:${id}`) ?? {};
+        if (!Object.keys(existing).length) {
           sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
           return;
         }
 
         // Deep-merge sub-objects; empty-string sensitive fields = keep existing
-        const patch = { ...updates };
+        const patch: Record<string, unknown> = { ...updates };
         if (patch.rcon) {
-          patch.rcon = { ...(existing.rcon || {}), ...patch.rcon };
-          if (patch.rcon.password === '') patch.rcon.password = existing.rcon?.password || '';
+          const existRcon = (existing.rcon as Record<string, unknown> | undefined) ?? {};
+          const rcon: Record<string, unknown> = { ...existRcon, ...(patch.rcon as Record<string, unknown>) };
+          if (rcon.password === '') rcon.password = existRcon.password ?? '';
+          patch.rcon = rcon;
         }
         if (patch.sftp) {
-          patch.sftp = { ...(existing.sftp || {}), ...patch.sftp };
-          if (patch.sftp.password === '') patch.sftp.password = existing.sftp?.password || '';
-          if (patch.sftp.privateKeyPath === '') patch.sftp.privateKeyPath = existing.sftp?.privateKeyPath || '';
+          const existSftp = (existing.sftp as Record<string, unknown> | undefined) ?? {};
+          const sftp: Record<string, unknown> = { ...existSftp, ...(patch.sftp as Record<string, unknown>) };
+          if (sftp.password === '') sftp.password = existSftp.password ?? '';
+          if (sftp.privateKeyPath === '') sftp.privateKeyPath = existSftp.privateKeyPath ?? '';
+          patch.sftp = sftp;
         }
         if (patch.panel) {
-          patch.panel = { ...(existing.panel || {}), ...patch.panel };
-          if (patch.panel.apiKey === '') patch.panel.apiKey = existing.panel?.apiKey || '';
+          const existPanel = (existing.panel as Record<string, unknown> | undefined) ?? {};
+          const panel: Record<string, unknown> = { ...existPanel, ...(patch.panel as Record<string, unknown>) };
+          if (panel.apiKey === '') panel.apiKey = existPanel.apiKey ?? '';
+          patch.panel = panel;
         }
         if (patch.channels) {
-          patch.channels = { ...(existing.channels || {}), ...patch.channels };
+          patch.channels = {
+            ...((existing.channels as Record<string, unknown> | undefined) ?? {}),
+            ...(patch.channels as Record<string, unknown>),
+          };
         }
         if (patch.paths) {
-          patch.paths = { ...(existing.paths || {}), ...patch.paths };
+          patch.paths = {
+            ...((existing.paths as Record<string, unknown> | undefined) ?? {}),
+            ...(patch.paths as Record<string, unknown>),
+          };
         }
 
         configRepo.update(`server:${id}`, patch);
 
         // Hot-reload running instance if applicable
-        if (this._multiServerManager?.getInstance?.(id)?.running) {
+        if (this._multiServerManager?.getInstance(id)?.running) {
           try {
             await this._multiServerManager.updateServer(id, patch);
-          } catch (hotReloadErr: any) {
+          } catch (hotReloadErr: unknown) {
             console.warn(
               '[WebMap] Hot-reload for server %s failed, will apply on next start:',
               id,
-              hotReloadErr.message,
+              errMsg(hotReloadErr),
             );
           }
         }
 
         const restartRequired = !!(updates.rcon || updates.sftp || updates.paths);
         sendOk(res, { restartRequired });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** DELETE /api/panel/servers/:id — Remove a managed server */
-    app.delete('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 3), async (req: any, res: any) => {
+    app.delete('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 3), async (req, res) => {
       try {
-        const { id } = req.params;
+        const id = req.params.id as string;
         if (id === 'primary') {
           sendError(res, API_ERRORS.CANNOT_DELETE_PRIMARY, 403);
           return;
@@ -4235,7 +4713,7 @@ class WebMapServer {
         }
 
         if (configRepo) {
-          const existing: any = configRepo.get(`server:${id}`);
+          const existing = configRepo.get(`server:${id}`);
           if (!existing) {
             sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
             return;
@@ -4245,8 +4723,8 @@ class WebMapServer {
         if (this._multiServerManager) {
           try {
             await this._multiServerManager.removeServer(id);
-          } catch (removeErr: any) {
-            console.warn('[WebMap] removeServer(%s) cleanup warning:', id, removeErr.message);
+          } catch (removeErr: unknown) {
+            console.warn('[WebMap] removeServer(%s) cleanup warning:', id, errMsg(removeErr));
           }
         }
         if (configRepo) {
@@ -4254,167 +4732,161 @@ class WebMapServer {
         }
 
         sendOk(res);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** POST /api/panel/servers/:id/actions/:action — Lifecycle control (start/stop/restart) */
-    app.post(
-      '/api/panel/servers/:id/actions/:action',
-      requireTier('admin'),
-      rateLimit(10000, 5),
-      async (req: any, res: any) => {
-        try {
-          const { id, action } = req.params;
-          if (id === 'primary') {
-            sendError(res, API_ERRORS.CANNOT_CONTROL_PRIMARY, 400);
-            return;
-          }
-          if (!['start', 'stop', 'restart'].includes(action)) {
-            sendError(res, API_ERRORS.INVALID_LIFECYCLE_ACTION, 400);
-            return;
-          }
-          if (!this._multiServerManager) {
-            sendError(res, API_ERRORS.MULTI_SERVER_NOT_AVAILABLE, 500);
-            return;
-          }
+    app.post('/api/panel/servers/:id/actions/:action', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
+      try {
+        const id = req.params.id as string;
+        const action = req.params.action as string;
+        if (id === 'primary') {
+          sendError(res, API_ERRORS.CANNOT_CONTROL_PRIMARY, 400);
+          return;
+        }
+        if (!['start', 'stop', 'restart'].includes(action)) {
+          sendError(res, API_ERRORS.INVALID_LIFECYCLE_ACTION, 400);
+          return;
+        }
+        if (!this._multiServerManager) {
+          sendError(res, API_ERRORS.MULTI_SERVER_NOT_AVAILABLE, 500);
+          return;
+        }
 
-          // Verify server definition exists
-          const def = configRepo?.get(`server:${id}`);
-          if (!def) {
-            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-            return;
-          }
+        // Verify server definition exists
+        const def = configRepo?.get(`server:${id}`);
+        if (!def) {
+          sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return;
+        }
 
-          const inst = this._multiServerManager.getInstance(id);
+        const inst = this._multiServerManager.getInstance(id);
 
-          if (action === 'start') {
-            if (inst?.running) {
-              sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
-              return;
-            }
-            await this._multiServerManager.startServer(id);
-            sendOk(res, { status: 'running' });
-            return;
-          }
-
-          if (action === 'stop') {
-            if (!inst?.running) {
-              sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
-              return;
-            }
-            await this._multiServerManager.stopServer(id);
-            sendOk(res, { status: 'stopped' });
-            return;
-          }
-
-          // restart
+        if (action === 'start') {
           if (inst?.running) {
-            await this._multiServerManager.stopServer(id);
+            sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+            return;
           }
           await this._multiServerManager.startServer(id);
           sendOk(res, { status: 'running' });
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+          return;
         }
-      },
-    );
+
+        if (action === 'stop') {
+          if (!inst?.running) {
+            sendError(res, API_ERRORS.SERVER_ALREADY_IN_STATE, 409);
+            return;
+          }
+          await this._multiServerManager.stopServer(id);
+          sendOk(res, { status: 'stopped' });
+          return;
+        }
+
+        // restart
+        if (inst?.running) {
+          await this._multiServerManager.stopServer(id);
+        }
+        await this._multiServerManager.startServer(id);
+        sendOk(res, { status: 'running' });
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     // ── Panel: Settings Schema ──
     /** GET /api/panel/settings-schema — Return game settings category definitions */
 
-    app.get('/api/panel/settings-schema', requireTier('admin'), (_req: any, res: any) => {
+    app.get('/api/panel/settings-schema', requireTier('admin'), (_req, res) => {
       res.json({ categories: GAME_SETTINGS_CATEGORIES });
     });
 
     // ── Panel: Per-Server Auto-Messages ──
     /** GET /api/panel/servers/:id/auto-messages — Read auto-messages config for a server */
-    app.get(
-      '/api/panel/servers/:id/auto-messages',
-      requireTier('admin'),
-      rateLimit(10000, 10),
-      (req: any, res: any) => {
-        try {
-          const { id } = req.params;
-          const defaults = {
-            enableWelcomeMsg: true,
-            enableWelcomeFile: false,
-            enableAutoMsgLink: true,
-            enableAutoMsgPromo: true,
-            linkText: '',
-            promoText: '',
-            discordLink: '',
-          };
-          if (!configRepo) {
-            sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
-            return;
-          }
-          const scope = `server:${String(id)}`;
-          if (id !== 'primary' && !configRepo.get(scope)) {
-            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-            return;
-          }
-          const serverData = configRepo.get(scope) || {};
-          const stored = serverData.autoMessages || null;
-          const data = Object.assign({}, defaults, stored || {});
-          sendOk(res, data);
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+    app.get('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
+      try {
+        const id = req.params.id as string;
+        const defaults = {
+          enableWelcomeMsg: true,
+          enableWelcomeFile: false,
+          enableAutoMsgLink: true,
+          enableAutoMsgPromo: true,
+          linkText: '',
+          promoText: '',
+          discordLink: '',
+        };
+        if (!configRepo) {
+          sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+          return;
         }
-      },
-    );
+        const scope = `server:${id}`;
+        if (id !== 'primary' && !configRepo.get(scope)) {
+          sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return;
+        }
+        const serverData = configRepo.get(scope) || {};
+        const stored = serverData.autoMessages || null;
+        const data = Object.assign({}, defaults, stored || {});
+        sendOk(res, data);
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     /** POST /api/panel/servers/:id/auto-messages — Save auto-messages config for a server */
-    app.post(
-      '/api/panel/servers/:id/auto-messages',
-      requireTier('admin'),
-      rateLimit(10000, 5),
-      (req: any, res: any) => {
-        try {
-          const { id } = req.params;
-          const {
-            enableWelcomeMsg,
-            enableWelcomeFile,
-            enableAutoMsgLink,
-            enableAutoMsgPromo,
-            linkText,
-            promoText,
-            discordLink,
-          } = req.body || {};
+    app.post('/api/panel/servers/:id/auto-messages', requireTier('admin'), rateLimit(10000, 5), (req, res) => {
+      try {
+        const id = req.params.id as string;
+        const {
+          enableWelcomeMsg,
+          enableWelcomeFile,
+          enableAutoMsgLink,
+          enableAutoMsgPromo,
+          linkText,
+          promoText,
+          discordLink,
+        } = req.body as {
+          enableWelcomeMsg?: unknown;
+          enableWelcomeFile?: unknown;
+          enableAutoMsgLink?: unknown;
+          enableAutoMsgPromo?: unknown;
+          linkText?: unknown;
+          promoText?: unknown;
+          discordLink?: unknown;
+        };
 
-          const data = {
-            enableWelcomeMsg: !!enableWelcomeMsg,
-            enableWelcomeFile: !!enableWelcomeFile,
-            enableAutoMsgLink: !!enableAutoMsgLink,
-            enableAutoMsgPromo: !!enableAutoMsgPromo,
-            linkText: typeof linkText === 'string' ? linkText.trim() : '',
-            promoText: typeof promoText === 'string' ? promoText.trim() : '',
-            discordLink: typeof discordLink === 'string' ? discordLink.trim() : '',
-          };
+        const data = {
+          enableWelcomeMsg: !!enableWelcomeMsg,
+          enableWelcomeFile: !!enableWelcomeFile,
+          enableAutoMsgLink: !!enableAutoMsgLink,
+          enableAutoMsgPromo: !!enableAutoMsgPromo,
+          linkText: typeof linkText === 'string' ? linkText.trim() : '',
+          promoText: typeof promoText === 'string' ? promoText.trim() : '',
+          discordLink: typeof discordLink === 'string' ? discordLink.trim() : '',
+        };
 
-          if (!configRepo) {
-            sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
-            return;
-          }
-          const scope = `server:${String(id)}`;
-          if (id !== 'primary' && !configRepo.get(scope)) {
-            sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
-            return;
-          }
-          configRepo.update(scope, { autoMessages: data });
-          sendOk(res, { saved: true, requiresRestart: true });
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+        if (!configRepo) {
+          sendError(res, API_ERRORS.NO_DATABASE, 503, 'Config database not available');
+          return;
         }
-      },
-    );
+        const scope = `server:${id}`;
+        if (id !== 'primary' && !configRepo.get(scope)) {
+          sendError(res, API_ERRORS.SERVER_NOT_FOUND, 404);
+          return;
+        }
+        configRepo.update(scope, { autoMessages: data });
+        sendOk(res, { saved: true, requiresRestart: true });
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     // ── Panel: Bot actions (restart, reimport, factory reset, env sync) ──
     /** POST /api/panel/bot-actions/:action — Bot lifecycle control */
-    app.post('/api/panel/bot-actions/:action', requireTier('admin'), rateLimit(30000, 3), (req: any, res: any) => {
+    app.post('/api/panel/bot-actions/:action', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
       try {
-        const { action } = req.params;
+        const action = req.params.action as string;
         const validActions = ['restart', 'reimport', 'factory_reset', 'env_sync'];
         if (!validActions.includes(action)) {
           sendError(res, API_ERRORS.INVALID_BOT_ACTION, 400);
@@ -4425,7 +4897,7 @@ class WebMapServer {
           return;
         }
 
-        const meta = { source: 'web', user: req.session?.username || 'unknown' };
+        const meta = { source: 'web', user: req.session.username || 'unknown' };
         let result;
 
         switch (action) {
@@ -4436,7 +4908,7 @@ class WebMapServer {
             result = this._botControl.reimport(meta);
             break;
           case 'factory_reset': {
-            const { confirm } = req.body;
+            const { confirm } = req.body as { confirm?: string };
             if (confirm !== 'NUKE') {
               sendError(res, API_ERRORS.CONFIRM_NUKE_REQUIRED, 400);
               return;
@@ -4449,9 +4921,9 @@ class WebMapServer {
             break;
         }
 
-        sendOk(res, result);
-      } catch (err: any) {
-        if (err.code === 'BOT_ACTION_PENDING') {
+        sendOk(res, result as unknown as Record<string, unknown>);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'BOT_ACTION_PENDING') {
           sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
           return;
         }
@@ -4464,41 +4936,41 @@ class WebMapServer {
     // ══════════════════════════════════════════════════════════════════
 
     /** GET /api/timeline/bounds — earliest/latest snapshot timestamps + count */
-    app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json({ earliest: null, latest: null, count: 0 });
       try {
         const bounds = req.srv.db.getTimelineBounds();
         res.json(bounds || { earliest: null, latest: null, count: 0 });
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/snapshots?from=&to=&limit= — snapshot list (metadata only) */
-    app.get('/api/timeline/snapshots', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/timeline/snapshots', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { from, to, limit } = req.query;
         let snapshots;
         if (from && to) {
-          snapshots = req.srv.db.getTimelineSnapshotRange(from, to);
+          snapshots = req.srv.db.getTimelineSnapshotRange(from as string, to as string);
         } else {
-          snapshots = req.srv.db.getTimelineSnapshots(parseInt(limit, 10) || 50);
+          snapshots = req.srv.db.getTimelineSnapshots(parseInt(limit as string, 10) || 50);
         }
         res.json(snapshots);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/snapshot/:id — full snapshot data (all entities with map coords) */
-    app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req: any, res: any) => {
+    app.get('/api/timeline/snapshot/:id', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
       if (!req.srv.db) {
         sendError(res, API_ERRORS.DATABASE_NOT_AVAILABLE, 404);
         return;
       }
       try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(req.params.id as string, 10);
         if (isNaN(id)) {
           sendError(res, API_ERRORS.INVALID_SNAPSHOT_ID, 400);
           return;
@@ -4511,73 +4983,71 @@ class WebMapServer {
         }
 
         // Convert world coordinates to leaflet coordinates for all entities
-        const convert = (item: any) => {
+        const convert = (item: Record<string, unknown>) => {
           if (item.pos_x != null && item.pos_y != null && !(item.pos_x === 0 && item.pos_y === 0)) {
-            const [lat, lng] = this._worldToLeaflet(item.pos_x, item.pos_y);
+            const [lat, lng] = this._worldToLeaflet(item.pos_x as number, item.pos_y as number);
             return { ...item, lat, lng };
           }
           return { ...item, lat: null, lng: null };
         };
 
-        full.players = (full.players || []).map(convert);
-        full.ai = (full.ai || []).map(convert);
-        full.vehicles = (full.vehicles || []).map(convert);
-        full.structures = (full.structures || []).map(convert);
-        full.companions = (full.companions || []).map(convert);
-        full.backpacks = (full.backpacks || []).map(convert);
+        full.players = (full.players as Record<string, unknown>[]).map(convert);
+        full.ai = (full.ai as Record<string, unknown>[]).map(convert);
+        full.vehicles = (full.vehicles as Record<string, unknown>[]).map(convert);
+        full.structures = (full.structures as Record<string, unknown>[]).map(convert);
+        full.companions = (full.companions as Record<string, unknown>[]).map(convert);
+        full.backpacks = (full.backpacks as Record<string, unknown>[]).map(convert);
 
         // Build name map for owner resolution
         const nameMap = {};
         try {
-          const rows = req.srv.db.db.prepare('SELECT steam_id, name FROM players').all();
-          for (const r of rows) (nameMap as Record<string, string>)[r.steam_id as string] = r.name;
+          const rows = (req.srv.db.db?.prepare('SELECT steam_id, name FROM players').all() ?? []) as Record<
+            string,
+            unknown
+          >[];
+          for (const r of rows) (nameMap as Record<string, string>)[r.steam_id as string] = r.name as string;
         } catch {
           /* */
         }
-        full.nameMap = nameMap;
+        (full as Record<string, unknown>).nameMap = nameMap;
 
         res.json(full);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/player/:steamId/trail?from=&to= — player position history */
-    app.get(
-      '/api/timeline/player/:steamId/trail',
-      requireTier('survivor'),
-      rateLimit(10000, 10),
-      (req: any, res: any) => {
-        if (!req.srv.db) return res.json([]);
-        try {
-          const { steamId } = req.params;
-          const { from, to } = req.query;
-          if (!from || !to) {
-            sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
-            return;
-          }
-
-          const positions = req.srv.db.getPlayerPositionHistory(steamId, from, to);
-          // Convert to map coordinates
-          const trail = positions
-            .map((p: any) => {
-              if (p.pos_x != null && p.pos_y != null && !(p.pos_x === 0 && p.pos_y === 0)) {
-                const [lat, lng] = this._worldToLeaflet(p.pos_x, p.pos_y);
-                return { lat, lng, health: p.health, online: p.online, time: p.created_at, gameDay: p.game_day };
-              }
-              return null;
-            })
-            .filter(Boolean);
-
-          res.json(trail);
-        } catch (err: any) {
-          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+    app.get('/api/timeline/player/:steamId/trail', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
+      if (!req.srv.db) return res.json([]);
+      try {
+        const { steamId } = req.params;
+        const { from, to } = req.query;
+        if (!from || !to) {
+          sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
+          return;
         }
-      },
-    );
+
+        const positions = req.srv.db.getPlayerPositionHistory(steamId as string, from as string, to as string);
+        // Convert to map coordinates
+        const trail = (positions as Record<string, unknown>[])
+          .map((p) => {
+            if (p.pos_x != null && p.pos_y != null && !(p.pos_x === 0 && p.pos_y === 0)) {
+              const [lat, lng] = this._worldToLeaflet(p.pos_x as number, p.pos_y as number);
+              return { lat, lng, health: p.health, online: p.online, time: p.created_at, gameDay: p.game_day };
+            }
+            return null;
+          })
+          .filter(Boolean);
+
+        res.json(trail);
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
 
     /** GET /api/timeline/ai/population?from=&to= — AI population over time */
-    app.get('/api/timeline/ai/population', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/timeline/ai/population', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { from, to } = req.query;
@@ -4585,26 +5055,26 @@ class WebMapServer {
           sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
           return;
         }
-        const data = req.srv.db.getAIPopulationHistory(from, to);
+        const data = req.srv.db.getAIPopulationHistory(from as string, to as string);
         res.json(data);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/deaths?limit=&player= — recent death causes */
-    app.get('/api/timeline/deaths', requireTier('survivor'), rateLimit(10000, 15), (req: any, res: any) => {
+    app.get('/api/timeline/deaths', requireTier('survivor'), rateLimit(10000, 15), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
         const { limit, player } = req.query;
         let deaths;
         if (player) {
-          deaths = req.srv.db.getDeathCausesByPlayer(player, parseInt(limit, 10) || 50);
+          deaths = req.srv.db.getDeathCausesByPlayer(player as string, parseInt(limit as string, 10) || 50);
         } else {
-          deaths = req.srv.db.getDeathCauses(parseInt(limit, 10) || 50);
+          deaths = req.srv.db.getDeathCauses(parseInt(limit as string, 10) || 50);
         }
         // Add map coordinates
-        deaths = deaths.map((d: any) => {
+        deaths = (deaths as DeathCauseRow[]).map((d: DeathCauseRow) => {
           if (d.pos_x != null && d.pos_y != null && !(d.pos_x === 0 && d.pos_y === 0)) {
             const [lat, lng] = this._worldToLeaflet(d.pos_x, d.pos_y);
             return { ...d, lat, lng };
@@ -4612,18 +5082,18 @@ class WebMapServer {
           return { ...d, lat: null, lng: null };
         });
         res.json(deaths);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
 
     /** GET /api/timeline/deaths/stats — death cause breakdown */
-    app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req: any, res: any) => {
+    app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
         const stats = req.srv.db.getDeathCauseStats();
         res.json(stats);
-      } catch (err: any) {
+      } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
     });
@@ -4633,12 +5103,19 @@ class WebMapServer {
   _addErrorHandler(): void {
     // Global error handler — catch unhandled errors in routes
 
-    this._app.use((err: any, _req: any, res: any, _next: any) => {
-      console.error('[WEB MAP] Unhandled route error:', err.message);
-      if (!res.headersSent) {
-        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
-      }
-    });
+    this._app.use(
+      (
+        err: unknown,
+        _req: import('express').Request,
+        res: import('express').Response,
+        _next: import('express').NextFunction,
+      ) => {
+        console.error('[WEB MAP] Unhandled route error:', errMsg(err));
+        if (!res.headersSent) {
+          sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500);
+        }
+      },
+    );
   }
 
   /**
@@ -4649,7 +5126,7 @@ class WebMapServer {
   _startBackgroundPolling(): void {
     const POLL_INTERVAL = 15000;
     const RCON_TIMEOUT = 5000;
-    const rconTimeout = (promise: any) =>
+    const rconTimeout = (promise: Promise<unknown>) =>
       Promise.race([
         promise,
         new Promise((_, rej) =>
@@ -4680,8 +5157,8 @@ class WebMapServer {
           }
         });
         await Promise.all(statusPromises);
-      } catch (err: any) {
-        console.error('[WEB MAP] Background poll error:', err.message);
+      } catch (err: unknown) {
+        console.error('[WEB MAP] Background poll error:', errMsg(err));
       }
     };
 
@@ -4693,10 +5170,10 @@ class WebMapServer {
   }
 
   /** Build and cache the landing page data. All RCON calls parallelised. */
-  async _buildLandingData(rconTimeout: any): Promise<void> {
-    const result: any = {
+  async _buildLandingData(rconTimeout: (p: Promise<unknown>) => Promise<unknown>): Promise<void> {
+    const result: Record<string, unknown> & { primary: Record<string, unknown>; servers: Record<string, unknown>[] } = {
       primary: {
-        name: (config as any).serverName || 'HumanitZ Server',
+        name: config.serverName || 'HumanitZ Server',
         host: config.publicHost || '',
         gamePort: config.gamePort || '',
         status: 'unknown',
@@ -4716,7 +5193,9 @@ class WebMapServer {
     const additional = this._loadServerList();
     const primaryRcon = (async () => {
       try {
-        const [info, list] = await Promise.all([rconTimeout(_getServerInfo()), rconTimeout(_getPlayerList())]);
+        const [infoRaw, listRaw] = await Promise.all([rconTimeout(_getServerInfo()), rconTimeout(_getPlayerList())]);
+        const info = infoRaw as import('../rcon/server-info.js').ServerInfo | undefined;
+        const list = listRaw as import('../rcon/server-info.js').PlayerList | undefined;
         if (info) {
           result.primary.status = 'online';
           result.primary.maxPlayers = info.maxPlayers || null;
@@ -4732,10 +5211,10 @@ class WebMapServer {
       }
     })();
 
-    const serverRcons = additional.map(async (s: any) => {
-      const dir = this._getServerDataDir(s.id);
+    const serverRcons = additional.map(async (s: Record<string, unknown>) => {
+      const dir = this._getServerDataDir(s.id as string);
       if (!dir) return null;
-      const serverInfo: any = {
+      const serverInfo: Record<string, unknown> = {
         id: s.id,
         name: s.name || s.id,
         host: s.publicHost || s.host || config.publicHost || '',
@@ -4745,10 +5224,15 @@ class WebMapServer {
         totalPlayers: 0,
       };
 
-      const srv = this._resolveServer(s.id);
+      const srv = this._resolveServer(s.id as string);
       if (srv) {
         try {
-          const [info, list] = await Promise.all([rconTimeout(srv.getServerInfo()), rconTimeout(srv.getPlayerList())]);
+          const [infoRaw, listRaw] = await Promise.all([
+            rconTimeout(srv.getServerInfo()),
+            rconTimeout(srv.getPlayerList()),
+          ]);
+          const info = infoRaw as import('../rcon/server-info.js').ServerInfo | undefined;
+          const list = listRaw as import('../rcon/server-info.js').PlayerList | undefined;
           if (info) {
             serverInfo.status = 'online';
             serverInfo.maxPlayers = info.maxPlayers || null;
@@ -4767,18 +5251,20 @@ class WebMapServer {
       // DB/file enrichment (fast, no RCON)
       if (srv?.db) {
         try {
-          const cnt = srv.db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get();
+          const cnt = srv.db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get() as { cnt: number } | undefined;
           if (cnt?.cnt) serverInfo.totalPlayers = cnt.cnt;
           if (!serverInfo.maxPlayers) {
-            const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
+            const settingsRow = srv.db.db
+              ?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'")
+              .get() as { value: string } | undefined;
             if (settingsRow?.value) {
-              const settings = JSON.parse(settingsRow.value);
+              const settings = JSON.parse(settingsRow.value) as Record<string, string | undefined>;
               if (settings.MaxPlayers) serverInfo.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
               if (settings.DaysPerSeason) serverInfo.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
             }
           }
           if (!serverInfo.gameDay) {
-            const ws = srv.db.getAllWorldState?.() || {};
+            const ws = srv.db.getAllWorldState();
             if (ws.day) serverInfo.gameDay = ws.day;
             if (!serverInfo.season && ws.season) serverInfo.season = ws.season;
           }
@@ -4798,7 +5284,7 @@ class WebMapServer {
         const cacheFile = path.join(dir, 'save-cache.json');
         try {
           if (fs.existsSync(cacheFile)) {
-            const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+            const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as { worldState?: { daysPassed?: unknown } };
             if (cache.worldState?.daysPassed != null) serverInfo.gameDay = cache.worldState.daysPassed;
             if (serverInfo.status === 'unknown') {
               const age = Date.now() - fs.statSync(cacheFile).mtimeMs;
@@ -4809,17 +5295,22 @@ class WebMapServer {
           /* non-critical */
         }
       }
-      if (srv?.scheduler && srv.scheduler.isActive?.()) {
+      if (srv?.scheduler && (srv.scheduler.isActive as (() => boolean) | undefined)?.() === true) {
         try {
-          serverInfo.schedule = srv.scheduler.getStatus();
+          serverInfo.schedule = (srv.scheduler.getStatus as () => Record<string, unknown>)();
         } catch {
           /* scheduler unavailable */
         }
       }
       if (srv?.db) {
         try {
-          const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
-          if (settingsRow?.value) serverInfo.settings = _extractLandingSettings(JSON.parse(settingsRow.value));
+          const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get() as
+            | DbRow
+            | undefined;
+          if (settingsRow?.value)
+            serverInfo.settings = _extractLandingSettings(
+              JSON.parse(settingsRow.value as string) as Record<string, string | undefined>,
+            );
         } catch {
           /* non-critical */
         }
@@ -4828,24 +5319,30 @@ class WebMapServer {
         try {
           const settingsFile = path.join(dir, 'server-settings.json');
           if (fs.existsSync(settingsFile))
-            serverInfo.settings = _extractLandingSettings(JSON.parse(fs.readFileSync(settingsFile, 'utf8')));
+            serverInfo.settings = _extractLandingSettings(
+              JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string | undefined>,
+            );
         } catch {
           /* non-critical */
         }
       }
       if (srv) {
         const mods: string[] = [];
-        if (srv.rcon?.connected) mods.push('rcon');
+        if (srv.rcon.connected) mods.push('rcon');
         if (srv.db) mods.push('db');
-        const inst = this._multiServerManager?.getInstance(s.id);
+        const inst = this._multiServerManager?.getInstance(s.id as string);
         if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
-        if (srv.scheduler && srv.scheduler.isActive?.()) mods.push('schedule');
-        if (inst?._modules?.logWatcher) mods.push('logs');
-        if (inst?._modules?.chatRelay) mods.push('chat');
-        if (inst?._modules?.anticheat?.available) mods.push('anticheat');
+        if (srv.scheduler && srv.scheduler.isActive && (srv.scheduler.isActive as () => boolean)())
+          mods.push('schedule');
+        if (inst?._modules.logWatcher) mods.push('logs');
+        if (inst?._modules.chatRelay) mods.push('chat');
+        const instRec = inst as unknown as Record<string, Record<string, Record<string, unknown>>> | undefined;
+        if (instRec?._modules && (instRec._modules.anticheat as Record<string, unknown> | undefined)?.available)
+          mods.push('anticheat');
         if (
           this._plugins.some(
-            (p: any) => p.name === 'hzmod' && (p.serverId === s.id || (!p.serverId && s.id === 'vps_dev')),
+            (p: Record<string, unknown>) =>
+              p.name === 'hzmod' && (p.serverId === s.id || (!p.serverId && s.id === 'vps_dev')),
           )
         )
           mods.push('hzmod');
@@ -4864,7 +5361,7 @@ class WebMapServer {
     if (this._db) {
       try {
         const cnt = this._db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get();
-        if (cnt?.cnt) result.primary.totalPlayers = cnt.cnt;
+        if ((cnt as DbRow | undefined)?.cnt) result.primary.totalPlayers = (cnt as DbRow).cnt as number;
       } catch {
         /* db unavailable */
       }
@@ -4877,13 +5374,14 @@ class WebMapServer {
       try {
         if (!result.primary.maxPlayers) {
           const settingsRow = this._db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
-          if (settingsRow?.value) {
-            const settings = JSON.parse(settingsRow.value);
+          const settingsVal = (settingsRow as DbRow | undefined)?.value;
+          if (settingsVal) {
+            const settings = JSON.parse(settingsVal as string) as Record<string, string | undefined>;
             if (settings.MaxPlayers) result.primary.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
             if (settings.DaysPerSeason) result.primary.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
           }
         }
-        const ws = this._db.getAllWorldState?.() || {};
+        const ws = this._db.getAllWorldState();
         if (!result.primary.gameDay && ws.day) result.primary.gameDay = ws.day;
         if (!result.primary.season && ws.season) result.primary.season = ws.season;
       } catch {
@@ -4894,7 +5392,7 @@ class WebMapServer {
       try {
         const settingsFile = path.join(DATA_DIR, 'server-settings.json');
         if (fs.existsSync(settingsFile)) {
-          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string | undefined>;
           if (settings.MaxPlayers) result.primary.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
         }
       } catch {
@@ -4905,7 +5403,7 @@ class WebMapServer {
       try {
         const cachePath = path.join(DATA_DIR, 'save-cache.json');
         if (fs.existsSync(cachePath)) {
-          const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { worldState?: { daysPassed?: unknown } };
           if (cache.worldState?.daysPassed != null) result.primary.gameDay = cache.worldState.daysPassed;
         }
       } catch {
@@ -4915,7 +5413,11 @@ class WebMapServer {
     if (this._db) {
       try {
         const settingsRow = this._db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
-        if (settingsRow?.value) result.primary.settings = _extractLandingSettings(JSON.parse(settingsRow.value));
+        const settingsRowVal = (settingsRow as DbRow | undefined)?.value;
+        if (settingsRowVal)
+          result.primary.settings = _extractLandingSettings(
+            JSON.parse(settingsRowVal as string) as Record<string, string | undefined>,
+          );
       } catch {
         /* non-critical */
       }
@@ -4924,7 +5426,9 @@ class WebMapServer {
       try {
         const settingsFile = path.join(DATA_DIR, 'server-settings.json');
         if (fs.existsSync(settingsFile))
-          result.primary.settings = _extractLandingSettings(JSON.parse(fs.readFileSync(settingsFile, 'utf8')));
+          result.primary.settings = _extractLandingSettings(
+            JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string | undefined>,
+          );
       } catch {
         /* non-critical */
       }
@@ -4942,14 +5446,14 @@ class WebMapServer {
       if (this._db) mods.push('db');
       if (this._saveService) mods.push('sftp');
       if (this._scheduler && this._scheduler.isActive()) mods.push('schedule');
-      if (this._plugins.some((p: any) => p.name === 'hzmod')) mods.push('hzmod');
+      if (this._plugins.some((p: Record<string, unknown>) => p.name === 'hzmod')) mods.push('hzmod');
       result.primary.modules = mods;
     }
     result.primary.discordInvite = config.discordInviteLink || '';
     for (const plugin of this._plugins) {
       if (typeof plugin.getLandingData === 'function') {
         try {
-          Object.assign(result, plugin.getLandingData() || {});
+          Object.assign(result, (plugin.getLandingData as () => Record<string, unknown> | null | undefined)() ?? {});
         } catch {
           /* plugin error */
         }
@@ -4959,8 +5463,8 @@ class WebMapServer {
   }
 
   /** Build and cache status data for a single server. */
-  async _buildStatusCache(srv: any, rconTimeout: any): Promise<void> {
-    const result: any = {
+  async _buildStatusCache(srv: ServerContext, rconTimeout: (p: Promise<unknown>) => Promise<unknown>): Promise<void> {
+    const result: Record<string, unknown> = {
       serverState: 'unknown',
       uptime: null,
       maxPlayers: null,
@@ -4973,7 +5477,12 @@ class WebMapServer {
       resources: null,
     };
     try {
-      const [info, list] = await Promise.all([rconTimeout(srv.getServerInfo()), rconTimeout(srv.getPlayerList())]);
+      const [infoRaw, listRaw] = await Promise.all([
+        rconTimeout(srv.getServerInfo()),
+        rconTimeout(srv.getPlayerList()),
+      ]);
+      const info = infoRaw as import('../rcon/server-info.js').ServerInfo | undefined;
+      const list = listRaw as import('../rcon/server-info.js').PlayerList | undefined;
       if (info) {
         result.serverState = 'running';
         result.fps = info.fps || null;
@@ -4993,7 +5502,7 @@ class WebMapServer {
       try {
         const settingsFile = path.join(srv.dataDir, 'server-settings.json');
         if (fs.existsSync(settingsFile)) {
-          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+          const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string | undefined>;
           if (settings.MaxPlayers) result.maxPlayers = parseInt(settings.MaxPlayers, 10) || null;
         }
       } catch {
@@ -5027,7 +5536,7 @@ class WebMapServer {
       try {
         const cachePath = path.join(srv.dataDir, 'save-cache.json');
         if (fs.existsSync(cachePath)) {
-          const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { worldState?: { daysPassed?: unknown } };
           if (cache.worldState?.daysPassed != null) result.gameDay = cache.worldState.daysPassed;
         }
       } catch {
@@ -5036,7 +5545,7 @@ class WebMapServer {
     }
     if (srv.db) {
       try {
-        const ws = srv.db.getAllWorldState?.() || {};
+        const ws = srv.db.getAllWorldState();
         if (!result.gameDay && ws.day) result.gameDay = ws.day;
         if (!result.season && ws.season) result.season = ws.season;
       } catch {
@@ -5046,7 +5555,7 @@ class WebMapServer {
     try {
       const settingsFile = path.join(srv.dataDir, 'server-settings.json');
       if (fs.existsSync(settingsFile)) {
-        const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, string | undefined>;
         if (settings.DaysPerSeason) result.daysPerSeason = parseInt(settings.DaysPerSeason, 10) || 28;
       }
     } catch {
@@ -5054,9 +5563,11 @@ class WebMapServer {
     }
     if (!result.daysPerSeason && srv.db) {
       try {
-        const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get();
+        const settingsRow = srv.db.db?.prepare("SELECT value FROM bot_state WHERE key = 'server_settings'").get() as
+          | DbRow
+          | undefined;
         if (settingsRow?.value) {
-          const s = JSON.parse(settingsRow.value);
+          const s = JSON.parse(settingsRow.value as string) as Record<string, string | undefined>;
           if (s.DaysPerSeason) result.daysPerSeason = parseInt(s.DaysPerSeason, 10) || 28;
         }
       } catch {
@@ -5067,27 +5578,28 @@ class WebMapServer {
   }
 
   /** Build and cache stats data for a single server. */
-  async _buildStatsCache(srv: any, rconTimeout: any): Promise<void> {
-    const result: any = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
+  async _buildStatsCache(srv: ServerContext, rconTimeout: (p: Promise<unknown>) => Promise<unknown>): Promise<void> {
+    const result: Record<string, unknown> = { totalPlayers: 0, onlinePlayers: 0, eventsToday: 0, chatsToday: 0 };
     const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
     result.totalPlayers = players.size;
     if (!result.totalPlayers && srv.db) {
       try {
-        const cnt = srv.db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get();
+        const cnt = srv.db.db?.prepare('SELECT COUNT(*) as cnt FROM players').get() as { cnt: number } | undefined;
         if (cnt?.cnt) result.totalPlayers = cnt.cnt;
       } catch {
         /* db unavailable */
       }
     }
     // Use status cache for online count (already built)
-    const statusCache = this._getCached('status', srv.serverId, 30000);
+    const statusCache = this._getCached('status', srv.serverId, 30000) as Record<string, unknown> | null;
     if (statusCache) {
       result.onlinePlayers = statusCache.onlineCount || 0;
     } else {
       try {
-        const list = await rconTimeout(srv.getPlayerList());
-        const playerArr = list?.players || (Array.isArray(list) ? list : []);
-        result.onlinePlayers = playerArr.length;
+        const listRaw = await rconTimeout(srv.getPlayerList());
+        const list = listRaw as import('../rcon/server-info.js').PlayerList | undefined;
+        const playerArr = list?.players || (Array.isArray(listRaw) ? listRaw : []);
+        result.onlinePlayers = (playerArr as unknown[]).length;
       } catch {
         /* RCON unavailable */
       }
@@ -5101,9 +5613,9 @@ class WebMapServer {
         const localDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: tz }));
         const offsetMs = tzDate.getTime() - localDate.getTime();
         const todayIso = new Date(todayMidnight.getTime() + offsetMs).toISOString();
-        const activities = srv.db.getActivitySince?.(todayIso) || [];
+        const activities = srv.db.getActivitySince(todayIso);
         result.eventsToday = activities.length;
-        const chats = srv.db.getChatSince?.(todayIso) || [];
+        const chats = srv.db.getChatSince(todayIso);
         result.chatsToday = chats.length;
       } catch {
         /* db unavailable */
@@ -5121,7 +5633,7 @@ class WebMapServer {
         resolve();
       });
       this._server.on('error', (err: Error) => {
-        console.error('[WEB MAP] Server error:', err.message);
+        console.error('[WEB MAP] Server error:', errMsg(err));
         reject(err);
       });
     });
@@ -5150,7 +5662,7 @@ import { generateFingerprint } from '../db/item-fingerprint.js';
  * @param {Array} slots - Array of { item, amount, durability, ammo } or strings
  * @returns {Array}
  */
-function _cleanInventorySlots(slots: any[]): any[] {
+function _cleanInventorySlots(slots: unknown[]): unknown[] {
   if (!Array.isArray(slots)) return [];
   return slots.map((slot) => {
     if (!slot) return slot;
@@ -5158,12 +5670,13 @@ function _cleanInventorySlots(slots: any[]): any[] {
       if (slot === 'Empty' || slot === 'None') return slot;
       return cleanItemName(slot);
     }
-    if (typeof slot === 'object' && slot.item) {
-      const cleaned = { ...slot, item: cleanItemName(slot.item) };
+    if (typeof slot === 'object' && (slot as Record<string, unknown>).item) {
+      const s = slot as Record<string, unknown>;
+      const cleaned: Record<string, unknown> = { ...s, item: cleanItemName(s.item as string) };
       // Generate fingerprint for item tracking integration
       // Uses the RAW item name for fingerprint (before cleaning) since
       // that's what the item tracker uses
-      const fp = generateFingerprint(slot);
+      const fp = generateFingerprint(slot as Parameters<typeof generateFingerprint>[0]);
       if (fp) cleaned.fingerprint = fp;
       return cleaned;
     }

@@ -2985,7 +2985,7 @@ class HumanitZDB {
     return this._stmts.getActiveItemInstances.all();
   }
 
-  getItemInstancesByItem(item: Record<string, unknown>) {
+  getItemInstancesByItem(item: string) {
     return this._stmts.getItemInstancesByItem.all(item);
   }
 
@@ -4333,12 +4333,12 @@ class HumanitZDB {
   }
 
   /** Get player position history for trails. */
-  getPlayerPositionHistory(steamId: string, from: string, to: Record<string, unknown>) {
+  getPlayerPositionHistory(steamId: string, from: string, to: string) {
     return this._stmts.getPlayerPositionHistory.all(steamId, from, to);
   }
 
   /** Get AI population history for charts. */
-  getAIPopulationHistory(from: string, to: Record<string, unknown>) {
+  getAIPopulationHistory(from: string, to: string) {
     return this._stmts.getAIPopulationHistory.all(from, to);
   }
 
