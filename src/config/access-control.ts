@@ -10,6 +10,7 @@ import type { Guild, GuildMember, PermissionResolvable } from 'discord.js';
  * or the user is a Discord admin.
  */
 export function canShow(config: unknown, toggleKey: string, isAdmin = false): boolean {
+  if (!config || typeof config !== 'object') return false;
   const cfg = config as Record<string, unknown>;
   if (!cfg[toggleKey]) return false;
   const adminOnlyKey = toggleKey + 'AdminOnly';
@@ -37,8 +38,13 @@ export async function addAdminMembers(
   guild: Guild,
 ): Promise<void> {
   // Explicit user IDs
+  if (!thread.members && adminUserIds.length > 0) {
+    console.warn('[CONFIG] addAdminMembers: thread has no .members API — skipping admin user adds');
+  }
   for (const uid of adminUserIds) {
-    thread.members?.add(uid).catch(() => {});
+    thread.members?.add(uid).catch((err: unknown) => {
+      console.debug(`[CONFIG] Failed to add admin user ${uid} to thread:`, (err as Error).message);
+    });
   }
   // Role-based — requires GuildMembers privileged intent
   // Fetch all members once (not per-role) so the role.members cache is populated.
@@ -62,7 +68,9 @@ export async function addAdminMembers(
       const role = guild.roles.cache.get(roleId) ?? (await guild.roles.fetch(roleId));
       if (!role) continue;
       for (const [uid] of role.members) {
-        thread.members?.add(uid).catch(() => {});
+        thread.members?.add(uid).catch((addErr: unknown) => {
+          console.debug(`[CONFIG] Failed to add role member ${uid} to thread:`, (addErr as Error).message);
+        });
       }
     } catch (e) {
       const err = e as Error & { code?: number };

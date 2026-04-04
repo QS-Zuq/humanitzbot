@@ -167,7 +167,7 @@ interface FieldEntry {
 }
 
 function buildSettingsFields(s: Record<string, unknown>, cfgInput: unknown = {}): FieldEntry[] {
-  const cfg = cfgInput as Record<string, unknown>;
+  const cfg = (cfgInput && typeof cfgInput === 'object' ? cfgInput : {}) as Record<string, unknown>;
   const fields: FieldEntry[] = [];
 
   function section(emoji: string, title: string, entries: [string, string | null][]): void {
@@ -359,6 +359,7 @@ function buildResourceField(res: Record<string, unknown>, fmtBytes?: (v: number)
 }
 
 function buildScheduleField(cfgInput: unknown): { name: string; value: string } | null {
+  if (!cfgInput || typeof cfgInput !== 'object') return null;
   const cfg = cfgInput as Record<string, unknown>;
   if (!cfg.enableServerScheduler) return null;
   const timesStr = (cfg.restartTimes as string) || process.env.RESTART_TIMES || '';

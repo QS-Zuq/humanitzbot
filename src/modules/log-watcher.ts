@@ -511,6 +511,7 @@ class LogWatcher {
   wrapOnDeath(
     wrapper: (orig: (playerName: string, timestamp: Date) => void) => (playerName: string, timestamp: Date) => void,
   ): void {
+    this._log.info('Wrapping _onDeath handler');
     const orig = this._onDeath.bind(this);
     this._onDeath = wrapper(orig);
   }

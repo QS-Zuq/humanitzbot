@@ -1141,14 +1141,16 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
  * needed when the key is computed at runtime (e.g. from field mappings).
  */
 export function getConfigValue(cfg: unknown, key: string): unknown {
+  if (!cfg || typeof cfg !== 'object') return undefined;
   return (cfg as Record<string, unknown>)[key];
 }
 
 /**
- * Write a config value by a runtime-computed key.
+ * Write a config value by a runtime-computed key. No-op if cfg is not an object.
  * SAFETY: Same rationale as getConfigValue — key is computed at runtime.
  */
 export function setConfigValue(cfg: unknown, key: string, value: unknown): void {
+  if (!cfg || typeof cfg !== 'object') return;
   (cfg as Record<string, unknown>)[key] = value;
 }
 
