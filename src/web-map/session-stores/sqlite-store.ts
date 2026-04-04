@@ -199,6 +199,11 @@ _proto.all = function (this: SqliteStoreInstance, callback: (err: Error | null, 
 
 _proto._getExpireTime = function (this: SqliteStoreInstance, session: SessionData): number {
   const cookie = session.cookie;
+  const expires = (cookie as unknown as Record<string, unknown>).expires;
+  if (expires) {
+    const t = new Date(expires as string | number | Date).getTime();
+    if (!isNaN(t)) return t;
+  }
   if (typeof cookie.maxAge === 'number' && cookie.maxAge > 0) {
     return Date.now() + cookie.maxAge;
   }

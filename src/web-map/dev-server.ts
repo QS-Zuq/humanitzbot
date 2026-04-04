@@ -35,13 +35,13 @@ interface SavePlayerData {
   battery: number;
   fatigue: number;
   startingPerk: string;
-  equipment: unknown[];
-  quickSlots: unknown[];
-  inventory: unknown[];
-  backpackItems: unknown[];
-  unlockedSkills: unknown[];
-  craftingRecipes: unknown[];
-  buildingRecipes: unknown[];
+  equipment?: unknown[];
+  quickSlots?: unknown[];
+  inventory?: unknown[];
+  backpackItems?: unknown[];
+  unlockedSkills?: unknown[];
+  craftingRecipes?: unknown[];
+  buildingRecipes?: unknown[];
 }
 
 interface MapBounds {
@@ -273,13 +273,13 @@ function buildPlayerList(): PlayerEntry[] {
       battery: data.battery,
       fatigue: data.fatigue,
       profession: data.startingPerk || 'Unknown',
-      equipment: data.equipment,
-      quickSlots: data.quickSlots,
-      inventory: data.inventory,
-      backpack: data.backpackItems,
-      unlockedSkills: data.unlockedSkills,
-      craftingRecipes: data.craftingRecipes.length,
-      buildingRecipes: data.buildingRecipes.length,
+      equipment: data.equipment || [],
+      quickSlots: data.quickSlots || [],
+      inventory: data.inventory || [],
+      backpack: data.backpackItems || [],
+      unlockedSkills: data.unlockedSkills || [],
+      craftingRecipes: (data.craftingRecipes || []).length,
+      buildingRecipes: (data.buildingRecipes || []).length,
     });
   }
   result.sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.name.localeCompare(b.name));

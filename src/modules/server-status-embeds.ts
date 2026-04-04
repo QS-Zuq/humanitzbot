@@ -147,7 +147,7 @@ function _weatherLabel(locale: string, weather: unknown): string {
 }
 
 function _footer(playtimeTracker: PlaytimeLike, cfg: ConfigType): string {
-  const locale = getLocale();
+  const locale = getLocale({ serverConfig: cfg as unknown as { locale?: string } });
   const since = fmtDate(playtimeTracker.getTrackingSince(), locale, cfg.botTimezone);
   return _ts(locale, 'tracking_footer', { since });
 }
@@ -254,7 +254,7 @@ function _buildEmbed(
   playerList: PlayerList | null,
   resources?: ResourceData | null,
 ): EmbedBuilder {
-  const locale = getLocale();
+  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)
@@ -403,7 +403,7 @@ function _buildEmbed(
 }
 
 async function _buildOfflineEmbed(this: StatusContext): Promise<EmbedBuilder> {
-  const locale = getLocale();
+  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)

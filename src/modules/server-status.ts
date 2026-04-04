@@ -182,12 +182,13 @@ class ServerStatus {
       if (wasOffline) {
         this._log.info('Server is back online');
       }
-      if (!this._onlineSince || wasOffline) {
+      const firstOnline = !this._onlineSince;
+      if (firstOnline || wasOffline) {
         this._onlineSince = new Date();
       }
       this._lastOnline = true;
       this._offlineSince = null;
-      if (wasOffline) this._saveState(); // only persist on transition
+      if (wasOffline || firstOnline) this._saveState(); // persist on transition or first online
 
       const embed = this._buildEmbed(info, playerList, resources);
 
