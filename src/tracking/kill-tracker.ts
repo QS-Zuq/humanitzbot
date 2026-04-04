@@ -22,6 +22,7 @@ import playerStatsSingleton from './player-stats.js';
 import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
 
 type ConfigType = typeof config;
 type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
@@ -195,12 +196,6 @@ interface WeeklyBaseline {
 
 interface GameData {
   CHALLENGE_DESCRIPTIONS: Record<string, { name: string; desc: string; target?: number }>;
-}
-
-// Minimal DB interface (src/db not yet migrated)
-interface HumanitZDB {
-  getStateJSON(key: string, fallback: null): unknown;
-  setStateJSON(key: string, data: unknown): void;
 }
 
 export interface KillTrackerDeps {

@@ -529,7 +529,7 @@ class ServerInstance {
     });
     this.db.init();
     try {
-      gameReferenceSeed(this.db as unknown as Parameters<typeof gameReferenceSeed>[0]);
+      gameReferenceSeed(this.db);
     } catch (err: unknown) {
       this._log.warn('Game reference seed failed:', errMsg(err));
     }
@@ -564,22 +564,22 @@ class ServerInstance {
 
     this.playerStats = new PlayerStats({
       dataDir: this.dataDir,
-      db: this.db as unknown as Parameters<PlayerStats['setDb']>[0],
+      db: this.db,
       playtime: null, // set after playtime is created
       label: 'STATS:' + this._log.label,
     });
 
     this.playtime = new PlaytimeTracker({
       dataDir: this.dataDir,
-      db: this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0],
+      db: this.db,
       config: this.config,
       label: 'PLAYTIME:' + this._log.label,
     });
 
     // Wire up cross-reference
     (this.playerStats as unknown as { _playtime: PlaytimeTracker })._playtime = this.playtime;
-    this.playerStats.setDb(this.db as unknown as Parameters<PlayerStats['setDb']>[0]);
-    this.playtime.setDb(this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0]);
+    this.playerStats.setDb(this.db);
+    this.playtime.setDb(this.db);
 
     // Bound server-info functions using this rcon
     this.getServerInfo = () => getServerInfo(this.rcon);
@@ -671,27 +671,24 @@ class ServerInstance {
     if (this.hasSftp || this.panelApi) {
       try {
         const sftpConfig = this.hasSftp ? this.config.sftpConnectConfig() : undefined;
-        this.saveService = new SaveService(
-          this.db as unknown as ConstructorParameters<typeof SaveService>[0],
-          {
-            sftpConfig,
-            savePath: this.config.sftpSavePath,
-            clanSavePath: (() => {
-              const sp = this.config.sftpSavePath;
-              if (!sp) return undefined;
-              const idx = sp.indexOf('SaveList/');
-              return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
-            })(),
-            pollInterval: this.config.getEffectiveSavePollInterval(),
-            agentMode: (this.config.agentMode || 'direct') as 'auto' | 'agent' | 'direct',
-            agentTrigger: this.config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
-            agentNodePath: this.config.agentNodePath,
-            agentCachePath: this.config.agentCachePath,
-            panelApi: this.panelApi ?? undefined,
-            dataDir: this.dataDir,
-            label: 'SAVE:' + this._log.label,
-          } as ConstructorParameters<typeof SaveService>[1],
-        );
+        this.saveService = new SaveService(this.db, {
+          sftpConfig,
+          savePath: this.config.sftpSavePath,
+          clanSavePath: (() => {
+            const sp = this.config.sftpSavePath;
+            if (!sp) return undefined;
+            const idx = sp.indexOf('SaveList/');
+            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
+          })(),
+          pollInterval: this.config.getEffectiveSavePollInterval(),
+          agentMode: (this.config.agentMode || 'direct') as 'auto' | 'agent' | 'direct',
+          agentTrigger: this.config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
+          agentNodePath: this.config.agentNodePath,
+          agentCachePath: this.config.agentCachePath,
+          panelApi: this.panelApi ?? undefined,
+          dataDir: this.dataDir,
+          label: 'SAVE:' + this._log.label,
+        } as ConstructorParameters<typeof SaveService>[1]);
         this.saveService.on(
           'sync',
           (result: { playerCount: number; structureCount: number; mode: string; elapsed: number }) => {

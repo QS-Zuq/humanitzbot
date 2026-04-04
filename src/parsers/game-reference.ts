@@ -15,6 +15,7 @@
  */
 
 import * as _gameData from './game-data.js';
+import type { HumanitZDB } from '../db/database.js';
 
 import { PERK_MAP as _PERK_MAP } from './save-parser.js';
 const _saveParserModule = { PERK_MAP: _PERK_MAP };
@@ -59,36 +60,6 @@ const FURNITURE_DROPS = _gameData['FURNITURE_DROPS'];
 const TRAPS = _gameData['TRAPS'];
 const SPRAYS = _gameData['SPRAYS'];
 
-// ─── DB interface (loose — db module is not yet migrated) ──────────────────
-
-interface GameDB {
-  db: { prepare: (sql: string) => { get: () => { n: number } | undefined } } | null;
-  _getMeta: (key: string) => string | undefined;
-  _setMeta: (key: string, value: string) => void;
-  seedGameItems: (items: unknown[]) => void;
-  seedGameProfessions: (professions: unknown[]) => void;
-  seedGameAfflictions: (afflictions: unknown[]) => void;
-  seedGameSkills: (skills: unknown[]) => void;
-  seedGameChallenges: (challenges: unknown[]) => void;
-  seedLoadingTips: (tips: unknown[]) => void;
-  seedGameServerSettingDefs: (settings: unknown[]) => void;
-  seedGameRecipes: (recipes: unknown[]) => void;
-  seedGameLore: (lore: unknown[]) => void;
-  seedGameQuests: (quests: unknown[]) => void;
-  seedGameSpawnLocations: (spawns: unknown[]) => void;
-  seedGameBuildings: (buildings: unknown[]) => void;
-  seedGameLootPools: (tables: unknown) => void;
-  seedGameVehiclesRef: (vehicles: unknown[]) => void;
-  seedGameAnimals: (animals: unknown[]) => void;
-  seedGameCrops: (crops: unknown[]) => void;
-  seedGameCarUpgrades: (upgrades: unknown[]) => void;
-  seedGameAmmoTypes: (ammo: unknown[]) => void;
-  seedGameRepairData: (repairs: unknown[]) => void;
-  seedGameFurniture: (furniture: unknown[]) => void;
-  seedGameTraps: (traps: unknown[]) => void;
-  seedGameSprays: (sprays: unknown[]) => void;
-}
-
 // ─── Seed all game reference data ──────────────────────────────────────────
 
 // Current version — bump this whenever ENUM_MAPS, extractors, or curated data change
@@ -99,10 +70,10 @@ const GAME_REF_VERSION = 2;
  * Safe to call multiple times — uses INSERT OR REPLACE.
  * Re-seeds automatically when GAME_REF_VERSION is bumped.
  */
-function seed(db: GameDB): void {
+function seed(db: HumanitZDB): void {
   // Check if re-seed is needed (version mismatch or empty)
   try {
-    const count = db.db?.prepare('SELECT COUNT(*) as n FROM game_items').get();
+    const count = db._db?.prepare('SELECT COUNT(*) as n FROM game_items').get() as { n: number } | undefined;
     const storedVersion = db._getMeta('game_ref_version');
     const currentVersion = String(GAME_REF_VERSION);
 
@@ -153,14 +124,14 @@ function seed(db: GameDB): void {
 
 // ─── Items (game_items — 718 entries) ───────────────────────────────────────
 
-function seedItems(db: GameDB): void {
+function seedItems(db: HumanitZDB): void {
   const items = Object.values(ITEM_DATABASE);
   db.seedGameItems(items);
 }
 
 // ─── Professions ────────────────────────────────────────────────────────────
 
-function seedProfessions(db: GameDB): void {
+function seedProfessions(db: HumanitZDB): void {
   let PERK_MAP: Record<string, string>;
   try {
     PERK_MAP = _saveParserModule.PERK_MAP;
@@ -195,7 +166,7 @@ function _enumIndex(enumValue: string | undefined): number {
 
 // ─── Afflictions ────────────────────────────────────────────────────────────
 
-function seedAfflictions(db: GameDB): void {
+function seedAfflictions(db: HumanitZDB): void {
   const detailsByName: Record<string, { description: string }> = {};
   for (const detail of Object.values(AFFLICTION_DETAILS)) {
     detailsByName[detail.name] = detail;
@@ -212,7 +183,7 @@ function seedAfflictions(db: GameDB): void {
 
 // ─── Skills ─────────────────────────────────────────────────────────────────
 
-function seedSkills(db: GameDB): void {
+function seedSkills(db: HumanitZDB): void {
   const skills = Object.entries(SKILL_DETAILS).map(([id, detail]) => {
     const upperName = (detail.name || id).toUpperCase();
     const effect = SKILL_EFFECTS[upperName] ?? SKILL_EFFECTS[id] ?? '';
@@ -230,7 +201,7 @@ function seedSkills(db: GameDB): void {
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
 
-function seedChallenges(db: GameDB): void {
+function seedChallenges(db: HumanitZDB): void {
   const merged: Array<{ id: string; name: string; description: string; saveField: string; target: number }> = [];
 
   for (const ch of CHALLENGES) {
@@ -265,7 +236,7 @@ function seedChallenges(db: GameDB): void {
 
 // ─── Loading tips ───────────────────────────────────────────────────────────
 
-function seedLoadingTipsData(db: GameDB): void {
+function seedLoadingTipsData(db: HumanitZDB): void {
   const categorized = LOADING_TIPS.map((text) => {
     let category = 'general';
     if (/RMB|LMB|press|toggle|click|key|ctrl|shift|spacebar|hot key|button/i.test(text)) category = 'controls';
@@ -282,7 +253,7 @@ function seedLoadingTipsData(db: GameDB): void {
 
 // ─── Server setting definitions ─────────────────────────────────────────────
 
-function seedServerSettingDefs(db: GameDB): void {
+function seedServerSettingDefs(db: HumanitZDB): void {
   const settings = Object.entries(SERVER_SETTING_DESCRIPTIONS).map(([key, label]) => ({
     key,
     label,
@@ -304,48 +275,48 @@ function _inferSettingType(key: string): string {
 
 // ─── Recipes (game_recipes — 154 entries) ───────────────────────────────────
 
-function seedRecipes(db: GameDB): void {
+function seedRecipes(db: HumanitZDB): void {
   const recipes = Object.values(CRAFTING_RECIPES);
   db.seedGameRecipes(recipes);
 }
 
 // ─── Lore (game_lore — 12 entries) ──────────────────────────────────────────
 
-function seedLore(db: GameDB): void {
+function seedLore(db: HumanitZDB): void {
   const lore = Object.values(LORE_ENTRIES);
   db.seedGameLore(lore);
 }
 
 // ─── Quests (game_quests — 18 entries) ──────────────────────────────────────
 
-function seedQuests(db: GameDB): void {
+function seedQuests(db: HumanitZDB): void {
   const quests = Object.values(QUEST_DATA);
   db.seedGameQuests(quests);
 }
 
 // ─── Spawn locations (game_spawn_locations — 10 entries) ────────────────────
 
-function seedSpawnLocations(db: GameDB): void {
+function seedSpawnLocations(db: HumanitZDB): void {
   const spawns = Object.values(SPAWN_LOCATIONS);
   db.seedGameSpawnLocations(spawns);
 }
 
 // ─── Buildings (game_buildings — 122 entries) ───────────────────────────────
 
-function seedBuildings(db: GameDB): void {
+function seedBuildings(db: HumanitZDB): void {
   const buildings = Object.values(BUILDINGS);
   db.seedGameBuildings(buildings);
 }
 
 // ─── Loot pools (game_loot_pools + game_loot_pool_items — 68 tables) ───────
 
-function seedLootPools(db: GameDB): void {
+function seedLootPools(db: HumanitZDB): void {
   db.seedGameLootPools(LOOT_TABLES);
 }
 
 // ─── Vehicles (game_vehicles_ref — 27 entries) ─────────────────────────────
 
-function seedVehiclesRef(db: GameDB): void {
+function seedVehiclesRef(db: HumanitZDB): void {
   const vehicles = Object.entries(VEHICLES).map(([id, v]) => ({
     id,
     name: v.name ?? id,
@@ -355,56 +326,56 @@ function seedVehiclesRef(db: GameDB): void {
 
 // ─── Animals (game_animals — 6 entries) ─────────────────────────────────────
 
-function seedAnimals(db: GameDB): void {
+function seedAnimals(db: HumanitZDB): void {
   const animals = Object.values(ANIMALS);
   db.seedGameAnimals(animals);
 }
 
 // ─── Crops (game_crops — 6 entries) ─────────────────────────────────────────
 
-function seedCrops(db: GameDB): void {
+function seedCrops(db: HumanitZDB): void {
   const crops = Object.values(CROP_DATA);
   db.seedGameCrops(crops);
 }
 
 // ─── Car upgrades (game_car_upgrades — 23 entries) ──────────────────────────
 
-function seedCarUpgrades(db: GameDB): void {
+function seedCarUpgrades(db: HumanitZDB): void {
   const upgrades = Object.values(CAR_UPGRADES);
   db.seedGameCarUpgrades(upgrades);
 }
 
 // ─── Ammo types (game_ammo_types — 8 entries) ───────────────────────────────
 
-function seedAmmoTypes(db: GameDB): void {
+function seedAmmoTypes(db: HumanitZDB): void {
   const ammo = Object.values(AMMO_DAMAGE);
   db.seedGameAmmoTypes(ammo);
 }
 
 // ─── Repair data (game_repair_data — 57 entries) ────────────────────────────
 
-function seedRepairData(db: GameDB): void {
+function seedRepairData(db: HumanitZDB): void {
   const repairs = Object.values(REPAIR_RECIPES);
   db.seedGameRepairData(repairs);
 }
 
 // ─── Furniture (game_furniture — 21 entries) ─────────────────────────────────
 
-function seedFurniture(db: GameDB): void {
+function seedFurniture(db: HumanitZDB): void {
   const furniture = Object.values(FURNITURE_DROPS);
   db.seedGameFurniture(furniture);
 }
 
 // ─── Traps (game_traps — 6 entries) ─────────────────────────────────────────
 
-function seedTraps(db: GameDB): void {
+function seedTraps(db: HumanitZDB): void {
   const traps = Object.values(TRAPS);
   db.seedGameTraps(traps);
 }
 
 // ─── Sprays (game_sprays — 8 entries) ───────────────────────────────────────
 
-function seedSpraysData(db: GameDB): void {
+function seedSpraysData(db: HumanitZDB): void {
   const sprays = Object.values(SPRAYS);
   db.seedGameSprays(sprays);
 }

@@ -14,6 +14,7 @@ import * as gameData from '../parsers/game-data.js';
 import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
 import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
+import type { HumanitZDB } from '../db/database.js';
 
 interface DbPlayerRow {
   steam_id: string;
@@ -142,39 +143,12 @@ interface PSCDeps {
   config?: typeof _defaultConfig;
   playtime?: typeof _defaultPlaytime;
   playerStats?: typeof _defaultPlayerStats;
-  db?: HumanitZDatabase | null;
+  db?: HumanitZDB | null;
   label?: string;
   serverId?: string;
   dataDir?: string | null;
   panelApi?: PanelApi | null;
   [key: string]: unknown;
-}
-
-interface HumanitZDatabase {
-  getAllPlayers(): Record<string, unknown>[];
-  getAllClans(): {
-    name?: unknown;
-    members: {
-      steamId?: unknown;
-      steam_id?: unknown;
-      name?: unknown;
-      canKick?: unknown;
-      can_kick?: unknown;
-      canInvite?: unknown;
-      can_invite?: unknown;
-      rank?: unknown;
-    }[];
-  }[];
-  getAllWorldState(): Record<string, unknown>;
-  getAllVehicles?(): unknown[];
-  getAllWorldHorses?(): unknown[];
-  getAllContainers?(): unknown[];
-  getAllCompanions?(): unknown[];
-  db?: { prepare(sql: string): { all(): Record<string, unknown>[] } } | null;
-  getState(key: string): unknown;
-  setState(key: string, value: unknown): void;
-  getStateJSON(key: string, defaultVal?: unknown): unknown;
-  setStateJSON(key: string, value: unknown): void;
 }
 
 interface PanelApi {
@@ -305,7 +279,7 @@ class PlayerStatsChannel {
   _config: typeof _defaultConfig;
   _playtime: typeof _defaultPlaytime;
   _playerStats: typeof _defaultPlayerStats;
-  _db: HumanitZDatabase | null;
+  _db: HumanitZDB | null;
   _log: ReturnType<typeof createLogger>;
   _label: string;
   _serverId: string;
@@ -579,10 +553,10 @@ class PlayerStatsChannel {
 
       // Load entity data from DB for save-cache.json (map data)
       try {
-        this._vehicles = this._db.getAllVehicles?.() ?? [];
-        this._horses = this._db.getAllWorldHorses?.() ?? [];
-        this._containers = this._db.getAllContainers?.() ?? [];
-        this._companions = this._db.getAllCompanions?.() ?? [];
+        this._vehicles = this._db.getAllVehicles();
+        this._horses = this._db.getAllWorldHorses();
+        this._containers = this._db.getAllContainers();
+        this._companions = this._db.getAllCompanions();
         // Structures: read directly from DB (no getAllStructures method — use raw query)
         try {
           this._structures = this._db.db?.prepare('SELECT * FROM structures').all() ?? [];
@@ -952,9 +926,7 @@ class PlayerStatsChannel {
     const savedId = this._loadMessageId();
     type FetchableChannel = import('discord.js').TextBasedChannel & {
       messages: {
-        fetch(
-          idOrOpts: string | { limit: number },
-        ): Promise<
+        fetch(idOrOpts: string | { limit: number }): Promise<
           Map<string, import('discord.js').Message> & {
             filter(
               fn: (m: import('discord.js').Message) => boolean,

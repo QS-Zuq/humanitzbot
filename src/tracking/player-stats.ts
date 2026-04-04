@@ -3,6 +3,7 @@ import path from 'node:path';
 import playtimeSingleton from './playtime-tracker.js';
 import type { PlaytimeTracker } from './playtime-tracker.js';
 import { classifyDamageLabel } from './damage-classifier.js';
+import type { HumanitZDB } from '../db/database.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
 import { errMsg } from '../utils/error.js';
@@ -52,16 +53,6 @@ interface TrackerData {
   players: Record<string, PlayerRecord>;
 }
 
-// Minimal DB interface matching src/db/database.ts
-interface HumanitZDB {
-  getAllPlayerLogStats(): Record<string, unknown>[];
-  upsertFullLogStats(steamId: string, data: UpsertLogData): void;
-  importIdMap(entries: IdMapEntry[]): void;
-  registerAlias(steamId: string, name: string, source: string): void;
-  resolveSteamIdToName(steamId: string): string | null;
-  resolveNameToSteamId(name: string): { steamId: string } | null;
-}
-
 interface DbLogStatRow {
   steam_id: string;
   name?: string;
@@ -83,28 +74,6 @@ interface DbLogStatRow {
   log_admin_access?: number;
   log_cheat_flags?: string;
   log_last_event?: string | null;
-}
-
-interface UpsertLogData {
-  name: string;
-  deaths: number;
-  pvpKills: number;
-  pvpDeaths: number;
-  builds: number;
-  containersLooted: number;
-  damageTakenTotal: number;
-  raidsOut: number;
-  raidsIn: number;
-  connects: number;
-  disconnects: number;
-  adminAccess: number;
-  destroyedOut: number;
-  destroyedIn: number;
-  buildItems: Record<string, number>;
-  killedBy: Record<string, number>;
-  damageTaken: Record<string, number>;
-  cheatFlags: CheatFlag[];
-  lastEvent: string | null;
 }
 
 interface IdMapEntry {
@@ -621,8 +590,8 @@ export class PlayerStats {
     if (this._db) {
       try {
         const resolved = this._db.resolveNameToSteamId(name);
-        if (resolved && /^\d{17}$/.test(resolved.steamId)) {
-          return this._getOrCreate(resolved.steamId, name);
+        if (resolved && /^\d{17}$/.test(String(resolved.steamId))) {
+          return this._getOrCreate(String(resolved.steamId), name);
         }
       } catch (_) {
         /* non-critical */

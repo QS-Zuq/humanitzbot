@@ -4,6 +4,7 @@ import config from '../config/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
 import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
 
 type ConfigType = typeof config;
 
@@ -73,15 +74,6 @@ export interface PlaytimeTrackerOptions {
   db?: HumanitZDB | null;
 }
 
-// Minimal DB interface matching src/db/database.ts
-interface HumanitZDB {
-  getAllPlayerPlaytime(): Record<string, unknown>[];
-  getAllServerPeaks(): Record<string, unknown>;
-  upsertFullPlaytime(steamId: string, data: UpsertPlaytimeData): void;
-  setServerPeak(key: string, value: string): void;
-  registerAlias(steamId: string, name: string, source: string): void;
-}
-
 interface DbPlaytimeRow {
   steam_id: string;
   name?: string;
@@ -102,15 +94,6 @@ interface DbPeaksRow {
   unique_day_peak_date?: string | null;
   yesterday_unique?: string;
   tracking_since?: string;
-}
-
-interface UpsertPlaytimeData {
-  name: string;
-  totalMs: number;
-  sessions: number;
-  firstSeen: string | null;
-  lastLogin: string | null;
-  lastSeen: string | null;
 }
 
 export class PlaytimeTracker {

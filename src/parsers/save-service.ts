@@ -19,6 +19,7 @@ import { reconcileItems } from '../db/item-tracker.js';
 import { errMsg } from '../utils/error.js';
 import _rconDefault from '../rcon/rcon.js';
 import _panelApiDefault from '../server/panel-api.js';
+import type { HumanitZDB } from '../db/database.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -91,27 +92,8 @@ interface SaveServiceOptions {
 const _rconModule: RconModule | null = _rconDefault as unknown as RconModule;
 const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi;
 
-interface GameDB {
-  db?: unknown;
-  _db?: unknown;
-  syncAllFromSave: (data: Record<string, unknown>) => void;
-  setMeta: (key: string, value: string) => void;
-  purgeOldLostItems: (age: string) => void;
-  purgeOldLostGroups: (age: string) => void;
-  purgeOldMovements: (age: string) => void;
-  insertActivities: (events: unknown[]) => void;
-  purgeOldActivity: (age: string) => void;
-  getAllContainers?: () => unknown[];
-  getAllWorldHorses?: () => unknown[];
-  getAllWorldState?: () => Record<string, unknown>;
-  getAllVehicles?: () => unknown[];
-  getStructures?: () => unknown[];
-  getOnlinePlayersForDiff?: () => unknown[];
-  [key: string]: unknown;
-}
-
 class SaveService extends EventEmitter {
-  private _db: GameDB;
+  private _db: HumanitZDB;
   private _sftpConfig: SftpConfig | null;
   private _savePath: string;
   private _clanSavePath: string;
@@ -152,7 +134,7 @@ class SaveService extends EventEmitter {
   private _runScriptPath: string;
   private _checkNodeScriptPath: string;
 
-  constructor(db: GameDB, options: SaveServiceOptions = {}) {
+  constructor(db: HumanitZDB, options: SaveServiceOptions = {}) {
     super();
     this._db = db;
     this._sftpConfig = options.sftpConfig ?? null;
@@ -263,7 +245,7 @@ class SaveService extends EventEmitter {
   _repairSteamIdNames(): void {
     if (Object.keys(this._idMap).length === 0) return;
     try {
-      const rawDb = (this._db.db ?? this._db._db ?? this._db) as Record<string, unknown>;
+      const rawDb = (this._db._db ?? this._db) as unknown as Record<string, unknown>;
       if (typeof rawDb['prepare'] !== 'function') return;
       const prepare = rawDb['prepare'] as (sql: string) => {
         all: () => Array<{ actor: string }>;
@@ -1093,6 +1075,7 @@ class SaveService extends EventEmitter {
         return (p?.['name'] as string) || this._idMap[steamId] || steamId;
       };
       itemStats = reconcileItems(
+        // SAFETY: HumanitZDBLike requires index signature not present on class
         this._db as unknown as Parameters<typeof reconcileItems>[0],
         {
           players,
@@ -1115,7 +1098,7 @@ class SaveService extends EventEmitter {
 
     if (diffEvents.length > 0) {
       try {
-        this._db.insertActivities(diffEvents);
+        this._db.insertActivities(diffEvents as Array<Record<string, unknown>>);
         this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
       } catch (err: unknown) {
         this._log.warn('Failed to write activity log:', errMsg(err));
@@ -1183,14 +1166,14 @@ class SaveService extends EventEmitter {
   _readOldStateForDiff(): Record<string, unknown> | null {
     if (this._syncCount === 0) return null;
     try {
-      const containers = this._db.getAllContainers ? this._db.getAllContainers() : [];
-      const horses = this._db.getAllWorldHorses ? this._db.getAllWorldHorses() : [];
-      const worldState = this._db.getAllWorldState ? this._db.getAllWorldState() : {};
-      const vehiclesList = this._db.getAllVehicles ? this._db.getAllVehicles() : [];
-      const structuresList = this._db.getStructures ? this._db.getStructures() : [];
+      const containers = this._db.getAllContainers();
+      const horses = this._db.getAllWorldHorses();
+      const worldState = this._db.getAllWorldState();
+      const vehiclesList = this._db.getAllVehicles();
+      const structuresList = this._db.getStructures();
       let playersList: unknown[] = [];
       try {
-        playersList = this._db.getOnlinePlayersForDiff ? this._db.getOnlinePlayersForDiff() : [];
+        playersList = this._db.getOnlinePlayersForDiff();
       } catch {
         /* empty */
       }

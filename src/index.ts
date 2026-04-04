@@ -420,7 +420,7 @@ client.once(Events.ClientReady, (readyClient) => {
     db = new HumanitZDB();
     db.init();
     // db.init() guarantees db.db is non-null, but the type includes null
-    seedGameReference(db as Parameters<typeof seedGameReference>[0]);
+    seedGameReference(db);
 
     // ── One-time config migration (.env + servers.json → config_documents) ──
     configRepo = new ConfigRepository(db);
@@ -474,8 +474,8 @@ client.once(Events.ClientReady, (readyClient) => {
     playerStats.init();
 
     // Wire DB into singletons for unified identity + stats syncing
-    playerStats.setDb(db as unknown as Parameters<typeof playerStats.setDb>[0]);
-    playtime.setDb(db as unknown as Parameters<typeof playtime.setDb>[0]);
+    playerStats.setDb(db);
+    playtime.setDb(db);
 
     // Periodic flush of active playtime sessions to DB (crash protection)
     playtimeFlushTimer = setInterval(() => {
@@ -820,7 +820,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
     // Save Service — save-file polling → SQLite sync (SFTP, Panel API, or agent)
     if (hasSftp() || panelApi.available) {
-      saveService = new SaveService(db as unknown as ConstructorParameters<typeof SaveService>[0], {
+      saveService = new SaveService(db, {
         sftpConfig: hasSftp() ? config.sftpConnectConfig() : undefined,
         savePath: config.sftpSavePath,
         clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),

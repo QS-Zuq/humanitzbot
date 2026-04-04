@@ -43,7 +43,7 @@ if (fs.existsSync(TEMPLATE_PATH)) {
 // Create fresh DB with schema + seed all game reference data
 const db = new HumanitZDB({ dbPath: TEMPLATE_PATH, label: 'TEMPLATE' });
 (db['init'] as () => void)();
-gameReferenceSeed(db as unknown as Parameters<typeof gameReferenceSeed>[0]);
+gameReferenceSeed(db);
 
 // Stamp the template with build metadata
 (db['setMeta'] as (k: string, v: string) => void)('template_built_at', new Date().toISOString());
