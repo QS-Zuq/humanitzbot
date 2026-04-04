@@ -675,7 +675,7 @@ class ServerScheduler {
   }
 
   /** Get current profile info for external consumers (web panel, status embed). */
-  getStatus(): Record<string, unknown> {
+  getStatus(): Record<string, unknown> & { profiles: string[]; restartTimes: string[] } {
     const { totalMinutes } = this._getCurrentTime();
     const fmt = (item: RestartTime) => `${String(item.hour).padStart(2, '0')}:${String(item.minute).padStart(2, '0')}`;
 

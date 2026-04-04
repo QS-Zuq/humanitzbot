@@ -130,6 +130,11 @@ export class PlayerStats {
     this._db = db;
   }
 
+  /** @internal Wire in a custom PlaytimeTracker (used by multi-server setup). */
+  setPlaytime(tracker: PlaytimeTrackerType): void {
+    this._playtime = tracker;
+  }
+
   private _ensureInit(): void {
     if (!this._data) this.init();
   }

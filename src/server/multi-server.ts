@@ -577,7 +577,7 @@ class ServerInstance {
     });
 
     // Wire up cross-reference
-    (this.playerStats as unknown as { _playtime: PlaytimeTracker })._playtime = this.playtime;
+    this.playerStats.setPlaytime(this.playtime);
     this.playerStats.setDb(this.db);
     this.playtime.setDb(this.db);
 
@@ -706,10 +706,7 @@ class ServerInstance {
           this._log.error('Save error:', errMsg(err));
         });
         await this.saveService.start();
-        this._log.info(
-          'SaveService active',
-          `(${(this.saveService as unknown as { stats?: { mode?: string } }).stats?.mode ?? 'direct'} mode)`,
-        );
+        this._log.info('SaveService active', `(${this.saveService.getSyncMode()} mode)`);
       } catch (err: unknown) {
         this._log.error('SaveService failed:', errMsg(err));
         this.saveService = null;
@@ -1194,6 +1191,11 @@ class MultiServerManager {
   /** Get instance by ID. */
   getInstance(id: string) {
     return this._instances.get(id);
+  }
+
+  /** @internal Read-only view of all running server instances (used by nuke reset). */
+  getInstances(): ReadonlyMap<string, ServerInstance> {
+    return this._instances;
   }
 
   /** Get all server definitions (both running and not). */

@@ -370,10 +370,7 @@ function _findMultiServerModuleById(
   moduleName: string,
 ): InstanceType<typeof PlayerStatsChannel> | null {
   if (!multiServerManager) return null;
-  const instances = (
-    multiServerManager as unknown as { _instances: Map<string, { _modules: Record<string, unknown> }> }
-  )._instances;
-  const instance = instances.get(serverId);
+  const instance = multiServerManager.getInstance(serverId);
   if (!instance) return null;
   const mod = instance._modules[moduleName];
   return (mod as InstanceType<typeof PlayerStatsChannel> | undefined) ?? null;
@@ -506,9 +503,7 @@ client.once(Events.ClientReady, (readyClient) => {
           .setDescription('🟡 Game server disconnected — RCON connection lost')
           .setColor(0xf39c12)
           .setTimestamp();
-        (logWatcher as unknown as { sendToThread: (embed: EmbedBuilder) => Promise<void> })
-          .sendToThread(embed)
-          .catch(() => {});
+        logWatcher.sendToThread(embed).catch(() => {});
       }
     });
     rcon.on('reconnect', ({ downtime }: { downtime?: number }) => {
@@ -520,9 +515,7 @@ client.once(Events.ClientReady, (readyClient) => {
           .setDescription(`🟢 Game server reconnected (downtime: ${downtimeStr})`)
           .setColor(0x2ecc71)
           .setTimestamp();
-        (logWatcher as unknown as { sendToThread: (embed: EmbedBuilder) => Promise<void> })
-          .sendToThread(embed)
-          .catch(() => {});
+        logWatcher.sendToThread(embed).catch(() => {});
       }
     });
 
@@ -746,13 +739,13 @@ client.once(Events.ClientReady, (readyClient) => {
         // If LogWatcher handles activity threads, coordinate day-rollover ordering
         if (logWatcher) {
           _chatRelay._awaitActivityThread = true;
-          logWatcher._dayRolloverCb = async () => {
+          logWatcher.setDayRolloverCallback(async () => {
             try {
               await _chatRelay.createDailyThread();
             } catch (e: unknown) {
               console.warn('[BOT] Day-rollover chat thread error:', errMsg(e));
             }
-          };
+          });
         }
         await chatRelay.start();
         setStatus('Chat Relay', '🟢 Active');
@@ -847,11 +840,10 @@ client.once(Events.ClientReady, (readyClient) => {
         console.error('[BOT] Save service error:', errMsg(err));
       });
       await saveService.start();
-      if (webMapServer)
-        (webMapServer as unknown as { setSaveService: (s: typeof saveService) => void }).setSaveService(saveService);
+      if (webMapServer) webMapServer.setSaveService(saveService);
       const saveSource = hasSftp() ? '' : ' via Panel API';
 
-      setStatus('Save Service', `🟢 Active (${String(saveService.stats.mode)} mode${saveSource})`);
+      setStatus('Save Service', `🟢 Active (${saveService.getSyncMode()} mode${saveSource})`);
 
       // Wire LogWatcher → SaveService ID map sharing
       if (logWatcher) {
@@ -946,13 +938,11 @@ client.once(Events.ClientReady, (readyClient) => {
       }
       // Wire death events from LogWatcher to reset survival streaks
       if (logWatcher) {
-        const lw = logWatcher as unknown as { _onDeath: (playerName: string, timestamp: string) => void };
-        const origOnDeath = lw._onDeath.bind(logWatcher);
-        lw._onDeath = function (playerName: string, timestamp: string) {
-          origOnDeath(playerName, timestamp);
+        logWatcher.wrapOnDeath((orig) => (playerName, timestamp) => {
+          orig(playerName, timestamp);
           const steamId = playerStats.getSteamId(playerName);
           if (steamId) _milestone.onPlayerDeath(steamId);
-        };
+        });
       }
       setStatus('Milestones', '🟢 Active');
     } else {
@@ -966,13 +956,12 @@ client.once(Events.ClientReady, (readyClient) => {
       const _recap = recapService;
       // Chain into LogWatcher day-rollover callback
       if (logWatcher) {
-        const lwRecap = logWatcher as unknown as { _dayRolloverCb: (() => Promise<void>) | null };
-        const prevCb = lwRecap._dayRolloverCb;
-        lwRecap._dayRolloverCb = async () => {
+        const prevCb = logWatcher.getDayRolloverCallback();
+        logWatcher.setDayRolloverCallback(async () => {
           if (typeof prevCb === 'function') await prevCb();
-          const yesterday: string = (_recap as unknown as { _getYesterday: () => string | null })._getYesterday() ?? '';
-          await (_recap as unknown as { onDayRollover: (day: string) => Promise<void> }).onDayRollover(yesterday);
-        };
+          const yesterday: string = _recap.getYesterday() ?? '';
+          await _recap.onDayRollover(yesterday);
+        });
       }
       setStatus('Recaps', '🟢 Active');
     } else {
@@ -1034,9 +1023,6 @@ client.once(Events.ClientReady, (readyClient) => {
           });
           howyagarnManager.init();
           const _howyagarn = howyagarnManager;
-
-          // Expose on client so slash commands can access it via interaction.client._howyagarnManager
-          (readyClient as unknown as Record<string, unknown>)['_howyagarnManager'] = _howyagarn;
 
           // Wire save-sync events
           if (saveService) {
@@ -1172,13 +1158,8 @@ client.once(Events.ClientReady, (readyClient) => {
           (logWatcher ?? null) as ConstructorParameters<typeof ServerScheduler>[1],
         );
         await serverScheduler.start();
-        if (webMapServer)
-          (webMapServer as unknown as { setScheduler: (s: typeof serverScheduler) => void }).setScheduler(
-            serverScheduler,
-          );
-        const status = (
-          serverScheduler as unknown as { getStatus: () => { profiles: string[]; restartTimes: string[] } }
-        ).getStatus();
+        if (webMapServer) webMapServer.setScheduler(serverScheduler);
+        const status = serverScheduler.getStatus();
         const profileInfo = status.profiles.length > 1 ? ` (${status.profiles.join(' → ')})` : '';
         setStatus('Server Scheduler', `🟢 Active — ${status.restartTimes.join(', ')}${profileInfo}`);
       }
@@ -1191,9 +1172,7 @@ client.once(Events.ClientReady, (readyClient) => {
     multiServerManager = new MultiServerManager(readyClient, { configRepo });
     await multiServerManager.startAll();
     if (webMapServer) {
-      (
-        webMapServer as unknown as { setMultiServerManager: (m: typeof multiServerManager) => void }
-      ).setMultiServerManager(multiServerManager);
+      webMapServer.setMultiServerManager(multiServerManager);
       // Register hzmod web plugin now that multiServerManager is available
       if (hzmodWebPlugin) {
         try {
@@ -1208,10 +1187,8 @@ client.once(Events.ClientReady, (readyClient) => {
 
     // ── BotControlService (used by both Panel and Web) ───────
     const botControl = new BotControlService({ exit: (code: number) => process.exit(code) });
-    if (webMapServer)
-      (webMapServer as unknown as { setBotControl: (b: typeof botControl) => void }).setBotControl(botControl);
-    if (webMapServer)
-      (webMapServer as unknown as { setModuleStatus: (s: typeof moduleStatus) => void }).setModuleStatus(moduleStatus);
+    if (webMapServer) webMapServer.setBotControl(botControl);
+    if (webMapServer) webMapServer.setModuleStatus(moduleStatus);
 
     // ── Panel API status (/qspanel command) ─────────────────────
     if (panelApi.available) {
@@ -1333,60 +1310,39 @@ client.once(Events.ClientReady, (readyClient) => {
       // Reset thread caches so modules pick up the newly rebuilt threads
       // Clear nuke suppression first so thread creation works normally again
       if (logWatcher) {
-        type LwNuke = {
-          _nukeActive: boolean;
-          resetThreadCache: () => void;
-          _getOrCreateDailyThread: () => Promise<{ send: (opts: unknown) => Promise<unknown> }>;
-        };
-        const lwNuke = logWatcher as unknown as LwNuke;
-        lwNuke._nukeActive = false;
-        lwNuke.resetThreadCache();
+        logWatcher.setNukeActive(false);
+        logWatcher.resetThreadCache();
         // Send the startup notification that was deferred during nuke
-        const thread = await lwNuke._getOrCreateDailyThread();
+        const thread = await logWatcher._getOrCreateDailyThread();
         const startEmbed = new EmbedBuilder()
           .setDescription('Log watcher connected. Monitoring game server activity.')
           .setColor(0x3498db)
           .setTimestamp();
-        await thread.send({ embeds: [startEmbed] }).catch(() => {});
+        await thread?.send({ embeds: [startEmbed] }).catch(() => {});
         console.log('[NUKE] LogWatcher thread cache reset');
       }
-      if (chatRelay && typeof chatRelay.resetThreadCache === 'function') {
-        chatRelay._nukeActive = false;
+      if (chatRelay) {
+        chatRelay.setNukeActive(false);
         chatRelay.resetThreadCache();
         // Re-create chat thread so it appears after rebuilt activity threads
-        if (typeof chatRelay._getOrCreateChatThread === 'function') {
-          await chatRelay._getOrCreateChatThread().catch((e: unknown) => {
-            console.warn('[NUKE] Could not re-create chat thread:', errMsg(e));
-          });
-        }
+        await chatRelay.getOrCreateChatThread().catch((e: unknown) => {
+          console.warn('[NUKE] Could not re-create chat thread:', errMsg(e));
+        });
         console.log('[NUKE] ChatRelay thread cache reset + recreated');
       }
-      {
-        type ModuleMap = Record<string, Record<string, unknown> | undefined>;
-        type LwType = { _nukeActive: boolean; resetThreadCache: () => void };
-        type CrType = {
-          _nukeActive: boolean;
-          resetThreadCache: () => void;
-          _getOrCreateChatThread?: () => Promise<unknown>;
-        };
-        type InstType = { name?: unknown; id?: unknown; _modules: ModuleMap };
-        const msInstances = (multiServerManager as unknown as { _instances: Map<string, InstType> })._instances;
-        for (const [, instance] of msInstances) {
-          const lw = instance._modules['logWatcher'];
-          if (lw) {
-            (lw as unknown as LwType)._nukeActive = false;
-            (lw as unknown as LwType).resetThreadCache();
-            console.log(`[NUKE] ${String(instance.name ?? instance.id)} LogWatcher thread cache reset`);
-          }
-          const cr = instance._modules['chatRelay'];
-          if (cr && typeof (cr as unknown as CrType).resetThreadCache === 'function') {
-            (cr as unknown as CrType)._nukeActive = false;
-            (cr as unknown as CrType).resetThreadCache();
-            if (typeof (cr as unknown as CrType)._getOrCreateChatThread === 'function') {
-              await (cr as unknown as CrType)._getOrCreateChatThread?.().catch(() => {});
-            }
-            console.log(`[NUKE] ${String(instance.name ?? instance.id)} ChatRelay thread cache reset + recreated`);
-          }
+      for (const [, instance] of multiServerManager.getInstances()) {
+        const lw = instance._modules['logWatcher'];
+        if (lw instanceof LogWatcher) {
+          lw.setNukeActive(false);
+          lw.resetThreadCache();
+          console.log(`[NUKE] ${instance.name || instance.id} LogWatcher thread cache reset`);
+        }
+        const cr = instance._modules['chatRelay'];
+        if (cr instanceof ChatRelay) {
+          cr.setNukeActive(false);
+          cr.resetThreadCache();
+          await cr.getOrCreateChatThread().catch(() => {});
+          console.log(`[NUKE] ${instance.name || instance.id} ChatRelay thread cache reset + recreated`);
         }
       }
 

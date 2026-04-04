@@ -291,6 +291,11 @@ class SaveService extends EventEmitter {
     };
   }
 
+  /** Return the resolved sync mode string (e.g. 'direct', 'sftp', 'panel'). */
+  getSyncMode(): string {
+    return this._mode ?? this._agentMode;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  Path resolution
   // ═══════════════════════════════════════════════════════════════════════════

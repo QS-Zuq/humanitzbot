@@ -497,6 +497,29 @@ class LogWatcher {
     return this._pvpKills.slice(-count);
   }
 
+  /** @internal Set the day-rollover callback (used by external modules to chain behaviour). */
+  setDayRolloverCallback(cb: (() => Promise<void>) | null): void {
+    this._dayRolloverCb = cb;
+  }
+
+  /** @internal Get the current day-rollover callback. */
+  getDayRolloverCallback(): (() => Promise<void>) | null {
+    return this._dayRolloverCb;
+  }
+
+  /** @internal Wrap the _onDeath handler to inject additional behaviour. */
+  wrapOnDeath(
+    wrapper: (orig: (playerName: string, timestamp: Date) => void) => (playerName: string, timestamp: Date) => void,
+  ): void {
+    const orig = this._onDeath.bind(this);
+    this._onDeath = wrapper(orig);
+  }
+
+  /** @internal Enable or disable nuke suppression mode. */
+  setNukeActive(active: boolean): void {
+    this._nukeActive = active;
+  }
+
   async start() {
     // Validate required SFTP config
     if (!this._config.sftpHost || this._config.sftpHost.startsWith('PASTE_')) {

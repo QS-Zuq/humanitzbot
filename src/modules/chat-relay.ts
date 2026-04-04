@@ -216,6 +216,16 @@ class ChatRelay {
     this._rolloverPending = false;
   }
 
+  /** @internal Enable or disable nuke suppression mode. */
+  setNukeActive(active: boolean): void {
+    this._nukeActive = active;
+  }
+
+  /** @internal Re-create the chat thread (used after nuke reset). */
+  async getOrCreateChatThread(): Promise<unknown> {
+    return this._getOrCreateChatThread();
+  }
+
   /**
    * Called by LogWatcher's day-rollover callback to signal that the
    * activity thread has been created and it's safe to create the chat thread.
