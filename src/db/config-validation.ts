@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-type-conversion */
 /**
  * Field-level config validation for bot configuration values.
  *
@@ -25,7 +24,7 @@ const FIELD_VALIDATORS: Record<string, FieldValidator> = {
    */
   port(v) {
     const n = parseInt(v, 10);
-    if (isNaN(n) || n < 1 || n > 65535 || String(n) !== String(v).trim()) {
+    if (isNaN(n) || n < 1 || n > 65535 || String(n) !== v.trim()) {
       return { valid: false, value: v, error: 'Port must be an integer between 1 and 65535' };
     }
     return { valid: true, value: n };

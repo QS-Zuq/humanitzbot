@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
 /**
  * Discord OAuth2 middleware for the web panel.
  */
@@ -13,6 +10,35 @@ import _defaultConfig from '../config/index.js';
 import { createSessionStore } from './session-store-factory.js';
 
 import type { Express, Request, Response, NextFunction } from 'express';
+
+// ── Type augmentations for Express request ──────────────────────────────────
+
+interface SessionUser {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatar: string | null;
+  roles: string[];
+  tier: string;
+  tierLevel: number | undefined;
+  inGuild: boolean;
+  lastRoleCheck: number;
+}
+
+interface HmzSession {
+  user?: SessionUser;
+  id?: string;
+  save(cb: (err: Error | null) => void): void;
+  destroy(cb: (err: Error | null) => void): void;
+}
+
+type HmzRequest = Request & {
+  session: HmzSession & Request['session'];
+  sessionID?: string;
+  tier?: string;
+  tierLevel?: number;
+  csrfToken?: () => string;
+};
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -54,9 +80,9 @@ interface AuthConfig {
 
 function getAuthConfig(): AuthConfig {
   return {
-    clientId: (_defaultConfig as any).clientId,
+    clientId: _defaultConfig.clientId ?? '',
     clientSecret: process.env.DISCORD_OAUTH_SECRET || '',
-    guildId: (_defaultConfig as any).guildId,
+    guildId: _defaultConfig.guildId ?? '',
     callbackUrl: process.env.WEB_MAP_CALLBACK_URL || '',
     sessionSecret: getSessionSecret(),
     allowedRoles: (process.env.WEB_MAP_ALLOWED_ROLES || '')
@@ -80,7 +106,27 @@ function getAuthConfig(): AuthConfig {
 
 // ── Discord API helpers ──────────────────────────────────────────────────────
 
-async function exchangeCode(code: string, authCfg: AuthConfig): Promise<any> {
+interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token: string;
+  scope: string;
+}
+
+interface DiscordUser {
+  id: string;
+  username: string;
+  global_name?: string;
+  avatar?: string;
+}
+
+interface GuildMember {
+  roles: string[];
+  permissions: string;
+}
+
+async function exchangeCode(code: string, authCfg: AuthConfig): Promise<TokenResponse> {
   const body = new URLSearchParams({
     client_id: authCfg.clientId,
     client_secret: authCfg.clientSecret,
@@ -100,32 +146,32 @@ async function exchangeCode(code: string, authCfg: AuthConfig): Promise<any> {
     throw new Error(`Token exchange failed (${String(res.status)}): ${text}`);
   }
 
-  return res.json();
+  return res.json() as Promise<TokenResponse>;
 }
 
-async function getUser(accessToken: string): Promise<any> {
+async function getUser(accessToken: string): Promise<DiscordUser> {
   const res = await fetch(`${DISCORD_API}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error(`Failed to fetch user (${String(res.status)})`);
-  return res.json();
+  return res.json() as Promise<DiscordUser>;
 }
 
-async function getGuildMember(accessToken: string, guildId: string): Promise<any> {
+async function getGuildMember(accessToken: string, guildId: string): Promise<GuildMember | null> {
   const res = await fetch(`${DISCORD_API}/users/@me/guilds/${guildId}/member`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch guild member (${String(res.status)})`);
-  return res.json();
+  return res.json() as Promise<GuildMember>;
 }
 
 // ── Tier Resolution ──────────────────────────────────────────────────────────
 
-function resolveTier(member: any, authCfg: AuthConfig): string {
+function resolveTier(member: GuildMember | null, authCfg: AuthConfig): string {
   if (!member) return 'public';
 
-  const memberRoles: string[] = member.roles || [];
+  const memberRoles: string[] = member.roles;
   const permissions = BigInt(member.permissions || '0');
   const isDiscordAdmin = (permissions & 0x8n) !== 0n;
 
@@ -146,10 +192,10 @@ function resolveTier(member: any, authCfg: AuthConfig): string {
   return 'survivor';
 }
 
-function isAuthorised(member: any, allowedRoles: string[]): boolean {
+function isAuthorised(member: GuildMember | null, allowedRoles: string[]): boolean {
   if (!member) return false;
   if (allowedRoles.length > 0) {
-    return (member.roles as string[]).some((roleId: string) => allowedRoles.includes(roleId));
+    return member.roles.some((roleId: string) => allowedRoles.includes(roleId));
   }
   const permissions = BigInt(member.permissions || '0');
   return (permissions & 0x8n) !== 0n;
@@ -166,10 +212,36 @@ function escapeHtml(str: string | undefined): string {
   return (str || 'Unknown error').replace(/[&<>"']/g, (c) => lookup[c] || c);
 }
 
+interface DiscordClient {
+  guilds?: {
+    cache?: {
+      get(id: string): DiscordGuild | undefined;
+    };
+  };
+}
+
+interface DiscordGuild {
+  members: {
+    cache: {
+      get(id: string): DiscordGuildMember | undefined;
+    };
+    fetch(id: string): Promise<DiscordGuildMember | null>;
+  };
+}
+
+interface DiscordGuildMember {
+  roles: {
+    cache: { map<T>(fn: (r: { id: string }) => T): T[] };
+  };
+  permissions: {
+    bitfield: bigint;
+  };
+}
+
 function setupAuth(
   app: Express,
-  client: any,
-  opts: { db?: any } = {},
+  client: DiscordClient | null,
+  opts: { db?: unknown } = {},
 ): (req: Request, res: Response, next: NextFunction) => void {
   const authCfg = getAuthConfig();
 
@@ -179,7 +251,7 @@ function setupAuth(
       res.json({
         authenticated: true,
         tier: 'admin',
-        tierLevel: TIER.admin,
+        tierLevel: TIER['admin'],
         username: 'Admin (no OAuth)',
         devMode: true,
       });
@@ -191,14 +263,15 @@ function setupAuth(
       res.redirect('/');
     });
     return (_req: Request, _res: Response, next: NextFunction) => {
-      (_req as any).tier = 'admin';
-      (_req as any).tierLevel = TIER.admin;
+      const hmzReq = _req as HmzRequest;
+      hmzReq.tier = 'admin';
+      hmzReq.tierLevel = TIER['admin'];
       next();
     };
   }
 
   // ── express-session setup ──
-  const sessionTtl = (_defaultConfig as any).sessionTtl || 604800;
+  const sessionTtl = _defaultConfig.sessionTtl || 604800;
   const isSecure = authCfg.callbackUrl.startsWith('https');
   const store = createSessionStore(_defaultConfig, opts.db);
 
@@ -214,7 +287,7 @@ function setupAuth(
         httpOnly: true,
         secure: isSecure,
         sameSite: 'lax',
-        maxAge: (sessionTtl as number) * 1000,
+        maxAge: sessionTtl * 1000,
         path: '/',
       },
     }),
@@ -254,7 +327,10 @@ function setupAuth(
   const csrfSigningSecret = crypto.createHmac('sha256', authCfg.sessionSecret).update('csrf-signing-key').digest('hex');
   const { doubleCsrfProtection } = doubleCsrf({
     getSecret: () => csrfSigningSecret,
-    getSessionIdentifier: (req: Request) => (req as any).sessionID || (req as any).session?.id || '',
+    getSessionIdentifier: (req: Request) => {
+      const hmzReq = req as HmzRequest;
+      return hmzReq.sessionID || hmzReq.session.id || '';
+    },
     cookieName: isSecure ? '__Host-hmz.csrf' : 'hmz.csrf',
     cookieOptions: {
       sameSite: 'strict',
@@ -273,7 +349,7 @@ function setupAuth(
     }
     doubleCsrfProtection(req, res, next);
   });
-  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  app.use((err: Error & { code?: string }, req: Request, res: Response, next: NextFunction) => {
     if (err.code === 'EBADCSRFTOKEN') {
       console.warn(`[AUTH] CSRF rejected: ${req.method} ${req.originalUrl}`);
       return res.status(403).json({ ok: false, error: 'CSRF_REJECTED', message: 'Invalid or missing CSRF token' });
@@ -282,9 +358,7 @@ function setupAuth(
   });
 
   console.log(`[AUTH] Discord OAuth enabled — callback: ${authCfg.callbackUrl}`);
-  console.log(
-    `[AUTH] Session store: ${(_defaultConfig as any).sessionStore || 'sqlite'}, TTL: ${sessionTtl as number}s`,
-  );
+  console.log(`[AUTH] Session store: ${_defaultConfig.sessionStore || 'sqlite'}, TTL: ${sessionTtl}s`);
   if (authCfg.adminRoles.length > 0) console.log(`[AUTH] Admin roles: ${authCfg.adminRoles.join(', ')}`);
   if (authCfg.modRoles.length > 0) console.log(`[AUTH] Mod roles: ${authCfg.modRoles.join(', ')}`);
   if (authCfg.survivorRoles.length > 0) console.log(`[AUTH] Survivor roles: ${authCfg.survivorRoles.join(', ')}`);
@@ -307,6 +381,7 @@ function setupAuth(
   });
 
   app.get('/auth/callback', async (req: Request, res: Response) => {
+    const hmzReq = req as HmzRequest;
     const { code, state, error, error_description } = req.query;
 
     if (error) {
@@ -339,18 +414,16 @@ function setupAuth(
     try {
       const tokenData = await exchangeCode(code as string, authCfg);
       const accessToken = tokenData.access_token;
-      const user = await getUser(accessToken as string);
-      const member = await getGuildMember(accessToken as string, authCfg.guildId);
+      const user = await getUser(accessToken);
+      const member = await getGuildMember(accessToken, authCfg.guildId);
 
       const tier = resolveTier(member, authCfg);
 
-      (req as any).session.user = {
+      hmzReq.session.user = {
         userId: user.id,
         username: user.username,
         displayName: user.global_name || user.username,
-        avatar: user.avatar
-          ? `https://cdn.discordapp.com/avatars/${user.id as string}/${user.avatar as string}.png`
-          : null,
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
         roles: member?.roles || [],
         tier,
         tierLevel: TIER[tier],
@@ -358,7 +431,7 @@ function setupAuth(
         lastRoleCheck: Date.now(),
       };
 
-      (req as any).session.save((err: Error | null) => {
+      hmzReq.session.save((err: Error | null) => {
         if (err) console.error('[AUTH] Session save error after OAuth:', err.message);
         res.redirect('/');
       });
@@ -371,7 +444,8 @@ function setupAuth(
   });
 
   app.get('/auth/logout', (req: Request, res: Response) => {
-    (req as any).session.destroy((err: Error | null) => {
+    const hmzReq = req as HmzRequest;
+    hmzReq.session.destroy((err: Error | null) => {
       if (err) console.error('[AUTH] Session destroy error:', err.message);
       const cookieOpts = { httpOnly: true, sameSite: 'lax' as const, secure: isSecure, path: '/' };
       res.clearCookie(COOKIE_NAME, cookieOpts);
@@ -381,9 +455,10 @@ function setupAuth(
   });
 
   app.get('/auth/me', (req: Request, res: Response) => {
-    const user = (req as any).session?.user;
+    const hmzReq = req as HmzRequest;
+    const user = hmzReq.session.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: (req as any).csrfToken() });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: hmzReq.csrfToken?.() });
     }
     res.json({
       authenticated: true,
@@ -394,14 +469,15 @@ function setupAuth(
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
-      csrfToken: (req as any).csrfToken(),
+      csrfToken: hmzReq.csrfToken?.(),
     });
   });
 
   app.get('/auth/refresh', async (req: Request, res: Response) => {
-    const user = (req as any).session?.user;
+    const hmzReq = req as HmzRequest;
+    const user = hmzReq.session.user;
     if (!user) {
-      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: (req as any).csrfToken() });
+      return res.json({ authenticated: false, tier: 'public', tierLevel: 0, csrfToken: hmzReq.csrfToken?.() });
     }
     if (client && authCfg.guildId && user.userId) {
       try {
@@ -409,8 +485,8 @@ function setupAuth(
         if (guild) {
           const member = await guild.members.fetch(user.userId).catch(() => null);
           if (member) {
-            const memberData = {
-              roles: member.roles.cache.map((r: any) => r.id),
+            const memberData: GuildMember = {
+              roles: member.roles.cache.map((r: { id: string }) => r.id),
               permissions: member.permissions.bitfield.toString(),
             };
             const newTier = resolveTier(memberData, authCfg);
@@ -420,11 +496,11 @@ function setupAuth(
             user.roles = memberData.roles;
           } else {
             user.tier = 'public';
-            user.tierLevel = TIER.public;
+            user.tierLevel = TIER['public'];
             user.inGuild = false;
           }
           user.lastRoleCheck = Date.now();
-          (req as any).session.save((err: Error | null) => {
+          hmzReq.session.save((err: Error | null) => {
             if (err) console.error('[AUTH] Session save error after refresh:', err.message);
           });
         }
@@ -442,7 +518,7 @@ function setupAuth(
       tier: user.tier,
       tierLevel: user.tierLevel,
       inGuild: user.inGuild,
-      csrfToken: (req as any).csrfToken(),
+      csrfToken: hmzReq.csrfToken?.(),
     });
   });
 
@@ -453,40 +529,39 @@ function setupAuth(
       return;
     }
 
-    const user = (req as any).session?.user;
+    const hmzReq = req as HmzRequest;
+    const user = hmzReq.session.user;
     if (user) {
       if (client && authCfg.guildId && user.userId && Date.now() - (user.lastRoleCheck || 0) > ROLE_REFRESH_INTERVAL) {
         const guild = client.guilds?.cache?.get(authCfg.guildId);
-        const member = guild?.members?.cache?.get(user.userId);
+        const member = guild?.members.cache.get(user.userId);
         if (member) {
-          const memberData = {
-            roles: member.roles.cache.map((r: any) => r.id),
+          const memberData: GuildMember = {
+            roles: member.roles.cache.map((r: { id: string }) => r.id),
             permissions: member.permissions.bitfield.toString(),
           };
           const newTier = resolveTier(memberData, authCfg);
           if (newTier !== user.tier) {
-            console.log(
-              `[AUTH] Role change detected for ${user.username as string}: ${user.tier as string} → ${newTier}`,
-            );
+            console.log(`[AUTH] Role change detected for ${user.username}: ${user.tier} → ${newTier}`);
           }
           user.tier = newTier;
           user.tierLevel = TIER[newTier];
           user.roles = memberData.roles;
         } else if (guild) {
           user.tier = 'public';
-          user.tierLevel = TIER.public;
+          user.tierLevel = TIER['public'];
           user.inGuild = false;
         }
         user.lastRoleCheck = Date.now();
-        (req as any).session.save((err: Error | null) => {
+        hmzReq.session.save((err: Error | null) => {
           if (err) console.error('[AUTH] Session save error after role check:', err.message);
         });
       }
-      (req as any).tier = user.tier;
-      (req as any).tierLevel = user.tierLevel;
+      hmzReq.tier = user.tier;
+      hmzReq.tierLevel = user.tierLevel;
     } else {
-      (req as any).tier = 'public';
-      (req as any).tierLevel = TIER.public;
+      hmzReq.tier = 'public';
+      hmzReq.tierLevel = TIER['public'];
     }
     next();
   };
@@ -495,13 +570,14 @@ function setupAuth(
 function requireTier(minTier: string): (req: Request, res: Response, next: NextFunction) => void {
   const minLevel = TIER[minTier] || 0;
   return (req: Request, res: Response, next: NextFunction) => {
-    const level = (req as any).tierLevel || 0;
+    const hmzReq = req as HmzRequest;
+    const level = hmzReq.tierLevel || 0;
     if (level >= minLevel) {
       next();
       return;
     }
 
-    if ((req as any).tier === 'public') {
+    if (hmzReq.tier === 'public') {
       if (req.path.startsWith('/api/')) {
         return res.status(401).json({ error: 'Authentication required', login: '/auth/login' });
       }
@@ -531,6 +607,7 @@ function _parseCookies(header: string | undefined): Record<string, string> {
 }
 
 export { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER };
+export type { HmzRequest, SessionUser, DiscordClient };
 
 // Exported for testing
 const _test = { getSessionSecret, _parseCookies, getAuthConfig };

@@ -1,10 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const cjsRequire = createRequire(__filename);
 
 // Stub config before requiring auth module
 
-const { isAuthorised, isEnabled, resolveTier, requireTier, TIER, _test } = require('../src/web-map/auth');
+import * as _auth from '../src/web-map/auth.js';
+const { isAuthorised, isEnabled, resolveTier, requireTier, TIER, _test } = _auth as any;
 const { _parseCookies, getSessionSecret } = _test;
 
 describe('Web Map Auth', () => {
@@ -198,7 +200,7 @@ describe('Web Map Auth', () => {
 
       // Fresh require to pick up env changes — actually setupAuth reads env at call time
 
-      const { setupAuth: setup } = require('../src/web-map/auth');
+      const { setupAuth: setup } = _auth as any;
 
       // Minimal Express app mock
       const routes: Record<string, unknown> = {};
@@ -231,7 +233,7 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup } = require('../src/web-map/auth');
+      const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
 
       const routes: Record<string, unknown> = {};
       const middlewares: unknown[] = [];
@@ -267,7 +269,7 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup } = require('../src/web-map/auth');
+      const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
       const app = {
         get: () => {},
         post: () => {},
@@ -290,7 +292,7 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup } = require('../src/web-map/auth');
+      const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
       const app = {
         get: () => {},
         post: () => {},
@@ -323,7 +325,7 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup } = require('../src/web-map/auth');
+      const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
       const app = {
         get: () => {},
         post: () => {},
@@ -360,7 +362,7 @@ describe('Web Map Auth', () => {
     });
 
     it('requireTier blocks unauthenticated API requests with 401', () => {
-      const { requireTier: rt } = require('../src/web-map/auth');
+      const { requireTier: rt } = cjsRequire('../src/web-map/auth');
       const guard = rt('survivor');
 
       let statusCode: number | null = null;
@@ -386,7 +388,7 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup, TIER: T } = require('../src/web-map/auth');
+      const { setupAuth: setup, TIER: T } = cjsRequire('../src/web-map/auth');
 
       // Build a mock bot client with a guild member cache
       const mockMember = {

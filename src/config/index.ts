@@ -9,6 +9,7 @@ import {
   isAdminView as _isAdminView,
   addAdminMembers as _addAdminMembers,
 } from './access-control.js';
+import { errMsg } from '../utils/error.js';
 
 export { envBool as _envBool, envTime as _envTime } from './helpers.js';
 export { tzOffsetMs as _tzOffsetMs } from './helpers.js';
@@ -929,8 +930,7 @@ config.sftpConnectConfig = function (this: Partial<Config> & { sftpHost?: string
   // In multi-server context, `this` is the per-server config from multi-server.js.
   // Falls back to primary config singleton if called without context or if sftpHost is missing.
   // Note: multi-server.js maps DB values to sftp* properties, so this.sftpHost should always be set.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  const self = this && this.sftpHost ? this : config;
+  const self = (this as typeof this | undefined)?.sftpHost ? this : config;
   const cfg: SftpConnectConfig = {
     host: self.sftpHost ?? '',
     port: self.sftpPort ?? 2022,
@@ -942,7 +942,7 @@ config.sftpConnectConfig = function (this: Partial<Config> & { sftpHost?: string
       // If a password is also set, use it as the passphrase for the key
       if (self.sftpPassword) cfg.passphrase = self.sftpPassword;
     } catch (err) {
-      _cfgLog.error('Could not read SSH private key at %s: %s', self.sftpPrivateKeyPath, (err as Error).message);
+      _cfgLog.error('Could not read SSH private key at %s: %s', self.sftpPrivateKeyPath, errMsg(err));
       // Fall back to password auth
       cfg.password = self.sftpPassword;
     }
@@ -995,7 +995,7 @@ config.hydrate = function (configRepo: {
       }
     }
   } catch (err) {
-    console.error('[CONFIG] Failed to hydrate from DB \u2014 using .env values:', (err as Error).message);
+    console.error('[CONFIG] Failed to hydrate from DB \u2014 using .env values:', errMsg(err));
   }
   config._configRepo = configRepo; // Always set repo for writes
 };
@@ -1021,7 +1021,7 @@ config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknow
         [cfgKey]: value,
       });
     } catch (err) {
-      console.error('[CONFIG] Could not save display setting to DB:', (err as Error).message);
+      console.error('[CONFIG] Could not save display setting to DB:', errMsg(err));
     }
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
@@ -1035,7 +1035,7 @@ config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknow
       overrides[cfgKey] = value;
       dbObj.setStateJSON('display_settings', overrides);
     } catch (err) {
-      console.warn('[CONFIG] Could not save display override:', (err as Error).message);
+      console.warn('[CONFIG] Could not save display override:', errMsg(err));
     }
   }
 };
@@ -1053,7 +1053,7 @@ config.saveDisplaySettings = function (db: unknown, settings: Record<string, unk
     try {
       (config._configRepo as { update(doc: string, data: Record<string, unknown>): void }).update('app', settings);
     } catch (err) {
-      console.error('[CONFIG] Could not save display settings to DB:', (err as Error).message);
+      console.error('[CONFIG] Could not save display settings to DB:', errMsg(err));
     }
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
@@ -1067,7 +1067,7 @@ config.saveDisplaySettings = function (db: unknown, settings: Record<string, unk
       Object.assign(overrides, settings);
       dbObj.setStateJSON('display_settings', overrides);
     } catch (err) {
-      console.warn('[CONFIG] Could not save display overrides:', (err as Error).message);
+      console.warn('[CONFIG] Could not save display overrides:', errMsg(err));
     }
   }
 };
@@ -1131,28 +1131,3 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
 }
 
 export default config;
-
-// CJS compatibility — when .js files do require('../config'), they get the config
-// object directly (not wrapped in { default: config }).
-// This will be removed when all consumers are migrated to ESM imports.
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = config;
-_mod.exports.default = config;
-_mod.exports.canShow = function (toggleKey: string, isAdmin = false): boolean {
-  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
-};
-_mod.exports.isAdminView = function (member: import('discord.js').GuildMember | null): boolean {
-  return _isAdminView(config.adminViewPermissions, member);
-};
-_mod.exports.addAdminMembers = async function (
-  thread: import('discord.js').ThreadChannel,
-  guild: import('discord.js').Guild,
-): Promise<void> {
-  return _addAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
-};
-_mod.exports._envBool = envBool;
-_mod.exports._envTime = envTime;
-_mod.exports._tzOffsetMs = tzOffsetMs;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

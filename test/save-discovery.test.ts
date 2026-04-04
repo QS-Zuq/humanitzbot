@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for save file discovery — custom SaveName support.
  * Run: npm test
@@ -6,7 +5,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { _extractSaveName, SAVE_FILE_PATTERN } = require('../src/server/multi-server');
+import * as _multi_server from '../src/server/multi-server.js';
+const { _extractSaveName, SAVE_FILE_PATTERN } = _multi_server as any;
 
 describe('SAVE_FILE_PATTERN', () => {
   it('matches the default save filename', () => {

@@ -1,24 +1,94 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-require-imports */
-
-import { Events, EmbedBuilder } from 'discord.js';
+import {
+  Events,
+  EmbedBuilder,
+  type Client,
+  type TextChannel,
+  type ThreadChannel,
+  type Guild,
+  type Message,
+} from 'discord.js';
 import _defaultConfig from '../config/index.js';
-const _defaultRcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+import _defaultRcon from '../rcon/rcon.js';
 import { t, getLocale } from '../i18n/index.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 // Data-layer parser: regexes, line parsing, diffing, sanitisation
 import * as chatParser from './chat-relay-parser.js';
 const { stripAdminPrefix, CHAT_RE, PLAIN_CHAT_RE } = chatParser;
 
+type ConfigType = typeof _defaultConfig;
+type RconType = typeof _defaultRcon;
+
+interface ChatEntry {
+  type: string;
+  playerName: string | undefined;
+  message: string;
+  direction: string;
+  discordUser?: string;
+  isAdmin: boolean;
+}
+
+interface ParsedLine {
+  formatted: string;
+  entry: ChatEntry;
+}
+
+interface ThreadLike {
+  send(options: unknown): Promise<Message>;
+  name?: string;
+  archived?: boolean;
+  id?: string;
+  guild?: unknown;
+  threads?: unknown;
+  messages?: { fetch(options: { limit: number }): Promise<Map<string, Message>> };
+  setArchived?(archived: boolean): Promise<unknown>;
+}
+
+interface ChatRelayDeps {
+  config?: ConfigType;
+  rcon?: RconType;
+  db?: ChatRelayDB | null;
+  label?: string;
+}
+
+interface ChatRelayDB {
+  insertChat(entry: Record<string, unknown>): void;
+}
+
 class ChatRelay {
-  [key: string]: any;
-  constructor(client: any, deps: any = {}) {
+  private client: Client;
+  private _config: ConfigType;
+  private _rcon: RconType;
+  private _db: ChatRelayDB | null;
+  private _log: Logger;
+  private adminChannel: ThreadLike | null;
+  _lastLines: string[];
+  private _pollTimer: ReturnType<typeof setInterval> | null;
+  private _chatThread: ThreadLike | null;
+  private _chatThreadDate: string | null;
+  private _boundOnMessage: ((message: Message) => void) | null;
+  private _rolloverPending: boolean;
+  private _rolloverFallback: ReturnType<typeof setTimeout> | null;
+  _nukeActive: boolean;
+  private _healthy: boolean;
+  private _headless: boolean;
+  private _locale: string;
+  private _logChatWarned: boolean;
+  _awaitActivityThread: boolean;
+
+  // Mixed-in from chat-relay-parser.ts via Object.assign
+  declare _parseLine: (this: ChatRelay, line: string) => ParsedLine | null;
+  declare _formatLine: (this: ChatRelay, line: string) => string | null;
+  declare _diff: (this: ChatRelay, currentLines: string[]) => string[];
+  declare _sanitize: (this: ChatRelay, text: string) => string;
+  declare _sanitizeRcon: (this: ChatRelay, text: string) => string;
+
+  constructor(client: Client, deps: ChatRelayDeps = {}) {
     this.client = client;
-    this._config = deps.config || _defaultConfig;
-    this._rcon = deps.rcon || _defaultRcon;
-    this._db = deps.db || null;
+    this._config = deps.config ?? _defaultConfig;
+    this._rcon = deps.rcon ?? _defaultRcon;
+    this._db = deps.db ?? null;
     this._log = createLogger(deps.label, 'CHAT RELAY');
     this.adminChannel = null;
     this._lastLines = []; // snapshot for diff
@@ -31,7 +101,9 @@ class ChatRelay {
     this._nukeActive = false; // true during NUKE_BOT — suppresses thread creation
     this._healthy = true; // false if start() failed — module appears active but isn't
     this._headless = false; // true when running without a Discord channel (DB-only data collection)
-    this._locale = getLocale({ serverConfig: this._config });
+    this._locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
+    this._logChatWarned = false;
+    this._awaitActivityThread = false;
   }
 
   /** Whether the chat relay started successfully. */
@@ -51,16 +123,16 @@ class ChatRelay {
       }
 
       if (!this._headless) {
-        this.adminChannel = await this.client.channels.fetch(chatId);
+        this.adminChannel = (await this.client.channels.fetch(chatId as string)) as ThreadLike | null;
         if (!this.adminChannel) {
           this._log.error('Chat channel not found! Check ADMIN_CHANNEL_ID / CHAT_CHANNEL_ID.');
           this._healthy = false;
           return;
         }
 
-        this._log.info(`Admin bridge: #${this.adminChannel.name} → server`);
+        this._log.info(`Admin bridge: #${String(this.adminChannel.name)} → server`);
         this._log.info(
-          `Chat relay:   server → ${this._config.useChatThreads ? 'daily thread in' : ''} #${this.adminChannel.name}`,
+          `Chat relay:   server → ${this._config.useChatThreads ? 'daily thread in' : ''} #${String(this.adminChannel.name)}`,
         );
 
         // Clean old bot starter messages (keep the channel tidy across restarts)
@@ -74,19 +146,19 @@ class ChatRelay {
         }
 
         // Listen for outbound admin messages
-        this._boundOnMessage = async (message: any) => {
-          await this._onMessage(message);
+        this._boundOnMessage = (message: Message) => {
+          void this._onMessage(message);
         };
         this.client.on(Events.MessageCreate, this._boundOnMessage);
       }
 
       // Start polling fetchchat (works in both normal and headless mode)
       const pollMs = this._config.chatPollInterval || 10000;
-      this._pollTimer = setInterval(() => this._pollChat(), pollMs);
+      this._pollTimer = setInterval(() => void this._pollChat(), pollMs);
       this._log.info(`Polling fetchchat every ${pollMs / 1000}s`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       this._healthy = false;
-      this._log.error('Failed to start:', err.message, err.stack);
+      this._log.error('Failed to start:', errMsg(err));
     }
   }
 
@@ -112,21 +184,24 @@ class ChatRelay {
     // sibling multi-server messages posted earlier in this same startup.
     const bootTime = Date.now() - process.uptime() * 1000;
     try {
-      const messages = await this.adminChannel.messages.fetch({ limit: 20 });
-      const botId = this.client.user.id;
-      const botMessages = messages.filter(
-        (m: any) => m.author.id === botId && !m.hasThread && m.createdTimestamp < bootTime,
+      const channel = this.adminChannel as ThreadLike;
+      if (!channel.messages) return;
+      const messages = await channel.messages.fetch({ limit: 20 });
+      const botId = this.client.user?.id;
+      if (!botId) return;
+      const botMessages = [...messages.values()].filter(
+        (m: Message) => m.author.id === botId && !m.hasThread && m.createdTimestamp < bootTime,
       );
-      if (botMessages.size > 0) {
-        this._log.info(`Cleaning ${botMessages.size} orphaned bot message(s)`);
-        for (const [, msg] of botMessages) {
+      if (botMessages.length > 0) {
+        this._log.info(`Cleaning ${botMessages.length} orphaned bot message(s)`);
+        for (const msg of botMessages) {
           try {
             await msg.delete();
-          } catch (_: any) {}
+          } catch (_: unknown) {}
         }
       }
-    } catch (err: any) {
-      this._log.info('Could not clean old messages:', err.message);
+    } catch (err: unknown) {
+      this._log.info('Could not clean old messages:', errMsg(err));
     }
   }
 
@@ -152,7 +227,7 @@ class ChatRelay {
 
   // ── Daily chat thread management ───────────────────────────
 
-  async _getOrCreateChatThread() {
+  async _getOrCreateChatThread(): Promise<ThreadLike | null> {
     // Headless mode — no Discord channel, return null
     if (this._headless) return null;
 
@@ -182,12 +257,13 @@ class ChatRelay {
     // Archive yesterday's thread if it's still open
     if (this._chatThread && this._chatThreadDate && this._chatThreadDate !== today) {
       try {
-        if (!this._chatThread.archived && typeof this._chatThread.setArchived === 'function') {
-          await this._chatThread.setArchived(true);
-          this._log.info(`Archived previous thread: ${this._chatThread.name}`);
+        const thread = this._chatThread;
+        if (!thread.archived && typeof thread.setArchived === 'function') {
+          await thread.setArchived(true);
+          this._log.info(`Archived previous thread: ${String(thread.name)}`);
         }
-      } catch (e: any) {
-        this._log.warn('Could not archive old thread:', e.message);
+      } catch (e: unknown) {
+        this._log.warn('Could not archive old thread:', errMsg(e));
       }
       this._chatThread = null;
       this._chatThreadDate = null;
@@ -215,34 +291,44 @@ class ChatRelay {
 
     try {
       // Check active threads
-      const active = await this.adminChannel.threads.fetchActive();
-      const existing = active.threads.find((t: any) => t.name === threadName);
+      const channel = this.adminChannel as unknown as Record<string, unknown>;
+      const threadManager = channel['threads'] as {
+        fetchActive(): Promise<{ threads: Map<string, ThreadLike> }>;
+        fetchArchived(opts: { limit: number }): Promise<{ threads: Map<string, ThreadLike> }>;
+      };
+      const active = await threadManager.fetchActive();
+      const existing = [...active.threads.values()].find((th) => th.name === threadName);
       if (existing) {
         this._chatThread = existing;
         this._chatThreadDate = today;
         this._log.info(`Using existing thread: ${threadName}`);
         // Re-add admin members (they may have been removed if bot restarted)
-        this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
+        void this._config
+          .addAdminMembers(this._chatThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
+          .catch(() => {});
         return this._chatThread;
       }
 
       // Check archived threads (in case bot restarted mid-day)
-      const archived = await this.adminChannel.threads.fetchArchived({ limit: 5 });
-      const archivedMatch = archived.threads.find((t: any) => t.name === threadName);
+      const archived = await threadManager.fetchArchived({ limit: 5 });
+      const archivedMatch = [...archived.threads.values()].find((th) => th.name === threadName);
       if (archivedMatch) {
-        await archivedMatch.setArchived(false);
+        if (archivedMatch.setArchived) await archivedMatch.setArchived(false);
         this._chatThread = archivedMatch;
         this._chatThreadDate = today;
         this._log.info(`Unarchived existing thread: ${threadName}`);
-        this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
+        void this._config
+          .addAdminMembers(this._chatThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
+          .catch(() => {});
         return this._chatThread;
       }
-    } catch (err: any) {
-      this._log.warn('Could not search for threads:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Could not search for threads:', errMsg(err));
     }
 
     // Create a new thread (from a starter message so it appears inline in the channel)
     try {
+      if (!this.adminChannel) throw new Error('No admin channel');
       const starterMsg = await this.adminChannel.send({
         embeds: [
           new EmbedBuilder()
@@ -257,18 +343,24 @@ class ChatRelay {
             .setTimestamp(),
         ],
       });
-      this._chatThread = await starterMsg.startThread({
+      const started = await starterMsg.startThread({
         name: threadName,
         autoArchiveDuration: 1440,
         reason: t('discord:chat_relay.daily_thread_reason', this._locale),
       });
+      this._chatThread = started as unknown as ThreadLike;
       this._chatThreadDate = today;
       this._log.info(`Created daily thread: ${threadName}`);
 
       // Auto-join admin users/roles so the thread stays visible for them
-      this._config.addAdminMembers(this._chatThread, this.adminChannel.guild).catch(() => {});
-    } catch (err: any) {
-      this._log.error('Failed to create chat thread:', err.message);
+      void this._config
+        .addAdminMembers(
+          this._chatThread as unknown as ThreadChannel,
+          (this.adminChannel as unknown as { guild: Guild }).guild,
+        )
+        .catch(() => {});
+    } catch (err: unknown) {
+      this._log.error('Failed to create chat thread:', errMsg(err));
       // Fallback — use the main channel directly so messages aren't dropped
       this._chatThread = this.adminChannel;
       this._chatThreadDate = today;
@@ -286,7 +378,7 @@ class ChatRelay {
 
       const currentLines = raw
         .split('\n')
-        .map((l: any) => l.trim())
+        .map((l: string) => l.trim())
         .filter(Boolean);
       const newLines = this._diff(currentLines);
       this._lastLines = currentLines;
@@ -309,17 +401,18 @@ class ChatRelay {
         // Check for !admin command (posts to main channel, not thread)
         if (!this._headless) await this._checkAdminCall(line);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Don't spam on RCON issues — the RCON module already logs
-      if (!err.message.includes('not connected') && !err.message.includes('No response')) {
-        this._log.error('Poll error:', err.message);
+      const msg = errMsg(err);
+      if (!msg.includes('not connected') && !msg.includes('No response')) {
+        this._log.error('Poll error:', msg);
       }
     }
   }
 
   // ── !admin command detection ────────────────────────────────
 
-  async _checkAdminCall(line: any) {
+  async _checkAdminCall(line: string) {
     // Strip timestamp prefix (game update March 2026) and [Admin] prefix
     const stripped = chatParser.stripTimestamp(line);
     const cleaned = stripAdminPrefix(stripped);
@@ -327,8 +420,8 @@ class ChatRelay {
     if (!m) m = PLAIN_CHAT_RE.exec(cleaned);
     if (!m) return;
 
-    const name = m[1]!.trim();
-    const text = m[2]!.trim();
+    const name = (m[1] ?? '').trim();
+    const text = (m[2] ?? '').trim();
 
     // Match !admin with optional message
     const adminMatch = text.match(/^!admin\s*(.*)/i);
@@ -356,10 +449,10 @@ class ChatRelay {
       // Send only to the designated alert channels (one @here, not duplicated)
       for (const channelId of this._config.adminAlertChannelIds) {
         try {
-          const ch = await this.client.channels.fetch(channelId);
+          const ch = (await this.client.channels.fetch(channelId)) as TextChannel | null;
           if (ch) await ch.send(payload);
-        } catch (err: any) {
-          this._log.error(`Failed to send admin alert to ${channelId}:`, err.message);
+        } catch (err: unknown) {
+          this._log.error(`Failed to send admin alert to ${channelId}:`, errMsg(err));
         }
       }
     } else {
@@ -368,11 +461,11 @@ class ChatRelay {
         const thread = await this._getOrCreateChatThread();
         if (thread) {
           await thread.send(payload);
-        } else {
+        } else if (this.adminChannel) {
           await this.adminChannel.send(payload);
         }
-      } catch (err: any) {
-        this._log.error('Failed to send admin alert:', err.message);
+      } catch (err: unknown) {
+        this._log.error('Failed to send admin alert:', errMsg(err));
       }
     }
 
@@ -381,23 +474,23 @@ class ChatRelay {
       const link = this._config.discordInviteLink || '';
       let linkPart = '';
       if (link) {
-        const m = link.match(/^(.*?discord\.gg)(\/.*)$/i);
-        linkPart = m ? ` </><CL>${m[1]}</><FO>${m[2] || ''}` : ` ${link}`;
+        const linkMatch = link.match(/^(.*?discord\.gg)(\/.*)$/i);
+        linkPart = linkMatch ? ` </><CL>${linkMatch[1]}</><FO>${linkMatch[2] || ''}` : ` ${link}`;
       }
       await this._rcon.send(
         `admin </>${name}<FO>, ${t('discord:chat_relay.request_sent_notice', this._locale)}${linkPart}`,
       );
-    } catch (_: any) {}
+    } catch (_: unknown) {}
   }
 
   /** Insert a chat entry into the DB (best-effort, never throws). */
-  _logChat(entry: any) {
+  _logChat(entry: ChatEntry) {
     if (!this._db) return;
     try {
-      this._db.insertChat(entry);
-    } catch (err: any) {
+      this._db.insertChat(entry as unknown as Record<string, unknown>);
+    } catch (err: unknown) {
       if (!this._logChatWarned) {
-        this._log.warn('DB chat insert failed:', err.message);
+        this._log.warn('DB chat insert failed:', errMsg(err));
         this._logChatWarned = true;
       }
     }
@@ -405,11 +498,12 @@ class ChatRelay {
 
   // ── Outbound: Discord → [Admin] in-game ────────────────────
 
-  async _onMessage(message: any) {
+  async _onMessage(message: Message) {
     if (message.author.bot) return;
     // Accept messages in the admin channel OR any of its threads (e.g. the chat thread)
-    const isInChannel = message.channelId === this.adminChannel.id;
-    const isInThread = message.channel.isThread?.() && message.channel.parentId === this.adminChannel.id;
+    const isInChannel = message.channelId === this.adminChannel?.id;
+    const msgChannel = message.channel as { isThread?: () => boolean; parentId?: string };
+    const isInThread = msgChannel.isThread?.() === true && msgChannel.parentId === this.adminChannel?.id;
     if (!isInChannel && !isInThread) return;
     if (!message.content || message.content.trim() === '') return;
 
@@ -437,8 +531,8 @@ class ChatRelay {
         isAdmin: false,
       });
       await message.react('✅');
-    } catch (err: any) {
-      this._log.error('Failed to relay admin message:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Failed to relay admin message:', errMsg(err));
       await message.react('❌');
     }
   }
@@ -455,8 +549,3 @@ Object.assign(ChatRelay.prototype, {
 
 export default ChatRelay;
 export { ChatRelay };
-
-const _mod = module as { exports: any };
-
-_mod.exports = ChatRelay;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

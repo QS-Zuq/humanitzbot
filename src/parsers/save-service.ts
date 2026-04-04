@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- runtime data may differ from static types */
-/* eslint-disable @typescript-eslint/no-non-null-assertion -- guarded by prior checks */
-
 /**
  * Save-to-DB service for the HumanitZ bot.
  *
@@ -17,15 +14,11 @@ import path from 'node:path';
 import { parseSave, parseClanData } from './save-parser.js';
 import { createLogger, type Logger } from '../utils/log.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const diffEngineModule = require('../db/diff-engine') as { diffSaveState: (...args: unknown[]) => unknown[] };
-const { diffSaveState } = diffEngineModule;
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const itemTrackerModule = require('../db/item-tracker') as {
-  reconcileItems: (...args: unknown[]) => Record<string, unknown> | null;
-};
-const { reconcileItems } = itemTrackerModule;
+import { diffSaveState } from '../db/diff-engine.js';
+import { reconcileItems } from '../db/item-tracker.js';
+import { errMsg } from '../utils/error.js';
+import _rconDefault from '../rcon/rcon.js';
+import _panelApiDefault from '../server/panel-api.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -93,6 +86,10 @@ interface SaveServiceOptions {
   panelApi?: PanelApi;
   dataDir?: string;
 }
+
+// Module-scope references to singletons (always available as internal modules)
+const _rconModule: RconModule | null = _rconDefault as unknown as RconModule;
+const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi;
 
 interface GameDB {
   db?: unknown;
@@ -259,12 +256,12 @@ class SaveService extends EventEmitter {
         this._log.info(`Loaded ${String(count)} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err: unknown) {
-      this._log.warn('Could not load cached ID map:', (err as Error).message);
+      this._log.warn('Could not load cached ID map:', errMsg(err));
     }
   }
 
   _repairSteamIdNames(): void {
-    if (!this._db || Object.keys(this._idMap).length === 0) return;
+    if (Object.keys(this._idMap).length === 0) return;
     try {
       const rawDb = (this._db.db ?? this._db._db ?? this._db) as Record<string, unknown>;
       if (typeof rawDb['prepare'] !== 'function') return;
@@ -293,7 +290,7 @@ class SaveService extends EventEmitter {
         this._log.info(`Repaired ${String(fixed)} activity_log row(s) with resolved player names`);
       }
     } catch (err: unknown) {
-      this._log.warn('DB name repair failed (non-fatal):', (err as Error).message);
+      this._log.warn('DB name repair failed (non-fatal):', errMsg(err));
     }
   }
 
@@ -336,28 +333,25 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = (require('ssh2-sftp-client') as { default?: unknown; new (): unknown })
-        .constructor as typeof SFTPClient;
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      const _sftpMod = (await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient };
+      SFTPClient = _sftpMod.default;
     } catch {
       throw new Error('ssh2-sftp-client not installed');
     }
 
     let buildAgentScript: () => string;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ({ buildAgentScript } = require('./agent-builder') as { buildAgentScript: () => string });
+      ({ buildAgentScript } = (await import('./agent-builder.js')) as unknown as { buildAgentScript: () => string });
     } catch (err: unknown) {
-      throw new Error(`Failed to load agent-builder: ${(err as Error).message}`, { cause: err });
+      throw new Error(`Failed to load agent-builder: ${errMsg(err)}`, { cause: err });
     }
 
     const script = buildAgentScript();
     const sftp = new SFTPClient();
 
     try {
-      await sftp.connect(this._sftpConfig!);
+      if (!this._sftpConfig) throw new Error('SFTP config is required for agent deployment');
+      await sftp.connect(this._sftpConfig);
       await sftp.put(Buffer.from(script, 'utf-8'), this._agentPath);
       this._agentDeployed = true;
       this._log.info(`Agent deployed → ${this._agentPath} (${(script.length / 1024).toFixed(1)}KB)`);
@@ -418,7 +412,7 @@ class SaveService extends EventEmitter {
         return true;
       }
     } catch (err: unknown) {
-      this._log.info(`SSH check failed: ${(err as Error).message}`);
+      this._log.info(`SSH check failed: ${errMsg(err)}`);
     }
     this._agentCapable = false;
     return false;
@@ -441,8 +435,7 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ({ Client: SSHClient } = require('ssh2') as { Client: typeof SSHClient });
+      ({ Client: SSHClient } = (await import('ssh2')) as unknown as { Client: typeof SSHClient });
     } catch {
       throw new Error('ssh2 not installed — needed for SSH exec');
     }
@@ -531,8 +524,8 @@ class SaveService extends EventEmitter {
         }
       }
     } catch (err: unknown) {
-      this._lastError = (err as Error).message;
-      this._log.error('Sync error:', (err as Error).message);
+      this._lastError = errMsg(err);
+      this._log.error('Sync error:', errMsg(err));
       this.emit('error', err);
     } finally {
       this._syncing = false;
@@ -566,7 +559,7 @@ class SaveService extends EventEmitter {
       try {
         clans = parseClanData(clanBuf);
       } catch (err: unknown) {
-        this._log.warn('Failed to parse clan data:', (err as Error).message);
+        this._log.warn('Failed to parse clan data:', errMsg(err));
       }
     }
 
@@ -609,7 +602,7 @@ class SaveService extends EventEmitter {
       this._log.warn(`Agent triggered (${trigger}) but cache not found at ${this._cachePath}`);
       return false;
     } catch (err: unknown) {
-      this._log.warn(`Agent mode failed: ${(err as Error).message}`);
+      this._log.warn(`Agent mode failed: ${errMsg(err)}`);
       return false;
     }
   }
@@ -672,25 +665,16 @@ class SaveService extends EventEmitter {
 
   _isRconAvailable(): boolean {
     if (!this._rcon) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._rcon = require('../rcon/rcon') as RconModule;
-      } catch {
-        return false;
-      }
+      if (!_rconModule) return false;
+      this._rcon = _rconModule;
     }
-    if (!this._rcon) return false;
     return this._rcon.connected;
   }
 
   async _triggerViaRcon(): Promise<void> {
     if (!this._rcon) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._rcon = require('../rcon/rcon') as RconModule;
-      } catch {
-        throw new Error('RCON module not available');
-      }
+      if (!_rconModule) throw new Error('RCON module not available');
+      this._rcon = _rconModule;
     }
     this._log.info(`Sending RCON command: "${this._agentPanelCommand}"`);
     await this._rcon.send(this._agentPanelCommand);
@@ -702,8 +686,9 @@ class SaveService extends EventEmitter {
   }
 
   async _triggerViaPanel(): Promise<void> {
+    if (!this._panelApi) throw new Error('Panel API not configured');
     this._log.info(`Sending panel command: "${this._agentPanelCommand}"`);
-    await this._panelApi!.sendCommand(this._agentPanelCommand);
+    await this._panelApi.sendCommand(this._agentPanelCommand);
     if (this._agentPanelDelay > 0) {
       await new Promise<void>((r) => {
         setTimeout(r, this._agentPanelDelay);
@@ -735,15 +720,15 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
     } catch {
       throw new Error('ssh2-sftp-client not installed — needed for SFTP polling');
     }
 
     const sftp = new SFTPClient();
+    if (!this._sftpConfig) throw new Error('SFTP config is required for direct download');
     try {
-      await sftp.connect(this._sftpConfig!);
+      await sftp.connect(this._sftpConfig);
       const stat = await sftp.stat(this._savePath);
       const mtime = stat.modifyTime;
       if (!force && this._lastMtime && mtime === this._lastMtime) {
@@ -772,13 +757,9 @@ class SaveService extends EventEmitter {
 
   _hasPanelApi(): boolean {
     if (this._panelApi) return this._panelApi.available !== false;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      this._panelApi = require('../server/panel-api') as PanelApi;
-      return !!this._panelApi.available;
-    } catch {
-      return false;
-    }
+    if (!_panelApiModule) return false;
+    this._panelApi = _panelApiModule;
+    return !!this._panelApi.available;
   }
 
   async _readPanelApi(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
@@ -798,12 +779,12 @@ class SaveService extends EventEmitter {
           this._lastMtime = mtime;
         }
       } catch (err: unknown) {
-        this._log.warn('Panel file list failed (will download anyway):', (err as Error).message);
+        this._log.warn('Panel file list failed (will download anyway):', errMsg(err));
       }
     }
 
     this._log.info('Downloading save file via Panel API (direct mode)...');
-    const saveBuf = await api.downloadFile(this._savePath);
+    const saveBuf: Buffer | null = (await api.downloadFile(this._savePath)) as Buffer | null;
     if (!saveBuf || saveBuf.length === 0) throw new Error('Empty save file downloaded from Panel API');
 
     if (force) {
@@ -863,15 +844,15 @@ class SaveService extends EventEmitter {
       end: () => void;
     };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
     } catch {
       return undefined;
     }
 
     const sftp = new SFTPClient();
+    if (!this._sftpConfig) return undefined;
     try {
-      await sftp.connect(this._sftpConfig!);
+      await sftp.connect(this._sftpConfig);
       let stat: { modifyTime: number };
       try {
         stat = await sftp.stat(this._cachePath);
@@ -902,7 +883,7 @@ class SaveService extends EventEmitter {
       const json = await api.readFile(this._cachePath);
       return this._parseCache(json, mtime);
     } catch (err: unknown) {
-      this._log.warn('Panel cache read failed:', (err as Error).message);
+      this._log.warn('Panel cache read failed:', errMsg(err));
       return null;
     }
   }
@@ -912,36 +893,36 @@ class SaveService extends EventEmitter {
     try {
       cache = JSON.parse(json) as Record<string, unknown>;
     } catch (err: unknown) {
-      this._log.warn(`Invalid cache JSON: ${(err as Error).message}`);
+      this._log.warn(`Invalid cache JSON: ${errMsg(err)}`);
       return null;
     }
-    if (!cache || typeof cache['v'] !== 'number' || cache['v'] < 1) {
-      this._log.warn(`Invalid or missing cache version (got ${String(cache?.['v'])})`);
+    if (typeof cache['v'] !== 'number' || cache['v'] < 1) {
+      this._log.warn(`Invalid or missing cache version (got ${String(cache['v'])})`);
       return null;
     }
     if (mtime) this._lastCacheMtime = mtime;
     const sizeMB = (json.length / 1024 / 1024).toFixed(2);
     this._log.info(
-      `Downloaded cache: ${sizeMB}MB (${String(Object.keys((cache['players'] as Record<string, unknown>) ?? {}).length)} players)`,
+      `Downloaded cache: ${sizeMB}MB (${String(Object.keys((cache['players'] as Record<string, unknown> | undefined) ?? {}).length)} players)`,
     );
     return cache;
   }
 
   async _fetchClanData(): Promise<unknown[]> {
     if (this._sftpConfig) {
-      let SFTPClient: new () => {
+      type SFTPClientType = new () => {
         connect: (config: SftpConfig) => Promise<void>;
         stat: (p: string) => Promise<{ modifyTime: number }>;
         get: (p: string) => Promise<Buffer>;
         end: () => Promise<void>;
       };
+      let SFTPClient: SFTPClientType | undefined;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        SFTPClient = require('ssh2-sftp-client') as typeof SFTPClient;
+        SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: SFTPClientType }).default;
       } catch {
         /* ignore */
       }
-      if (SFTPClient!) {
+      if (SFTPClient) {
         const sftp = new SFTPClient();
         try {
           await sftp.connect(this._sftpConfig);
@@ -963,9 +944,9 @@ class SaveService extends EventEmitter {
         return [];
       }
     }
-    if (this._hasPanelApi()) {
+    if (this._hasPanelApi() && this._panelApi) {
       try {
-        const clanBuf = await this._panelApi!.downloadFile(this._clanSavePath);
+        const clanBuf: Buffer | null = (await this._panelApi.downloadFile(this._clanSavePath)) as Buffer | null;
         if (clanBuf && clanBuf.length > 0) return parseClanData(clanBuf);
       } catch {
         /* Clan file may not exist */
@@ -980,20 +961,20 @@ class SaveService extends EventEmitter {
 
   async _syncFromCache(cache: Record<string, unknown>): Promise<void> {
     const players = new Map<string, unknown>();
-    for (const [steamId, data] of Object.entries((cache['players'] as Record<string, unknown>) ?? {})) {
+    for (const [steamId, data] of Object.entries((cache['players'] as Record<string, unknown> | undefined) ?? {})) {
       players.set(steamId, data);
     }
     const parsed = {
       players,
-      worldState: (cache['worldState'] as Record<string, unknown>) ?? {},
-      structures: (cache['structures'] as unknown[]) ?? [],
-      vehicles: (cache['vehicles'] as unknown[]) ?? [],
-      companions: (cache['companions'] as unknown[]) ?? [],
-      deadBodies: (cache['deadBodies'] as unknown[]) ?? [],
-      containers: (cache['containers'] as unknown[]) ?? [],
-      lootActors: (cache['lootActors'] as unknown[]) ?? [],
-      quests: (cache['quests'] as unknown[]) ?? [],
-      horses: (cache['horses'] as unknown[]) ?? [],
+      worldState: (cache['worldState'] as Record<string, unknown> | undefined) ?? {},
+      structures: (cache['structures'] as unknown[] | undefined) ?? [],
+      vehicles: (cache['vehicles'] as unknown[] | undefined) ?? [],
+      companions: (cache['companions'] as unknown[] | undefined) ?? [],
+      deadBodies: (cache['deadBodies'] as unknown[] | undefined) ?? [],
+      containers: (cache['containers'] as unknown[] | undefined) ?? [],
+      lootActors: (cache['lootActors'] as unknown[] | undefined) ?? [],
+      quests: (cache['quests'] as unknown[] | undefined) ?? [],
+      horses: (cache['horses'] as unknown[] | undefined) ?? [],
     };
     let clans: unknown[] = [];
     if (this._clanSavePath) clans = await this._fetchClanData();
@@ -1014,12 +995,12 @@ class SaveService extends EventEmitter {
       const oldState = this._readOldStateForDiff();
       if (oldState && !isFirstSync) {
         const newState = {
-          containers: (parsed['containers'] as unknown[]) ?? [],
-          horses: (parsed['horses'] as unknown[]) ?? [],
+          containers: (parsed['containers'] as unknown[] | undefined) ?? [],
+          horses: (parsed['horses'] as unknown[] | undefined) ?? [],
           players,
-          worldState: (parsed['worldState'] as Record<string, unknown>) ?? {},
-          vehicles: (parsed['vehicles'] as unknown[]) ?? [],
-          structures: (parsed['structures'] as unknown[]) ?? [],
+          worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
+          vehicles: (parsed['vehicles'] as unknown[] | undefined) ?? [],
+          structures: (parsed['structures'] as unknown[] | undefined) ?? [],
         };
         const nameResolver = (steamId: string): string => {
           const p = players.get(steamId);
@@ -1028,12 +1009,12 @@ class SaveService extends EventEmitter {
         diffEvents = diffSaveState(oldState, newState, nameResolver);
       }
     } catch (err: unknown) {
-      this._log.warn('Diff engine error (non-fatal):', (err as Error).message);
+      this._log.warn('Diff engine error (non-fatal):', errMsg(err));
     }
 
     const worldDrops: unknown[] = [];
     try {
-      const ws = (parsed['worldState'] as Record<string, unknown>) ?? {};
+      const ws = (parsed['worldState'] as Record<string, unknown> | undefined) ?? {};
       if (ws['lodPickups']) {
         for (const p of ws['lodPickups'] as Array<Record<string, unknown>>) {
           worldDrops.push({
@@ -1054,7 +1035,8 @@ class SaveService extends EventEmitter {
       }
       if (ws['droppedBackpacks']) {
         for (let i = 0; i < (ws['droppedBackpacks'] as unknown[]).length; i++) {
-          const bp = (ws['droppedBackpacks'] as Array<Record<string, unknown>>)[i]!;
+          const bp = (ws['droppedBackpacks'] as Array<Record<string, unknown>>)[i];
+          if (!bp) continue;
           worldDrops.push({
             type: 'backpack',
             actorName: `backpack_${String(i)}`,
@@ -1086,7 +1068,7 @@ class SaveService extends EventEmitter {
         }
       }
     } catch (err: unknown) {
-      this._log.warn('World drops build error (non-fatal):', (err as Error).message);
+      this._log.warn('World drops build error (non-fatal):', errMsg(err));
     }
 
     this._db.syncAllFromSave({
@@ -1111,24 +1093,24 @@ class SaveService extends EventEmitter {
         return (p?.['name'] as string) || this._idMap[steamId] || steamId;
       };
       itemStats = reconcileItems(
-        this._db,
+        this._db as unknown as Parameters<typeof reconcileItems>[0],
         {
           players,
-          containers: (parsed['containers'] as unknown[]) ?? [],
-          vehicles: (parsed['vehicles'] as unknown[]) ?? [],
-          horses: (parsed['horses'] as unknown[]) ?? [],
-          structures: (parsed['structures'] as unknown[]) ?? [],
-          worldState: (parsed['worldState'] as Record<string, unknown>) ?? {},
+          containers: (parsed['containers'] as Record<string, unknown>[] | undefined) ?? [],
+          vehicles: (parsed['vehicles'] as Record<string, unknown>[] | undefined) ?? [],
+          horses: (parsed['horses'] as Record<string, unknown>[] | undefined) ?? [],
+          structures: (parsed['structures'] as Record<string, unknown>[] | undefined) ?? [],
+          worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
         },
         nameResolver,
-      );
+      ) as unknown as Record<string, unknown>;
       if (this._syncCount % 100 === 0) {
         this._db.purgeOldLostItems('-7 days');
         this._db.purgeOldLostGroups('-7 days');
         this._db.purgeOldMovements('-30 days');
       }
     } catch (err: unknown) {
-      this._log.warn('Item tracker error (non-fatal):', (err as Error).message);
+      this._log.warn('Item tracker error (non-fatal):', errMsg(err));
     }
 
     if (diffEvents.length > 0) {
@@ -1136,7 +1118,7 @@ class SaveService extends EventEmitter {
         this._db.insertActivities(diffEvents);
         this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
       } catch (err: unknown) {
-        this._log.warn('Failed to write activity log:', (err as Error).message);
+        this._log.warn('Failed to write activity log:', errMsg(err));
       }
     }
 
@@ -1221,7 +1203,7 @@ class SaveService extends EventEmitter {
         structures: structuresList,
       };
     } catch (err: unknown) {
-      this._log.warn('Could not read old state for diff:', (err as Error).message);
+      this._log.warn('Could not read old state for diff:', errMsg(err));
       return null;
     }
   }
@@ -1232,7 +1214,7 @@ class SaveService extends EventEmitter {
       const cacheData: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
         playerCount: players.size,
-        worldState: (parsed['worldState'] as Record<string, unknown>) ?? {},
+        worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
         players: {} as Record<string, unknown>,
         structures: Array.isArray(parsed['structures']) ? parsed['structures'] : [],
         vehicles: Array.isArray(parsed['vehicles']) ? parsed['vehicles'] : [],
@@ -1244,22 +1226,16 @@ class SaveService extends EventEmitter {
         for (const [steamId, pData] of players) {
           (cacheData['players'] as Record<string, unknown>)[steamId] = pData;
         }
-      } else if (players && typeof players === 'object') {
+      } else if (typeof players === 'object') {
         cacheData['players'] = players;
       }
       const cachePath = path.join(__dirname, '..', '..', 'data', 'save-cache.json');
       fs.writeFileSync(cachePath, JSON.stringify(cacheData), 'utf8');
     } catch (err: unknown) {
-      this._log.error('Failed to write save-cache.json:', (err as Error).message);
+      this._log.error('Failed to write save-cache.json:', errMsg(err));
     }
   }
 }
 
 export default SaveService;
 export { SaveService };
-
-// CJS compatibility — .js consumers use require('./save-service')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = SaveService;

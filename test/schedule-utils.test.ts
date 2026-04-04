@@ -1,14 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const {
-  getDayOfYear,
-  getDayOffset,
-  getRotatedProfileIndex,
-  getTodaySchedule,
-  getActiveProfileIndex,
-} = require('../src/modules/schedule-utils');
+import * as _schedule_utils from '../src/modules/schedule-utils.js';
+const { getDayOfYear, getDayOffset, getRotatedProfileIndex, getTodaySchedule, getActiveProfileIndex } =
+  _schedule_utils as any;
 
 describe('schedule-utils', () => {
   describe('getDayOfYear', () => {

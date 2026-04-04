@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for the Timeline system — schema v10 tables, DB CRUD, SnapshotService.
  */
@@ -6,11 +5,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-const HumanitZDB = require('../src/db/database');
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
 
-const SnapshotService = require('../src/tracking/snapshot-service');
+import _snapshot_service from '../src/tracking/snapshot-service.js';
+const SnapshotService = _snapshot_service as any;
 
-const { SCHEMA_VERSION, ALL_TABLES } = require('../src/db/schema');
+import * as _schema from '../src/db/schema.js';
+const { SCHEMA_VERSION, ALL_TABLES } = _schema as any;
 
 let db: typeof HumanitZDB;
 

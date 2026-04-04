@@ -11,6 +11,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { errMsg } from '../utils/error.js';
 
 interface HumanitZDBLike {
   _db?: Database.Database | null;
@@ -55,8 +56,9 @@ class ConfigRepository {
 
   constructor(db: HumanitZDBLike) {
     this._db = db;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    this._handle = (db._db ?? db.db)!;
+    const handle = db._db ?? db.db;
+    if (!handle) throw new Error('ConfigRepository requires a database handle');
+    this._handle = handle;
     this._prepareStatements();
   }
 
@@ -93,7 +95,7 @@ class ConfigRepository {
     try {
       return JSON.parse(row.data) as Record<string, unknown>;
     } catch (err) {
-      console.error('[CONFIG-REPO] Corrupt JSON in scope:', scope, (err as Error).message);
+      console.error('[CONFIG-REPO] Corrupt JSON in scope:', scope, errMsg(err));
       return null;
     }
   }
@@ -109,8 +111,7 @@ class ConfigRepository {
 
       for (const [key, value] of Object.entries(patch)) {
         if (value === undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-          delete merged[key];
+          Reflect.deleteProperty(merged, key);
         } else {
           merged[key] = value;
         }
@@ -138,7 +139,7 @@ class ConfigRepository {
           updatedAt: row.updated_at,
         });
       } catch (err) {
-        console.error(`[CONFIG-REPO] Skipping unparseable row scope="${row.scope}":`, (err as Error).message);
+        console.error(`[CONFIG-REPO] Skipping unparseable row scope="${row.scope}":`, errMsg(err));
       }
     }
     return map;
@@ -154,7 +155,7 @@ class ConfigRepository {
         updatedAt: row.updated_at,
       };
     } catch (err) {
-      console.error(`[CONFIG-REPO] Corrupt JSON in scope="${scope}" (getMeta):`, (err as Error).message);
+      console.error(`[CONFIG-REPO] Corrupt JSON in scope="${scope}" (getMeta):`, errMsg(err));
       return null;
     }
   }
@@ -166,6 +167,3 @@ class ConfigRepository {
 
 export default ConfigRepository;
 export { ConfigRepository };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = ConfigRepository;

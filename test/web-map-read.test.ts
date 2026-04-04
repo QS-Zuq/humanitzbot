@@ -1,12 +1,13 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 'use strict';
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const WebMapServer = require('../src/web-map/server');
+import _webMapServer from '../src/web-map/server.js';
+const WebMapServer = _webMapServer as any;
 
-const { extractHandler } = require('./helpers/route-helpers');
+import * as _route_helpers from './helpers/route-helpers.js';
+const { extractHandler } = _route_helpers as any;
 
 /** Create a mock response that captures status code and JSON body. */
 function mockRes() {
@@ -156,11 +157,11 @@ describe('Web Map Read Endpoints', () => {
       assert.ok(res.body);
       assert.ok(Array.isArray((res.body as Record<string, unknown>).players));
       assert.equal(((res.body as Record<string, unknown>).players as unknown[]).length, 1);
-      assert.equal(
-        ((res.body as Record<string, unknown>).players as Record<string, unknown>[])[0]!.steamId,
-        '76561198000000001',
-      );
-      assert.equal(((res.body as Record<string, unknown>).players as Record<string, unknown>[])[0]!.name, 'Alice');
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      const p0 = players[0];
+      assert.ok(p0, 'should have first player');
+      assert.equal(p0.steamId, '76561198000000001');
+      assert.equal(p0.name, 'Alice');
       assert.equal((res.body as Record<string, unknown>).server, 'primary');
       assert.ok('worldBounds' in (res.body as Record<string, unknown>));
       assert.ok('toggles' in (res.body as Record<string, unknown>));
@@ -359,7 +360,7 @@ describe('Web Map Read Endpoints', () => {
       assert.ok(Array.isArray((res.body as Record<string, unknown>).events));
       assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 2);
       assert.equal(
-        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]!.type,
+        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.type,
         'player_connect',
       );
     });
@@ -383,7 +384,7 @@ describe('Web Map Read Endpoints', () => {
 
       assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 1);
       assert.equal(
-        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]!.type,
+        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.type,
         'player_connect',
       );
     });
@@ -398,7 +399,7 @@ describe('Web Map Read Endpoints', () => {
       handler({ srv: makeSrv({ db }), query: { actor: 'Alice' } }, res);
 
       assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 1);
-      assert.equal(((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]!.actor, 'Alice');
+      assert.equal(((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.actor, 'Alice');
     });
   });
 
@@ -645,7 +646,7 @@ describe('Web Map Read Endpoints', () => {
 
       assert.ok(res.body);
       const players = (res.body as { players: Record<string, unknown>[] }).players;
-      const firstPlayer = players[0]!;
+      const firstPlayer = players[0] as Record<string, unknown>;
       assert.ok('lat' in firstPlayer, 'should have lat coordinate');
       assert.ok('lng' in firstPlayer, 'should have lng coordinate');
       assert.ok((res.body as Record<string, unknown>).nameMap, 'should include nameMap');
@@ -696,8 +697,8 @@ describe('Web Map Read Endpoints', () => {
 
       assert.ok(Array.isArray(res.body));
       assert.equal((res.body as unknown[]).length, 1);
-      assert.ok('lat' in (res.body as Record<string, unknown>[])[0]!);
-      assert.ok('lng' in (res.body as Record<string, unknown>[])[0]!);
+      assert.ok('lat' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+      assert.ok('lng' in ((res.body as Record<string, unknown>[])[0] ?? {}));
     });
 
     it('returns 400 when from/to params missing', () => {
@@ -752,8 +753,8 @@ describe('Web Map Read Endpoints', () => {
       assert.ok(Array.isArray(res.body));
       assert.equal((res.body as unknown[]).length, 1);
       // Should have map coordinates added
-      assert.ok('lat' in (res.body as Record<string, unknown>[])[0]!);
-      assert.ok('lng' in (res.body as Record<string, unknown>[])[0]!);
+      assert.ok('lat' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+      assert.ok('lng' in ((res.body as Record<string, unknown>[])[0] ?? {}));
     });
 
     it('returns empty array when no db', () => {

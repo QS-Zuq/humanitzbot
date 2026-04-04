@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 'use strict';
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { postAdminAlert } = require('../src/utils/admin-alert');
+import * as _admin_alert from '../src/utils/admin-alert.js';
+const { postAdminAlert } = _admin_alert as any;
 
 // ── Helpers ──────────────────────────────────────────────────
 

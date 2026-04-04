@@ -1,8 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-require-imports */
-
 /**
  * Auto-messages content layer — text generation for RCON and WelcomeMessage.txt.
  *
@@ -15,9 +10,8 @@
  */
 
 import _defaultConfig from '../config/index.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+import _defaultPlaytime from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats from '../tracking/player-stats.js';
 import { getServerInfo } from '../rcon/server-info.js';
 import { getDayOffset, getRotatedProfileIndex } from './schedule-utils.js';
 import { difficultyLabel as diffLabel, spawnLabel } from '../server/server-display.js';
@@ -25,13 +19,75 @@ import { difficultyLabel as diffLabel, spawnLabel } from '../server/server-displ
 // ── Color tag helpers for RCON messages ──────────────────
 import { COLOR } from '../rcon/rcon-colors.js';
 
+type ConfigType = typeof _defaultConfig;
+
+interface DbLike {
+  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
+  setStateJSON?(key: string, value: unknown): void;
+  getState?(key: string): string | null;
+  getAllPlayers?(): PlayerRow[];
+  getAllClans?(): unknown[];
+}
+
+interface PlayerRow {
+  steam_id: string;
+  name: string;
+  deaths: number;
+  builds: number;
+  containersLooted: number;
+}
+
+interface LeaderboardEntry {
+  name: string;
+  totalMs: number;
+}
+
+interface StatEntry {
+  name: string;
+  kills: number;
+}
+
+interface FishEntry {
+  name: string;
+  count: number;
+}
+
+interface ClanEntry {
+  name: string;
+  members: number;
+  kills: number;
+  playtimeMs: number;
+}
+
+interface WelcomeStats {
+  topKillers?: StatEntry[];
+  topPvpKillers?: StatEntry[];
+  topFishers?: FishEntry[];
+  topBitten?: FishEntry[];
+  topClans?: ClanEntry[];
+  weekly?: {
+    topKillers?: StatEntry[];
+    topPvpKillers?: StatEntry[];
+    topPlaytime?: { name: string; ms: number }[];
+    topFishers?: FishEntry[];
+  };
+}
+
+interface WelcomeContentDeps {
+  config?: ConfigType;
+  playtime?: typeof _defaultPlaytime;
+  playerStats?: typeof _defaultPlayerStats;
+  getServerInfo?: typeof getServerInfo;
+  db?: DbLike | null;
+}
+
 /**
  * Color helper for WelcomeMessage.txt file context.
  * Unlike RCON admin commands, the welcome file needs explicit closing tags:
  *   <TAG>text</>
  * This matches the game's rich text parser for the welcome popup.
  */
-function fileColor(tag: any, text: any) {
+function fileColor(tag: string, text: string) {
   return `<${COLOR[tag] || tag}>${text}</>`;
 }
 
@@ -39,9 +95,9 @@ function fileColor(tag: any, text: any) {
  * Colorize a Discord invite link for WelcomeMessage.txt:
  * "Discord" portion → blue, rest unchanged.
  */
-function _colorLink(link: any) {
+function _colorLink(link: string) {
   if (!link) return '';
-  return link.replace(/discord/i, (m: any) => fileColor('blue', m));
+  return link.replace(/discord/i, (m: string) => fileColor('blue', m));
 }
 
 /**
@@ -49,7 +105,7 @@ function _colorLink(link: any) {
  * "discord.gg" → blue, the ID after → back to gray.
  * Caller is responsible for the surrounding color context.
  */
-function _rconColorLink(link: any) {
+function _rconColorLink(link: string) {
   if (!link) return '';
   const m = link.match(/^(.*?discord\.gg)(\/.*)$/i);
   if (!m) return link;
@@ -58,40 +114,44 @@ function _rconColorLink(link: any) {
 
 // ── Standalone helpers ───────────────────────────────────────
 
-function loadCachedSettings(db: any) {
+function loadCachedSettings(db: DbLike | null): Record<string, unknown> {
   try {
     if (db) {
       const data = db.getStateJSON('server_settings', null);
       if (data) return data;
     }
-  } catch (_: any) {}
+  } catch {
+    // ignore
+  }
   return {};
 }
 
-function loadWelcomeStats(db: any) {
+function loadWelcomeStats(db: DbLike | null): WelcomeStats {
   try {
     if (db) {
       const data = db.getStateJSON('welcome_stats', null);
-      if (data) return data;
+      if (data) return data as WelcomeStats;
     }
-  } catch (_: any) {}
+  } catch {
+    // ignore
+  }
   return {};
 }
 
-function formatMs(ms: any) {
+function formatMs(ms: number) {
   if (!ms || ms <= 0) return '0m';
   const totalMin = Math.floor(ms / 60000);
   const days = Math.floor(totalMin / 1440);
   const hours = Math.floor((totalMin % 1440) / 60);
   const mins = totalMin % 60;
-  const parts = [];
+  const parts: string[] = [];
   if (days > 0) parts.push(`${days}d`);
   if (hours > 0) parts.push(`${hours}h`);
   if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
   return parts.join(' ');
 }
 
-function _getTimePartsInTz(date: any, timeZone: any) {
+function _getTimePartsInTz(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -99,21 +159,21 @@ function _getTimePartsInTz(date: any, timeZone: any) {
     hourCycle: 'h23',
     timeZone,
   }).formatToParts(date);
-  const hour = parseInt(parts.find((p: any) => p.type === 'hour')?.value || '0', 10);
-  const minute = parseInt(parts.find((p: any) => p.type === 'minute')?.value || '0', 10);
+  const hour = parseInt(parts.find((p: Intl.DateTimeFormatPart) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p: Intl.DateTimeFormatPart) => p.type === 'minute')?.value || '0', 10);
   return { hour, minute };
 }
 
-function _getWeekdayInTz(date: any, timeZone: any) {
+function _getWeekdayInTz(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     timeZone,
   }).formatToParts(date);
-  const year = parseInt(parts.find((p: any) => p.type === 'year')?.value || '1970', 10);
-  const month = parseInt(parts.find((p: any) => p.type === 'month')?.value || '1', 10);
-  const day = parseInt(parts.find((p: any) => p.type === 'day')?.value || '1', 10);
+  const year = parseInt(parts.find((p: Intl.DateTimeFormatPart) => p.type === 'year')?.value || '1970', 10);
+  const month = parseInt(parts.find((p: Intl.DateTimeFormatPart) => p.type === 'month')?.value || '1', 10);
+  const day = parseInt(parts.find((p: Intl.DateTimeFormatPart) => p.type === 'day')?.value || '1', 10);
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
@@ -126,13 +186,13 @@ function pvpScheduleLabel() {
   const startMin = _defaultConfig.pvpStartMinutes;
   const endMin = _defaultConfig.pvpEndMinutes;
   if (isNaN(startMin) || isNaN(endMin)) return '';
-  const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const pvpDays = _defaultConfig.pvpDays;
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const daysLabel = pvpDays
     ? [...pvpDays]
         .sort()
-        .map((d: any) => DAY_NAMES[d])
+        .map((d: number) => DAY_NAMES[d])
         .join(', ') + ' '
     : '';
   return `PvP Schedule: ${daysLabel}${fmt(startMin)}\u2013${fmt(endMin)} ${_defaultConfig.botTimezone}`;
@@ -144,17 +204,17 @@ function pvpScheduleLabel() {
  * Highlights the currently active profile based on time.
  * When RESTART_ROTATE_DAILY is on, profile↔slot mapping shifts each day.
  */
-function difficultyScheduleLines(cfg: any) {
+function difficultyScheduleLines(cfg: ConfigType) {
   if (!cfg.enableServerScheduler) return [];
-  const timesStr = cfg.restartTimes || process.env.RESTART_TIMES || '';
-  const profilesStr = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
+  const timesStr: string = cfg.restartTimes || process.env.RESTART_TIMES || '';
+  const profilesStr: string = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
   const times = timesStr
     .split(',')
-    .map((s: any) => s.trim())
+    .map((s: string) => s.trim())
     .filter(Boolean);
   const profiles = profilesStr
     .split(',')
-    .map((s: any) => s.trim().toLowerCase())
+    .map((s: string) => s.trim().toLowerCase())
     .filter(Boolean);
   if (times.length === 0 || profiles.length === 0) return [];
 
@@ -165,50 +225,50 @@ function difficultyScheduleLines(cfg: any) {
   const now = new Date();
   const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
-  const timeMins = times.map((t: any) => {
-    const [th = 0, tm = 0] = t.split(':').map(Number) as number[];
+  const timeMins = times.map((t: string) => {
+    const [th = 0, tm = 0] = t.split(':').map(Number);
     return th * 60 + (tm || 0);
   });
   let activeSlot = 0;
   for (let i = timeMins.length - 1; i >= 0; i--) {
-    if (nowMin >= timeMins[i]) {
+    if (nowMin >= (timeMins[i] ?? 0)) {
       activeSlot = i;
       break;
     }
   }
 
   // Build lines — iterate by time slot, resolve profile via rotation
-  const lines = [];
+  const lines: string[] = [];
   lines.push(fileColor('ember', '--- Difficulty Schedule ---'));
   for (let slotIdx = 0; slotIdx < times.length; slotIdx++) {
     const profileIdx = getRotatedProfileIndex(slotIdx, profiles.length, dayOffset);
-    const name = profiles[profileIdx];
+    const name = profiles[profileIdx] ?? '';
     const envKey = `RESTART_PROFILE_${name.toUpperCase()}`;
-    let settings = {};
+    let settings: Record<string, string> = {};
     try {
-      settings = JSON.parse(process.env[envKey] || '{}');
+      settings = JSON.parse(process.env[envKey] || '{}') as Record<string, string>;
     } catch {}
-    const startTime = times[slotIdx];
-    const endTime = times[(slotIdx + 1) % times.length] || times[0];
+    const startTime = times[slotIdx] ?? '';
+    const endTime = times[(slotIdx + 1) % times.length] ?? times[0] ?? '';
     // Build a short description
-    const zombieAmt = parseFloat((settings as any).ZombieAmountMulti);
-    const xp = parseFloat((settings as any).XpMultiplier);
-    const desc = [];
+    const zombieAmt = parseFloat(settings.ZombieAmountMulti ?? '');
+    const xp = parseFloat(settings.XpMultiplier ?? '');
+    const desc: string[] = [];
     if (!isNaN(zombieAmt)) {
       if (zombieAmt <= 0.6) desc.push('Few Zombies');
       else if (zombieAmt <= 1.2) desc.push('More Zombies');
       else desc.push(`${zombieAmt}x Zombies`);
     }
     if (!isNaN(xp) && xp > 1) desc.push(`${xp}x XP`);
-    const lootLevel = parseInt((settings as any).RarityMelee || (settings as any).RarityFood, 10);
+    const lootLevel = parseInt(settings.RarityMelee ?? settings.RarityFood ?? '', 10);
     if (!isNaN(lootLevel) && lootLevel > 2) desc.push('Better Loot');
     const descStr = desc.join(', ') || name;
     const label = `${startTime}\u2013${endTime}`;
     const isActive = slotIdx === activeSlot;
     const marker = isActive ? ' \u25c0 NOW' : '';
     const nameDisplay = name.charAt(0).toUpperCase() + name.slice(1);
-    const profileColors = { calm: 'green', surge: 'ember', horde: 'red' };
-    const nameColor = (profileColors as Record<string, string>)[name] || 'gray';
+    const nameColor: string =
+      name === 'calm' ? 'green' : name === 'surge' ? 'ember' : name === 'horde' ? 'red' : 'gray';
     if (isActive) {
       lines.push(
         `${fileColor(nameColor, nameDisplay)} ${fileColor('gray', label)} ${fileColor('gray', descStr)}${fileColor('ember', marker)}`,
@@ -225,21 +285,21 @@ function difficultyScheduleLines(cfg: any) {
  * Exported so player-stats-channel can call it after save polls.
  * No RCON required — uses cached server-settings.json for server name.
  */
-async function buildWelcomeContent(deps: any = {}) {
+async function buildWelcomeContent(deps: WelcomeContentDeps = {}) {
   const cfg = deps.config || _defaultConfig;
   const pt = deps.playtime || _defaultPlaytime;
   const ps = deps.playerStats || _defaultPlayerStats;
   const getInfo = deps.getServerInfo || getServerInfo;
   const db = deps.db || null;
   const settings = loadCachedSettings(db);
-  const parts = [];
+  const parts: string[] = [];
 
   // ── Title ──
   let serverName = '';
   try {
     serverName = (await getInfo()).name || '';
   } catch {}
-  if (!serverName && settings.ServerName) {
+  if (!serverName && typeof settings.ServerName === 'string') {
     serverName = settings.ServerName.replace(/^"|"$/g, '');
   }
   serverName = serverName.replace(/\s*[-\u2013\u2014|\xb7:]*\s*discord\.\w+\/\S*/gi, '').trim();
@@ -248,12 +308,12 @@ async function buildWelcomeContent(deps: any = {}) {
 
   // ── Key Settings ──
   if (Object.keys(settings).length > 0) {
-    const sp = [];
-    const zombieHealth = diffLabel(settings.ZombieDiffHealth);
-    const zombieSpawns = spawnLabel(settings.ZombieAmountMulti);
+    const sp: string[] = [];
+    const zombieHealth = diffLabel(settings.ZombieDiffHealth as string | undefined);
+    const zombieSpawns = spawnLabel(settings.ZombieAmountMulti as string | undefined);
     if (zombieHealth) sp.push(`Zombies: ${zombieHealth}`);
     if (zombieSpawns && zombieSpawns !== 'Medium') sp.push(`Spawns: ${zombieSpawns}`);
-    if (settings.LootRespawnTimer) sp.push(`Loot: ${settings.LootRespawnTimer}m`);
+    if (settings.LootRespawnTimer) sp.push(`Loot: ${String(settings.LootRespawnTimer as string | number)}m`);
     const pvpOn = settings.PVP === '1' || settings.PVP === 'true';
     sp.push(`PvP: ${pvpOn ? 'On' : 'Off'}`);
     if (sp.length > 0) parts.push(fileColor('gray', sp.join('  |  ')));
@@ -272,12 +332,12 @@ async function buildWelcomeContent(deps: any = {}) {
 
   // ── Helper: build an inline row of top entries ──
   const RANKS = ['1st', '2nd', '3rd'];
-  function inlineRow(entries: any[], colorTag: any) {
-    return entries.map((text: any, i: any) => `${fileColor(colorTag, RANKS[i])} ${text}`).join('  |  ');
+  function inlineRow(entries: string[], colorTag: string) {
+    return entries.map((text: string, i: number) => `${fileColor(colorTag, RANKS[i] ?? '')} ${text}`).join('  |  ');
   }
 
   // ── Leaderboards ──
-  const leaderboard = pt.getLeaderboard();
+  const leaderboard = pt.getLeaderboard() as LeaderboardEntry[];
   const welcomeStats = loadWelcomeStats(db);
 
   if (leaderboard.length > 0) {
@@ -285,7 +345,7 @@ async function buildWelcomeContent(deps: any = {}) {
     parts.push(fileColor('ember', '--- Top Survivors ---'));
     const top = leaderboard
       .slice(0, 3)
-      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', formatMs(e.totalMs))}`);
+      .map((e: LeaderboardEntry) => `${fileColor('green', e.name)} - ${fileColor('gray', formatMs(e.totalMs))}`);
     parts.push(inlineRow(top, 'ember'));
   }
 
@@ -293,7 +353,9 @@ async function buildWelcomeContent(deps: any = {}) {
     parts.push(fileColor('ember', '--- Top Zombie Killers ---'));
     const topK = welcomeStats.topKillers
       .slice(0, 3)
-      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills.toLocaleString() + ' kills')}`);
+      .map(
+        (e: StatEntry) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills.toLocaleString() + ' kills')}`,
+      );
     parts.push(inlineRow(topK, 'ember'));
   }
 
@@ -301,23 +363,27 @@ async function buildWelcomeContent(deps: any = {}) {
     parts.push(fileColor('ember', '--- Top PvP Killers ---'));
     const topP = welcomeStats.topPvpKillers
       .slice(0, 3)
-      .map((e: any) => `${fileColor('green', e.name)} - ${fileColor('gray', e.kills + ' kills')}`);
+      .map((e: StatEntry) => `${fileColor('green', e.name)} - ${fileColor('gray', String(e.kills) + ' kills')}`);
     parts.push(inlineRow(topP, 'ember'));
   }
 
   // ── Fun stats (compact single-line: top fisher + most bitten) ──
-  const funParts = [];
+  const funParts: string[] = [];
   if (welcomeStats.topFishers && welcomeStats.topFishers.length > 0) {
     const f = welcomeStats.topFishers[0];
-    funParts.push(
-      `${fileColor('ember', 'Top Fisher:')} ${fileColor('green', f.name)} ${fileColor('gray', f.count + ' fish')}`,
-    );
+    if (f) {
+      funParts.push(
+        `${fileColor('ember', 'Top Fisher:')} ${fileColor('green', f.name)} ${fileColor('gray', String(f.count) + ' fish')}`,
+      );
+    }
   }
   if (welcomeStats.topBitten && welcomeStats.topBitten.length > 0) {
     const b = welcomeStats.topBitten[0];
-    funParts.push(
-      `${fileColor('ember', 'Most Bitten:')} ${fileColor('green', b.name)} ${fileColor('gray', b.count + ' bites')}`,
-    );
+    if (b) {
+      funParts.push(
+        `${fileColor('ember', 'Most Bitten:')} ${fileColor('green', b.name)} ${fileColor('gray', String(b.count) + ' bites')}`,
+      );
+    }
   }
   if (funParts.length > 0) {
     parts.push(funParts.join('  |  '));
@@ -327,11 +393,11 @@ async function buildWelcomeContent(deps: any = {}) {
   if (welcomeStats.topClans && welcomeStats.topClans.length > 0) {
     parts.push(fileColor('ember', '--- Top Clans ---'));
     const topC = welcomeStats.topClans.slice(0, 3);
-    topC.forEach((c: any, i: any) => {
-      const pt = formatMs(c.playtimeMs || 0);
+    topC.forEach((c: ClanEntry, i: number) => {
+      const ptMs = formatMs(c.playtimeMs || 0);
       const mem = c.members === 1 ? '1 member' : `${c.members} members`;
       parts.push(
-        `${fileColor('ember', RANKS[i])} ${fileColor('green', c.name)} ${fileColor('gray', '(' + mem + ')')} - ${fileColor('gray', c.kills.toLocaleString() + ' kills')} - ${fileColor('gray', pt + ' played')}`,
+        `${fileColor('ember', RANKS[i] ?? '')} ${fileColor('green', c.name)} ${fileColor('gray', '(' + mem + ')')} - ${fileColor('gray', c.kills.toLocaleString() + ' kills')} - ${fileColor('gray', ptMs + ' played')}`,
       );
     });
   }
@@ -339,23 +405,21 @@ async function buildWelcomeContent(deps: any = {}) {
   // ── Weekly Highlights (single line, #1 per category) ──
   const w = welcomeStats.weekly;
   if (w) {
-    const wp = [];
-    if (w.topKillers?.length > 0)
+    const wp: string[] = [];
+    const wk = w.topKillers?.[0];
+    if (wk)
+      wp.push(`${fileColor('ember', 'Kills:')} ${fileColor('green', wk.name)} ${fileColor('gray', String(wk.kills))}`);
+    const wpvp = w.topPvpKillers?.[0];
+    if (wpvp)
       wp.push(
-        `${fileColor('ember', 'Kills:')} ${fileColor('green', w.topKillers[0].name)} ${fileColor('gray', String(w.topKillers[0].kills))}`,
+        `${fileColor('ember', 'PvP:')} ${fileColor('green', wpvp.name)} ${fileColor('gray', String(wpvp.kills))}`,
       );
-    if (w.topPvpKillers?.length > 0)
-      wp.push(
-        `${fileColor('ember', 'PvP:')} ${fileColor('green', w.topPvpKillers[0].name)} ${fileColor('gray', String(w.topPvpKillers[0].kills))}`,
-      );
-    if (w.topPlaytime?.length > 0)
-      wp.push(
-        `${fileColor('ember', 'Time:')} ${fileColor('green', w.topPlaytime[0].name)} ${fileColor('gray', formatMs(w.topPlaytime[0].ms))}`,
-      );
-    if (w.topFishers?.length > 0)
-      wp.push(
-        `${fileColor('ember', 'Fish:')} ${fileColor('green', w.topFishers[0].name)} ${fileColor('gray', String(w.topFishers[0].count))}`,
-      );
+    const wpt = w.topPlaytime?.[0];
+    if (wpt)
+      wp.push(`${fileColor('ember', 'Time:')} ${fileColor('green', wpt.name)} ${fileColor('gray', formatMs(wpt.ms))}`);
+    const wf = w.topFishers?.[0];
+    if (wf)
+      wp.push(`${fileColor('ember', 'Fish:')} ${fileColor('green', wf.name)} ${fileColor('gray', String(wf.count))}`);
     if (wp.length > 0) {
       parts.push(fileColor('ember', '--- This Week ---'));
       parts.push(wp.join('  |  '));
@@ -363,12 +427,12 @@ async function buildWelcomeContent(deps: any = {}) {
   }
 
   // ── Footer ──
-  const allLog = ps.getAllPlayers();
+  const allLog = ps.getAllPlayers() as unknown as PlayerRow[];
   if (allLog.length > 0) {
-    const totalDeaths = allLog.reduce((s: any, p: any) => s + p.deaths, 0);
-    const totalBuilds = allLog.reduce((s: any, p: any) => s + p.builds, 0);
-    const totalLooted = allLog.reduce((s: any, p: any) => s + p.containersLooted, 0);
-    const sp = [];
+    const totalDeaths = allLog.reduce((s: number, p: PlayerRow) => s + p.deaths, 0);
+    const totalBuilds = allLog.reduce((s: number, p: PlayerRow) => s + p.builds, 0);
+    const totalLooted = allLog.reduce((s: number, p: PlayerRow) => s + p.containersLooted, 0);
+    const sp: string[] = [];
     if (totalDeaths > 0) sp.push(`${totalDeaths} Deaths`);
     if (totalBuilds > 0) sp.push(`${totalBuilds} Builds`);
     if (totalLooted > 0) sp.push(`${totalLooted} Looted`);
@@ -393,19 +457,23 @@ async function buildWelcomeContent(deps: any = {}) {
 
 // ── Instance methods (mixed into AutoMessages.prototype) ─────
 
+interface AutoMessagesThis {
+  _config: ConfigType;
+}
+
 /** Short inline text about current difficulty profile for RCON welcome. */
-function _difficultyText(this: any) {
+function _difficultyText(this: AutoMessagesThis) {
   const cfg = this._config;
   if (!cfg.enableServerScheduler) return '';
-  const profilesStr = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
-  const timesStr = cfg.restartTimes || process.env.RESTART_TIMES || '';
+  const profilesStr: string = cfg.restartProfiles || process.env.RESTART_PROFILES || '';
+  const timesStr: string = cfg.restartTimes || process.env.RESTART_TIMES || '';
   const profiles = profilesStr
     .split(',')
-    .map((s: any) => s.trim().toLowerCase())
+    .map((s: string) => s.trim().toLowerCase())
     .filter(Boolean);
   const times = timesStr
     .split(',')
-    .map((s: any) => s.trim())
+    .map((s: string) => s.trim())
     .filter(Boolean);
   if (profiles.length === 0 || times.length === 0) return '';
 
@@ -416,13 +484,13 @@ function _difficultyText(this: any) {
   const now = new Date();
   const { hour: h, minute: m } = _getTimePartsInTz(now, cfg.botTimezone);
   const nowMin = h * 60 + m;
-  const timeMins = times.map((t: any) => {
-    const [th = 0, tm = 0] = t.split(':').map(Number) as number[];
+  const timeMins = times.map((t: string) => {
+    const [th = 0, tm = 0] = t.split(':').map(Number);
     return th * 60 + (tm || 0);
   });
   let activeSlot = 0;
   for (let i = timeMins.length - 1; i >= 0; i--) {
-    if (nowMin >= timeMins[i]) {
+    if (nowMin >= (timeMins[i] ?? 0)) {
       activeSlot = i;
       break;
     }
@@ -430,28 +498,27 @@ function _difficultyText(this: any) {
 
   // Resolve profile for this slot via rotation
   const profileIdx = getRotatedProfileIndex(activeSlot, profiles.length, dayOffset);
-  const name = profiles[profileIdx];
+  const name = profiles[profileIdx] ?? '';
   const displayName = name.charAt(0).toUpperCase() + name.slice(1);
   // Find next restart
-  let nextTime = null;
+  let nextTime: number | null = null;
   for (const t of timeMins) {
     if (t > nowMin) {
       nextTime = t;
       break;
     }
   }
-  if (nextTime === null) nextTime = timeMins[0] + 1440; // tomorrow
+  if (nextTime === null) nextTime = (timeMins[0] ?? 0) + 1440; // tomorrow
   const minsLeft = nextTime - nowMin;
   const hrs = Math.floor(minsLeft / 60);
   const mins = minsLeft % 60;
   const timeLeft = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   // Profile color: calm=green, surge=ember, horde=red
-  const profileColors = { calm: 'PR', surge: 'SP', horde: 'PN' };
-  const ptag = (profileColors as Record<string, string>)[name] || 'FO';
+  const ptag: string = name === 'calm' ? 'PR' : name === 'surge' ? 'SP' : name === 'horde' ? 'PN' : 'FO';
   return `</><SP> | </><FO>Difficulty: </><${ptag}>${displayName}</><FO> (</><PR>${timeLeft}</><FO> left)`;
 }
 
-function _pvpScheduleText(this: any) {
+function _pvpScheduleText(this: AutoMessagesThis) {
   if (!this._config.enablePvpScheduler) return '';
   const defaultStart = this._config.pvpStartMinutes;
   const defaultEnd = this._config.pvpEndMinutes;
@@ -461,7 +528,7 @@ function _pvpScheduleText(this: any) {
   const hasDefaults = !isNaN(defaultStart) && !isNaN(defaultEnd);
   if (!hasDefaults && (!pvpDayHours || pvpDayHours.size === 0)) return '';
 
-  const fmt = (m: any) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const pvpDays = this._config.pvpDays; // null = every day
 
@@ -474,8 +541,8 @@ function _pvpScheduleText(this: any) {
   const dayOfWeek = _getWeekdayInTz(now, this._config.botTimezone);
 
   // Resolve hours for a given day (per-day override or global default)
-  const getHours = (day: any) => {
-    if (pvpDayHours && pvpDayHours.has(day)) return pvpDayHours.get(day);
+  const getHours = (day: number): { start: number | undefined; end: number | undefined } => {
+    if (pvpDayHours && pvpDayHours.has(day)) return pvpDayHours.get(day) as { start: number; end: number };
     if (hasDefaults) return { start: defaultStart, end: defaultEnd };
     return { start: undefined, end: undefined };
   };
@@ -519,7 +586,7 @@ function _pvpScheduleText(this: any) {
   const daysLabel = pvpDays
     ? [...pvpDays]
         .sort()
-        .map((d: any) => DAY_NAMES[d])
+        .map((d: number) => DAY_NAMES[d])
         .join(', ')
     : '';
 
@@ -536,15 +603,15 @@ function _pvpScheduleText(this: any) {
       const prev = getHours(prevDay);
       activeEnd = prev.end;
     }
-    const minsLeft = activeEnd > nowMin ? activeEnd - nowMin : 1440 - nowMin + activeEnd;
+    const minsLeft = (activeEnd ?? 0) > nowMin ? (activeEnd ?? 0) - nowMin : 1440 - nowMin + (activeEnd ?? 0);
     const hours = Math.floor(minsLeft / 60);
     const mins = minsLeft % 60;
     const timeLeft = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    return ` PvP is enabled for ${timeLeft} (until ${fmt(activeEnd)} ${this._config.botTimezone}).`;
+    return ` PvP is enabled for ${timeLeft} (until ${fmt(activeEnd ?? 0)} ${this._config.botTimezone}).`;
   } else {
     // Calculate time until next PvP start
     let minsUntil = Infinity;
-    const checkDays = pvpDays ? pvpDays : new Set([0, 1, 2, 3, 4, 5, 6]);
+    const checkDays: Set<number> = pvpDays ? pvpDays : new Set([0, 1, 2, 3, 4, 5, 6]);
     for (let d = 0; d <= 7; d++) {
       const checkDay = (dayOfWeek + d) % 7;
       if (!checkDays.has(checkDay)) continue;
@@ -563,7 +630,7 @@ function _pvpScheduleText(this: any) {
     const days = Math.floor(minsUntil / 1440);
     const hours = Math.floor((minsUntil % 1440) / 60);
     const mins = minsUntil % 60;
-    const parts = [];
+    const parts: string[] = [];
     if (days > 0) parts.push(`${days}d`);
     if (hours > 0) parts.push(`${hours}h`);
     if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
@@ -578,7 +645,7 @@ function _pvpScheduleText(this: any) {
     }
     const schedStart = nextStart !== undefined ? fmt(nextStart) : fmt(defaultStart);
     const nextEnd = getHours(
-      pvpDays ? ([...checkDays].find((d2: any) => getHours(d2).start !== undefined) ?? dayOfWeek) : dayOfWeek,
+      pvpDays ? ([...checkDays].find((d2: number) => getHours(d2).start !== undefined) ?? dayOfWeek) : dayOfWeek,
     ).end;
     const schedEnd = nextEnd !== undefined ? fmt(nextEnd) : fmt(defaultEnd);
 

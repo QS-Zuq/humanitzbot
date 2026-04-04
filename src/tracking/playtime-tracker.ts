@@ -3,6 +3,7 @@ import path from 'node:path';
 import config from '../config/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof config;
 
@@ -72,10 +73,10 @@ export interface PlaytimeTrackerOptions {
   db?: HumanitZDB | null;
 }
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
-  getAllPlayerPlaytime(): DbPlaytimeRow[];
-  getAllServerPeaks(): DbPeaksRow;
+  getAllPlayerPlaytime(): Record<string, unknown>[];
+  getAllServerPeaks(): Record<string, unknown>;
   upsertFullPlaytime(steamId: string, data: UpsertPlaytimeData): void;
   setServerPeak(key: string, value: string): void;
   registerAlias(steamId: string, name: string, source: string): void;
@@ -145,9 +146,7 @@ export class PlaytimeTracker {
   init(): void {
     if (this._data) return; // already initialised
     this._loadFromDb(); // load from DB
-    // _loadFromDb may leave _data null if DB is empty or absent.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!this._data) {
+    if (!(this._data as TrackerData | null)) {
       // DB has nothing yet — create empty structure
       this._data = {
         trackingSince: new Date().toISOString(),
@@ -188,7 +187,7 @@ export class PlaytimeTracker {
     // real DB values on the next _persistPlaytime() call.
     if (this._data) {
       try {
-        const rows = db.getAllPlayerPlaytime();
+        const rows = db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
         if (rows.length > 0) {
           let reloaded = 0;
           for (const row of rows) {
@@ -225,7 +224,7 @@ export class PlaytimeTracker {
           }
         }
       } catch (err) {
-        this._log.warn('DB reload on setDb() failed:', (err as Error).message);
+        this._log.warn('DB reload on setDb() failed:', errMsg(err));
       }
     }
   }
@@ -476,11 +475,11 @@ export class PlaytimeTracker {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerPlaytime();
+      const rows = this._db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[];
       if (rows.length === 0) return; // DB empty — fall through to JSON
 
       // Load peaks from server_peaks table
-      const peaksData = this._db.getAllServerPeaks();
+      const peaksData = this._db.getAllServerPeaks() as DbPeaksRow;
       const peaks: PeaksData = {
         allTimePeak: parseInt(peaksData.all_time_peak ?? '0', 10),
         allTimePeakDate: peaksData.all_time_peak_date ?? null,
@@ -510,7 +509,7 @@ export class PlaytimeTracker {
       }
       this._log.info(`Loaded ${String(rows.length)} player(s) from database`);
     } catch (err) {
-      this._log.error('DB load failed:', (err as Error).message);
+      this._log.error('DB load failed:', errMsg(err));
       this._data = null;
     }
   }
@@ -531,7 +530,7 @@ export class PlaytimeTracker {
       });
     } catch (err) {
       if (!this._persistWarnLogged) {
-        this._log.warn('DB persist failed (will suppress further):', (err as Error).message);
+        this._log.warn('DB persist failed (will suppress further):', errMsg(err));
         this._persistWarnLogged = true;
       }
     }
@@ -598,8 +597,7 @@ export class PlaytimeTracker {
     }
     if (toDelete.length > 0) {
       for (const key of toDelete) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete st.players[key];
+        Reflect.deleteProperty(st.players, key);
       }
       // Also clean uniqueToday of any name-based entries
       st.peaks.uniqueToday = st.peaks.uniqueToday.filter((id) => /^\d{17}$/.test(id));
@@ -658,7 +656,7 @@ export class PlaytimeTracker {
         this._log.info(`Backfilled uniqueDayPeak: ${String(bestCount)} on ${bestDate}`);
       }
     } catch (err) {
-      this._log.warn('Could not backfill uniqueDayPeak:', (err as Error).message);
+      this._log.warn('Could not backfill uniqueDayPeak:', errMsg(err));
     }
   }
 
@@ -704,11 +702,3 @@ export class PlaytimeTracker {
 // Singleton — shared across the bot
 const _singleton = new PlaytimeTracker();
 export default _singleton;
-
-// CJS compat — consumed by non-migrated .js modules via require()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = _singleton;
-_mod.exports.PlaytimeTracker = PlaytimeTracker;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

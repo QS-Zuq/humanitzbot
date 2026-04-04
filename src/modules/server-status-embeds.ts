@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands,
-   @typescript-eslint/no-unnecessary-template-expression */
-
 import { EmbedBuilder } from 'discord.js';
 import {
   formatTime as _formatTime,
@@ -18,18 +12,108 @@ import {
   buildResourceField as _buildResourceField,
 } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
+import { formatUptime as fmtUp } from '../server/server-resources.js';
+import _defaultConfig from '../config/index.js';
 
-function _ts(locale: any, key: any, vars: any = {}) {
+// ── Types ───────────────────────────────────────────────────────────────────
+
+type ConfigType = typeof _defaultConfig;
+
+interface ServerInfo {
+  players?: unknown;
+  maxPlayers?: unknown;
+  name?: unknown;
+  day?: unknown;
+  time?: unknown;
+  season?: unknown;
+  weather?: unknown;
+  fps?: unknown;
+  ai?: unknown;
+  version?: unknown;
+}
+
+interface PlayerListEntry {
+  name: string;
+}
+
+interface PlayerList {
+  count: number;
+  players?: PlayerListEntry[];
+}
+
+interface LeaderboardEntry {
+  name: string;
+  totalFormatted: string;
+}
+
+interface PeaksData {
+  todayPeak: number;
+  uniqueToday: number;
+  allTimePeak: number;
+  allTimePeakDate?: string | null;
+  yesterdayPeak?: number;
+}
+
+interface PlaytimeLike {
+  getTrackingSince(): string;
+  getLeaderboard(): LeaderboardEntry[];
+  getPeaks(): PeaksData;
+}
+
+interface PlayerStatsEntry {
+  deaths: number;
+  builds: number;
+  containersLooted: number;
+  raidsOut: number;
+}
+
+interface PlayerStatsLike {
+  getAllPlayers(): PlayerStatsEntry[];
+}
+
+interface ResourceData {
+  uptime?: number;
+  [key: string]: unknown;
+}
+
+interface ServerResourcesLike {
+  backend: unknown;
+  getResources(): Promise<ResourceData | null>;
+}
+
+/** Context object — `this` in _buildEmbed / _buildOfflineEmbed (ServerStatus instance). */
+interface StatusContext {
+  _config: ConfigType;
+  _playtime: PlaytimeLike;
+  _playerStats: PlayerStatsLike;
+  _serverResources: ServerResourcesLike;
+  _onlineSince: Date | null;
+  _offlineSince: Date | null;
+  _lastInfo: ServerInfo | null;
+  _loadServerSettings(): Record<string, unknown>;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function _ts(locale: string, key: string, vars: Record<string, unknown> = {}): string {
   return t(`discord:status.${key}`, locale, vars);
 }
 
-function _normalizeLabel(value: any) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+function _normalizeLabel(value: unknown): string {
+  if (typeof value === 'string') return value.trim().toLowerCase();
+  if (value == null) return '';
+  return _str(value).trim().toLowerCase();
 }
 
-function _seasonLabel(locale: any, season: any) {
+/** Safely convert unknown to string. */
+function _str(val: unknown, fallback = ''): string {
+  if (typeof val === 'string') return val;
+  if (val == null) return fallback;
+  if (typeof val === 'number' || typeof val === 'boolean') return `${val}`;
+  return JSON.stringify(val);
+}
+
+function _seasonLabel(locale: string, season: unknown): string {
   const norm = _normalizeLabel(season);
   const keyMap: Record<string, string> = {
     spring: 'season_spring',
@@ -38,10 +122,10 @@ function _seasonLabel(locale: any, season: any) {
     fall: 'season_autumn',
     winter: 'season_winter',
   };
-  return keyMap[norm] ? _ts(locale, keyMap[norm]) : season || '--';
+  return keyMap[norm] ? _ts(locale, keyMap[norm]) : _str(season, '--');
 }
 
-function _weatherLabel(locale: any, weather: any) {
+function _weatherLabel(locale: string, weather: unknown): string {
   const norm = _normalizeLabel(weather);
   const keyMap: Record<string, string> = {
     clear: 'weather_clear',
@@ -59,19 +143,23 @@ function _weatherLabel(locale: any, weather: any) {
     heatwave: 'weather_heatwave',
     sandstorm: 'weather_sandstorm',
   };
-  return keyMap[norm] ? _ts(locale, keyMap[norm]) : weather || '--';
+  return keyMap[norm] ? _ts(locale, keyMap[norm]) : _str(weather, '--');
 }
 
-function _footer(playtimeTracker: any, cfg: any) {
-  const locale = getLocale({ serverConfig: cfg });
+function _footer(playtimeTracker: PlaytimeLike, cfg: ConfigType): string {
+  const locale = getLocale({ serverConfig: cfg as unknown as { locale?: string } });
   const since = fmtDate(playtimeTracker.getTrackingSince(), locale, cfg.botTimezone);
   return _ts(locale, 'tracking_footer', { since });
 }
 
-function _settingsBlock(settings: any, cfg: any, locale: any) {
-  const fields = [];
+function _settingsBlock(
+  settings: Record<string, unknown>,
+  cfg: ConfigType,
+  locale: string,
+): Array<{ name: string; value: string; inline?: boolean }> {
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
   if (cfg.showServerSettings && Object.keys(settings).length > 0) {
-    const sf = _buildSettingsFields(settings, cfg);
+    const sf = _buildSettingsFields(settings, cfg as unknown as Record<string, unknown>);
     if (sf.length > 0) fields.push(...sf);
   }
 
@@ -92,15 +180,18 @@ function _settingsBlock(settings: any, cfg: any, locale: any) {
   return fields;
 }
 
-function _statsBlock(playtimeTracker: any, playerStats: any, cfg: any, locale: any) {
-  const fields = [];
+function _statsBlock(
+  playtimeTracker: PlaytimeLike,
+  playerStats: PlayerStatsLike,
+  cfg: ConfigType,
+  locale: string,
+): Array<{ name: string; value: string; inline?: boolean }> {
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
 
   const leaderboard = playtimeTracker.getLeaderboard();
   if (leaderboard.length > 0) {
     const medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
-    const top3 = leaderboard
-      .slice(0, 3)
-      .map((e: any, i: any) => `${medals[i]} **${e.name}** \u2014 ${e.totalFormatted}`);
+    const top3 = leaderboard.slice(0, 3).map((e, i) => `${medals[i]} **${e.name}** \u2014 ${e.totalFormatted}`);
     fields.push({ name: _ts(locale, 'top_playtime'), value: top3.join('\n'), inline: true });
   }
 
@@ -109,25 +200,25 @@ function _statsBlock(playtimeTracker: any, playerStats: any, cfg: any, locale: a
     const parts = [
       _ts(locale, 'activity_deaths', {
         count: fmtNumber(
-          all.reduce((s: any, p: any) => s + p.deaths, 0),
+          all.reduce((s, p) => s + p.deaths, 0),
           locale,
         ),
       }),
       _ts(locale, 'activity_builds', {
         count: fmtNumber(
-          all.reduce((s: any, p: any) => s + p.builds, 0),
+          all.reduce((s, p) => s + p.builds, 0),
           locale,
         ),
       }),
       _ts(locale, 'activity_looted', {
         count: fmtNumber(
-          all.reduce((s: any, p: any) => s + p.containersLooted, 0),
+          all.reduce((s, p) => s + p.containersLooted, 0),
           locale,
         ),
       }),
     ];
     if (cfg.showRaidStats) {
-      const r = all.reduce((s: any, p: any) => s + p.raidsOut, 0);
+      const r = all.reduce((s, p) => s + p.raidsOut, 0);
       if (r > 0) parts.push(_ts(locale, 'activity_raids', { count: fmtNumber(r, locale) }));
     }
     fields.push({ name: _ts(locale, 'activity'), value: parts.join('  \xB7  '), inline: true });
@@ -157,8 +248,13 @@ function _statsBlock(playtimeTracker: any, playerStats: any, cfg: any, locale: a
   return fields;
 }
 
-function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
-  const locale = getLocale({ serverConfig: this._config });
+function _buildEmbed(
+  this: StatusContext,
+  info: ServerInfo | null,
+  playerList: PlayerList | null,
+  resources?: ResourceData | null,
+): EmbedBuilder {
+  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)
@@ -171,20 +267,18 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
     return embed;
   }
 
-  const schedField = _buildScheduleField(this._config);
+  const schedField = _buildScheduleField(this._config as unknown as Record<string, unknown>);
   if (schedField) embed.addFields(schedField);
 
   const host = this._config.publicHost || this._config.rconHost || _ts(locale, 'unknown');
   const port = this._config.gamePort || null;
   const connectStr = port ? `${host}:${port}` : host;
 
-  const descParts = [];
-  if (info.name) descParts.push(`**${info.name}**`);
+  const descParts: string[] = [];
+  if (info.name) descParts.push(`**${_str(info.name)}**`);
 
   let uptimeStr = '';
   if (resources?.uptime != null) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { formatUptime: fmtUp } = require('../server/server-resources') as { formatUptime: (n: number) => string };
     const up = fmtUp(resources.uptime);
     if (up) uptimeStr = ` \xB7 ${_ts(locale, 'uptime')}: ${up}`;
   } else if (this._onlineSince) {
@@ -206,37 +300,41 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
 
   const settings = this._loadServerSettings();
 
-  let playerCount;
+  let playerCount: string;
   let playerBar = '';
   if (info.players != null) {
-    const max = parseInt(info.maxPlayers, 10) || 0;
-    const cur = parseInt(info.players, 10) || 0;
-    playerCount = max ? `${fmtNumber(cur, locale)} / ${fmtNumber(max, locale)}` : `${fmtNumber(cur, locale)}`;
+    const max = parseInt(_str(info.maxPlayers), 10) || 0;
+    const cur = parseInt(_str(info.players), 10) || 0;
+    playerCount = max ? `${fmtNumber(cur, locale)} / ${fmtNumber(max, locale)}` : fmtNumber(cur, locale);
     if (max > 0) playerBar = `\n${_progressBar(cur / max, 12)}`;
   } else {
-    playerCount = `${fmtNumber(playerList.count, locale)}`;
+    playerCount = fmtNumber(playerList.count, locale);
   }
 
-  const time = _formatTime(info.time) || '--';
+  const time = _formatTime(_str(info.time)) || '--';
   embed.addFields(
     { name: _ts(locale, 'players'), value: `${playerCount}${playerBar}`, inline: true },
     { name: _ts(locale, 'time', { emoji: _timeEmoji(time) }), value: time, inline: true },
   );
 
-  const dayValue = info.day || (settings._daysPassed != null ? String(Math.floor(settings._daysPassed)) : null);
+  const dayValue = info.day
+    ? _str(info.day)
+    : (settings._daysPassed as number | null | undefined) != null
+      ? String(Math.floor(settings._daysPassed as number))
+      : null;
   if (this._config.showServerDay && dayValue) {
-    embed.addFields({ name: _ts(locale, 'day'), value: fmtNumber(dayValue, locale), inline: true });
+    embed.addFields({ name: _ts(locale, 'day'), value: fmtNumber(parseInt(dayValue, 10), locale), inline: true });
   }
 
-  const rawSeason = info.season || settings._currentSeason || '--';
+  const rawSeason = _str(info.season, _str(settings._currentSeason, '--'));
   const season = _seasonLabel(locale, rawSeason);
-  const rawWeather = info.weather || settings._currentWeather || '--';
+  const rawWeather = _str(info.weather, _str(settings._currentWeather, '--'));
   const weather = _weatherLabel(locale, rawWeather);
   let seasonDisplay = `${_seasonEmoji(rawSeason)}${season}`;
   if (this._config.showSeasonProgress && settings.DaysPerSeason) {
-    const dps = parseInt(settings.DaysPerSeason, 10);
+    const dps = parseInt(_str(settings.DaysPerSeason), 10);
     if (dps > 0 && settings._currentSeasonDay != null) {
-      const dayInSeason = Math.floor(settings._currentSeasonDay) + 1;
+      const dayInSeason = Math.floor(settings._currentSeasonDay as number) + 1;
       seasonDisplay = _ts(locale, 'season_with_day', {
         season: `${_seasonEmoji(rawSeason)}${season}`,
         day: fmtNumber(dayInSeason, locale),
@@ -262,22 +360,22 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
     inline: true,
   });
 
-  if (playerList.players?.length > 0) {
-    const names = playerList.players.map((p: any) => p.name).join(', ');
+  if (playerList.players && playerList.players.length > 0) {
+    const names = playerList.players.map((p) => p.name).join(', ');
     embed.addFields({ name: _ts(locale, 'online_now'), value: names.substring(0, 1024) });
   }
 
   embed.addFields(..._statsBlock(this._playtime, this._playerStats, this._config, locale));
 
   if (this._config.showServerPerformance) {
-    const perfParts = [];
-    if (info.fps) perfParts.push(_ts(locale, 'performance_fps', { value: fmtNumber(info.fps, locale) }));
-    if (info.ai) perfParts.push(_ts(locale, 'performance_ai', { value: fmtNumber(info.ai, locale) }));
+    const perfParts: string[] = [];
+    if (info.fps) perfParts.push(_ts(locale, 'performance_fps', { value: fmtNumber(info.fps as number, locale) }));
+    if (info.ai) perfParts.push(_ts(locale, 'performance_ai', { value: fmtNumber(info.ai as number, locale) }));
     if (perfParts.length > 0)
       embed.addFields({ name: _ts(locale, 'performance'), value: perfParts.join('  \xB7  '), inline: true });
   }
   if (this._config.showServerVersion && info.version) {
-    embed.addFields({ name: _ts(locale, 'version'), value: info.version, inline: true });
+    embed.addFields({ name: _ts(locale, 'version'), value: _str(info.version), inline: true });
   }
   if (this._config.showHostResources && resources) {
     embed.addFields(..._buildResourceField(resources));
@@ -286,17 +384,17 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
   embed.addFields(..._settingsBlock(settings, this._config, locale));
 
   if (this._config.showWorldStats) {
-    const wp = [];
+    const wp: string[] = [];
     if (settings._totalPlayers != null)
-      wp.push(_ts(locale, 'world_players', { count: fmtNumber(settings._totalPlayers, locale) }));
+      wp.push(_ts(locale, 'world_players', { count: fmtNumber(settings._totalPlayers as number, locale) }));
     if (settings._totalZombieKills != null)
-      wp.push(_ts(locale, 'world_killed', { count: fmtNumber(settings._totalZombieKills, locale) }));
+      wp.push(_ts(locale, 'world_killed', { count: fmtNumber(settings._totalZombieKills as number, locale) }));
     if (settings._totalStructures != null)
-      wp.push(_ts(locale, 'world_structures', { count: fmtNumber(settings._totalStructures, locale) }));
+      wp.push(_ts(locale, 'world_structures', { count: fmtNumber(settings._totalStructures as number, locale) }));
     if (settings._totalVehicles != null)
-      wp.push(_ts(locale, 'world_vehicles', { count: fmtNumber(settings._totalVehicles, locale) }));
-    if (settings._totalCompanions != null && settings._totalCompanions > 0) {
-      wp.push(_ts(locale, 'world_companions', { count: fmtNumber(settings._totalCompanions, locale) }));
+      wp.push(_ts(locale, 'world_vehicles', { count: fmtNumber(settings._totalVehicles as number, locale) }));
+    if ((settings._totalCompanions as number | null) != null && (settings._totalCompanions as number) > 0) {
+      wp.push(_ts(locale, 'world_companions', { count: fmtNumber(settings._totalCompanions as number, locale) }));
     }
     if (wp.length > 0) embed.addFields({ name: _ts(locale, 'world'), value: wp.join('  \xB7  ') });
   }
@@ -304,8 +402,8 @@ function _buildEmbed(this: any, info: any, playerList: any, resources: any) {
   return embed;
 }
 
-async function _buildOfflineEmbed(this: any) {
-  const locale = getLocale({ serverConfig: this._config });
+async function _buildOfflineEmbed(this: StatusContext): Promise<EmbedBuilder> {
+  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)
@@ -330,7 +428,7 @@ async function _buildOfflineEmbed(this: any) {
           });
   }
 
-  const serverName = this._lastInfo?.name || '';
+  const serverName = this._lastInfo?.name ? _str(this._lastInfo.name) : '';
   embed.setDescription(
     serverName
       ? _ts(locale, 'offline_with_name', { name: serverName, downtime })
@@ -339,16 +437,18 @@ async function _buildOfflineEmbed(this: any) {
 
   embed.addFields({ name: _ts(locale, 'direct_connect'), value: connectStr, inline: true });
   if (this._lastInfo?.version)
-    embed.addFields({ name: _ts(locale, 'version'), value: this._lastInfo.version, inline: true });
+    embed.addFields({ name: _ts(locale, 'version'), value: _str(this._lastInfo.version), inline: true });
 
-  const schedField = _buildScheduleField(this._config);
+  const schedField = _buildScheduleField(this._config as unknown as Record<string, unknown>);
   if (schedField) embed.addFields(schedField);
 
   if (this._config.showHostResources && this._serverResources.backend) {
     try {
       const resources = await this._serverResources.getResources();
       if (resources) embed.addFields(..._buildResourceField(resources));
-    } catch (_: any) {}
+    } catch {
+      // ignore resource fetch errors
+    }
   }
 
   const settings = this._config.showServerSettings || this._config.showLootScarcity ? this._loadServerSettings() : {};

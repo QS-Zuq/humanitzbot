@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for server-info.js — RCON response parsing.
  * Run: npm test
@@ -6,7 +5,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { _parseServerInfo: parseServerInfo, _parsePlayerList: parsePlayerList } = require('../src/rcon/server-info');
+import * as _server_info from '../src/rcon/server-info.js';
+const { _parseServerInfo: parseServerInfo, _parsePlayerList: parsePlayerList } = _server_info as any;
 
 // ══════════════════════════════════════════════════════════
 // parseServerInfo

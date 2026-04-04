@@ -1,32 +1,238 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/restrict-plus-operands, @typescript-eslint/no-misused-promises,
-   @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-require-imports */
-
-import { EmbedBuilder } from 'discord.js';
-// @ts-expect-error — no type declarations for ssh2-sftp-client
+import { EmbedBuilder, type Client, type TextChannel, type ThreadChannel } from 'discord.js';
 import SftpClient from 'ssh2-sftp-client';
 import path from 'path';
+import fs from 'fs';
 import _defaultConfig from '../config/index.js';
 import { cleanName } from '../parsers/ue4-names.js';
-const _defaultPlaytime =
-  require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
-const _defaultPlayerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
+import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats, { type PlayerStats } from '../tracking/player-stats.js';
 import { classifyDamageSource, isNpcDamageSource } from '../tracking/damage-classifier.js';
-import { createLogger } from '../utils/log.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
+import type { PanelApi } from '../server/panel-api.js';
+import * as logWatcherThreads from './log-watcher-threads.js';
+import * as logWatcherEvents from './log-watcher-events.js';
+
+type ConfigType = typeof _defaultConfig;
+
+interface LogWatcherDeps {
+  config?: ConfigType;
+  playtime?: PlaytimeTracker;
+  playerStats?: PlayerStats;
+  db?: HumanitZDB | null;
+  label?: string;
+  dataDir?: string | null;
+  panelApi?: PanelApi | null;
+}
+
+interface PvpDamageEntry {
+  attacker: string;
+  attackerLower: string;
+  timestamp: number;
+  totalDamage: number;
+}
+
+interface DeathCauseEntry {
+  sourceRaw: string;
+  timestamp: number;
+  totalDamage: number;
+}
+
+interface PvpKillEntry {
+  killer: string;
+  victim: string;
+  damage: number;
+  timestamp: string;
+}
+
+interface DeathLoopEntry {
+  count: number;
+  firstTimestamp: number;
+  lastTimestamp: number;
+  suppressed: boolean;
+}
+
+interface ContainerAccessEntry {
+  player: string;
+  steamId: string;
+  ownerSteamId: string;
+  rawType: string;
+  timestamp: number;
+}
+
+interface DayCounts {
+  connects: number;
+  disconnects: number;
+  deaths: number;
+  builds: number;
+  damage: number;
+  loots: number;
+  raidHits: number;
+  destroyed: number;
+  admin: number;
+  cheat: number;
+  pvpKills: number;
+  [key: string]: number;
+}
+
+interface LootBatchEntry {
+  looter: string;
+  looterId: string;
+  ownerSteamId: string;
+  count: number;
+  containers: Set<string>;
+  timestamp: Date;
+}
+
+interface BuildBatchEntry {
+  name: string;
+  items: Record<string, number>;
+  timestamp: Date;
+}
+
+interface RaidBatchEntry {
+  attacker: string;
+  owner: string;
+  hits: number;
+  destroyed: number;
+  buildings: Record<string, number>;
+  timestamp: Date;
+}
+
+interface PollFileOpts {
+  path: string;
+  label: string;
+  getSize: () => number;
+  setSize: (s: number) => void;
+  getInit: () => boolean;
+  setInit: (v: boolean) => void;
+  getPartial: () => string;
+  setPartial: (p: string) => void;
+  processLine: (line: string) => boolean;
+}
+
+interface SavedOffsets {
+  hmzLogSize: number;
+  connectLogSize: number;
+  hmzLogFile: string | null;
+  connectLogFile: string | null;
+  useRotatedLogs: boolean;
+}
+
+interface LogEventEntry {
+  type: string;
+  category?: string;
+  actorName?: string;
+  steamId?: string;
+  item?: string;
+  amount?: number;
+  details?: Record<string, unknown>;
+  source?: string;
+  targetName?: string;
+  targetSteamId?: string;
+  timestamp?: Date | string;
+}
+
+/** Safe regex group accessor — returns '' for undefined groups. */
+function _s(match: RegExpMatchArray, idx: number): string {
+  return match[idx] ?? '';
+}
 
 class LogWatcher {
-  [key: string]: any;
-  constructor(client: any, deps: any = {}) {
-    this._config = deps.config || _defaultConfig;
-    this._playtime = deps.playtime || _defaultPlaytime;
-    this._playerStats = deps.playerStats || _defaultPlayerStats;
-    this._db = deps.db || null;
+  // Index signature for mixin methods assigned via Object.assign
+  [key: string]: unknown;
+
+  // ── Mixin method declarations (implemented in log-watcher-threads.ts) ──
+  declare _getOrCreateDailyThread: () => Promise<{ send(options: unknown): Promise<unknown> } | null>;
+  declare _checkDayRollover: () => Promise<void>;
+  declare _postDailySummary: () => Promise<void>;
+  declare _sendToThread: (embed: EmbedBuilder) => Promise<unknown>;
+  declare sendToThread: (embed: EmbedBuilder) => Promise<unknown>;
+  declare getRecentContainerAccess: (
+    actorName: string,
+  ) => { timestamp: number; player?: string; steamId?: string; ownerSteamId?: string } | null;
+  declare sendToDateThread: (embed: EmbedBuilder, date: Date) => Promise<unknown>;
+  declare resetThreadCache: () => void;
+
+  // ── Mixin method declarations (implemented in log-watcher-events.ts) ──
+  declare _onBuild: (playerName: string, steamId: string, itemName: string, timestamp: Date) => void;
+  declare _onDeath: (playerName: string, timestamp: Date) => void;
+  declare _flushDeathLoop: (key: string, playerName: string) => void;
+  declare _onRaid: (
+    attacker: string,
+    attackerSteamId: string | undefined,
+    ownerSteamId: string | undefined,
+    buildingType: string,
+    destroyed: boolean,
+    timestamp: Date,
+  ) => void;
+  declare _batchLoot: (
+    looterName: string,
+    looterId: string,
+    containerType: string,
+    ownerSteamId: string,
+    timestamp: Date,
+  ) => void;
+  declare _flushLootBatch: () => void;
+  declare _flushBuildBatch: () => void;
+  declare _flushRaidBatch: () => void;
+
+  // Typed fields
+  _config: ConfigType;
+  _playtime: PlaytimeTracker;
+  _playerStats: PlayerStats;
+  _db: HumanitZDB | null;
+  _log: Logger;
+  _label: string;
+  _dataDir: string | null;
+  _panelApi: PanelApi | null;
+  client: Client;
+  logChannel: TextChannel | null;
+  _headless: boolean;
+  interval: ReturnType<typeof setInterval> | null;
+  lastSize: number;
+  partialLine: string;
+  initialised: boolean;
+  _connectLastSize: number;
+  _connectPartialLine: string;
+  _connectInitialised: boolean;
+  _useRotatedLogs: boolean;
+  _hmzLogFile: string | null;
+  _connectLogFile: string | null;
+  _dailyThread: ThreadChannel | null;
+  _dailyDate: string | null;
+  _dayRolloverCb: (() => Promise<void>) | null;
+  _nukeActive: boolean;
+  _lootBatch: Record<string, LootBatchEntry>;
+  _lootTimer: ReturnType<typeof setTimeout> | null;
+  _buildBatch: Record<string, BuildBatchEntry>;
+  _buildTimer: ReturnType<typeof setTimeout> | null;
+  _raidBatch: Record<string, RaidBatchEntry>;
+  _raidTimer: ReturnType<typeof setTimeout> | null;
+  _dayCounts: DayCounts;
+  _dayCountsDirty: boolean;
+  _onlinePlayers: Set<string>;
+  _idMapWarned: boolean;
+  _idMapLastSize: number;
+  _pvpDamageTracker: Map<string, PvpDamageEntry>;
+  _pvpKills: PvpKillEntry[];
+  _pvpKillsDirty: boolean;
+  _deathLoopTracker: Map<string, DeathLoopEntry>;
+  _recentContainerAccess: Map<string, ContainerAccessEntry>;
+  _deathCauseTracker: Map<string, DeathCauseEntry>;
+  _midnightCheckInterval?: ReturnType<typeof setInterval> | null;
+  _onIdMapRefresh?: ((idMap: Record<string, string>) => void) | null;
+
+  constructor(client: Client, deps: LogWatcherDeps = {}) {
+    this._config = deps.config ?? _defaultConfig;
+    this._playtime = deps.playtime ?? _defaultPlaytime;
+    this._playerStats = deps.playerStats ?? _defaultPlayerStats;
+    this._db = deps.db ?? null;
     this._log = createLogger(deps.label, 'LOGS');
     this._label = this._log.label;
-    this._dataDir = deps.dataDir || null;
-    this._panelApi = deps.panelApi || null;
+    this._dataDir = deps.dataDir ?? null;
+    this._panelApi = deps.panelApi ?? null;
 
     this.client = client;
     this.logChannel = null;
@@ -114,7 +320,7 @@ class LogWatcher {
 
   // ── Damage source classification (delegated to shared damage-classifier.js) ──
 
-  _classifyDamageSource(source: any) {
+  _classifyDamageSource(source: string) {
     return classifyDamageSource(source);
   }
 
@@ -123,13 +329,13 @@ class LogWatcher {
   _loadDayCounts() {
     try {
       if (!this._db) return;
-      const raw = this._db.getStateJSON('day_counts', null);
-      if (raw && raw.date === this._config.getToday()) {
+      const raw = this._db.getStateJSON('day_counts', null) as { date?: string; counts?: DayCounts } | null;
+      if (raw?.date === this._config.getToday()) {
         this._dayCounts = { ...this._dayCounts, ...raw.counts };
         this._log.info(`Restored day counts for ${raw.date} (DB)`);
       }
-    } catch (err: any) {
-      this._log.warn('Could not load day counts:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Could not load day counts:', errMsg(err));
     }
   }
 
@@ -140,13 +346,13 @@ class LogWatcher {
       const data = { date: this._dailyDate || this._config.getToday(), counts: this._dayCounts };
       this._db.setStateJSON('day_counts', data);
       this._dayCountsDirty = false;
-    } catch (err: any) {
-      this._log.warn('Could not save day counts:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Could not save day counts:', errMsg(err));
     }
   }
 
-  _incDayCount(key: any) {
-    this._dayCounts[key]++;
+  _incDayCount(key: string) {
+    this._dayCounts[key] = (this._dayCounts[key] ?? 0) + 1;
     this._dayCountsDirty = true;
   }
 
@@ -155,13 +361,13 @@ class LogWatcher {
   _loadPvpKills() {
     try {
       if (!this._db) return;
-      const raw = this._db.getStateJSON('pvp_kills', null);
+      const raw = this._db.getStateJSON('pvp_kills', null) as PvpKillEntry[] | null;
       if (Array.isArray(raw)) {
         this._pvpKills = raw;
         this._log.info(`PVP: Loaded ${raw.length} PvP kill(s) from DB`);
       }
-    } catch (err: any) {
-      this._log.warn('PVP: Could not load pvp kills:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('PVP: Could not load pvp kills:', errMsg(err));
       this._pvpKills = [];
     }
   }
@@ -172,12 +378,12 @@ class LogWatcher {
       if (!this._db) return;
       this._db.setStateJSON('pvp_kills', this._pvpKills);
       this._pvpKillsDirty = false;
-    } catch (err: any) {
-      this._log.warn('PVP: Could not save pvp kills:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('PVP: Could not save pvp kills:', errMsg(err));
     }
   }
 
-  _recordPvpDamage(victim: any, attacker: any, damage: any, timestamp: any) {
+  _recordPvpDamage(victim: string, attacker: string, damage: number, timestamp: Date) {
     const key = victim.toLowerCase();
     const existing = this._pvpDamageTracker.get(key);
     const ts = timestamp.getTime();
@@ -198,7 +404,7 @@ class LogWatcher {
     }
   }
 
-  _checkPvpKill(victim: any, deathTimestamp: any) {
+  _checkPvpKill(victim: string, deathTimestamp: Date) {
     const key = victim.toLowerCase();
     const entry = this._pvpDamageTracker.get(key);
     if (!entry) return null;
@@ -219,7 +425,7 @@ class LogWatcher {
     return null;
   }
 
-  _isNpcDamageSource(source: any) {
+  _isNpcDamageSource(source: string) {
     return isNpcDamageSource(source);
   }
 
@@ -242,7 +448,7 @@ class LogWatcher {
    * Record damage from ANY source for death cause attribution.
    * Last-hit attribution: the most recent damage source before death is the cause.
    */
-  _recordDeathCauseDamage(victim: any, source: any, damage: any, timestamp: any) {
+  _recordDeathCauseDamage(victim: string, source: string, damage: number, timestamp: Date) {
     const key = victim.toLowerCase();
     const ts = timestamp.getTime();
     const existing = this._deathCauseTracker.get(key);
@@ -265,7 +471,7 @@ class LogWatcher {
    * Check death cause: look up the most recent damage source for a victim.
    * Returns classified cause or null.
    */
-  _checkDeathCause(victim: any, deathTimestamp: any) {
+  _checkDeathCause(victim: string, deathTimestamp: Date) {
     const key = victim.toLowerCase();
     const entry = this._deathCauseTracker.get(key);
     if (!entry) return null;
@@ -287,7 +493,7 @@ class LogWatcher {
     return null;
   }
 
-  getPvpKills(count: any = 10) {
+  getPvpKills(count = 10) {
     return this._pvpKills.slice(-count);
   }
 
@@ -308,13 +514,13 @@ class LogWatcher {
 
     if (!this._headless) {
       try {
-        this.logChannel = await this.client.channels.fetch(channelId);
+        this.logChannel = (await this.client.channels.fetch(channelId ?? '')) as TextChannel | null;
         if (!this.logChannel) {
           this._log.error('Log channel not found! Check LOG_CHANNEL_ID.');
           return;
         }
-      } catch (err: any) {
-        this._log.error('Failed to fetch log channel:', err.message);
+      } catch (err: unknown) {
+        this._log.error('Failed to fetch log channel:', errMsg(err));
         return;
       }
       this._log.info(
@@ -339,12 +545,16 @@ class LogWatcher {
     }
 
     // Start polling
-    this.interval = setInterval(() => this._poll(), this._config.logPollInterval);
+    this.interval = setInterval(() => {
+      void this._poll();
+    }, this._config.logPollInterval);
 
     // Proactive midnight rollover check — ensures the daily summary posts
     // even if no log events happen around midnight in the configured timezone.
     if (!this._headless) {
-      this._midnightCheckInterval = setInterval(() => this._checkDayRollover(), 60000);
+      this._midnightCheckInterval = setInterval(() => {
+        void this._checkDayRollover();
+      }, 60000);
     }
 
     // Send startup notification (skip during nuke and headless — would appear out of order)
@@ -354,7 +564,7 @@ class LogWatcher {
         .setDescription('Log watcher connected. Monitoring game server activity.')
         .setColor(0x3498db)
         .setTimestamp();
-      await thread.send({ embeds: [embed] }).catch(() => {});
+      await thread?.send({ embeds: [embed] }).catch(() => {});
     }
   }
 
@@ -387,22 +597,22 @@ class LogWatcher {
 
   // ─── INTERNAL ─────────────────────────────────────────────
 
-  _loadOffsets() {
+  _loadOffsets(): SavedOffsets | null {
     try {
       if (this._db) {
-        const raw = this._db.getStateJSON('log_offsets', null);
+        const raw = this._db.getStateJSON('log_offsets', null) as Record<string, unknown> | null;
         if (raw) {
           return {
             hmzLogSize: typeof raw.hmzLogSize === 'number' ? raw.hmzLogSize : 0,
             connectLogSize: typeof raw.connectLogSize === 'number' ? raw.connectLogSize : 0,
-            hmzLogFile: raw.hmzLogFile || null,
-            connectLogFile: raw.connectLogFile || null,
+            hmzLogFile: (raw.hmzLogFile as string) || null,
+            connectLogFile: (raw.connectLogFile as string) || null,
             useRotatedLogs: !!raw.useRotatedLogs,
           };
         }
       }
-    } catch (err: any) {
-      this._log.warn('Could not load saved offsets:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Could not load saved offsets:', errMsg(err));
     }
     return null;
   }
@@ -420,8 +630,8 @@ class LogWatcher {
       if (this._db) {
         this._db.setStateJSON('log_offsets', data);
       }
-    } catch (err: any) {
-      this._log.warn('Could not save offsets:', err.message);
+    } catch (err: unknown) {
+      this._log.warn('Could not save offsets:', errMsg(err));
     }
   }
 
@@ -431,31 +641,36 @@ class LogWatcher {
    * We parse the timestamp from the filename to sort. Falls back to alphabetical.
    * @returns {string|null} Full remote path of the newest file, or null if none found.
    */
-  async _findLatestFile(sftp: any, dir: any, suffix: any) {
+  async _findLatestFile(sftp: SftpClient, dir: string, suffix: string) {
     try {
       const items = await sftp.list(dir);
-      const matching = items.filter((i: any) => i.type !== 'd' && i.name.endsWith(suffix));
+      const matching = items.filter(
+        (i: { type: string; name: string; modifyTime?: number }) => i.type !== 'd' && i.name.endsWith(suffix),
+      );
       if (matching.length === 0) return null;
 
       // Parse timestamp from filename: D-M_H-m_suffix → sortable date
-      const parsed = matching.map((i: any) => {
+      const parsed = matching.map((i: { name: string; modifyTime?: number }) => {
         const m = i.name.match(/^(\d{1,2})-(\d{1,2})_(\d{1,2})-(\d{1,2})_/);
         let sortKey = 0;
         if (m) {
           // Build sortable int: MMDDHHMM (zero-padded mentally, but int comparison works)
           sortKey =
-            parseInt(m[2], 10) * 1000000 + parseInt(m[1], 10) * 10000 + parseInt(m[3], 10) * 100 + parseInt(m[4], 10);
+            parseInt(_s(m, 2), 10) * 1000000 +
+            parseInt(_s(m, 1), 10) * 10000 +
+            parseInt(_s(m, 3), 10) * 100 +
+            parseInt(_s(m, 4), 10);
         }
         return { name: i.name, sortKey, modifyTime: i.modifyTime };
       });
 
       // Sort by parsed timestamp descending; fall back to modifyTime
-      parsed.sort((a: any, b: any) => {
+      parsed.sort((a: { sortKey: number; modifyTime?: number }, b: { sortKey: number; modifyTime?: number }) => {
         if (a.sortKey !== b.sortKey) return b.sortKey - a.sortKey;
         return (b.modifyTime || 0) - (a.modifyTime || 0);
       });
 
-      return dir.replace(/\/+$/, '') + '/' + parsed[0].name;
+      return dir.replace(/\/+$/, '') + '/' + (parsed[0] ?? { name: '' }).name;
     } catch {
       return null;
     }
@@ -567,8 +782,8 @@ class LogWatcher {
             this.initialised = true;
             this._log.info(`HMZLog size: ${this.lastSize} bytes — tailing from here`);
           }
-        } catch (err: any) {
-          this._log.warn('HMZLog.log not found, will retry:', err.message);
+        } catch (err: unknown) {
+          this._log.warn('HMZLog.log not found, will retry:', errMsg(err));
           this.lastSize = 0;
           this.initialised = false;
         }
@@ -588,14 +803,14 @@ class LogWatcher {
             this._connectInitialised = true;
             this._log.info(`ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
           }
-        } catch (err: any) {
-          this._log.warn('PlayerConnectedLog.txt not found, will retry:', err.message);
+        } catch (err: unknown) {
+          this._log.warn('PlayerConnectedLog.txt not found, will retry:', errMsg(err));
           this._connectLastSize = 0;
           this._connectInitialised = false;
         }
       }
-    } catch (err: any) {
-      this._log.error('SFTP init failed:', err.message);
+    } catch (err: unknown) {
+      this._log.error('SFTP init failed:', errMsg(err));
       this.lastSize = 0;
       this.initialised = false;
       this._connectLastSize = 0;
@@ -633,18 +848,18 @@ class LogWatcher {
               path: this._hmzLogFile,
               label: 'HMZLog(old)',
               getSize: () => this.lastSize,
-              setSize: (s: any) => {
+              setSize: (s: number) => {
                 this.lastSize = s;
               },
               getInit: () => this.initialised,
-              setInit: (v: any) => {
+              setInit: (v: boolean) => {
                 this.initialised = v;
               },
               getPartial: () => this.partialLine,
-              setPartial: (p: any) => {
+              setPartial: (p: string) => {
                 this.partialLine = p;
               },
-              processLine: (line: any) => this._processLine(line),
+              processLine: (line: string) => this._processLine(line),
             });
           }
           this._hmzLogFile = latestHmz;
@@ -660,18 +875,18 @@ class LogWatcher {
               path: this._connectLogFile,
               label: 'ConnectLog(old)',
               getSize: () => this._connectLastSize,
-              setSize: (s: any) => {
+              setSize: (s: number) => {
                 this._connectLastSize = s;
               },
               getInit: () => this._connectInitialised,
-              setInit: (v: any) => {
+              setInit: (v: boolean) => {
                 this._connectInitialised = v;
               },
               getPartial: () => this._connectPartialLine,
-              setPartial: (p: any) => {
+              setPartial: (p: string) => {
                 this._connectPartialLine = p;
               },
-              processLine: (line: any) => this._processConnectLine(line),
+              processLine: (line: string) => this._processConnectLine(line),
             });
           }
           this._connectLogFile = latestConnect;
@@ -693,18 +908,18 @@ class LogWatcher {
           path: hmzPath,
           label: 'HMZLog',
           getSize: () => this.lastSize,
-          setSize: (s: any) => {
+          setSize: (s: number) => {
             this.lastSize = s;
           },
           getInit: () => this.initialised,
-          setInit: (v: any) => {
+          setInit: (v: boolean) => {
             this.initialised = v;
           },
           getPartial: () => this.partialLine,
-          setPartial: (p: any) => {
+          setPartial: (p: string) => {
             this.partialLine = p;
           },
-          processLine: (line: any) => this._processLine(line),
+          processLine: (line: string) => this._processLine(line),
         });
       }
 
@@ -714,18 +929,18 @@ class LogWatcher {
           path: connectPath,
           label: 'ConnectLog',
           getSize: () => this._connectLastSize,
-          setSize: (s: any) => {
+          setSize: (s: number) => {
             this._connectLastSize = s;
           },
           getInit: () => this._connectInitialised,
-          setInit: (v: any) => {
+          setInit: (v: boolean) => {
             this._connectInitialised = v;
           },
           getPartial: () => this._connectPartialLine,
-          setPartial: (p: any) => {
+          setPartial: (p: string) => {
             this._connectPartialLine = p;
           },
-          processLine: (line: any) => this._processConnectLine(line),
+          processLine: (line: string) => this._processConnectLine(line),
         });
       }
 
@@ -741,14 +956,14 @@ class LogWatcher {
 
       // Persist day counts
       this._saveDayCounts();
-    } catch (err: any) {
-      this._log.error('Poll error:', err.message);
+    } catch (err: unknown) {
+      this._log.error('Poll error:', errMsg(err));
     } finally {
       await sftp.end().catch(() => {});
     }
   }
 
-  async _pollFile(sftp: any, opts: any) {
+  async _pollFile(sftp: SftpClient, opts: PollFileOpts) {
     try {
       const stat = await sftp.stat(opts.path);
       const currentSize = stat.size;
@@ -777,7 +992,7 @@ class LogWatcher {
       const newBytes = await this._downloadFrom(sftp, opts.path, opts.getSize(), currentSize);
       opts.setSize(currentSize);
 
-      if (newBytes && (newBytes as string).length > 0) {
+      if (newBytes.length > 0) {
         const text = opts.getPartial() + newBytes;
         const lines = text.split('\n');
         opts.setPartial(lines.pop() || '');
@@ -792,22 +1007,26 @@ class LogWatcher {
         }
         this._log.info(`${opts.label}: ${totalLines} lines (${eventLines} events)`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // File may not exist yet — that's OK
-      if (err.code === 2 || err.message.includes('No such file')) {
+      if ((err as { code?: number }).code === 2 || errMsg(err).includes('No such file')) {
         return; // silently skip missing files
       }
-      this._log.warn(`${opts.label} poll error:`, err.message);
+      this._log.warn(`${opts.label} poll error:`, errMsg(err));
     }
   }
 
-  async _downloadFrom(sftpClient: any, remotePath: any, startAt: any, endAt: any) {
+  async _downloadFrom(sftpClient: SftpClient, remotePath: string, startAt: number, endAt: number): Promise<string> {
     const bytesToRead = endAt - startAt;
     if (bytesToRead <= 0) return '';
 
     // Use the underlying sftp session to create a read stream with offset
-    return new Promise((resolve, reject) => {
-      const sftpSession = sftpClient.sftp;
+    return new Promise<string>((resolve, reject) => {
+      const sftpSession = (
+        sftpClient as unknown as {
+          sftp?: { createReadStream(path: string, opts: Record<string, unknown>): import('stream').Readable };
+        }
+      ).sftp;
       if (!sftpSession) {
         reject(new Error('No underlying SFTP session available'));
         return;
@@ -820,20 +1039,30 @@ class LogWatcher {
       });
 
       const chunks: string[] = [];
-      readStream.on('data', (chunk: any) => chunks.push(chunk));
-      readStream.on('end', () => resolve(chunks.join('')));
-      readStream.on('error', (err: any) => {
-        this._log.warn('Stream read failed, trying full download:', err.message);
+      readStream.on('data', (chunk: string) => {
+        chunks.push(chunk);
+      });
+      readStream.on('end', () => {
+        resolve(chunks.join(''));
+      });
+      readStream.on('error', (streamErr: unknown) => {
+        this._log.warn('Stream read failed, trying full download:', errMsg(streamErr));
         // Fallback: download full file and slice
         sftpClient
           .get(remotePath)
-          .then((buf: any) => resolve(buf.slice(startAt, endAt).toString('utf8')))
+          .then((buf) => {
+            resolve(
+              Buffer.from(buf as Buffer)
+                .subarray(startAt, endAt)
+                .toString('utf8'),
+            );
+          })
           .catch(reject);
       });
     });
   }
 
-  _processLine(line: any) {
+  _processLine(line: string) {
     // Extract timestamp and message body
     // Format: (13/2/2026 12:35) message here  — also handles :SS seconds, - . separators, and comma in year (2,026)
     const lineMatch = line.match(
@@ -841,7 +1070,12 @@ class LogWatcher {
     );
     if (!lineMatch) return false;
 
-    const [, day, month, rawYear, hour, min, body] = lineMatch;
+    const day = _s(lineMatch, 1);
+    const month = _s(lineMatch, 2);
+    const rawYear = _s(lineMatch, 3);
+    const hour = _s(lineMatch, 4);
+    const min = _s(lineMatch, 5);
+    const body = _s(lineMatch, 6);
     const year = rawYear.replace(',', '');
     const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
 
@@ -849,7 +1083,7 @@ class LogWatcher {
     // Player died (PlayerName)
     const deathMatch = body.match(/^Player died \((.+)\)$/);
     if (deathMatch) {
-      this._onDeath(deathMatch[1].trim(), timestamp);
+      this._onDeath(_s(deathMatch, 1).trim(), timestamp);
       return true;
     }
 
@@ -858,7 +1092,7 @@ class LogWatcher {
     // [ClanTag] PlayerName(SteamID) finished building ItemName
     const buildMatch = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
     if (buildMatch) {
-      this._onBuild(buildMatch[1].trim(), buildMatch[2], buildMatch[3].trim(), timestamp);
+      this._onBuild(_s(buildMatch, 1).trim(), _s(buildMatch, 2), _s(buildMatch, 3).trim(), timestamp);
       return true;
     }
 
@@ -867,9 +1101,9 @@ class LogWatcher {
     // Tracked for stats; not posted to Discord individually (too spammy)
     const dmgMatch = body.match(/^(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
     if (dmgMatch) {
-      const dmgVictim = dmgMatch[1].trim();
-      const dmgAmount = parseFloat(dmgMatch[2]);
-      const dmgSource = dmgMatch[3].trim();
+      const dmgVictim = _s(dmgMatch, 1).trim();
+      const dmgAmount = parseFloat(_s(dmgMatch, 2));
+      const dmgSource = _s(dmgMatch, 3).trim();
       if (dmgAmount > 0) {
         this._playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
         this._incDayCount('damage');
@@ -905,11 +1139,11 @@ class LogWatcher {
     // [ClanTag] PlayerName (SteamID) looted a container (Type) owner by OwnerSteamID
     const lootMatch = body.match(/^(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\(([^)]+)\)\s*owner by\s*(\d{17})/);
     if (lootMatch) {
-      const looterName = lootMatch[1].trim();
-      const looterId = lootMatch[2];
-      const containerType = lootMatch[3];
-      const ownerSteamId = lootMatch[4];
-      const isClanAccess = looterId !== ownerSteamId && this._db?.areClanmates?.(looterId, ownerSteamId);
+      const looterName = _s(lootMatch, 1).trim();
+      const looterId = _s(lootMatch, 2);
+      const containerType = _s(lootMatch, 3);
+      const ownerSteamId = _s(lootMatch, 4);
+      const isClanAccess = looterId !== ownerSteamId && this._db?.areClanmates(looterId, ownerSteamId);
       this._playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
       this._incDayCount('loots');
       // Only batch for Discord if it's not a clanmate accessing shared containers
@@ -953,11 +1187,11 @@ class LogWatcher {
       /^Building \(([^)]+)\) owned by \((\d{17}[^)]*)\) damaged \([\d.]+\) by (.+?)(?:\((\d{17})[^)]*\))?(\s*\(Destroyed\))?$/,
     );
     if (raidMatch) {
-      const buildingType = raidMatch[1];
-      const ownerSteamId = raidMatch[2].match(/^(\d{17})/)?.[1];
-      const attackerRaw = raidMatch[3].trim();
-      const attackerSteamId = raidMatch[4];
-      const destroyed = !!raidMatch[5];
+      const buildingType = _s(raidMatch, 1);
+      const ownerSteamId = _s(raidMatch, 2).match(/^(\d{17})/)?.[1];
+      const attackerRaw = _s(raidMatch, 3).trim();
+      const attackerSteamId = _s(raidMatch, 4);
+      const destroyed = !!_s(raidMatch, 5);
 
       // Skip decay damage and NPC damage
       if (attackerRaw === 'Decayfalse' || attackerRaw === 'Zeek') return false;
@@ -965,7 +1199,7 @@ class LogWatcher {
       if (attackerSteamId && ownerSteamId && attackerSteamId === ownerSteamId) return false;
       // Skip clanmates hitting clan buildings — not a raid, just building/upgrading.
       // Still logged to DB via _logEvent for the web panel.
-      if (attackerSteamId && ownerSteamId && this._db?.areClanmates?.(attackerSteamId, ownerSteamId)) {
+      if (attackerSteamId && ownerSteamId && this._db?.areClanmates(attackerSteamId, ownerSteamId)) {
         this._logEvent({
           type: 'clan_building_damage',
           category: 'clan',
@@ -991,9 +1225,9 @@ class LogWatcher {
       /^Building \(([^)]+)\) owned by \(\) damaged \([\d.]+\) by (.+?)(?:\((\d{17})[^)]*\))?(\s*\(Destroyed\))?$/,
     );
     if (unownedMatch) {
-      const buildingType = unownedMatch[1];
-      const attackerRaw = unownedMatch[2].trim();
-      const destroyed = !!unownedMatch[4];
+      const buildingType = _s(unownedMatch, 1);
+      const attackerRaw = _s(unownedMatch, 2).trim();
+      const destroyed = !!_s(unownedMatch, 4);
       if (attackerRaw !== 'Zeek' && attackerRaw !== 'Decayfalse' && destroyed) {
         this._incDayCount('destroyed');
         const cleanBuilding = this._simplifyBlueprintName(buildingType);
@@ -1011,8 +1245,8 @@ class LogWatcher {
           .setAuthor({ name: '🏠 Building Destroyed' })
           .setDescription(`**${attackerRaw}** destroyed **${cleanBuilding}**`)
           .setColor(0x95a5a6)
-          .setFooter({ text: timestamp ? this._formatTime(timestamp) : 'Just now' });
-        this._sendToThread(embed);
+          .setFooter({ text: this._formatTime(timestamp) });
+        void this._sendToThread(embed);
       }
       return true;
     }
@@ -1021,7 +1255,7 @@ class LogWatcher {
     // PlayerName gained admin access!
     const adminMatch = body.match(/^(.+?)\s+gained admin access!$/);
     if (adminMatch) {
-      const playerName = adminMatch[1].trim();
+      const playerName = _s(adminMatch, 1).trim();
       this._playerStats.recordAdminAccess(playerName, timestamp);
       this._incDayCount('admin');
 
@@ -1033,7 +1267,7 @@ class LogWatcher {
         .setDescription(`**${playerName}** gained admin access`)
         .setColor(0x9b59b6)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1045,9 +1279,9 @@ class LogWatcher {
       /^(Stack limit detected in drop function|Odd behavior.*?Cheat)\s*\((.+?)\s*-\s*(\d{17})/,
     );
     if (cheatMatch) {
-      const type = cheatMatch[1].trim();
-      const playerName = cheatMatch[2].trim();
-      const steamId = cheatMatch[3];
+      const type = _s(cheatMatch, 1).trim();
+      const playerName = _s(cheatMatch, 2).trim();
+      const steamId = _s(cheatMatch, 3);
       this._playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
       this._incDayCount('cheat');
       this._logEvent({
@@ -1064,7 +1298,7 @@ class LogWatcher {
         .setDescription(`**${playerName}**\n\`${type}\``)
         .setColor(0xe74c3c)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1072,8 +1306,8 @@ class LogWatcher {
     //   Client drop request count mismatch (Potential cheat) (PlayerName - amount X)
     const dropMismatch = body.match(/^Client drop request count mismatch\s*\([^)]*\)\s*\((.+?)\s*-\s*amount\s*(\d+)/i);
     if (dropMismatch) {
-      const playerName = dropMismatch[1].trim();
-      const amount = dropMismatch[2];
+      const playerName = _s(dropMismatch, 1).trim();
+      const amount = _s(dropMismatch, 2);
       const type = `Client drop mismatch (amount ${amount})`;
       this._incDayCount('cheat');
       this._logEvent({ type: 'anticheat_flag', category: 'admin', actorName: playerName, item: type, timestamp });
@@ -1083,7 +1317,7 @@ class LogWatcher {
         .setDescription(`**${playerName}**\n\`${type}\``)
         .setColor(0xe74c3c)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1091,9 +1325,9 @@ class LogWatcher {
     //   PlayerName suspected of speed hacking Warn => 2/3
     const speedWarnMatch = body.match(/^(.+?)\s+suspected of speed hacking\s+Warn\s*=>\s*(\d+)\/(\d+)/);
     if (speedWarnMatch) {
-      const playerName = speedWarnMatch[1].trim();
-      const current = speedWarnMatch[2];
-      const max = speedWarnMatch[3];
+      const playerName = _s(speedWarnMatch, 1).trim();
+      const current = _s(speedWarnMatch, 2);
+      const max = _s(speedWarnMatch, 3);
       const type = `Speed hack warning ${current}/${max}`;
       this._incDayCount('cheat');
       this._logEvent({ type: 'anticheat_flag', category: 'admin', actorName: playerName, item: type, timestamp });
@@ -1103,7 +1337,7 @@ class LogWatcher {
         .setDescription(`**${playerName}** — Warn ${current}/${max}`)
         .setColor(0xf39c12)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1111,8 +1345,8 @@ class LogWatcher {
     //   PlayerName will be kicked for speed-hack strong suspicion ID = SteamID
     const speedKickMatch = body.match(/^(.+?)\s+will be kicked for speed-hack strong suspicion\s+ID\s*=\s*(\d{17})/);
     if (speedKickMatch) {
-      const playerName = speedKickMatch[1].trim();
-      const steamId = speedKickMatch[2];
+      const playerName = _s(speedKickMatch, 1).trim();
+      const steamId = _s(speedKickMatch, 2);
       const type = 'Speed hack kick';
       this._playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
       this._incDayCount('cheat');
@@ -1130,7 +1364,7 @@ class LogWatcher {
         .setDescription(`**${playerName}** kicked for speed hacking`)
         .setColor(0xe74c3c)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1141,7 +1375,7 @@ class LogWatcher {
     //   Kicked player for suspicious behavior
     const adminKickMatch = body.match(/^(Kicked (?:for|player for)\s+.+?)(?:\.\s*|$)/);
     if (adminKickMatch && /unauthoris|admin panel|system message|suspicious behavior/i.test(body)) {
-      const type = adminKickMatch[1].trim();
+      const type = _s(adminKickMatch, 1).trim();
       this._incDayCount('cheat');
       this._logEvent({ type: 'anticheat_flag', category: 'admin', item: type, timestamp });
 
@@ -1150,7 +1384,7 @@ class LogWatcher {
         .setDescription(`\`${type}\``)
         .setColor(0xe74c3c)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
       return true;
     }
 
@@ -1166,14 +1400,21 @@ class LogWatcher {
     return false;
   }
 
-  _processConnectLine(line: any) {
+  _processConnectLine(line: string) {
     // Flexible: handles optional seconds, - . separators, and comma in year (2,026)
     const connectMatch = line.match(
       /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/,
     );
     if (!connectMatch) return false;
 
-    const [, action, name, steamId, day, month, rawYear, hour, min] = connectMatch;
+    const action = _s(connectMatch, 1);
+    const name = _s(connectMatch, 2);
+    const steamId = _s(connectMatch, 3);
+    const day = _s(connectMatch, 4);
+    const month = _s(connectMatch, 5);
+    const rawYear = _s(connectMatch, 6);
+    const hour = _s(connectMatch, 7);
+    const min = _s(connectMatch, 8);
     const year = rawYear.replace(',', '');
     const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
 
@@ -1195,7 +1436,7 @@ class LogWatcher {
         .setDescription(`**${name}** joined the server`)
         .setColor(0x2ecc71)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
     } else {
       this._playerStats.recordDisconnect(name, steamId, timestamp);
       this._playtime.playerLeave(steamId, timestamp);
@@ -1212,7 +1453,7 @@ class LogWatcher {
         .setDescription(`**${name}** left the server`)
         .setColor(0x95a5a6)
         .setFooter({ text: this._formatTime(timestamp) });
-      this._sendToThread(embed);
+      void this._sendToThread(embed);
     }
 
     return true;
@@ -1225,7 +1466,7 @@ class LogWatcher {
    * Silently no-ops if no DB is available.
    * @param {object} entry - { type, category, actorName, steamId, item, amount, details, targetName, targetSteamId, timestamp }
    */
-  _logEvent(entry: any) {
+  _logEvent(entry: LogEventEntry) {
     if (!this._db) return;
     try {
       if (entry.timestamp) {
@@ -1260,15 +1501,15 @@ class LogWatcher {
           targetSteamId: entry.targetSteamId || '',
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // DB errors should never disrupt event processing
-      this._log.warn(`Failed to log event ${entry.type}:`, err.message);
+      this._log.warn(`Failed to log event ${entry.type}:`, errMsg(err));
     }
   }
 
   // ─── ID MAP ───────────────────────────────────────────────
 
-  async _refreshIdMap(sftp: any) {
+  async _refreshIdMap(sftp: SftpClient) {
     try {
       let text;
       // Prefer Panel API (Pterodactyl file download) when available
@@ -1281,7 +1522,7 @@ class LogWatcher {
         // Stat first to skip full download if file hasn't changed
         const stat = await sftp.stat(this._config.sftpIdMapPath);
         if (stat.size === this._idMapLastSize) return;
-        const buf = await sftp.get(this._config.sftpIdMapPath);
+        const buf = (await sftp.get(this._config.sftpIdMapPath)) as Buffer;
         this._idMapLastSize = stat.size;
         text = buf.toString('utf8');
       }
@@ -1292,7 +1533,7 @@ class LogWatcher {
         // Extract SteamID (before _+_|) and name (after @)
         const match = trimmed.match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
         if (match) {
-          entries.push({ steamId: match[1], name: match[2].trim() });
+          entries.push({ steamId: _s(match, 1), name: _s(match, 2).trim() });
         }
       }
       if (entries.length > 0) {
@@ -1302,11 +1543,9 @@ class LogWatcher {
         if (this._dataDir) {
           try {
             const logsDir = path.join(this._dataDir, 'logs');
-
-            const fs = require('fs') as typeof import('fs');
             if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
             fs.writeFileSync(path.join(logsDir, 'PlayerIDMapped.txt'), text, 'utf8');
-          } catch (_: any) {
+          } catch (_: unknown) {
             /* non-critical — web panel will fall back to DB names */
           }
         }
@@ -1317,39 +1556,34 @@ class LogWatcher {
           for (const { steamId, name } of entries) idMap[steamId] = name;
           try {
             this._onIdMapRefresh(idMap);
-          } catch (_: any) {}
+          } catch (_: unknown) {}
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Not critical — file may not exist yet
       if (!this._idMapWarned) {
-        this._log.warn('Could not read PlayerIDMapped.txt:', err.message);
+        this._log.warn('Could not read PlayerIDMapped.txt:', errMsg(err));
         this._idMapWarned = true;
       }
     }
   }
 
-  _simplifyContainerName(rawName: any) {
+  _simplifyContainerName(rawName: string) {
     return cleanName(rawName);
   }
 
-  _simplifyBlueprintName(rawName: any) {
+  _simplifyBlueprintName(rawName: string) {
     return cleanName(rawName);
   }
 
-  _formatTime(date: any) {
+  _formatTime(date: Date) {
     return this._config.formatTime(date);
   }
 }
 
-Object.assign(LogWatcher.prototype, require('./log-watcher-threads'));
+Object.assign(LogWatcher.prototype, logWatcherThreads);
 
-Object.assign(LogWatcher.prototype, require('./log-watcher-events'));
+Object.assign(LogWatcher.prototype, logWatcherEvents);
 
 export default LogWatcher;
 export { LogWatcher };
-
-const _mod = module as { exports: any };
-
-_mod.exports = LogWatcher;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

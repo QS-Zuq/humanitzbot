@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert';
 
@@ -32,7 +31,10 @@ describe('Interaction handling', () => {
 
       assert.strictEqual(deferCalls.length, 1, 'Should defer exactly once');
       assert.strictEqual(editCalls.length, 1, 'Should edit exactly once');
-      assert.ok(deferCalls[0]!.timestamp < editCalls[0]!.timestamp, 'Defer must happen before edit');
+      assert.ok(
+        (deferCalls[0] as (typeof deferCalls)[0]).timestamp < (editCalls[0] as (typeof editCalls)[0]).timestamp,
+        'Defer must happen before edit',
+      );
     });
 
     it('should defer clan select immediately before async work', async () => {
@@ -63,7 +65,10 @@ describe('Interaction handling', () => {
 
       assert.strictEqual(deferCalls.length, 1, 'Should defer exactly once');
       assert.strictEqual(editCalls.length, 1, 'Should edit exactly once');
-      assert.ok(deferCalls[0]!.timestamp < editCalls[0]!.timestamp, 'Defer must happen before edit');
+      assert.ok(
+        (deferCalls[0] as (typeof deferCalls)[0]).timestamp < (editCalls[0] as (typeof editCalls)[0]).timestamp,
+        'Defer must happen before edit',
+      );
     });
 
     it('should use editReply for errors after deferring', async () => {
@@ -119,7 +124,7 @@ describe('Interaction handling', () => {
       // Valid pattern 1: reply only
       await interaction.reply({ content: 'Direct reply' });
       assert.strictEqual(calls.length, 1);
-      assert.strictEqual(calls[0]!.type, 'reply');
+      assert.strictEqual((calls[0] as (typeof calls)[0]).type, 'reply');
 
       calls.length = 0;
 
@@ -127,8 +132,8 @@ describe('Interaction handling', () => {
       await interaction.deferReply({ flags: 64 });
       await interaction.editReply({ content: 'Deferred reply' });
       assert.strictEqual(calls.length, 2);
-      assert.strictEqual(calls[0]!.type, 'defer');
-      assert.strictEqual(calls[1]!.type, 'edit');
+      assert.strictEqual((calls[0] as (typeof calls)[0]).type, 'defer');
+      assert.strictEqual((calls[1] as (typeof calls)[0]).type, 'edit');
 
       // Invalid pattern: reply after defer would fail
       // (not testing this as it would throw in real Discord.js)

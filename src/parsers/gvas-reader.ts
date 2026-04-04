@@ -86,8 +86,9 @@ function createReader(buf: Buffer): GvasReader {
   let offset = 0;
 
   function readU8(): number {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    return buf[offset++]!;
+    const val = buf[offset++];
+    if (val === undefined) throw new Error(`readU8: out of bounds at offset ${String(offset - 1)}`);
+    return val;
   }
   function readU16(): number {
     const v = buf.readUInt16LE(offset);

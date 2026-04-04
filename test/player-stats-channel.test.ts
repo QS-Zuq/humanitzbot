@@ -1,12 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for player-stats-channel.js utility functions: _parseIni, _cleanItemName
  * Run: npm test
  */
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const cjsRequire = createRequire(__filename);
 
-const { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } = require('../src/modules/player-stats-channel');
+import * as _player_stats_channel from '../src/modules/player-stats-channel.js';
+const { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } = _player_stats_channel as any;
 
 // Clean up singleton references after tests.
 // Requiring player-stats-channel pulls in both player-stats and playtime-tracker
@@ -132,7 +134,7 @@ describe('_cleanItemName', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('_isNewWeek (via KillTracker)', () => {
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = cjsRequire('../src/tracking/kill-tracker');
 
   function makeTracker(resetDay = 1, tz = 'UTC') {
     return new KillTracker({
@@ -200,7 +202,7 @@ describe('_isNewWeek (via KillTracker)', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('_snapshotPlayerStats (via KillTracker)', () => {
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = cjsRequire('../src/tracking/kill-tracker');
 
   function makeTracker(_saveData: Map<string, unknown>, logStats?: unknown, ptData?: unknown) {
     return new KillTracker({
@@ -263,7 +265,7 @@ describe('_resolveUdsWeather', () => {
 // ══════════════════════════════════════════════════════════
 
 describe('Challenge tracking (via KillTracker)', () => {
-  const KillTracker = require('../src/tracking/kill-tracker');
+  const { KillTracker } = cjsRequire('../src/tracking/kill-tracker');
 
   it('CHALLENGE_KEYS contains all 19 challenge fields', () => {
     assert.equal(KillTracker.CHALLENGE_KEYS.length, 19);

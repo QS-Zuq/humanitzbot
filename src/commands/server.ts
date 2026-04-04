@@ -11,10 +11,8 @@ import { LOADING_TIPS } from '../parsers/game-data.js';
 import config from '../config/index.js';
 import { t, getLocalizations } from '../i18n/index.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { buildScheduleField } = require('../server/server-display') as {
-  buildScheduleField: (cfg: unknown) => { name: string; value: string; inline?: boolean } | null;
-};
+import { buildScheduleField } from '../server/server-display.js';
+import { errMsg } from '../utils/error.js';
 
 function _randomTip(): string | null {
   const tips = LOADING_TIPS.filter((tip) => tip.length > 20 && tip.length < 120);
@@ -46,7 +44,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
       .setTimestamp();
 
     // Schedule always first
-    const schedField = buildScheduleField(config);
+    const schedField = buildScheduleField(config as unknown as Record<string, unknown>);
     if (schedField) embed.addFields(schedField);
 
     // Server fields from RCON
@@ -78,7 +76,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:server]', (err as Error).message);
+    console.error('[CMD:server]', errMsg(err));
     await interaction.editReply({
       content: t('commands:server.reply.unreachable', locale),
     });

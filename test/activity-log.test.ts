@@ -1,13 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const config = require('../src/config');
+import _config from '../src/config/index.js';
+const config = _config as any;
 
-const ActivityLog = require('../src/modules/activity-log');
+import { _cleanActorName, _formatLocation, _test as _activityTest } from '../src/modules/activity-log.js';
 
-const { _cleanActorName, _formatLocation } = ActivityLog;
-const { _filterEvents, _formatTime, _categoryTitle } = ActivityLog._test;
+const { _filterEvents, _formatTime, _categoryTitle } = _activityTest;
 
 // ── _cleanActorName ─────────────────────────────────────────────────────────
 
@@ -125,42 +124,42 @@ describe('_filterEvents', () => {
     config.showInventoryLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'inventory'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'inventory'));
   });
 
   it('filters container when enableContainerLog is false', () => {
     config.enableContainerLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'container'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'container'));
   });
 
   it('filters horse when enableHorseLog is false', () => {
     config.enableHorseLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'horse'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'horse'));
   });
 
   it('filters vehicle when enableVehicleLog is false', () => {
     config.enableVehicleLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'vehicle'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'vehicle'));
   });
 
   it('filters world when enableWorldEventFeed is false', () => {
     config.enableWorldEventFeed = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'world'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'world'));
   });
 
   it('filters structure when enableStructureLog is false', () => {
     config.enableStructureLog = false;
     const result = _filterEvents.call({}, allEvents);
     assert.equal(result.length, allEvents.length - 1);
-    assert.ok(!result.some((e: { category: string }) => e.category === 'structure'));
+    assert.ok(!result.some((e: { category?: string }) => e.category === 'structure'));
   });
 
   it('passes unknown categories through', () => {

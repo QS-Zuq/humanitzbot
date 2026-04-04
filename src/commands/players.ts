@@ -7,9 +7,9 @@
 
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getPlayerList } from '../rcon/server-info.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+import playtime from '../tracking/playtime-tracker.js';
 import { t, getLocalizations } from '../i18n/index.js';
+import { errMsg } from '../utils/error.js';
 
 export const data = new SlashCommandBuilder()
   .setName('players')
@@ -66,7 +66,7 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:players]', (err as Error).message);
+    console.error('[CMD:players]', errMsg(err));
     await interaction.editReply({
       content: t('commands:players.reply.fetch_failed', locale),
     });

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -6,8 +5,11 @@ import fs from 'fs';
 
 // ─── New parser modules ─────────────────────────────────────────────────────
 
-const { createReader, parseHeader, readProperty, cleanName, recoverForward } = require('../src/parsers/gvas-reader');
+import * as _gvas_reader from '../src/parsers/gvas-reader.js';
+import * as _game_reference from '../src/parsers/game-reference.js';
+const { createReader, parseHeader, readProperty, cleanName, recoverForward } = _gvas_reader as any;
 
+import * as _save_parser from '../src/parsers/save-parser.js';
 const {
   parseSave,
   parseClanData,
@@ -18,9 +20,10 @@ const {
   STAT_TAG_MAP,
   createPlayerData,
   simplifyBlueprint,
-} = require('../src/parsers/save-parser');
+} = _save_parser as any;
 
-const HumanitZDB = require('../src/db/database');
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
 
 // ─── Test data paths ────────────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -477,8 +480,8 @@ describe('parseSave — real .sav files', () => {
 
       it('players have reasonable vital values', () => {
         for (const [, p] of result.players) {
-          if ((p as any).health > 0) {
-            assert.ok((p as any).health <= 200, `Health ${(p as any).health} too high for ${(p as any).startingPerk}`);
+          if (p.health > 0) {
+            assert.ok(p.health <= 200, `Health ${p.health} too high for ${p.startingPerk}`);
           }
         }
       });
@@ -1015,7 +1018,7 @@ describe('game-reference seed', () => {
   });
 
   it('seeds all reference data without errors', () => {
-    const { seed } = require('../src/parsers/game-reference');
+    const { seed } = _game_reference as any;
     assert.doesNotThrow(() => seed(db));
   });
 

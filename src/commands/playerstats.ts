@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * /playerstats — View player activity stats from the log.
  *
@@ -14,14 +13,12 @@ import {
   ComponentType,
   type StringSelectMenuInteraction,
 } from 'discord.js';
-const playerStats = require('../tracking/player-stats') as import('../tracking/player-stats.js').PlayerStats;
-const playtime = require('../tracking/playtime-tracker') as import('../tracking/playtime-tracker.js').PlaytimeTracker;
+import playerStats from '../tracking/player-stats.js';
+import playtime from '../tracking/playtime-tracker.js';
 import { t, getLocalizations } from '../i18n/index.js';
 import config from '../config/index.js';
-
-const { buildPlayerEmbed } = require('../modules/player-embed') as {
-  buildPlayerEmbed: (stats: unknown, opts: { isAdmin: boolean }) => EmbedBuilder;
-};
+import { buildPlayerEmbed } from '../modules/player-embed.js';
+import { errMsg } from '../utils/error.js';
 
 export const data = new SlashCommandBuilder()
   .setName('playerstats')
@@ -116,13 +113,13 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
         }
 
         const adminFlag = config.isAdminView(selectInteraction.member as import('discord.js').GuildMember | null);
-        const playerEmbed = buildPlayerEmbed(stats, { isAdmin: adminFlag });
+        const playerEmbed = buildPlayerEmbed(stats as Parameters<typeof buildPlayerEmbed>[0], { isAdmin: adminFlag });
 
         await selectInteraction.update({ embeds: [playerEmbed], components: [row] });
       } catch (err) {
         const code = (err as { code?: number }).code;
         if (![10062, 10008, 40060].includes(code ?? -1)) {
-          console.error('[CMD:playerstats] Select interaction error:', (err as Error).message);
+          console.error('[CMD:playerstats] Select interaction error:', errMsg(err));
         }
       }
     })();

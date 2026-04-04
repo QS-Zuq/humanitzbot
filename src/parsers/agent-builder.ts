@@ -17,6 +17,7 @@
  *   // Upload `script` to game server via SFTP, then execute via SSH
  */
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { transformSync } from 'esbuild';
@@ -345,8 +346,6 @@ function writeAgent(outputPath?: string): string {
 
   // Format with Prettier so the generated file follows project style.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { execFileSync } = require('child_process') as typeof import('child_process');
     const prettierBin = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'prettier');
     execFileSync(prettierBin, ['--write', target], { stdio: 'ignore' });
   } catch {

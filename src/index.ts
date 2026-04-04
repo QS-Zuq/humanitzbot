@@ -50,8 +50,7 @@ import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
 
-// Convenience wrapper: the ESM export has 2-arg signature (permissions[], member).
-// The old CJS require() had a 1-arg wrapper that curried config.adminViewPermissions.
+// Convenience wrapper: isAdminView has 2-arg signature (permissions[], member).
 function isAdminView(member: GuildMember | null): boolean {
   return _isAdminViewRaw(config.adminViewPermissions, member);
 }
@@ -158,7 +157,7 @@ let HzmodIpcClient: (new (socketPath: string) => IpcClientInstance) | undefined;
 async function loadOptionalModules(): Promise<void> {
   try {
     AnticheatIntegration = (
-      (await import('./modules/anticheat-integration.js')) as { default: typeof AnticheatIntegration }
+      (await import('./modules/anticheat-integration.js')) as unknown as { default: typeof AnticheatIntegration }
     ).default;
   } catch {
     /* optional module */
@@ -789,7 +788,8 @@ client.once(Events.ClientReady, (readyClient) => {
         db,
         label: 'AUTO MSG',
       });
-      await autoMessages.start();
+      // Note: start() is synchronous; if it ever returns Promise, callers must await
+      autoMessages.start();
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');
@@ -1146,7 +1146,10 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
         console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
       } else {
-        pvpScheduler = new PvpScheduler(readyClient, logWatcher);
+        pvpScheduler = new PvpScheduler(
+          readyClient,
+          (logWatcher ?? null) as ConstructorParameters<typeof PvpScheduler>[1],
+        );
         await pvpScheduler.start();
         setStatus('PvP Scheduler', '🟢 Active');
         if (!logWatcher) {
@@ -1164,7 +1167,10 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
         console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
       } else {
-        serverScheduler = new ServerScheduler(readyClient, logWatcher);
+        serverScheduler = new ServerScheduler(
+          readyClient,
+          (logWatcher ?? null) as ConstructorParameters<typeof ServerScheduler>[1],
+        );
         await serverScheduler.start();
         if (webMapServer)
           (webMapServer as unknown as { setScheduler: (s: typeof serverScheduler) => void }).setScheduler(

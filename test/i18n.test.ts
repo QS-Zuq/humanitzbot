@@ -1,12 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
 
-const config = require('../src/config');
+import _config from '../src/config/index.js';
+const config = _config as any;
 
-const { t, getLocale, fmtDate, fmtTime, fmtNumber, getSupportedLocales, getLocalizations } = require('../src/i18n');
+import * as _i18n from '../src/i18n/index.js';
+const { t, getLocale, fmtDate, fmtTime, fmtNumber, getSupportedLocales, getLocalizations } = _i18n as any;
 
 describe('i18n module', () => {
   let savedBotLocale: string;

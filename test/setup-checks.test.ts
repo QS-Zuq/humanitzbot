@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-dynamic-delete */
 /**
  * Tests for src/utils/setup-checks.js — checkPrerequisites + testRconReachability
  * Run: npm test
@@ -6,7 +5,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { checkPrerequisites, testRconReachability } = require('../src/utils/setup-checks');
+import * as _setup_checks from '../src/utils/setup-checks.js';
+const { checkPrerequisites, testRconReachability } = _setup_checks as any;
 
 describe('setup-checks', () => {
   describe('checkPrerequisites', () => {
@@ -41,13 +41,13 @@ describe('setup-checks', () => {
     beforeEach(() => {
       for (const key of KEYS) {
         originalEnv[key] = process.env[key];
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     });
 
     afterEach(() => {
       for (const [key, val] of Object.entries(originalEnv)) {
-        if (val === undefined) delete process.env[key];
+        if (val === undefined) Reflect.deleteProperty(process.env, key);
         else process.env[key] = val;
       }
     });
@@ -215,13 +215,13 @@ describe('setup-checks', () => {
     beforeEach(() => {
       for (const key of KEYS) {
         originalEnv[key] = process.env[key];
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     });
 
     afterEach(() => {
       for (const [key, val] of Object.entries(originalEnv)) {
-        if (val === undefined) delete process.env[key];
+        if (val === undefined) Reflect.deleteProperty(process.env, key);
         else process.env[key] = val;
       }
     });

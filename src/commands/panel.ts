@@ -1,9 +1,10 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { t, getLocalizations, fmtDate, fmtTime } from '../i18n/index.js';
+import { formatBytes, formatUptime } from '../server/server-resources.js';
+import _panelApi from '../server/panel-api.js';
+import { errMsg } from '../utils/error.js';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const panelApi = require('../server/panel-api') as {
-  available: boolean;
+const panelApi = _panelApi as typeof _panelApi & {
   getResources(): Promise<{
     state: string;
     cpu?: number;
@@ -46,14 +47,6 @@ const panelApi = require('../server/panel-api') as {
     }>
   >;
 };
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const _serverResources = require('../server/server-resources') as {
-  formatBytes: (bytes: number) => string;
-  formatUptime: (seconds: number) => string;
-};
-const formatBytes = (bytes: number): string => _serverResources.formatBytes(bytes);
-const formatUptime = (seconds: number): string => _serverResources.formatUptime(seconds);
 
 const STATE_DISPLAY: Record<string, { emoji: string; key: string; color: number }> = {
   running: { emoji: '🟢', key: 'running', color: 0x2ecc71 },
@@ -217,7 +210,7 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
   try {
     const [resources, details] = await Promise.all([panelApi.getResources(), panelApi.getServerDetails()]);
 
-    const si = _stateInfo(resources.state, locale);
+    const si = _stateInfo(resources.state ?? '', locale);
     const embed = new EmbedBuilder()
       .setTitle(t('commands:qspanel.embeds.status_title', locale))
       .setColor(si.color)
@@ -289,9 +282,9 @@ async function _status(interaction: import('discord.js').ChatInputCommandInterac
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:panel:status]', (err as Error).message);
+    console.error('[CMD:panel:status]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.status_fetch_failed', locale, { error: (err as Error).message }),
+      content: t('commands:qspanel.reply.status_fetch_failed', locale, { error: errMsg(err) }),
     });
   }
 }
@@ -320,9 +313,9 @@ async function _power(interaction: import('discord.js').ChatInputCommandInteract
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error(`[CMD:panel:${signal}]`, (err as Error).message);
+    console.error(`[CMD:panel:${signal}]`, errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.power_action_failed', locale, { signal, error: (err as Error).message }),
+      content: t('commands:qspanel.reply.power_action_failed', locale, { signal, error: errMsg(err) }),
     });
   }
 }
@@ -350,9 +343,9 @@ async function _console(interaction: import('discord.js').ChatInputCommandIntera
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:panel:console]', (err as Error).message);
+    console.error('[CMD:panel:console]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.console_command_failed', locale, { error: (err as Error).message }),
+      content: t('commands:qspanel.reply.console_command_failed', locale, { error: errMsg(err) }),
     });
   }
 }
@@ -382,7 +375,7 @@ async function _backups(interaction: import('discord.js').ChatInputCommandIntera
         return t('commands:qspanel.reply.backup_line', locale, {
           status,
           lock,
-          name: b.name ?? t('commands:qspanel.reply.backup_fallback_name', locale, { index: i + 1 }),
+          name: b.name || t('commands:qspanel.reply.backup_fallback_name', locale, { index: i + 1 }),
           size,
           date,
           uuid: b.uuid,
@@ -395,9 +388,9 @@ async function _backups(interaction: import('discord.js').ChatInputCommandIntera
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:panel:backups]', (err as Error).message);
+    console.error('[CMD:panel:backups]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.backups_fetch_failed', locale, { error: (err as Error).message }),
+      content: t('commands:qspanel.reply.backups_fetch_failed', locale, { error: errMsg(err) }),
     });
   }
 }
@@ -425,11 +418,11 @@ async function _backupCreate(interaction: import('discord.js').ChatInputCommandI
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:panel:backup-create]', (err as Error).message);
+    console.error('[CMD:panel:backup-create]', errMsg(err));
     const msg =
-      (err as Error).message.includes('409') || (err as Error).message.includes('limit')
+      errMsg(err).includes('409') || errMsg(err).includes('limit')
         ? t('commands:qspanel.reply.backup_limit_reached', locale)
-        : t('commands:qspanel.reply.backup_create_failed', locale, { error: (err as Error).message });
+        : t('commands:qspanel.reply.backup_create_failed', locale, { error: errMsg(err) });
     await interaction.editReply({ content: msg });
   }
 }
@@ -444,9 +437,9 @@ async function _backupDelete(interaction: import('discord.js').ChatInputCommandI
     await panelApi.deleteBackup(uuid);
     await interaction.editReply({ content: t('commands:qspanel.reply.backup_deleted', locale, { uuid }) });
   } catch (err) {
-    console.error('[CMD:panel:backup-delete]', (err as Error).message);
+    console.error('[CMD:panel:backup-delete]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.backup_delete_failed', locale, { error: (err as Error).message }),
+      content: t('commands:qspanel.reply.backup_delete_failed', locale, { error: errMsg(err) }),
     });
   }
 }
@@ -492,9 +485,9 @@ async function _schedules(interaction: import('discord.js').ChatInputCommandInte
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err) {
-    console.error('[CMD:panel:schedules]', (err as Error).message);
+    console.error('[CMD:panel:schedules]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:qspanel.reply.schedules_fetch_failed', locale, { error: (err as Error).message }),
+      content: t('commands:qspanel.reply.schedules_fetch_failed', locale, { error: errMsg(err) }),
     });
   }
 }

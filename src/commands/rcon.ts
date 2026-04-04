@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const rcon = require('../rcon/rcon') as import('../rcon/rcon.js').RconManager;
+import rcon from '../rcon/rcon.js';
 import { t, getLocalizations } from '../i18n/index.js';
+import { errMsg } from '../utils/error.js';
 
 // Commands that could disrupt the server — blocked from Discord execution
 // Keep in sync with web panel blocklist in src/web-map/server.js
@@ -61,9 +61,9 @@ export async function execute(interaction: import('discord.js').ChatInputCommand
       }),
     });
   } catch (err) {
-    console.error('[CMD:rcon]', (err as Error).message);
+    console.error('[CMD:rcon]', errMsg(err));
     await interaction.editReply({
-      content: t('commands:rcon.reply.failed', locale, { error: (err as Error).message }),
+      content: t('commands:rcon.reply.failed', locale, { error: errMsg(err) }),
     });
   }
 }

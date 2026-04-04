@@ -1,7 +1,5 @@
 'use strict';
 
-/* eslint-disable @typescript-eslint/no-unnecessary-condition -- raw JSON fields may be absent at runtime */
-
 // ═══════════════════════════════════════════════════════════════════════════
 //  game-data-extract.ts — Dynamic extraction from game-tables-raw.json
 //
@@ -14,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDirname } from '../utils/paths.js';
+// errMsg was used only by the removed CJS try/catch for save-parser
 
 const __dirname = getDirname(import.meta.url);
 
@@ -106,18 +105,9 @@ function _projectEnum(prefixedMap: Record<string, string>, reservedSlots: number
   return map;
 }
 
-// Load save-parser enum maps; fall back to empty objects if unavailable
-let _saveParserEnums: SaveParserEnums;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sp = require('./save-parser') as SaveParserEnums;
-  _saveParserEnums = { PERK_MAP: sp.PERK_MAP, CLAN_RANK_MAP: sp.CLAN_RANK_MAP };
-} catch (err: unknown) {
-  if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
-    console.warn('[game-data-extract] save-parser load error:', (err as Error).message);
-  }
-  _saveParserEnums = { PERK_MAP: {}, CLAN_RANK_MAP: {} };
-}
+// Load save-parser enum maps
+import { PERK_MAP as _PERK_MAP, CLAN_RANK_MAP as _CLAN_RANK_MAP } from './save-parser.js';
+const _saveParserEnums: SaveParserEnums = { PERK_MAP: _PERK_MAP, CLAN_RANK_MAP: _CLAN_RANK_MAP };
 
 // ── Enum resolution ────────────────────────────────────────────────────────
 
@@ -488,7 +478,7 @@ function extractBuildings(): Record<string, RawObject> {
         resources.push({
           type: resolveEnum(rc['ResourceType']),
           typeRaw: (rc['ResourceType'] as string) || '',
-          amount: (rc['Amount'] as number) ?? 0,
+          amount: (rc['Amount'] as number | undefined) ?? 0,
         });
       }
     }
@@ -508,7 +498,7 @@ function extractBuildings(): Record<string, RawObject> {
           }
         }
         upgrades.push({
-          health: (uc['NewHealth'] as number) ?? 0,
+          health: (uc['NewHealth'] as number | undefined) ?? 0,
           resources: upgResources,
         });
       }
@@ -628,7 +618,7 @@ function extractSkills(): Record<string, RawObject> {
   for (const [id, row] of Object.entries(raw)) {
     const c = deepClean(row) as RawObject;
 
-    const perk = (c['PerkModifier'] as RawObject) || {};
+    const perk = (c['PerkModifier'] as RawObject | undefined) ?? {};
     const effects: RawObject = {
       fuelPercentage: perk['FuelPercentage'] ?? 1,
       repairPercentage: perk['RepairPercentage'] ?? 1,
@@ -652,7 +642,7 @@ function extractSkills(): Record<string, RawObject> {
       for (const mod of perk['AttributeModifiers']) {
         const m = mod as RawObject;
         attributeModifiers.push({
-          conditions: (m['Conditions'] as RawArray) || [],
+          conditions: (m['Conditions'] as RawArray | undefined) ?? [],
           gainMultiplier: m['GainMultiplier'] ?? 0,
           drainMultiplier: m['DrainMultiplier'] ?? 0,
           valueModifier: m['ValueModifier'] ?? 0,
@@ -670,7 +660,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const gm of s['ModifiersGeneral']) {
             const g = gm as RawObject;
             generalMods.push({
-              effect: (g['Effect'] as RawArray) || [],
+              effect: (g['Effect'] as RawArray | undefined) ?? [],
               value: g['Value'] ?? 0,
               isPercentage: g['IsPercentage'] ?? false,
             });
@@ -681,7 +671,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const am of s['ModifiersAttributes']) {
             const a = am as RawObject;
             attrMods.push({
-              conditions: (a['Conditions'] as RawArray) || [],
+              conditions: (a['Conditions'] as RawArray | undefined) ?? [],
               gainMultiplier: a['GainMultiplier'] ?? 0,
               drainMultiplier: a['DrainMultiplier'] ?? 0,
               valueModifier: a['ValueModifier'] ?? 0,
@@ -690,8 +680,8 @@ function extractSkills(): Record<string, RawObject> {
           }
         }
         skillModifiers.push({
-          targetClassifications: (s['TargetClassifications'] as RawArray) || [],
-          conditions: (s['Conditions'] as RawArray) || [],
+          targetClassifications: (s['TargetClassifications'] as RawArray | undefined) ?? [],
+          conditions: (s['Conditions'] as RawArray | undefined) ?? [],
           generalModifiers: generalMods,
           attributeModifiers: attrMods,
         });
@@ -734,7 +724,7 @@ function extractProfessions(): Record<string, RawObject> {
             .map(parseRawObject)
             .filter((r): r is RawObject => r !== null && !!r.itemId && r.itemId !== 'None' && r.itemId !== 'Empty')
         : [],
-      passivePerks: (c['PassivePerks'] as RawArray) || [],
+      passivePerks: (c['PassivePerks'] as RawArray | undefined) ?? [],
     };
   }
   return professions;
@@ -757,8 +747,8 @@ function extractStatistics(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number) ?? 0,
-      progressMax: (progress?.['y'] as number) ?? 1,
+      progressMin: (progress?.['x'] as number | undefined) ?? 0,
+      progressMax: (progress?.['y'] as number | undefined) ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -783,8 +773,8 @@ function extractStatConfig(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number) ?? 0,
-      progressMax: (progress?.['y'] as number) ?? 1,
+      progressMin: (progress?.['x'] as number | undefined) ?? 0,
+      progressMax: (progress?.['y'] as number | undefined) ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -808,11 +798,11 @@ function extractCrops(): Record<string, RawObject> {
       seedItemId: id,
       cropId: c['ID'] ?? 0,
       growthTimeDays: c['GrowthTimeDays'] ?? 0,
-      growSeasons: (c['GrowSeasons'] as RawArray) || [],
-      gridColumns: (colRow?.['x'] as number) ?? 1,
-      gridRows: (colRow?.['y'] as number) ?? 1,
-      spacingX: (spacing?.['x'] as number) ?? 0,
-      spacingY: (spacing?.['y'] as number) ?? 0,
+      growSeasons: (c['GrowSeasons'] as RawArray | undefined) ?? [],
+      gridColumns: (colRow?.['x'] as number | undefined) ?? 1,
+      gridRows: (colRow?.['y'] as number | undefined) ?? 1,
+      spacingX: (spacing?.['x'] as number | undefined) ?? 0,
+      spacingY: (spacing?.['y'] as number | undefined) ?? 0,
       stageCount: Array.isArray(c['Stages']) ? c['Stages'].length : 0,
       harvestResult: c['HarvestResult'] || '',
       harvestCount: c['Count'] ?? 0,
@@ -1179,7 +1169,7 @@ function extractFoliage(): Record<string, RawObject> {
       for (const drop of c['Drops']) {
         const d = drop as RawObject;
         drops.push({
-          itemId: (d['ItemID'] as string) || ((d['Item'] as RawObject)?.['RowName'] as string) || '',
+          itemId: (d['ItemID'] as string) || ((d['Item'] as RawObject | undefined)?.['RowName'] as string) || '',
           chance: d['Chance'] ?? d['ChancePercentage'] ?? 100,
           min: d['Min'] ?? 1,
           max: d['Max'] ?? 1,
@@ -1396,48 +1386,4 @@ function getTABLE_SUMMARY(): Record<string, number> {
   });
 }
 
-// CJS compatibility — .js consumers use require('./game-data-extract')
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-
-_mod.exports = {
-  cleanKey,
-  cleanRow,
-  deepClean,
-  resolveEnum,
-  ENUM_MAPS,
-  getTable,
-  getTableCleaned,
-  _test: { _projectEnum },
-};
-
-// Lazy-loaded game data (extracted on first access)
-Object.defineProperty(_mod.exports, 'ITEMS', { get: getITEMS, enumerable: true });
-Object.defineProperty(_mod.exports, 'ITEM_NAMES', { get: getITEM_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'LOOT_TABLES', { get: getLOOT_TABLES, enumerable: true });
-Object.defineProperty(_mod.exports, 'BUILDINGS', { get: getBUILDINGS, enumerable: true });
-Object.defineProperty(_mod.exports, 'BUILDING_NAMES', { get: getBUILDING_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'RECIPES', { get: getRECIPES, enumerable: true });
-Object.defineProperty(_mod.exports, 'SKILLS', { get: getSKILLS, enumerable: true });
-Object.defineProperty(_mod.exports, 'PROFESSIONS', { get: getPROFESSIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'STATISTICS', { get: getSTATISTICS, enumerable: true });
-Object.defineProperty(_mod.exports, 'STAT_CONFIG', { get: getSTAT_CONFIG, enumerable: true });
-Object.defineProperty(_mod.exports, 'CROPS', { get: getCROPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'VEHICLES', { get: getVEHICLES, enumerable: true });
-Object.defineProperty(_mod.exports, 'VEHICLE_NAMES', { get: getVEHICLE_NAMES, enumerable: true });
-Object.defineProperty(_mod.exports, 'CAR_UPGRADES', { get: getCAR_UPGRADES, enumerable: true });
-Object.defineProperty(_mod.exports, 'AMMO_DAMAGE', { get: getAMMO_DAMAGE, enumerable: true });
-Object.defineProperty(_mod.exports, 'REPAIR_DATA', { get: getREPAIR_DATA, enumerable: true });
-Object.defineProperty(_mod.exports, 'FURNITURE', { get: getFURNITURE, enumerable: true });
-Object.defineProperty(_mod.exports, 'TRAPS', { get: getTRAPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'ANIMALS', { get: getANIMALS, enumerable: true });
-Object.defineProperty(_mod.exports, 'XP_DATA', { get: getXP_DATA, enumerable: true });
-Object.defineProperty(_mod.exports, 'SPAWN_LOCATIONS', { get: getSPAWN_LOCATIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'LORE', { get: getLORE, enumerable: true });
-Object.defineProperty(_mod.exports, 'QUESTS', { get: getQUESTS, enumerable: true });
-Object.defineProperty(_mod.exports, 'AFFLICTIONS', { get: getAFFLICTIONS, enumerable: true });
-Object.defineProperty(_mod.exports, 'LOADING_TIPS', { get: getLOADING_TIPS, enumerable: true });
-Object.defineProperty(_mod.exports, 'SPRAYS', { get: getSPRAYS, enumerable: true });
-Object.defineProperty(_mod.exports, 'FOLIAGE', { get: getFOLIAGE, enumerable: true });
-Object.defineProperty(_mod.exports, 'CHARACTERS', { get: getCHARACTERS, enumerable: true });
-Object.defineProperty(_mod.exports, 'TABLE_SUMMARY', { get: getTABLE_SUMMARY, enumerable: true });
+export const _test = { _projectEnum };

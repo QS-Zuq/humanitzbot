@@ -16,9 +16,12 @@
  */
 
 import config from '../config/index.js';
-import { PlaytimeTracker } from './playtime-tracker.js';
-import { PlayerStats } from './player-stats.js';
+import playtimeSingleton from './playtime-tracker.js';
+import type { PlaytimeTracker } from './playtime-tracker.js';
+import playerStatsSingleton from './player-stats.js';
+import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof config;
 type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
@@ -323,10 +326,8 @@ export class KillTracker {
 
   constructor(deps: KillTrackerDeps = {}) {
     this._config = deps.config ?? config;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._playtime = deps.playtime ?? (require('./playtime-tracker') as PlaytimeType);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    this._playerStats = deps.playerStats ?? (require('./player-stats') as PlayerStatsType);
+    this._playtime = deps.playtime ?? playtimeSingleton;
+    this._playerStats = deps.playerStats ?? playerStatsSingleton;
     this._db = deps.db ?? null;
     this._log = createLogger(deps.label, 'KillTracker');
 
@@ -354,17 +355,14 @@ export class KillTracker {
         // Migrate old records loaded from JSON: fields may be missing in older saves.
         // We cast to unknown first so TypeScript allows the falsy checks on required fields.
         for (const r of Object.values(this._data.players)) {
-          const record = r as unknown as Record<string, unknown> & PlayerKillRecord;
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          const record = r as unknown as Partial<PlayerKillRecord> & Record<string, unknown>;
           if (!record.survivalCumulative) {
             record.survivalCumulative = KillTracker._emptySurvival();
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (!record.survivalSnapshot) {
             record.survivalSnapshot = KillTracker._emptySurvival();
           }
           if (!record.deathCheckpoint) record.deathCheckpoint = null;
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (record.lastKnownDeaths === undefined) record.lastKnownDeaths = 0;
           if (!record.lifetimeSnapshot) record.lifetimeSnapshot = null;
           if (!record.survivalLifetimeSnapshot) record.survivalLifetimeSnapshot = null;
@@ -376,23 +374,20 @@ export class KillTracker {
               ? { ...record.survivalLifetimeSnapshot }
               : null;
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (!record.activitySnapshot) {
             record.activitySnapshot = KillTracker._emptyObj(KillTracker.ACTIVITY_SCALAR_KEYS);
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (!record.activityArraySnapshot) {
             record.activityArraySnapshot = {};
             for (const k of KillTracker.ACTIVITY_ARRAY_KEYS) record.activityArraySnapshot[k] = [];
           }
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (!record.challengeSnapshot) {
             record.challengeSnapshot = KillTracker._emptyObj(KillTracker.CHALLENGE_KEYS);
           }
         }
       }
     } catch (err) {
-      this._log.error('Failed to load kill tracker, starting fresh:', (err as Error).message);
+      this._log.error('Failed to load kill tracker, starting fresh:', errMsg(err));
       this._data = { players: {} };
     }
   }
@@ -403,7 +398,7 @@ export class KillTracker {
       if (this._db) this._db.setStateJSON('kill_tracker', this._data);
       this._dirty = false;
     } catch (err) {
-      this._log.error('Failed to save kill tracker:', (err as Error).message);
+      this._log.error('Failed to save kill tracker:', errMsg(err));
     }
   }
 
@@ -954,7 +949,7 @@ export class KillTracker {
         if (this._db) this._db.setStateJSON('weekly_baseline', baseline);
         this._log.info('Weekly baseline reset');
       } catch (err) {
-        this._log.error('Failed to write weekly baseline:', (err as Error).message);
+        this._log.error('Failed to write weekly baseline:', errMsg(err));
       }
     }
 
@@ -1059,11 +1054,3 @@ export class KillTracker {
     return weekStartDateStr < resetDateStr;
   }
 }
-
-// CJS compat — consumed by non-migrated .js modules via require()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = KillTracker;
-_mod.exports.resolvePlayer = resolvePlayer;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

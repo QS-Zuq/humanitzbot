@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 /**
  * Tests for /threads rebuild — log parsing and summary builders.
  * Run: node --test test/threads.test.js
@@ -6,6 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as _threads from '../src/commands/threads.js';
 const {
   _parseHmzLog,
   _parseConnectLog,
@@ -14,7 +14,7 @@ const {
   _dateKey,
   _fetchThreadMessages,
   _findMatchingThreads,
-} = require('../src/commands/threads');
+} = _threads as any;
 
 // ══════════════════════════════════════════════════════════
 // _dateKey
@@ -51,28 +51,29 @@ describe('_parseHmzLog', () => {
     const days = _parseHmzLog(log);
     const keys = Object.keys(days);
     assert.equal(keys.length, 1);
-    assert.equal(days[keys[0]!].deaths, 1);
-    assert.ok(days[keys[0]!].players.has('TestPlayer'));
+    const k0 = keys[0] as string;
+    assert.equal(days[k0].deaths, 1);
+    assert.ok(days[k0].players.has('TestPlayer'));
   });
 
   it('counts building completed', () => {
     const log = '(15/02/2026 14:00) Builder(12345678901234567) finished building WoodWall\n';
     const days = _parseHmzLog(log);
-    const key = Object.keys(days)[0]!;
+    const key = Object.keys(days)[0] as string;
     assert.equal(days[key].builds, 1);
   });
 
   it('counts damage taken', () => {
     const log = '(15/02/2026 14:00) SomePlayer took 25.0 damage from Zombie\n';
     const days = _parseHmzLog(log);
-    const key = Object.keys(days)[0]!;
+    const key = Object.keys(days)[0] as string;
     assert.equal(days[key].damage, 1);
   });
 
   it('counts container looted', () => {
     const log = '(15/02/2026 14:00) Looter (12345678901234567) looted a container\n';
     const days = _parseHmzLog(log);
-    const key = Object.keys(days)[0]!;
+    const key = Object.keys(days)[0] as string;
     assert.equal(days[key].loots, 1);
   });
 
@@ -82,7 +83,7 @@ describe('_parseHmzLog', () => {
       '(15/02/2026 14:05) Building (WoodWall) owned by (12345678901234567) damaged by Player (Destroyed)',
     ].join('\n');
     const days = _parseHmzLog(log);
-    const key = Object.keys(days)[0]!;
+    const key = Object.keys(days)[0] as string;
     assert.equal(days[key].raidHits, 1);
     assert.equal(days[key].destroyed, 1);
   });
@@ -90,7 +91,8 @@ describe('_parseHmzLog', () => {
   it('counts admin access', () => {
     const log = '(15/02/2026 14:00) SomeAdmin gained admin access!\n';
     const days = _parseHmzLog(log);
-    const key = Object.keys(days)[0]!;
+    const key = Object.keys(days)[0] as string;
+    assert.ok(key);
     assert.equal(days[key].admin, 1);
   });
 
@@ -103,8 +105,9 @@ describe('_parseHmzLog', () => {
     const days = _parseHmzLog(log);
     const keys = Object.keys(days).sort();
     assert.equal(keys.length, 2);
-    assert.equal(days[keys[0]!].deaths, 2);
-    assert.equal(days[keys[1]!].deaths, 1);
+    const [d0, d1] = keys as [string, string];
+    assert.equal(days[d0].deaths, 2);
+    assert.equal(days[d1].deaths, 1);
   });
 });
 
@@ -125,9 +128,10 @@ describe('_parseConnectLog', () => {
     const days = _parseConnectLog(log);
     const keys = Object.keys(days);
     assert.equal(keys.length, 1);
-    assert.equal(days[keys[0]!].connects, 1);
-    assert.equal(days[keys[0]!].disconnects, 1);
-    assert.ok(days[keys[0]!].players.has('TestPlayer'));
+    const ck = keys[0] as string;
+    assert.equal(days[ck].connects, 1);
+    assert.equal(days[ck].disconnects, 1);
+    assert.ok(days[ck].players.has('TestPlayer'));
   });
 });
 
@@ -242,7 +246,8 @@ describe('_fetchThreadMessages', () => {
           const map = new Map<string, (typeof batch)[0]>();
           for (const m of batch) map.set(m.id, m);
           // Needs .last() and .size like a discord.js Collection
-          (map as unknown as { last: () => (typeof batch)[0] }).last = () => batch[batch.length - 1]!;
+          (map as unknown as { last: () => (typeof batch)[0] }).last = () =>
+            batch[batch.length - 1] as (typeof batch)[0];
           return map;
         },
       },

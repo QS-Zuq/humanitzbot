@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for player-stats.js — damage classification and record management.
  * Run: npm test
@@ -9,7 +8,8 @@ import assert from 'node:assert/strict';
 // The module exports a singleton instance — we use it directly.
 // We just need to test the pure methods without triggering file I/O.
 
-const playerStats = require('../src/tracking/player-stats');
+import _player_stats from '../src/tracking/player-stats.js';
+const playerStats = _player_stats as any;
 
 // ══════════════════════════════════════════════════════════
 // _classifyDamageSource — pure regex classifier

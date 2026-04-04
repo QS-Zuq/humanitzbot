@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as _chat_relay_parser from '../src/modules/chat-relay-parser.js';
 const {
   CHAT_RE,
   JOIN_RE,
@@ -17,7 +17,7 @@ const {
   _parseLine,
   _sanitize,
   _sanitizeRcon,
-} = require('../src/modules/chat-relay-parser');
+} = _chat_relay_parser as any;
 
 // ── Helpers ──────────────────────────────────────────────────
 

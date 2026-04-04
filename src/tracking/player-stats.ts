@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { PlaytimeTracker } from './playtime-tracker.js';
+import playtimeSingleton from './playtime-tracker.js';
+import type { PlaytimeTracker } from './playtime-tracker.js';
 import { classifyDamageLabel } from './damage-classifier.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
+import { errMsg } from '../utils/error.js';
 
 type PlaytimeTrackerType = InstanceType<typeof PlaytimeTracker>;
 
@@ -50,9 +52,9 @@ interface TrackerData {
   players: Record<string, PlayerRecord>;
 }
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
-  getAllPlayerLogStats(): DbLogStatRow[];
+  getAllPlayerLogStats(): Record<string, unknown>[];
   upsertFullLogStats(steamId: string, data: UpsertLogData): void;
   importIdMap(entries: IdMapEntry[]): void;
   registerAlias(steamId: string, name: string, source: string): void;
@@ -136,17 +138,14 @@ export class PlayerStats {
   constructor(options: PlayerStatsOptions = {}) {
     this._db = options.db ?? null;
     this._dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const defaultPt = require('./playtime-tracker') as PlaytimeTrackerType;
-    this._playtime = options.playtime ?? defaultPt;
+    this._playtime = options.playtime ?? playtimeSingleton;
     this._log = createLogger(options.label, 'PLAYER STATS');
   }
 
   init(): void {
     if (this._data) return; // already initialised
     this._loadFromDb(); // load from DB
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!this._data) this._data = { players: {} }; // empty if DB has nothing yet
+    if (!(this._data as TrackerData | null)) this._data = { players: {} }; // empty if DB has nothing yet
     this._buildNameIndex();
     this._loadLocalIdMap(); // seed name→SteamID from cached PlayerIDMapped.txt
     const count = Object.keys(this._players()).length;
@@ -216,7 +215,7 @@ export class PlayerStats {
         this._log.info(`Loaded ${String(entries.length)} name(s) from cached PlayerIDMapped.txt`);
       }
     } catch (err) {
-      this._log.error('Failed to load cached ID map:', (err as Error).message);
+      this._log.error('Failed to load cached ID map:', errMsg(err));
     }
   }
 
@@ -226,7 +225,7 @@ export class PlayerStats {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerLogStats();
+      const rows = this._db.getAllPlayerLogStats() as unknown as DbLogStatRow[];
       if (rows.length === 0) return; // DB empty — fall through to JSON
       this._data = { players: {} };
       for (const row of rows) {
@@ -260,7 +259,7 @@ export class PlayerStats {
       }
       this._log.info(`Loaded ${String(rows.length)} player(s) from database`);
     } catch (err) {
-      this._log.warn('DB load failed, falling back to JSON:', (err as Error).message);
+      this._log.warn('DB load failed, falling back to JSON:', errMsg(err));
       this._data = null; // ensure fallback triggers
     }
   }
@@ -301,7 +300,7 @@ export class PlayerStats {
     } catch (err) {
       // Non-critical: in-memory cache is still correct
       if (!this._persistWarnLogged) {
-        this._log.warn('DB persist failed (will suppress further):', (err as Error).message);
+        this._log.warn('DB persist failed (will suppress further):', errMsg(err));
         this._persistWarnLogged = true;
       }
     }
@@ -689,8 +688,7 @@ export class PlayerStats {
       target.lastEvent = source.lastEvent;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete players[nameKey];
+    Reflect.deleteProperty(players, nameKey);
     this._log.info(`Merged name-keyed record "${source.name}" into SteamID ${steamId}`);
   }
 
@@ -738,11 +736,3 @@ export class PlayerStats {
 
 const _singleton = new PlayerStats();
 export default _singleton;
-
-// CJS compat — consumed by non-migrated .js modules via require()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-_mod.exports = _singleton;
-_mod.exports.PlayerStats = PlayerStats;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access */

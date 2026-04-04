@@ -146,8 +146,7 @@ class PanelRcon extends EventEmitter {
 
     if (!this._panelApi) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        this._panelApi = require('../server/panel-api') as PanelApi;
+        this._panelApi = (await import('../server/panel-api.js')).default as unknown as PanelApi;
       } catch {
         throw new Error('Panel API module not available');
       }
@@ -545,8 +544,7 @@ class PanelRcon extends EventEmitter {
  * Pterodactyl daemon wraps some output in ANSI color codes.
  */
 function stripAnsi(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '');
+  return str.replace(new RegExp(String.fromCharCode(0x1b) + '\\[[0-9;]*[a-zA-Z]', 'g'), '').replace(/\r/g, '');
 }
 
 export { PanelRcon };

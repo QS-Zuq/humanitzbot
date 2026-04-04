@@ -14,6 +14,9 @@ data/*
 *.sav
 *.log
 
+# TypeScript build output
+dist/
+
 # Dev-only directories
 .dev/
 .dev

@@ -7,6 +7,7 @@
  */
 
 import { writeEnvValues } from '../utils/env-writer.js';
+import { needsSync, syncEnv, getVersion, getExampleVersion } from '../env-sync.js';
 
 interface ActionMeta {
   source?: string;
@@ -63,14 +64,6 @@ class BotControlService {
   }
 
   envSync(): EnvSyncResult {
-    // Lazy require — avoids circular dependency at startup
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { needsSync, syncEnv, getVersion, getExampleVersion } = require('../env-sync') as {
-      needsSync: () => boolean;
-      syncEnv: () => { added: number; deprecated: number };
-      getVersion: () => string;
-      getExampleVersion: () => string;
-    };
     if (!needsSync()) {
       return { action: 'env_sync', needed: false };
     }
@@ -126,6 +119,3 @@ class BotControlService {
 
 export default BotControlService;
 export { BotControlService };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = BotControlService;

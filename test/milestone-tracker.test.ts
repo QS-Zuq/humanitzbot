@@ -1,12 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const MilestoneTracker = require('../src/modules/milestone-tracker');
+import _milestone_tracker from '../src/modules/milestone-tracker.js';
+const MilestoneTracker = _milestone_tracker as any;
 
-const { mockDb: createMockDb } = require('./helpers/mock-db');
+import * as _mock_db from './helpers/mock-db.js';
+const { mockDb: createMockDb } = _mock_db as any;
 
-const { makePlayer, mockClient } = require('./helpers/factories');
+import * as _factories from './helpers/factories.js';
+const { makePlayer, mockClient } = _factories as any;
 
 function mockDb(players: any[] = [], clans: any[] = [], initialState: any = null) {
   return createMockDb({

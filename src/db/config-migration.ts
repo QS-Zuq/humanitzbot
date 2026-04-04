@@ -10,18 +10,15 @@
  *   - migrateDisplaySettings() — merges bot_state.display_settings into app document
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const panelConstants = require('../modules/panel-constants') as {
-  ENV_CATEGORIES: Array<{
-    fields: Array<{
-      env: string;
-      type?: string;
-      sensitive?: boolean;
-      cfg?: string;
-    }>;
+import { ENV_CATEGORIES as _ENV_CATEGORIES } from '../modules/panel-constants.js';
+const ENV_CATEGORIES = _ENV_CATEGORIES as Array<{
+  fields: Array<{
+    env: string;
+    type?: string;
+    sensitive?: boolean;
+    cfg?: string;
   }>;
-};
-const { ENV_CATEGORIES } = panelConstants;
+}>;
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -38,7 +35,7 @@ interface ConfigRepo {
 }
 
 interface HumanitZDBLike {
-  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
+  getStateJSON(key: string, defaultVal: unknown): unknown;
 }
 
 // ── Bootstrap keys that MUST stay in .env ────────────────────
@@ -184,7 +181,7 @@ function _coerce(value: string, type: string): boolean | number | string {
 // ── Migration functions ──────────────────────────────────────
 
 function migrateEnvToDb(
-  envValues: Record<string, string>,
+  envValues: Record<string, string | null | undefined>,
   configRepo: ConfigRepo,
 ): { appKeys: number; serverKeys: number; skipped: number } {
   const migrationMap = buildMigrationMap();
@@ -193,7 +190,6 @@ function migrateEnvToDb(
   let skipped = 0;
 
   for (const [envKey, rawValue] of Object.entries(envValues)) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (rawValue === '' || rawValue == null) {
       skipped++;
       continue;
@@ -247,10 +243,11 @@ function migrateDisplaySettings(db: HumanitZDBLike, configRepo: ConfigRepo): num
 
   if (!overrides || typeof overrides !== 'object') return 0;
 
-  const keys = Object.keys(overrides);
+  const obj = overrides as Record<string, unknown>;
+  const keys = Object.keys(obj);
   if (keys.length === 0) return 0;
 
-  configRepo.update('app', overrides);
+  configRepo.update('app', obj);
   return keys.length;
 }
 

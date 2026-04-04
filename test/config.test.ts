@@ -1,17 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-dynamic-delete */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 
+import * as _configMod from '../src/config/index.js';
 const {
   _envBool: envBool,
   _envTime: envTime,
   _tzOffsetMs: tzOffsetMs,
-  canShow,
-  isAdminView,
-  addAdminMembers,
-} = require('../src/config');
+  canShow: _rawCanShow,
+  isAdminView: _rawIsAdminView,
+  addAdminMembers: _rawAddAdminMembers,
+} = _configMod as any;
+const config = (_configMod as any).default;
 
-const config = require('../src/config');
+// Wrappers matching the old CJS curried signatures
+function canShow(toggleKey: string, isAdmin = false): boolean {
+  return _rawCanShow(config, toggleKey, isAdmin);
+}
+function isAdminView(member: any): boolean {
+  return _rawIsAdminView(config.adminViewPermissions, member);
+}
+async function addAdminMembers(thread: any, guild: any): Promise<void> {
+  return _rawAddAdminMembers(config.adminUserIds, config.adminRoleIds, thread, guild);
+}
 
 // ══════════════════════════════════════════════════════════
 // envBool — string to boolean coercion
@@ -777,7 +788,7 @@ describe('FTP\u2192SFTP backward compatibility', () => {
       if (savedEnv[key] !== undefined) {
         process.env[key] = savedEnv[key];
       } else {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     }
     // Restore original module so other tests use the original singleton
@@ -786,9 +797,9 @@ describe('FTP\u2192SFTP backward compatibility', () => {
 
   /** Delete config from require cache and re-require with current process.env */
   function reloadConfig() {
-    delete require.cache[configPath];
-
-    return require(configPath);
+    Reflect.deleteProperty(require.cache, configPath);
+    const cjsRequire = createRequire(__filename);
+    return cjsRequire(configPath).default;
   }
 
   it('falls back to FTP_HOST when SFTP_HOST is not set', () => {

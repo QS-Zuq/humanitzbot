@@ -1,13 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/no-dynamic-delete */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const BotControlService = require('../src/server/bot-control');
+import _bot_control from '../src/server/bot-control.js';
+const BotControlService = _bot_control as any;
 
-const { _setTestPaths, _resetPaths } = require('../src/utils/env-writer');
+import * as _env_writer from '../src/utils/env-writer.js';
+const { _setTestPaths, _resetPaths } = _env_writer as any;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ describe('BotControlService', () => {
       if (v !== undefined) {
         process.env[k] = v;
       } else {
-        delete process.env[k];
+        Reflect.deleteProperty(process.env, k);
       }
     }
     // Clean up temp directory

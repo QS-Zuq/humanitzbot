@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 /**
  * Tests for panel-api.js — Pterodactyl Panel API client.
  * Uses createPanelApi() factory to avoid singleton side effects.
@@ -8,7 +7,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { createPanelApi } = require('../src/server/panel-api');
+import * as _panel_api from '../src/server/panel-api.js';
+const { createPanelApi } = _panel_api as any;
 
 const SERVER_URL = 'https://panel.test.com/server/abc123';
 const API_KEY = 'test-api-key';
@@ -110,8 +110,10 @@ describe('getResources', () => {
 
     const api = makeApi();
     await api.getResources();
-    assert.equal(capturedHeaders!.Authorization, 'Bearer test-api-key');
-    assert.equal(capturedHeaders!.Accept, 'application/json');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders.Authorization, 'Bearer test-api-key');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders.Accept, 'application/json');
   });
 
   it('parses resource data correctly (CPU rounding, mem/disk percent, uptime ms→s)', async () => {
@@ -225,7 +227,8 @@ describe('sendCommand', () => {
     const api = makeApi();
     await api.sendCommand('say Hello World');
     assert.deepEqual(capturedBody, { command: 'say Hello World' });
-    assert.ok(capturedUrl!.endsWith('/command'));
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl.endsWith('/command'));
   });
 });
 
@@ -251,7 +254,8 @@ describe('readFile', () => {
 
     const api = makeApi();
     await api.readFile('/HumanitZ Server/Settings.ini');
-    assert.ok(capturedUrl!.includes(encodeURIComponent('/HumanitZ Server/Settings.ini')));
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl.includes(encodeURIComponent('/HumanitZ Server/Settings.ini')));
   });
 
   it('returns file contents as text on success', async () => {
@@ -317,9 +321,11 @@ describe('writeFile', () => {
 
     const api = makeApi();
     await api.writeFile('/path/to file.txt', 'new content');
-    assert.ok(capturedUrl!.includes(encodeURIComponent('/path/to file.txt')));
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl.includes(encodeURIComponent('/path/to file.txt')));
     assert.equal(capturedBody, 'new content');
-    assert.equal(capturedHeaders!['Content-Type'], 'text/plain');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'text/plain');
   });
 
   it('throws on non-ok response', async () => {
@@ -483,9 +489,12 @@ describe('request headers', () => {
 
     const api = makeApi();
     await api.listBackups();
-    assert.equal(capturedHeaders!.Authorization, 'Bearer test-api-key');
-    assert.equal(capturedHeaders!.Accept, 'application/json');
-    assert.equal(capturedHeaders!['Content-Type'], 'application/json');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders.Authorization, 'Bearer test-api-key');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders.Accept, 'application/json');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'application/json');
   });
 
   it('readFile uses Accept: text/plain instead of application/json', async () => {
@@ -500,7 +509,8 @@ describe('request headers', () => {
 
     const api = makeApi();
     await api.readFile('/test.txt');
-    assert.equal(capturedHeaders!.Accept, 'text/plain');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders.Accept, 'text/plain');
   });
 });
 
@@ -572,7 +582,8 @@ describe('backup methods', () => {
 
     const api = makeApi();
     await api.deleteBackup('uuid-to-delete');
-    assert.ok(capturedUrl!.includes('backups/uuid-to-delete'));
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl.includes('backups/uuid-to-delete'));
     assert.equal(capturedMethod, 'DELETE');
   });
 
@@ -626,7 +637,8 @@ describe('other API methods', () => {
 
     const api = makeApi();
     const files = await api.listFiles('/Game Server/config');
-    assert.ok(capturedUrl!.includes(encodeURIComponent('/Game Server/config')));
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl.includes(encodeURIComponent('/Game Server/config')));
     assert.equal(files.length, 1);
     assert.equal(files[0].name, 'test.ini');
   });

@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access,
-   @typescript-eslint/no-require-imports */
 /**
  * Session store factory for express-session.
  *
@@ -11,51 +8,69 @@
  */
 
 import type { Store } from 'express-session';
+import { createRequire } from 'node:module';
 import { createLogger } from '../utils/log.js';
+import { SqliteSessionStore } from './session-stores/sqlite-store.js';
+import { errMsg } from '../utils/error.js';
+
+const _require = createRequire(import.meta.url);
 
 const _log = createLogger(null, 'SESSION');
 
-function createSessionStore(config: any, db?: any): Store | undefined {
-  const storeType = ((config.sessionStore as string) || 'sqlite').toLowerCase();
+// Config subset needed by this factory
+interface SessionConfig {
+  sessionStore?: string;
+  sessionRedisUrl?: string;
+  sessionTtl?: number;
+}
+
+function createSessionStore(config: SessionConfig, db?: unknown): Store | undefined {
+  const storeType = (config.sessionStore || 'sqlite').toLowerCase();
 
   switch (storeType) {
     // @ts-expect-error — intentional fallthrough from redis to sqlite
     case 'redis': {
       try {
-        // Lazy require — only loaded if redis + connect-redis are installed
-        const connectRedis = require('connect-redis');
-        const RedisStore = connectRedis.RedisStore || connectRedis.default || connectRedis;
-        const { createClient } = require('redis');
+        const connectRedis: Record<string, unknown> = _require('connect-redis') as Record<string, unknown>;
+        const RedisStore = (connectRedis['RedisStore'] ?? connectRedis['default'] ?? connectRedis) as new (
+          opts: Record<string, unknown>,
+        ) => Store & { _redisClient?: unknown };
+        const redisModule: Record<string, unknown> = _require('redis') as Record<string, unknown>;
+        const createClient = redisModule['createClient'] as (opts: Record<string, unknown>) => {
+          on(event: string, cb: (err: Error) => void): void;
+          connect(): Promise<void>;
+        };
 
-        const redisClient = createClient({ url: (config.sessionRedisUrl as string) || 'redis://localhost:6379' });
+        const redisClient = createClient({ url: config.sessionRedisUrl || 'redis://localhost:6379' });
 
         redisClient.on('error', (err: Error) => {
           _log.error('Redis client error:', err.message);
         });
 
         // connect-redis handles connect asynchronously; connect and log
-        (redisClient.connect() as Promise<void>)
+        redisClient
+          .connect()
           .then(() => {
             _log.info('Redis connected');
           })
           .catch((err: unknown) => {
-            _log.error('Redis connect failed:', (err as Error).message);
+            _log.error('Redis connect failed:', errMsg(err));
             _log.error('Sessions will fail until Redis is available');
           });
 
         const store = new RedisStore({
           client: redisClient,
           prefix: 'hmz:sess:',
-          ttl: (config.sessionTtl as number) || 604800,
+          ttl: config.sessionTtl || 604800,
         });
 
         // Attach redis client for graceful shutdown
         store._redisClient = redisClient;
 
         _log.info('Using Redis session store');
-        return store as Store;
+        return store;
       } catch (err: unknown) {
-        if ((err as any).code === 'MODULE_NOT_FOUND') {
+        if (typeof err === 'object' && err !== null && (err as { code?: string }).code === 'MODULE_NOT_FOUND') {
           _log.error('Redis packages not installed. Run: npm install redis connect-redis');
           _log.info('Falling back to SQLite store');
           // Fall through to sqlite
@@ -64,16 +79,17 @@ function createSessionStore(config: any, db?: any): Store | undefined {
         }
       }
     }
-    // eslint-disable-next-line no-fallthrough
+    // falls through
     case 'sqlite': {
       if (!db) {
         _log.warn('No database provided for SQLite store — falling back to memory');
         return undefined;
       }
-      const { SqliteSessionStore } = require('./session-stores/sqlite-store');
-      const store = new SqliteSessionStore(db, { table: 'web_sessions' });
+      const store = new (SqliteSessionStore as unknown as new (db: unknown, opts: { table: string }) => Store)(db, {
+        table: 'web_sessions',
+      });
       _log.info('Using SQLite session store');
-      return store as Store;
+      return store;
     }
     default: {
       // 'memory' or any unrecognized value

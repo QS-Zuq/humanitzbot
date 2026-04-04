@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS } = require('../src/db/config-validation');
+import * as _config_validation from '../src/db/config-validation.js';
+const { validateField, FIELD_VALIDATORS, ENV_KEY_VALIDATORS } = _config_validation as any;
 
 // ── Port validator ───────────────────────────────────────────
 

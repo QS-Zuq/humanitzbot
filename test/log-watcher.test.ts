@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const cjsRequire = createRequire(__filename);
 
 // Regex patterns extracted from LogWatcher for isolated testing
 
@@ -233,7 +234,7 @@ describe('raid regex', () => {
     );
     assert.ok(m);
     assert.equal(m[1], 'BP_Wall_C');
-    assert.ok(m[2]!.startsWith('76561100000000002'));
+    assert.ok(m[2]?.startsWith('76561100000000002'));
     assert.equal(m[4], '76561100000000001');
     assert.ok(m[5]);
   });
@@ -310,9 +311,9 @@ describe('simplifyBlueprintName', () => {
 });
 
 describe('_nukeActive thread suppression', () => {
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
-  const ChatRelay = require('../src/modules/chat-relay');
+  const ChatRelay = cjsRequire('../src/modules/chat-relay').default;
 
   const mockClient = { channels: { fetch: async () => null }, on: () => {}, user: { id: '1' } };
   const mockChannel = {
@@ -365,7 +366,7 @@ describe('_nukeActive thread suppression', () => {
 });
 
 describe('PvP NPC source detection', () => {
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(
@@ -444,7 +445,7 @@ describe('PvP NPC source detection', () => {
 });
 
 describe('PvP damage to death correlation', () => {
-  const LogWatcher = require('../src/modules/log-watcher');
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
     return new LogWatcher(

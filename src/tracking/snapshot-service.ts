@@ -11,9 +11,9 @@
  * @module snapshot-service
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { cleanName } = require('../parsers/ue4-names') as { cleanName: (raw: string) => string };
+import { cleanName } from '../parsers/ue4-names.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 
 // ── AI type → display name mapping ──────────────────────────
 
@@ -64,13 +64,14 @@ const AI_DISPLAY_NAMES: Record<string, string> = {
   BanditSniper: 'Bandit (Sniper)',
 };
 
-// Minimal DB interface (src/db not yet migrated)
+// Minimal DB interface matching src/db/database.ts
 interface HumanitZDB {
   insertTimelineSnapshot(data: TimelineInsertData): number;
   purgeOldTimeline(olderThan: string): { changes: number };
 }
 
 interface TimelineInsertData {
+  [key: string]: unknown;
   snapshot: SnapshotHeader;
   players: TimelinePlayer[];
   ai: TimelineAI[];
@@ -254,9 +255,7 @@ export class SnapshotService {
    * @returns The snapshot ID, or null if failed
    */
   recordSnapshot(saveData: SaveData, options: RecordSnapshotOptions = {}): number | null {
-    // saveData is typed as SaveData (non-nullable); early return guards against JS callers passing null/undefined
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!saveData) return null;
+    if (!(saveData as SaveData | null | undefined)) return null;
 
     try {
       const ws: Record<string, unknown> = saveData.worldState ?? {};
@@ -493,7 +492,7 @@ export class SnapshotService {
 
       return snapId;
     } catch (err) {
-      this._log.error('Failed to record snapshot:', (err as Error).message);
+      this._log.error('Failed to record snapshot:', errMsg(err));
       return null;
     }
   }
@@ -579,13 +578,9 @@ export class SnapshotService {
         this._log.info(`Pruned ${String(result.changes)} old timeline snapshots (>${String(this._retentionDays)}d)`);
       }
     } catch (err) {
-      this._log.warn('Failed to prune timeline:', (err as Error).message);
+      this._log.warn('Failed to prune timeline:', errMsg(err));
     }
   }
 }
 
 export default SnapshotService;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _mod = module as { exports: any };
-_mod.exports = SnapshotService;

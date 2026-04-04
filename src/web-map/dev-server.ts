@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument,
-   @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return,
-   @typescript-eslint/no-require-imports */
 /**
  * Dev server for web map with SFTP live position fetching
  */
@@ -15,11 +11,92 @@ import expressRateLimit from 'express-rate-limit';
 
 const __dirname = getDirname(import.meta.url);
 
-function parseSave(buf: Buffer): Map<string, any> {
-  return (_parseSaveFull(buf) as any).players;
+/** Subset of save-parser PlayerData fields used by the dev server. */
+interface SavePlayerData {
+  [key: string]: unknown;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  lifetimeKills: number;
+  zeeksKilled: number;
+  lifetimeHeadshots: number;
+  headshots: number;
+  lifetimeMeleeKills: number;
+  meleeKills: number;
+  lifetimeGunKills: number;
+  gunKills: number;
+  daysSurvived: number;
+  lifetimeDaysSurvived: number;
+  health: number;
+  hunger: number;
+  thirst: number;
+  stamina: number;
+  infection: number;
+  battery: number;
+  fatigue: number;
+  startingPerk: string;
+  equipment?: unknown[];
+  quickSlots?: unknown[];
+  inventory?: unknown[];
+  backpackItems?: unknown[];
+  unlockedSkills?: unknown[];
+  craftingRecipes?: unknown[];
+  buildingRecipes?: unknown[];
 }
 
-const Client = require('ssh2-sftp-client');
+interface MapBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
+interface CalibrationPoint {
+  worldX: number;
+  worldY: number;
+  pixelX: number;
+  pixelY: number;
+}
+
+interface PlayerEntry {
+  steamId: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  isOnline: boolean;
+  hasPosition: boolean;
+  lastSeen: string | null;
+  worldX: number | null;
+  worldY: number | null;
+  worldZ: number | null;
+  kills: number;
+  headshots: number;
+  meleeKills: number;
+  gunKills: number;
+  daysSurvived: number;
+  health: number;
+  hunger: number;
+  thirst: number;
+  stamina: number;
+  immunity: number;
+  battery: number;
+  fatigue: number;
+  profession: string;
+  equipment: unknown[];
+  quickSlots: unknown[];
+  inventory: unknown[];
+  backpack: unknown[];
+  unlockedSkills: unknown[];
+  craftingRecipes: number;
+  buildingRecipes: number;
+}
+
+function parseSave(buf: Buffer): Map<string, SavePlayerData> {
+  const result = _parseSaveFull(buf);
+  return result.players as Map<string, SavePlayerData>;
+}
+
+import Client from 'ssh2-sftp-client';
 
 function rateLimit(windowMs: number, maxReqs: number) {
   return expressRateLimit({
@@ -36,7 +113,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const CAL_FILE = path.join(DATA_DIR, 'map-calibration.json');
 
 // Load .env if not already loaded (dev-server can run standalone)
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+import dotenv from 'dotenv';
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const SFTP_CONFIG = {
   host: process.env.SFTP_HOST || process.env.FTP_HOST,
@@ -52,7 +130,7 @@ const app = express();
 app.use(express.static(PUBLIC_DIR));
 app.use(express.json());
 
-let bounds: any = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8'));
+let bounds: MapBounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8')) as MapBounds;
 console.log('Calibration:', bounds);
 
 function loadIdMap(): Record<string, string> {
@@ -129,7 +207,7 @@ async function fetchOnlinePlayers(): Promise<Set<string>> {
   const sftp = new Client();
   try {
     await sftp.connect(SFTP_CONFIG);
-    const buf: Buffer = await sftp.get(REMOTE_CONNECTED);
+    const buf = (await sftp.get(REMOTE_CONNECTED)) as Buffer;
     await sftp.end();
     const ids = new Set<string>();
     for (const line of buf.toString().split('\n')) {
@@ -151,25 +229,25 @@ async function fetchOnlinePlayers(): Promise<Set<string>> {
   return onlineSteamIds;
 }
 
-function buildPlayerList(): any[] {
+function buildPlayerList(): PlayerEntry[] {
   const savePath = getBestSave();
   if (!savePath) return [];
 
-  const players: Map<string, any> = parseSave(fs.readFileSync(savePath));
+  const players = parseSave(fs.readFileSync(savePath));
   try {
-    bounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8'));
+    bounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8')) as MapBounds;
   } catch {
     /* keep current */
   }
   idMap = loadIdMap();
   lastSeenMap = parseLastSeen();
 
-  const result: any[] = [];
+  const result: PlayerEntry[] = [];
   for (const [steamId, data] of players) {
     const name = idMap[steamId] || steamId;
     const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
-    const lat = hasPosition ? ((data.x - bounds.xMin) / (bounds.xMax - bounds.xMin)) * 4096 : null;
-    const lng = hasPosition ? ((data.y - bounds.yMin) / (bounds.yMax - bounds.yMin)) * 4096 : null;
+    const lat = hasPosition ? (((data.x as number) - bounds.xMin) / (bounds.xMax - bounds.xMin)) * 4096 : null;
+    const lng = hasPosition ? (((data.y as number) - bounds.yMin) / (bounds.yMax - bounds.yMin)) * 4096 : null;
     const lastSeen = lastSeenMap[steamId] ? lastSeenMap[steamId].toISOString() : null;
     result.push({
       steamId,
@@ -179,9 +257,9 @@ function buildPlayerList(): any[] {
       isOnline: onlineSteamIds.has(steamId),
       hasPosition,
       lastSeen,
-      worldX: hasPosition ? Math.round(data.x) : null,
-      worldY: hasPosition ? Math.round(data.y) : null,
-      worldZ: hasPosition ? Math.round(data.z) : null,
+      worldX: hasPosition ? Math.round(data.x as number) : null,
+      worldY: hasPosition ? Math.round(data.y as number) : null,
+      worldZ: hasPosition ? Math.round(data.z as number) : null,
       kills: data.lifetimeKills || data.zeeksKilled || 0,
       headshots: data.lifetimeHeadshots || data.headshots || 0,
       meleeKills: data.lifetimeMeleeKills || data.meleeKills || 0,
@@ -204,9 +282,7 @@ function buildPlayerList(): any[] {
       buildingRecipes: (data.buildingRecipes || []).length,
     });
   }
-  result.sort(
-    (a, b) => (b.isOnline as number) - (a.isOnline as number) || (a.name as string).localeCompare(b.name as string),
-  );
+  result.sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.name.localeCompare(b.name));
   return result;
 }
 
@@ -234,7 +310,7 @@ app.get('/api/refresh', async (_req, res) => {
 
     sendEvent('progress', 'Downloading online players...');
     try {
-      const connBuf: Buffer = await sftp.get(REMOTE_CONNECTED);
+      const connBuf = (await sftp.get(REMOTE_CONNECTED)) as Buffer;
       const ids = new Set<string>();
       for (const line of connBuf.toString().split('\n')) {
         const m = line.trim().match(/\|NETID\|(\d{17})_\+_\|/);
@@ -288,7 +364,7 @@ app.get('/api/refresh', async (_req, res) => {
 
 app.get('/api/calibration', rateLimit(10000, 10), (_req, res) => {
   try {
-    bounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8'));
+    bounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8')) as MapBounds;
   } catch {
     /* keep */
   }
@@ -310,15 +386,21 @@ app.get('/api/fetch-position/:steamId', async (req, res) => {
     console.log('[SFTP] Downloaded', fs.statSync(localSave).size, 'bytes');
     idMap = loadIdMap();
 
-    const players: Map<string, any> = parseSave(fs.readFileSync(localSave));
+    const players = parseSave(fs.readFileSync(localSave));
     const p = players.get(steamId);
     if (!p || p.x === null) {
       return res.json({ error: 'Player not found in save or has no position' });
     }
 
     const name = idMap[steamId] || steamId;
-    console.log('[SFTP]', name, ': X=' + (p.x as number).toFixed(2), 'Y=' + (p.y as number).toFixed(2));
-    res.json({ steamId, name, worldX: Math.round(p.x), worldY: Math.round(p.y), worldZ: Math.round(p.z) });
+    console.log('[SFTP]', name, ': X=' + p.x.toFixed(2), 'Y=' + (p.y as number).toFixed(2));
+    res.json({
+      steamId,
+      name,
+      worldX: Math.round(p.x),
+      worldY: Math.round(p.y as number),
+      worldZ: Math.round(p.z as number),
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[SFTP] Error:', msg);
@@ -332,7 +414,7 @@ app.get('/api/fetch-position/:steamId', async (req, res) => {
 });
 
 app.post('/api/calibrate-from-points', (req, res) => {
-  const { point1, point2 } = req.body;
+  const { point1, point2 } = req.body as { point1?: CalibrationPoint; point2?: CalibrationPoint };
   if (!point1 || !point2) return res.status(400).json({ error: 'Need 2 points' });
 
   const xSpan = (point2.worldX - point1.worldX) / ((point2.pixelY - point1.pixelY) / 4096);
@@ -350,15 +432,15 @@ app.post('/api/calibrate-from-points', (req, res) => {
 });
 
 app.post('/api/admin/kick', (req, res) => {
-  console.log('[ADMIN] Kick:', req.body.steamId);
+  console.log('[ADMIN] Kick:', (req.body as { steamId?: string }).steamId);
   res.json({ ok: true, result: 'dev mode — kick command logged' });
 });
 app.post('/api/admin/ban', (req, res) => {
-  console.log('[ADMIN] Ban:', req.body.steamId);
+  console.log('[ADMIN] Ban:', (req.body as { steamId?: string }).steamId);
   res.json({ ok: true, result: 'dev mode — ban command logged' });
 });
 app.post('/api/admin/message', (req, res) => {
-  console.log('[ADMIN] Message:', req.body.message);
+  console.log('[ADMIN] Message:', (req.body as { message?: string }).message);
   res.json({ ok: true, result: 'dev mode — message logged' });
 });
 

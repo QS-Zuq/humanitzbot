@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment,
-   @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call,
-   @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
-
 /**
  * Anticheat Integration Shim
  *
@@ -13,29 +9,88 @@
  * This file provides the DB handle, config, and event hooks.
  */
 
-let AnticheatEngine: any = null;
+import { createRequire } from 'node:module';
+import _defaultConfig from '../config/index.js';
+import { errMsg } from '../utils/error.js';
+
+type ConfigType = typeof _defaultConfig;
+
+let AnticheatEngine: unknown = null;
 let _available = false;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  AnticheatEngine = require('@humanitzbot/qs-anticheat');
+  const _require = createRequire(import.meta.url);
+  const _acMod = _require('@humanitzbot/qs-anticheat') as Record<string, unknown>;
+  AnticheatEngine = (_acMod as { default?: unknown }).default ?? _acMod;
   _available = true;
 } catch {
   // Private package not installed — all methods are no-ops
 }
 
+interface AnticheatOpts {
+  db?: DbLike | null;
+  config?: ConfigType;
+  logWatcher?: unknown;
+}
+
+interface DbLike {
+  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
+  setStateJSON?(key: string, value: unknown): void;
+  insertAcFlag(flag: AcFlag): number;
+  getAcFlagsBySteam(steamId: string, limit: number): AcFlag[];
+  getAcFlags(status: string, limit: number): AcFlag[];
+  updateAcFlagStatus(flagId: number, status: string, reviewedBy: string | null, notes: string | null): void;
+  upsertRiskScore(data: RiskScoreData): void;
+}
+
+interface AcFlag {
+  [key: string]: unknown;
+  id?: number;
+  steam_id: string;
+  status: string;
+  severity: string;
+  score: number;
+  created_at?: string;
+}
+
+interface RiskScoreData {
+  [key: string]: unknown;
+  steam_id: string;
+  risk_score: number;
+  open_flags: number;
+  confirmed_flags: number;
+  dismissed_flags: number;
+  last_flag_at: string | null;
+  baseline_data: Record<string, unknown>;
+}
+
+interface EngineInstance {
+  init?(): Promise<void>;
+  analyze(): Promise<AcFlag[] | null>;
+  onSaveSync?(result: unknown): Promise<AcFlag[] | null>;
+  recalibrateBaseline?(): Promise<void>;
+  onFlagReview?(flagId: number, status: string, reviewedBy: string | null): void;
+  getDiagnostics?(): Record<string, unknown>;
+  shutdown?(): Promise<void>;
+  create?(opts: { db: DbLike | null; config: ConfigType }): EngineInstance;
+}
+
 class AnticheatIntegration {
-  [key: string]: any;
+  private _db: DbLike | null;
+  private _config: ConfigType;
+  private _engine: EngineInstance | null;
+  private _analyzeTimer: ReturnType<typeof setInterval> | null;
+  private _baselineTimer: ReturnType<typeof setInterval> | null;
+
   /**
    * @param {object} opts
    * @param {object} opts.db        - HumanitZDB instance
    * @param {object} opts.config    - Bot config object
    * @param {object} [opts.logWatcher]  - LogWatcher instance (optional, for event hooks)
    */
-  constructor(opts: any = {}) {
-    this._db = opts.db;
-    this._config = opts.config;
-    this._logWatcher = opts.logWatcher || null;
+  constructor(opts: AnticheatOpts = {}) {
+    this._db = opts.db ?? null;
+    this._config = opts.config || _defaultConfig;
     this._engine = null;
     this._analyzeTimer = null;
     this._baselineTimer = null;
@@ -61,12 +116,17 @@ class AnticheatIntegration {
     }
 
     try {
-      this._engine =
-        typeof AnticheatEngine === 'function'
-          ? new AnticheatEngine({ db: this._db, config: this._config })
-          : AnticheatEngine.create
-            ? AnticheatEngine.create({ db: this._db, config: this._config })
-            : null;
+      type EngineFactory =
+        | (new (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance)
+        | { create?: (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance };
+      const EngineRef = AnticheatEngine as EngineFactory | null;
+      if (typeof EngineRef === 'function') {
+        this._engine = new EngineRef({ db: this._db, config: this._config });
+      } else if (EngineRef && typeof EngineRef.create === 'function') {
+        this._engine = EngineRef.create({ db: this._db, config: this._config });
+      } else {
+        this._engine = null;
+      }
 
       if (!this._engine) {
         console.warn('[ANTICHEAT] Could not instantiate engine — check package version');
@@ -80,20 +140,20 @@ class AnticheatIntegration {
       }
 
       // Schedule periodic analysis (every save poll interval, default 60s)
-      const analyzeInterval = this._config?.anticheatAnalyzeInterval || 60_000;
-      this._analyzeTimer = setInterval(() => this._runAnalysis(), analyzeInterval);
+      const analyzeInterval = this._config.anticheatAnalyzeInterval || 60_000;
+      this._analyzeTimer = setInterval(() => void this._runAnalysis(), analyzeInterval);
 
       // Schedule baseline recalibration (every 15 min)
-      const baselineInterval = this._config?.anticheatBaselineInterval || 900_000;
-      this._baselineTimer = setInterval(() => this._recalibrateBaseline(), baselineInterval);
+      const baselineInterval = this._config.anticheatBaselineInterval || 900_000;
+      this._baselineTimer = setInterval(() => void this._recalibrateBaseline(), baselineInterval);
 
       console.log(
         '[ANTICHEAT] Engine started — analysis every %ds, baseline every %ds',
         analyzeInterval / 1000,
         baselineInterval / 1000,
       );
-    } catch (err: any) {
-      console.error('[ANTICHEAT] Failed to start engine:', err.message);
+    } catch (err: unknown) {
+      console.error('[ANTICHEAT] Failed to start engine:', errMsg(err));
       _available = false;
     }
   }
@@ -108,15 +168,15 @@ class AnticheatIntegration {
       if (flags && flags.length > 0) {
         this._processFlags(flags);
       }
-    } catch (err: any) {
-      console.error('[ANTICHEAT] Analysis error:', err.message);
+    } catch (err: unknown) {
+      console.error('[ANTICHEAT] Analysis error:', errMsg(err));
     }
   }
 
   /**
    * Trigger analysis immediately (called by SaveService on sync).
    */
-  async onSaveSync(result: any) {
+  async onSaveSync(result: unknown) {
     if (!this._engine) return;
     try {
       if (typeof this._engine.onSaveSync === 'function') {
@@ -125,16 +185,15 @@ class AnticheatIntegration {
           this._processFlags(flags);
         }
       }
-    } catch (err: any) {
-      console.error('[ANTICHEAT] Save sync analysis error:', err.message);
+    } catch (err: unknown) {
+      console.error('[ANTICHEAT] Save sync analysis error:', errMsg(err));
     }
   }
 
   /**
    * Process flags returned by the engine — write to DB.
-   * @param {Array<object>} flags
    */
-  _processFlags(flags: any) {
+  _processFlags(flags: AcFlag[]) {
     if (!this._db) return;
     for (const flag of flags) {
       try {
@@ -143,8 +202,8 @@ class AnticheatIntegration {
 
         // Update risk score for the player
         this._updateRiskScore(flag.steam_id);
-      } catch (err: any) {
-        console.error('[ANTICHEAT] Failed to insert flag:', err.message);
+      } catch (err: unknown) {
+        console.error('[ANTICHEAT] Failed to insert flag:', errMsg(err));
       }
     }
   }
@@ -152,28 +211,34 @@ class AnticheatIntegration {
   /**
    * Recalculate risk score for a player based on their flags.
    */
-  _updateRiskScore(steamId: any) {
+  _updateRiskScore(steamId: string) {
     if (!this._db) return;
     try {
       const flags = this._db.getAcFlagsBySteam(steamId, 500);
       let open = 0,
         confirmed = 0,
         dismissed = 0;
-      let lastFlagAt = null;
+      let lastFlagAt: string | null = null;
 
       for (const f of flags) {
         if (f.status === 'open') open++;
         else if (f.status === 'confirmed') confirmed++;
         else if (f.status === 'dismissed') dismissed++;
-        if (!lastFlagAt || f.created_at > lastFlagAt) lastFlagAt = f.created_at;
+        if (!lastFlagAt || (f.created_at && f.created_at > lastFlagAt)) lastFlagAt = f.created_at ?? null;
       }
 
       // Risk score: weighted sum of flag severities
-      const SEVERITY_WEIGHT = { info: 0.01, low: 0.05, medium: 0.15, high: 0.35, critical: 0.6 };
+      const SEVERITY_WEIGHT: Record<string, number> = {
+        info: 0.01,
+        low: 0.05,
+        medium: 0.15,
+        high: 0.35,
+        critical: 0.6,
+      };
       let rawScore = 0;
       for (const f of flags) {
         if (f.status === 'dismissed' || f.status === 'whitelisted') continue;
-        const w = (SEVERITY_WEIGHT as Record<string, number>)[f.severity] || 0.05;
+        const w = SEVERITY_WEIGHT[f.severity] ?? 0.05;
         const statusMult = f.status === 'confirmed' ? 1.5 : 1.0;
         rawScore += w * statusMult * (f.score || 0.5);
       }
@@ -189,8 +254,8 @@ class AnticheatIntegration {
         last_flag_at: lastFlagAt,
         baseline_data: {},
       });
-    } catch (err: any) {
-      console.error('[ANTICHEAT] Risk score update error:', err.message);
+    } catch (err: unknown) {
+      console.error('[ANTICHEAT] Risk score update error:', errMsg(err));
     }
   }
 
@@ -203,19 +268,15 @@ class AnticheatIntegration {
       if (typeof this._engine.recalibrateBaseline === 'function') {
         await this._engine.recalibrateBaseline();
       }
-    } catch (err: any) {
-      console.error('[ANTICHEAT] Baseline recalibration error:', err.message);
+    } catch (err: unknown) {
+      console.error('[ANTICHEAT] Baseline recalibration error:', errMsg(err));
     }
   }
 
   /**
    * Admin reviews a flag.
-   * @param {number} flagId
-   * @param {'confirmed'|'dismissed'|'whitelisted'} status
-   * @param {string} [reviewedBy] - Discord user ID
-   * @param {string} [notes]
    */
-  reviewFlag(flagId: any, status: any, reviewedBy: any = null, notes: any = null) {
+  reviewFlag(flagId: number, status: string, reviewedBy: string | null = null, notes: string | null = null) {
     if (!this._db) return;
     this._db.updateAcFlagStatus(flagId, status, reviewedBy, notes);
 
@@ -231,7 +292,7 @@ class AnticheatIntegration {
   getDiagnostics() {
     if (!_available) return { available: false, status: 'Not installed' };
     if (!this._engine) return { available: true, status: 'Not started' };
-    const diag = {
+    const diag: Record<string, unknown> = {
       available: true,
       status: 'Active',
       detectorCount: 0,
@@ -272,7 +333,3 @@ class AnticheatIntegration {
 
 export default AnticheatIntegration;
 export { AnticheatIntegration };
-
-const _mod = module as { exports: any };
-_mod.exports = AnticheatIntegration;
-_mod.exports.AnticheatIntegration = AnticheatIntegration;

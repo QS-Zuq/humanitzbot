@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export function makePlayer(overrides: Record<string, any> = {}) {
   return {
     steam_id: '76561198000000001',

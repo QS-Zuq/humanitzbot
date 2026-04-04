@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises */
 /**
  * Tests for save-parser.js — GVAS binary reader and save file parsing.
  * Run: npm test
@@ -6,9 +5,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { parseSave, parseClanData, PERK_MAP, CLAN_RANK_MAP } = require('../src/parsers/save-parser');
+import * as _save_parser from '../src/parsers/save-parser.js';
+const { parseSave, parseClanData, PERK_MAP, CLAN_RANK_MAP } = _save_parser as any;
 
-const { createReader, readProperty } = require('../src/parsers/gvas-reader');
+import * as _gvas_reader from '../src/parsers/gvas-reader.js';
+const { createReader, readProperty } = _gvas_reader as any;
 
 // ── Helper: build a minimal GVAS buffer ──
 

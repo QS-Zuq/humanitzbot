@@ -11,8 +11,7 @@
  * @module game-data
  */
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const extract = require('./game-data-extract') as Record<string, unknown>;
+import * as extract from './game-data-extract.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -336,42 +335,36 @@ const STAT_DISPLAY_NAMES: Record<string, StatDisplayEntry> = {
 //  Extracted data (from game-data-extract.ts — 22 MB game-tables-raw.json)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const ITEM_DATABASE = extract['ITEMS'] as Record<string, Record<string, unknown>>;
-const ITEM_NAMES = extract['ITEM_NAMES'] as Record<string, string>;
-const BUILDINGS = extract['BUILDINGS'] as Record<string, Record<string, unknown>>;
-const BUILDING_NAMES = extract['BUILDING_NAMES'] as Record<string, string>;
-const VEHICLE_NAMES = extract['VEHICLE_NAMES'] as Record<string, string>;
-const CRAFTING_RECIPES = extract['RECIPES'] as Record<string, Record<string, unknown>>;
-const LOOT_TABLES = extract['LOOT_TABLES'] as Record<string, Record<string, unknown>>;
-const SKILL_DETAILS = extract['SKILLS'] as Record<string, Record<string, unknown>>;
-const EXTRACTED_PROFESSIONS = extract['PROFESSIONS'] as Record<string, Record<string, unknown>>;
-const STATISTICS = extract['STATISTICS'] as Record<string, ExtractedStat>;
-const STAT_CONFIG = extract['STAT_CONFIG'] as Record<string, ExtractedStat>;
-const CROP_DATA = extract['CROPS'] as Record<string, Record<string, unknown>>;
-const VEHICLES = extract['VEHICLES'] as Record<string, Record<string, unknown>>;
-const CAR_UPGRADES = extract['CAR_UPGRADES'] as Record<string, Record<string, unknown>>;
-const AMMO_DAMAGE = extract['AMMO_DAMAGE'] as Record<string, Record<string, unknown>>;
-const REPAIR_RECIPES = extract['REPAIR_DATA'] as Record<string, Record<string, unknown>>;
-const FURNITURE_DROPS = extract['FURNITURE'] as Record<string, Record<string, unknown>>;
-const TRAPS = extract['TRAPS'] as Record<string, Record<string, unknown>>;
-const ANIMALS = extract['ANIMALS'] as Record<string, Record<string, unknown>>;
-const XP_DATA = extract['XP_DATA'] as Record<string, unknown>[];
-const SPAWN_LOCATIONS = extract['SPAWN_LOCATIONS'] as Record<string, Record<string, unknown>>;
-const LORE_ENTRIES = extract['LORE'] as Record<string, Record<string, unknown>>;
-const QUEST_DATA = extract['QUESTS'] as Record<string, Record<string, unknown>>;
-const EXTRACTED_AFFLICTIONS = extract['AFFLICTIONS'] as Record<string, Record<string, unknown>>;
-const EXTRACTED_LOADING_TIPS = extract['LOADING_TIPS'] as ExtractedTip[];
-const SPRAYS = extract['SPRAYS'] as Record<string, Record<string, unknown>>;
-const FOLIAGE = extract['FOLIAGE'] as Record<string, Record<string, unknown>>;
-const CHARACTERS = extract['CHARACTERS'] as Record<string, Record<string, unknown>>;
-const TABLE_SUMMARY = extract['TABLE_SUMMARY'] as Record<string, number>;
-const deepClean = extract['deepClean'] as (val: unknown) => unknown;
-const resolveEnum = extract['resolveEnum'] as (value: unknown) => unknown;
-const getTable = extract['getTable'] as (name: string) => Record<string, Record<string, unknown>>;
-const getTableCleaned = extract['getTableCleaned'] as (name: string) => Record<string, Record<string, unknown>>;
-const ENUM_MAPS = extract['ENUM_MAPS'] as Record<string, Record<string, string>>;
-const cleanKey = extract['cleanKey'] as (key: string) => string;
-const cleanRow = extract['cleanRow'] as (row: Record<string, unknown>) => Record<string, unknown>;
+const ITEM_DATABASE = extract.getITEMS() as Record<string, Record<string, unknown>>;
+const ITEM_NAMES = extract.getITEM_NAMES();
+const BUILDINGS = extract.getBUILDINGS() as Record<string, Record<string, unknown>>;
+const BUILDING_NAMES = extract.getBUILDING_NAMES();
+const VEHICLE_NAMES = extract.getVEHICLE_NAMES();
+const CRAFTING_RECIPES = extract.getRECIPES() as Record<string, Record<string, unknown>>;
+const LOOT_TABLES = extract.getLOOT_TABLES() as Record<string, Record<string, unknown>>;
+const SKILL_DETAILS = extract.getSKILLS() as Record<string, Record<string, unknown>>;
+const EXTRACTED_PROFESSIONS = extract.getPROFESSIONS() as Record<string, Record<string, unknown>>;
+const STATISTICS = extract.getSTATISTICS() as unknown as Record<string, ExtractedStat>;
+const STAT_CONFIG = extract.getSTAT_CONFIG() as unknown as Record<string, ExtractedStat>;
+const CROP_DATA = extract.getCROPS() as Record<string, Record<string, unknown>>;
+const VEHICLES = extract.getVEHICLES() as Record<string, Record<string, unknown>>;
+const CAR_UPGRADES = extract.getCAR_UPGRADES() as Record<string, Record<string, unknown>>;
+const AMMO_DAMAGE = extract.getAMMO_DAMAGE() as Record<string, Record<string, unknown>>;
+const REPAIR_RECIPES = extract.getREPAIR_DATA() as Record<string, Record<string, unknown>>;
+const FURNITURE_DROPS = extract.getFURNITURE() as Record<string, Record<string, unknown>>;
+const TRAPS = extract.getTRAPS() as Record<string, Record<string, unknown>>;
+const ANIMALS = extract.getANIMALS() as Record<string, Record<string, unknown>>;
+const XP_DATA = extract.getXP_DATA() as Record<string, unknown>[];
+const SPAWN_LOCATIONS = extract.getSPAWN_LOCATIONS() as Record<string, Record<string, unknown>>;
+const LORE_ENTRIES = extract.getLORE() as Record<string, Record<string, unknown>>;
+const QUEST_DATA = extract.getQUESTS() as Record<string, Record<string, unknown>>;
+const EXTRACTED_AFFLICTIONS = extract.getAFFLICTIONS() as Record<string, Record<string, unknown>>;
+const EXTRACTED_LOADING_TIPS = extract.getLOADING_TIPS() as unknown as ExtractedTip[];
+const SPRAYS = extract.getSPRAYS() as Record<string, Record<string, unknown>>;
+const FOLIAGE = extract.getFOLIAGE() as Record<string, Record<string, unknown>>;
+const CHARACTERS = extract.getCHARACTERS() as Record<string, Record<string, unknown>>;
+const TABLE_SUMMARY = extract.getTABLE_SUMMARY() as Record<string, unknown>;
+const { deepClean, resolveEnum, getTable, getTableCleaned, ENUM_MAPS, cleanKey, cleanRow } = extract;
 
 // ─── Challenges (from extracted STATISTICS + STAT_CONFIG) ───────────────────
 
@@ -396,8 +389,8 @@ for (const s of Object.values(STATISTICS)) {
 for (const sc of Object.values(STAT_CONFIG)) {
   if (_challengeMap.has(sc.id)) {
     // Merge — StatConfig has better descriptions and XP values
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- guarded by .has() above
-    const existing = _challengeMap.get(sc.id)!;
+    const existing = _challengeMap.get(sc.id);
+    if (!existing) continue;
     if (sc.description && !existing.description) existing.description = sc.description;
     if (sc.xp > existing.xp) existing.xp = sc.xp;
     if (sc.skillPoint > existing.skillPoint) existing.skillPoint = sc.skillPoint;

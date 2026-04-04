@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, @typescript-eslint/no-floating-promises, @typescript-eslint/require-await, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression */
 /**
  * Tests for the save-agent system (agent-builder + updated save-service).
  *
@@ -18,7 +17,9 @@ import { execSync, execFileSync } from 'child_process';
 
 // ─── Modules under test ─────────────────────────────────────────────────────
 
-const { buildAgentScript, writeAgent, AGENT_VERSION } = require('../src/parsers/agent-builder');
+import * as _agent_builder from '../src/parsers/agent-builder.js';
+import * as _save_parser from '../src/parsers/save-parser.js';
+const { buildAgentScript, writeAgent, AGENT_VERSION } = _agent_builder as any;
 
 // ─── Test data ──────────────────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -130,7 +131,9 @@ describe('agent execution', () => {
   });
 
   if (!SAV_EXISTS) {
-    it('skipped — no LIVE .sav file', () => assert.ok(true));
+    it('skipped — no LIVE .sav file', () => {
+      assert.ok(true);
+    });
     return;
   }
 
@@ -160,7 +163,9 @@ describe('agent execution', () => {
     assert.ok(steamIds.length > 0);
 
     // Validate first player has expected fields
-    const player = cache.players[steamIds[0]!];
+    const firstId = steamIds[0];
+    assert.ok(firstId, 'Expected at least one steam ID');
+    const player = cache.players[firstId];
     assert.ok('zeeksKilled' in player || 'health' in player, 'Player should have stats');
   });
 
@@ -195,13 +200,13 @@ describe('agent execution', () => {
 describe('SaveService agent mode', () => {
   // We test the logic without actual SFTP/SSH connections
 
-  const SaveService = require('../src/parsers/save-service');
-
-  const HumanitZDB = require('../src/db/database');
-
+  let SaveService: any;
+  let HumanitZDB: any;
   let db: any;
 
-  before(() => {
+  before(async () => {
+    SaveService = (await import('../src/parsers/save-service')).default;
+    HumanitZDB = (await import('../src/db/database')).default;
     db = new HumanitZDB({ memory: true, label: 'AgentTest' });
     db.init();
   });
@@ -468,7 +473,9 @@ describe('SaveService agent mode', () => {
 
 describe('agent output consistency', () => {
   if (!SAV_EXISTS) {
-    it('skipped — no LIVE .sav file', () => assert.ok(true));
+    it('skipped — no LIVE .sav file', () => {
+      assert.ok(true);
+    });
     return;
   }
 
@@ -494,7 +501,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same player count as direct parse', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -504,7 +511,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same structure count as direct parse', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -512,7 +519,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON has same vehicle count as direct parse', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -520,7 +527,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves player steam IDs', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
@@ -531,7 +538,7 @@ describe('agent output consistency', () => {
   });
 
   it('agent JSON preserves world state', () => {
-    const { parseSave } = require('../src/parsers/save-parser');
+    const { parseSave } = _save_parser as any;
     const buf = fs.readFileSync(SAV_FILE);
     const direct = parseSave(buf);
 
