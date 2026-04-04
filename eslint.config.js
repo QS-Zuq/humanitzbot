@@ -129,13 +129,14 @@ module.exports = defineConfig([
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
       'no-var': 'error',
       'prefer-const': 'error',
-      // Tests use mocks with partial interfaces — these rules are too strict for test code
+      // Tests use mocks with partial interfaces — unsafe-* rules are too strict for test code
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      // node:test describe/it callbacks return promises that are managed by the test runner
       '@typescript-eslint/no-floating-promises': 'off',
       '@typescript-eslint/require-await': 'off',
     },

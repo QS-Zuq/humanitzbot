@@ -20,7 +20,9 @@ import path from 'path';
 import fs from 'fs';
 import { SCHEMA_VERSION, ALL_TABLES } from './schema.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { getDirname } from '../utils/paths.js';
 
+const __dirname = getDirname(import.meta.url);
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
 
 /** Generic row type for untyped SQLite query results. */
@@ -2268,7 +2270,8 @@ class HumanitZDB {
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      .run(name, JSON.stringify(nameHistory), steamId);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+      .run(name, JSON.stringify(nameHistory ?? []), steamId);
   }
 
   /**
@@ -3319,7 +3322,8 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivities(entries: Array<Record<string, unknown>>): void {
-    if (entries.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+    if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const entry of list) {
         this._stmts.insertActivity.run(
@@ -3349,7 +3353,8 @@ class HumanitZDB {
    * @param {Array<object>} entries
    */
   insertActivitiesAt(entries: Array<Record<string, unknown>>): void {
-    if (entries.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
+    if (!entries || entries.length === 0) return;
     const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const entry of list) {
         this._stmts.insertActivityAt.run(

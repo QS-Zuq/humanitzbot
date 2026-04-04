@@ -81,7 +81,7 @@ interface LootBatchEntry {
   looterId: string;
   ownerSteamId: string;
   count: number;
-  containers: Record<string, number>;
+  containers: Set<string>;
   timestamp: Date;
 }
 
