@@ -59,8 +59,8 @@ class ServerStatus {
   _lastEmbedKey: string | null;
 
   // Embed builder methods mixed in via Object.assign (see bottom of file)
-  _buildEmbed!: (info: ServerInfo | null, playerList: PlayerList | null, resources?: unknown) => EmbedBuilder;
-  _buildOfflineEmbed!: () => Promise<EmbedBuilder>;
+  declare _buildEmbed: (info: ServerInfo | null, playerList: PlayerList | null, resources?: unknown) => EmbedBuilder;
+  declare _buildOfflineEmbed: () => Promise<EmbedBuilder>;
 
   constructor(client: Client, deps: ServerStatusDeps = {}) {
     this._config = deps.config || _defaultConfig;

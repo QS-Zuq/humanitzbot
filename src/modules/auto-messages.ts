@@ -47,8 +47,8 @@ class AutoMessages {
   private _welcomeCooldown: number;
 
   // Mixed-in from auto-messages-content.ts via Object.assign
-  _difficultyText!: (this: AutoMessages) => string;
-  _pvpScheduleText!: (this: AutoMessages) => string;
+  declare _difficultyText: (this: AutoMessages) => string;
+  declare _pvpScheduleText: (this: AutoMessages) => string;
 
   constructor(deps: AutoMessagesDeps = {}) {
     this._config = deps.config ?? _defaultConfig;

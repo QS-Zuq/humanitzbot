@@ -437,11 +437,11 @@ class WebMapServer {
   _botControl: BotControlService | null = null;
   _moduleStatus: Record<string, string> | null = null;
   _pollTimer: ReturnType<typeof setInterval> | null = null;
-  setScheduler!: (scheduler: ServerScheduler) => void;
-  setSaveService!: (saveService: SaveService) => void;
-  setMultiServerManager!: (msm: MultiServerManager) => void;
-  setBotControl!: (bc: BotControlService) => void;
-  setModuleStatus!: (status: Record<string, string>) => void;
+  declare setScheduler: (scheduler: ServerScheduler) => void;
+  declare setSaveService: (saveService: SaveService) => void;
+  declare setMultiServerManager: (msm: MultiServerManager) => void;
+  declare setBotControl: (bc: BotControlService) => void;
+  declare setModuleStatus: (status: Record<string, string>) => void;
 
   constructor(
     client: Client,

@@ -78,11 +78,11 @@ class ChatRelay {
   _awaitActivityThread: boolean;
 
   // Mixed-in from chat-relay-parser.ts via Object.assign
-  _parseLine!: (this: ChatRelay, line: string) => ParsedLine | null;
-  _formatLine!: (this: ChatRelay, line: string) => string | null;
-  _diff!: (this: ChatRelay, currentLines: string[]) => string[];
-  _sanitize!: (this: ChatRelay, text: string) => string;
-  _sanitizeRcon!: (this: ChatRelay, text: string) => string;
+  declare _parseLine: (this: ChatRelay, line: string) => ParsedLine | null;
+  declare _formatLine: (this: ChatRelay, line: string) => string | null;
+  declare _diff: (this: ChatRelay, currentLines: string[]) => string[];
+  declare _sanitize: (this: ChatRelay, text: string) => string;
+  declare _sanitizeRcon: (this: ChatRelay, text: string) => string;
 
   constructor(client: Client, deps: ChatRelayDeps = {}) {
     this.client = client;
