@@ -101,7 +101,7 @@ class ChatRelay {
     this._nukeActive = false; // true during NUKE_BOT — suppresses thread creation
     this._healthy = true; // false if start() failed — module appears active but isn't
     this._headless = false; // true when running without a Discord channel (DB-only data collection)
-    this._locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
+    this._locale = getLocale({ serverConfig: this._config });
     this._logChatWarned = false;
     this._awaitActivityThread = false;
   }

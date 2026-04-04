@@ -107,7 +107,7 @@ class GitHubTracker {
     this._config = deps.config ?? _defaultConfig;
     this._db = deps.db ?? null;
     this._log = createLogger(null, 'GITHUB');
-    this._locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
+    this._locale = getLocale({ serverConfig: this._config });
 
     this._threads = new Map();
 

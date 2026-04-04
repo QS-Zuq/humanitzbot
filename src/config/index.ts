@@ -87,6 +87,8 @@ interface Config {
   botTimezone: string;
   logTimezone: string;
   botLocale: string;
+  /** Per-server locale override (multi-server only). Falls back to botLocale when absent. */
+  locale?: string;
 
   // Behavior
   chatPollInterval: number;
@@ -804,7 +806,7 @@ if (config.sftpBasePath) {
     const val = config[key] as string;
     // Only prepend if path doesn't start with / (relative path indicator)
     if (val && !val.startsWith('/')) {
-      (config as unknown as Record<string, unknown>)[key as string] = prefix + '/' + val;
+      setConfigValue(config, key as string, prefix + '/' + val);
     }
   }
   _cfgLog.info('SFTP base path:', prefix);
@@ -982,7 +984,7 @@ config.hydrate = function (configRepo: {
     if (appConfig) {
       for (const [key, value] of Object.entries(appConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          (config as unknown as Record<string, unknown>)[key] = value;
+          setConfigValue(config, key, value);
         }
       }
     }
@@ -990,7 +992,7 @@ config.hydrate = function (configRepo: {
     if (serverConfig) {
       for (const [key, value] of Object.entries(serverConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          (config as unknown as Record<string, unknown>)[key] = value;
+          setConfigValue(config, key, value);
         }
       }
     }
@@ -1014,7 +1016,7 @@ config.loadDisplayOverrides = function (_db: unknown): void {
  * falls back to legacy bot_state for safety during transition/tests.
  */
 config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknown): void {
-  (config as unknown as Record<string, unknown>)[cfgKey] = value;
+  setConfigValue(config, cfgKey, value);
   if (config._configRepo) {
     try {
       (config._configRepo as { update(doc: string, data: Record<string, unknown>): void }).update('app', {
@@ -1047,7 +1049,7 @@ config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknow
  */
 config.saveDisplaySettings = function (db: unknown, settings: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(settings)) {
-    (config as unknown as Record<string, unknown>)[key] = value;
+    setConfigValue(config, key, value);
   }
   if (config._configRepo) {
     try {
@@ -1128,6 +1130,23 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
       `[CONFIG] ⚠ Deprecated: ${oldKey} → rename to ${newKey} in .env (FTP_* support will be removed in a future version)`,
     );
   }
+}
+
+/**
+ * Read a config value by a runtime-computed key.
+ * SAFETY: Config objects are plain objects with string keys; indexed access is
+ * needed when the key is computed at runtime (e.g. from field mappings).
+ */
+export function getConfigValue(cfg: unknown, key: string): unknown {
+  return (cfg as Record<string, unknown>)[key];
+}
+
+/**
+ * Write a config value by a runtime-computed key.
+ * SAFETY: Same rationale as getConfigValue — key is computed at runtime.
+ */
+export function setConfigValue(cfg: unknown, key: string, value: unknown): void {
+  (cfg as Record<string, unknown>)[key] = value;
 }
 
 export default config;

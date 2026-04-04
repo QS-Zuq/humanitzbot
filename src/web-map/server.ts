@@ -14,7 +14,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import config from '../config/index.js';
+import config, { getConfigValue, setConfigValue } from '../config/index.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
@@ -3504,7 +3504,7 @@ class WebMapServer {
               // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
               let rawValue;
               if (field.cfg) {
-                rawValue = (config as unknown as Record<string, unknown>)[field.cfg];
+                rawValue = getConfigValue(config, field.cfg);
               } else {
                 // Fields without cfg are stored under their env key in DB
                 const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
@@ -3725,7 +3725,7 @@ class WebMapServer {
 
             // Only live-apply to config singleton if the field's category does NOT require restart
             if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
-              (config as unknown as Record<string, unknown>)[mapping.cfgKey] = coerced;
+              setConfigValue(config, mapping.cfgKey, coerced);
             }
 
             updated.add(envKey);
