@@ -507,12 +507,12 @@ class LogWatcher {
     return this._dayRolloverCb;
   }
 
-  /** @internal Wrap the _onDeath handler to inject additional behaviour. */
   /** @internal Get or create the current daily thread (public wrapper over the mixin). */
   getOrCreateDailyThread(): Promise<{ send(options: unknown): Promise<unknown> } | null> {
     return this._getOrCreateDailyThread();
   }
 
+  /** @internal Wrap the _onDeath handler to inject additional behaviour. */
   wrapOnDeath(
     wrapper: (orig: (playerName: string, timestamp: Date) => void) => (playerName: string, timestamp: Date) => void,
   ): void {

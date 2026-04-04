@@ -350,7 +350,7 @@ class SaveService extends EventEmitter {
       this._checkNodeScriptPath = checkScriptPath;
       this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
-      void sftp.end();
+      await sftp.end();
     }
   }
 
@@ -715,7 +715,7 @@ class SaveService extends EventEmitter {
       }
       return { saveBuf, clanBuf };
     } finally {
-      void sftp.end();
+      await sftp.end();
     }
   }
 
@@ -824,7 +824,7 @@ class SaveService extends EventEmitter {
       const json = buf.toString('utf-8');
       return this._parseCache(json, mtime);
     } finally {
-      void sftp.end();
+      await sftp.end();
     }
   }
 

@@ -200,7 +200,7 @@ _proto.all = function (this: SqliteStoreInstance, callback: (err: Error | null, 
 
 _proto._getExpireTime = function (this: SqliteStoreInstance, session: SessionData): number {
   const cookie = session.cookie;
-  const expires = (cookie as unknown as Record<string, unknown>).expires; // SAFETY: express-session Store constructor call pattern
+  const expires = (cookie as unknown as Record<string, unknown>).expires; // SAFETY: express-session Cookie type omits optional `expires`; we read via Record and normalize via Date below
   if (expires) {
     const t = new Date(expires as string | number | Date).getTime();
     if (!isNaN(t)) return t;
