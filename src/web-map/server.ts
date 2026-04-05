@@ -14,7 +14,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import config from '../config/index.js';
+import config, { getConfigValue, setConfigValue } from '../config/index.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
@@ -61,7 +61,7 @@ interface ServerContext {
   getServerInfo: typeof _getServerInfo;
   sendAdminMessage: typeof _sendAdminMessage;
   panelApi: PanelApi | null;
-  scheduler: Record<string, unknown> | null;
+  scheduler: ServerScheduler | Record<string, unknown> | null;
   dataDir: string;
   idMap: Record<string, string>;
   isPrimary: boolean;
@@ -689,7 +689,7 @@ class WebMapServer {
         getServerInfo: _getServerInfo,
         sendAdminMessage: _sendAdminMessage,
         panelApi: _panelApiInstance,
-        scheduler: this._scheduler as unknown as Record<string, unknown>,
+        scheduler: this._scheduler,
         dataDir: DATA_DIR,
         idMap: this._idMap,
         isPrimary: true,
@@ -1115,6 +1115,7 @@ class WebMapServer {
         try {
           const clans = srv.db.getAllClans();
           for (const clan of clans as unknown as Array<{
+            // SAFETY: getAllClans() DbRow preserves steam_id at runtime
             name: string;
             members?: Array<{ steam_id: string; rank: string }>;
           }>) {
@@ -1694,6 +1695,7 @@ class WebMapServer {
         // Resolve steam IDs to player names + clean UE4 blueprint names
         const idMap = srv.idMap;
         const resolved = (events as unknown as ActivityRow[]).map((e) => {
+          // SAFETY: getRecentActivity returns DbRow[] with ActivityRow shape
           const out: ActivityRow & { actor_name?: string; target_name?: string; item?: string } = { ...e };
           if (!out.actor_name && out.steam_id && idMap[out.steam_id]) {
             out.actor_name = idMap[out.steam_id] as string;
@@ -3504,7 +3506,7 @@ class WebMapServer {
               // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
               let rawValue;
               if (field.cfg) {
-                rawValue = (config as unknown as Record<string, unknown>)[field.cfg];
+                rawValue = getConfigValue(config, field.cfg);
               } else {
                 // Fields without cfg are stored under their env key in DB
                 const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
@@ -3725,7 +3727,7 @@ class WebMapServer {
 
             // Only live-apply to config singleton if the field's category does NOT require restart
             if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
-              (config as unknown as Record<string, unknown>)[mapping.cfgKey] = coerced;
+              setConfigValue(config, mapping.cfgKey, coerced);
             }
 
             updated.add(envKey);
@@ -4063,7 +4065,7 @@ class WebMapServer {
       if (masked.sftp?.password != null) masked.sftp.password = { hasValue: !!masked.sftp.password };
       if (masked.sftp?.privateKeyPath != null) masked.sftp.privateKeyPath = { hasValue: !!masked.sftp.privateKeyPath };
       if (masked.panel?.apiKey != null) masked.panel.apiKey = { hasValue: !!masked.panel.apiKey };
-      return masked as unknown as Record<string, unknown>;
+      return masked as Record<string, unknown>;
     }
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
@@ -4193,14 +4195,9 @@ class WebMapServer {
           lastSync: (() => {
             const ss = this._saveService;
             if (!ss) return null;
-            const t =
-              (ss as unknown as Record<string, unknown>)._lastMtime ||
-              (ss as unknown as Record<string, unknown>)._lastCacheMtime;
-            return t
-              ? new Date(t as number).toISOString()
-              : ((ss as unknown as Record<string, unknown>)._syncCount as number) > 0
-                ? new Date().toISOString()
-                : null;
+            const ssStats = ss.stats;
+            const t = ssStats.lastMtime as number | null;
+            return t ? new Date(t).toISOString() : (ssStats.syncCount as number) > 0 ? new Date().toISOString() : null;
           })(),
           modules: [],
         };
@@ -4217,11 +4214,7 @@ class WebMapServer {
         if (rcon.connected) primaryMods.push('rcon');
         if (this._db) primaryMods.push('db');
         if (this._saveService) primaryMods.push('sftp');
-        if (
-          this._scheduler &&
-          ((this._scheduler as unknown as Record<string, unknown>).isActive as (() => boolean) | undefined)?.() === true
-        )
-          primaryMods.push('schedule');
+        if (this._scheduler?.isActive()) primaryMods.push('schedule');
         (primaryInfo as Record<string, unknown>).modules = primaryMods;
         servers.push(primaryInfo);
 
@@ -4273,7 +4266,7 @@ class WebMapServer {
               try {
                 const sc = (
                   inst as unknown as Record<string, Record<string, Record<string, (() => boolean) | undefined>>>
-                )._modules?.serverScheduler;
+                )._modules?.serverScheduler; // SAFETY: inst._modules.serverScheduler not on public type
                 return sc?.isActive?.();
               } catch {
                 return false;
@@ -4351,7 +4344,7 @@ class WebMapServer {
 
         if (startImmediately && this._multiServerManager) {
           await this._multiServerManager.addServer(
-            serverDef as unknown as Parameters<typeof this._multiServerManager.addServer>[0],
+            serverDef as Parameters<typeof this._multiServerManager.addServer>[0],
           );
         } else if (configRepo) {
           configRepo.set(`server:${id}`, serverDef);
@@ -4506,26 +4499,26 @@ class WebMapServer {
           return;
         }
 
-        const result = {};
+        const result: Record<string, unknown> = {};
         const promises: Promise<void>[] = [];
 
         if (rconCfg) {
           promises.push(
             _testRconAuth(rconCfg.host, rconCfg.port || 27015, rconCfg.password || '', 10000).then((r) => {
-              (result as Record<string, unknown>).rcon = r;
+              result.rcon = r;
             }),
           );
         }
         if (sftpCfg) {
           promises.push(
             _testSftpAuth(sftpCfg, 10000).then((r) => {
-              (result as Record<string, unknown>).sftp = r;
+              result.sftp = r;
             }),
           );
         }
 
         await Promise.all(promises);
-        sendOk(res, result as unknown as Record<string, unknown>);
+        sendOk(res, result);
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
@@ -4921,7 +4914,7 @@ class WebMapServer {
             break;
         }
 
-        sendOk(res, result as unknown as Record<string, unknown>);
+        sendOk(res, result as unknown as Record<string, unknown>); // SAFETY: botControl methods return plain objects compatible with Record
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code === 'BOT_ACTION_PENDING') {
           sendError(res, API_ERRORS.BOT_ACTION_PENDING, 409);
@@ -5336,7 +5329,7 @@ class WebMapServer {
           mods.push('schedule');
         if (inst?._modules.logWatcher) mods.push('logs');
         if (inst?._modules.chatRelay) mods.push('chat');
-        const instRec = inst as unknown as Record<string, Record<string, Record<string, unknown>>> | undefined;
+        const instRec = inst as unknown as Record<string, Record<string, Record<string, unknown>>> | undefined; // SAFETY: inst anticheat module not on public type
         if (instRec?._modules && (instRec._modules.anticheat as Record<string, unknown> | undefined)?.available)
           mods.push('anticheat');
         if (

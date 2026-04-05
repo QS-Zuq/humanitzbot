@@ -23,7 +23,7 @@
 import { EmbedBuilder, type Client, type Message } from 'discord.js';
 import SftpClient from 'ssh2-sftp-client';
 import { exec } from 'child_process';
-import _defaultConfig from '../config/index.js';
+import _defaultConfig, { getConfigValue } from '../config/index.js';
 import _defaultRcon from '../rcon/rcon.js';
 import _defaultPanelApi from '../server/panel-api.js';
 import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
@@ -148,7 +148,7 @@ class ServerScheduler {
       .filter(Boolean);
 
     // Load profile settings from config (multi-server) or env
-    const preloaded = (this._config as unknown as Record<string, unknown>).restartProfileSettings as
+    const preloaded = getConfigValue(this._config, 'restartProfileSettings') as
       | Record<string, Record<string, string>>
       | undefined;
     for (const name of this._profiles) {
@@ -675,7 +675,7 @@ class ServerScheduler {
   }
 
   /** Get current profile info for external consumers (web panel, status embed). */
-  getStatus(): Record<string, unknown> {
+  getStatus(): Record<string, unknown> & { profiles: string[]; restartTimes: string[] } {
     const { totalMinutes } = this._getCurrentTime();
     const fmt = (item: RestartTime) => `${String(item.hour).padStart(2, '0')}:${String(item.minute).padStart(2, '0')}`;
 

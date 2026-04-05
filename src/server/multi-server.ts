@@ -49,6 +49,7 @@ type ConfigType = typeof _defaultConfig;
 
 // ── Server definition interface (servers.json / config_documents) ────────
 interface ServerDef {
+  [key: string]: unknown;
   id: string;
   name?: string;
   enabled?: boolean;
@@ -529,7 +530,7 @@ class ServerInstance {
     });
     this.db.init();
     try {
-      gameReferenceSeed(this.db as unknown as Parameters<typeof gameReferenceSeed>[0]);
+      gameReferenceSeed(this.db);
     } catch (err: unknown) {
       this._log.warn('Game reference seed failed:', errMsg(err));
     }
@@ -564,22 +565,22 @@ class ServerInstance {
 
     this.playerStats = new PlayerStats({
       dataDir: this.dataDir,
-      db: this.db as unknown as Parameters<PlayerStats['setDb']>[0],
+      db: this.db,
       playtime: null, // set after playtime is created
       label: 'STATS:' + this._log.label,
     });
 
     this.playtime = new PlaytimeTracker({
       dataDir: this.dataDir,
-      db: this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0],
+      db: this.db,
       config: this.config,
       label: 'PLAYTIME:' + this._log.label,
     });
 
     // Wire up cross-reference
-    (this.playerStats as unknown as { _playtime: PlaytimeTracker })._playtime = this.playtime;
-    this.playerStats.setDb(this.db as unknown as Parameters<PlayerStats['setDb']>[0]);
-    this.playtime.setDb(this.db as unknown as Parameters<PlaytimeTracker['setDb']>[0]);
+    this.playerStats.setPlaytime(this.playtime);
+    this.playerStats.setDb(this.db);
+    this.playtime.setDb(this.db);
 
     // Bound server-info functions using this rcon
     this.getServerInfo = () => getServerInfo(this.rcon);
@@ -671,27 +672,24 @@ class ServerInstance {
     if (this.hasSftp || this.panelApi) {
       try {
         const sftpConfig = this.hasSftp ? this.config.sftpConnectConfig() : undefined;
-        this.saveService = new SaveService(
-          this.db as unknown as ConstructorParameters<typeof SaveService>[0],
-          {
-            sftpConfig,
-            savePath: this.config.sftpSavePath,
-            clanSavePath: (() => {
-              const sp = this.config.sftpSavePath;
-              if (!sp) return undefined;
-              const idx = sp.indexOf('SaveList/');
-              return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
-            })(),
-            pollInterval: this.config.getEffectiveSavePollInterval(),
-            agentMode: (this.config.agentMode || 'direct') as 'auto' | 'agent' | 'direct',
-            agentTrigger: this.config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
-            agentNodePath: this.config.agentNodePath,
-            agentCachePath: this.config.agentCachePath,
-            panelApi: this.panelApi ?? undefined,
-            dataDir: this.dataDir,
-            label: 'SAVE:' + this._log.label,
-          } as ConstructorParameters<typeof SaveService>[1],
-        );
+        this.saveService = new SaveService(this.db, {
+          sftpConfig,
+          savePath: this.config.sftpSavePath,
+          clanSavePath: (() => {
+            const sp = this.config.sftpSavePath;
+            if (!sp) return undefined;
+            const idx = sp.indexOf('SaveList/');
+            return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
+          })(),
+          pollInterval: this.config.getEffectiveSavePollInterval(),
+          agentMode: (this.config.agentMode || 'direct') as 'auto' | 'agent' | 'direct',
+          agentTrigger: this.config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
+          agentNodePath: this.config.agentNodePath,
+          agentCachePath: this.config.agentCachePath,
+          panelApi: this.panelApi ?? undefined,
+          dataDir: this.dataDir,
+          label: 'SAVE:' + this._log.label,
+        } as ConstructorParameters<typeof SaveService>[1]);
         this.saveService.on(
           'sync',
           (result: { playerCount: number; structureCount: number; mode: string; elapsed: number }) => {
@@ -709,10 +707,7 @@ class ServerInstance {
           this._log.error('Save error:', errMsg(err));
         });
         await this.saveService.start();
-        this._log.info(
-          'SaveService active',
-          `(${(this.saveService as unknown as { stats?: { mode?: string } }).stats?.mode ?? 'direct'} mode)`,
-        );
+        this._log.info('SaveService active', `(${this.saveService.getSyncMode()} mode)`);
       } catch (err: unknown) {
         this._log.error('SaveService failed:', errMsg(err));
         this.saveService = null;
@@ -722,7 +717,7 @@ class ServerInstance {
     // Server Status
     if (this.config.serverStatusChannelId && this.config.rconHost) {
       try {
-        const mod = new ServerStatus(this.client, deps as unknown as ConstructorParameters<typeof ServerStatus>[1]);
+        const mod = new ServerStatus(this.client, deps as unknown as ConstructorParameters<typeof ServerStatus>[1]); // SAFETY: deps satisfies ServerStatus ctor param shape at runtime
         await mod.start();
         this._modules.serverStatus = mod;
         this._log.info('ServerStatus active');
@@ -1008,7 +1003,7 @@ class MultiServerManager {
         const defs: ServerDef[] = [];
         for (const [scope, { data }] of all) {
           if (scope.startsWith('server:') && scope !== 'server:primary') {
-            const def = data as unknown as ServerDef;
+            const def = data as ServerDef;
             // Ensure id is present (scope is 'server:srv_xxx')
             if (!def.id) def.id = scope.slice(7);
             defs.push(def);
@@ -1030,7 +1025,7 @@ class MultiServerManager {
    */
   _persistServer(id: string, serverDef: ServerDef) {
     if (this._configRepo) {
-      this._configRepo.set('server:' + id, serverDef as unknown as Record<string, unknown>);
+      this._configRepo.set('server:' + id, serverDef);
       return;
     }
     // Legacy fallback: read-modify-write servers.json
@@ -1197,6 +1192,11 @@ class MultiServerManager {
   /** Get instance by ID. */
   getInstance(id: string) {
     return this._instances.get(id);
+  }
+
+  /** @internal Read-only view of all running server instances (used by nuke reset). */
+  getInstances(): ReadonlyMap<string, ServerInstance> {
+    return this._instances;
   }
 
   /** Get all server definitions (both running and not). */

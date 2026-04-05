@@ -87,6 +87,8 @@ interface Config {
   botTimezone: string;
   logTimezone: string;
   botLocale: string;
+  /** Per-server locale override (multi-server only). Falls back to botLocale when absent. */
+  locale?: string;
 
   // Behavior
   chatPollInterval: number;
@@ -361,7 +363,10 @@ interface ConfigMethods {
   saveDisplaySettings(db: unknown, settings: Record<string, unknown>): void;
   canShow(toggleKey: string, isAdmin?: boolean): boolean;
   isAdminView(member: import('discord.js').GuildMember | null): boolean;
-  addAdminMembers(thread: import('discord.js').ThreadChannel, guild: import('discord.js').Guild): Promise<void>;
+  addAdminMembers(
+    thread: { members?: { add(id: string): Promise<unknown> } },
+    guild: import('discord.js').Guild,
+  ): Promise<void>;
 }
 
 // ── Config object ──────────────────────────────────────────────
@@ -804,7 +809,7 @@ if (config.sftpBasePath) {
     const val = config[key] as string;
     // Only prepend if path doesn't start with / (relative path indicator)
     if (val && !val.startsWith('/')) {
-      (config as unknown as Record<string, unknown>)[key as string] = prefix + '/' + val;
+      setConfigValue(config, key as string, prefix + '/' + val);
     }
   }
   _cfgLog.info('SFTP base path:', prefix);
@@ -982,7 +987,7 @@ config.hydrate = function (configRepo: {
     if (appConfig) {
       for (const [key, value] of Object.entries(appConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          (config as unknown as Record<string, unknown>)[key] = value;
+          setConfigValue(config, key, value);
         }
       }
     }
@@ -990,7 +995,7 @@ config.hydrate = function (configRepo: {
     if (serverConfig) {
       for (const [key, value] of Object.entries(serverConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          (config as unknown as Record<string, unknown>)[key] = value;
+          setConfigValue(config, key, value);
         }
       }
     }
@@ -1014,7 +1019,7 @@ config.loadDisplayOverrides = function (_db: unknown): void {
  * falls back to legacy bot_state for safety during transition/tests.
  */
 config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknown): void {
-  (config as unknown as Record<string, unknown>)[cfgKey] = value;
+  setConfigValue(config, cfgKey, value);
   if (config._configRepo) {
     try {
       (config._configRepo as { update(doc: string, data: Record<string, unknown>): void }).update('app', {
@@ -1047,7 +1052,7 @@ config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknow
  */
 config.saveDisplaySettings = function (db: unknown, settings: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(settings)) {
-    (config as unknown as Record<string, unknown>)[key] = value;
+    setConfigValue(config, key, value);
   }
   if (config._configRepo) {
     try {
@@ -1083,7 +1088,7 @@ config.saveDisplaySettings = function (db: unknown, settings: Record<string, unk
  * @param isAdmin    - Whether the requesting user passes isAdminView()
  */
 config.canShow = function (toggleKey: string, isAdmin = false): boolean {
-  return _canShow(config as unknown as Record<string, unknown>, toggleKey, isAdmin);
+  return _canShow(config, toggleKey, isAdmin);
 };
 
 /**
@@ -1128,6 +1133,25 @@ for (const [oldKey, newKey] of Object.entries(_FTP_DEPRECATED_MAP)) {
       `[CONFIG] ⚠ Deprecated: ${oldKey} → rename to ${newKey} in .env (FTP_* support will be removed in a future version)`,
     );
   }
+}
+
+/**
+ * Read a config value by a runtime-computed key.
+ * SAFETY: Config objects are plain objects with string keys; indexed access is
+ * needed when the key is computed at runtime (e.g. from field mappings).
+ */
+export function getConfigValue(cfg: unknown, key: string): unknown {
+  if (!cfg || typeof cfg !== 'object') return undefined;
+  return (cfg as Record<string, unknown>)[key];
+}
+
+/**
+ * Write a config value by a runtime-computed key. No-op if cfg is not an object.
+ * SAFETY: Same rationale as getConfigValue — key is computed at runtime.
+ */
+export function setConfigValue(cfg: unknown, key: string, value: unknown): void {
+  if (!cfg || typeof cfg !== 'object') return;
+  (cfg as Record<string, unknown>)[key] = value;
 }
 
 export default config;

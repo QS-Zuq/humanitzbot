@@ -146,7 +146,7 @@ class PanelRcon extends EventEmitter {
 
     if (!this._panelApi) {
       try {
-        this._panelApi = (await import('../server/panel-api.js')).default as unknown as PanelApi;
+        this._panelApi = (await import('../server/panel-api.js')).default as PanelApi;
       } catch {
         throw new Error('Panel API module not available');
       }

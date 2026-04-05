@@ -22,6 +22,7 @@ import playerStatsSingleton from './player-stats.js';
 import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
 
 type ConfigType = typeof config;
 type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
@@ -197,12 +198,6 @@ interface GameData {
   CHALLENGE_DESCRIPTIONS: Record<string, { name: string; desc: string; target?: number }>;
 }
 
-// Minimal DB interface (src/db not yet migrated)
-interface HumanitZDB {
-  getStateJSON(key: string, fallback: null): unknown;
-  setStateJSON(key: string, data: unknown): void;
-}
-
 export interface KillTrackerDeps {
   config?: ConfigType;
   playtime?: PlaytimeType;
@@ -355,7 +350,7 @@ export class KillTracker {
         // Migrate old records loaded from JSON: fields may be missing in older saves.
         // We cast to unknown first so TypeScript allows the falsy checks on required fields.
         for (const r of Object.values(this._data.players)) {
-          const record = r as unknown as Partial<PlayerKillRecord> & Record<string, unknown>;
+          const record = r as Partial<PlayerKillRecord> & Record<string, unknown>;
           if (!record.survivalCumulative) {
             record.survivalCumulative = KillTracker._emptySurvival();
           }
@@ -427,7 +422,7 @@ export class KillTracker {
   }
 
   static _emptyKills(): KillObj {
-    return KillTracker._emptyObj(KillTracker.KILL_KEYS) as unknown as KillObj;
+    return KillTracker._emptyObj(KillTracker.KILL_KEYS) as unknown as KillObj; // SAFETY: _emptyObj returns Record<string,number> which satisfies KillObj shape
   }
 
   static _emptySurvival(): SurvivalObj {

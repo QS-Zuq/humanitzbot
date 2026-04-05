@@ -14,6 +14,7 @@
 import { cleanName } from '../parsers/ue4-names.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
 
 // ── AI type → display name mapping ──────────────────────────
 
@@ -63,24 +64,6 @@ const AI_DISPLAY_NAMES: Record<string, string> = {
   BanditRifle: 'Bandit (Rifle)',
   BanditSniper: 'Bandit (Sniper)',
 };
-
-// Minimal DB interface matching src/db/database.ts
-interface HumanitZDB {
-  insertTimelineSnapshot(data: TimelineInsertData): number;
-  purgeOldTimeline(olderThan: string): { changes: number };
-}
-
-interface TimelineInsertData {
-  [key: string]: unknown;
-  snapshot: SnapshotHeader;
-  players: TimelinePlayer[];
-  ai: TimelineAI[];
-  vehicles: TimelineVehicle[];
-  structures: TimelineStructure[];
-  houses: TimelineHouse[];
-  companions: TimelineCompanion[];
-  backpacks: TimelineBackpack[];
-}
 
 interface SnapshotHeader {
   gameDay: number;

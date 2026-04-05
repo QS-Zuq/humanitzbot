@@ -19,6 +19,8 @@ import { reconcileItems } from '../db/item-tracker.js';
 import { errMsg } from '../utils/error.js';
 import _rconDefault from '../rcon/rcon.js';
 import _panelApiDefault from '../server/panel-api.js';
+import { importSftpClient, importSsh2Client, importBuildAgentScript } from '../utils/dynamic-imports.js';
+import type { HumanitZDB } from '../db/database.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -88,30 +90,11 @@ interface SaveServiceOptions {
 }
 
 // Module-scope references to singletons (always available as internal modules)
-const _rconModule: RconModule | null = _rconDefault as unknown as RconModule;
-const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi;
-
-interface GameDB {
-  db?: unknown;
-  _db?: unknown;
-  syncAllFromSave: (data: Record<string, unknown>) => void;
-  setMeta: (key: string, value: string) => void;
-  purgeOldLostItems: (age: string) => void;
-  purgeOldLostGroups: (age: string) => void;
-  purgeOldMovements: (age: string) => void;
-  insertActivities: (events: unknown[]) => void;
-  purgeOldActivity: (age: string) => void;
-  getAllContainers?: () => unknown[];
-  getAllWorldHorses?: () => unknown[];
-  getAllWorldState?: () => Record<string, unknown>;
-  getAllVehicles?: () => unknown[];
-  getStructures?: () => unknown[];
-  getOnlinePlayersForDiff?: () => unknown[];
-  [key: string]: unknown;
-}
+const _rconModule: RconModule | null = _rconDefault as unknown as RconModule; // SAFETY: module default import shape
+const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi; // SAFETY: module default import shape
 
 class SaveService extends EventEmitter {
-  private _db: GameDB;
+  private _db: HumanitZDB;
   private _sftpConfig: SftpConfig | null;
   private _savePath: string;
   private _clanSavePath: string;
@@ -152,7 +135,7 @@ class SaveService extends EventEmitter {
   private _runScriptPath: string;
   private _checkNodeScriptPath: string;
 
-  constructor(db: GameDB, options: SaveServiceOptions = {}) {
+  constructor(db: HumanitZDB, options: SaveServiceOptions = {}) {
     super();
     this._db = db;
     this._sftpConfig = options.sftpConfig ?? null;
@@ -263,7 +246,7 @@ class SaveService extends EventEmitter {
   _repairSteamIdNames(): void {
     if (Object.keys(this._idMap).length === 0) return;
     try {
-      const rawDb = (this._db.db ?? this._db._db ?? this._db) as Record<string, unknown>;
+      const rawDb = (this._db._db ?? this._db) as unknown as Record<string, unknown>; // SAFETY: raw DB handle access for _repairSteamIdNames
       if (typeof rawDb['prepare'] !== 'function') return;
       const prepare = rawDb['prepare'] as (sql: string) => {
         all: () => Array<{ actor: string }>;
@@ -309,6 +292,11 @@ class SaveService extends EventEmitter {
     };
   }
 
+  /** Return the resolved sync mode string (e.g. 'direct', 'sftp', 'panel'). */
+  getSyncMode(): string {
+    return this._mode ?? this._agentMode;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  Path resolution
   // ═══════════════════════════════════════════════════════════════════════════
@@ -327,21 +315,16 @@ class SaveService extends EventEmitter {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async deployAgent(): Promise<void> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      put: (buf: Buffer, path: string) => Promise<void>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      const _sftpMod = (await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient };
-      SFTPClient = _sftpMod.default;
+      SFTPClient = await importSftpClient();
     } catch {
       throw new Error('ssh2-sftp-client not installed');
     }
 
-    let buildAgentScript: () => string;
+    let buildAgentScript: Awaited<ReturnType<typeof importBuildAgentScript>>;
     try {
-      ({ buildAgentScript } = (await import('./agent-builder.js')) as unknown as { buildAgentScript: () => string });
+      buildAgentScript = await importBuildAgentScript();
     } catch (err: unknown) {
       throw new Error(`Failed to load agent-builder: ${errMsg(err)}`, { cause: err });
     }
@@ -367,7 +350,7 @@ class SaveService extends EventEmitter {
       this._checkNodeScriptPath = checkScriptPath;
       this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
-      sftp.end();
+      await sftp.end();
     }
   }
 
@@ -419,23 +402,9 @@ class SaveService extends EventEmitter {
   }
 
   async _sshExec(command: string): Promise<SshExecResult> {
-    let SSHClient: new () => {
-      on: (event: string, cb: (...args: unknown[]) => void) => void;
-      connect: (config: SshConfig) => void;
-      exec: (
-        cmd: string,
-        cb: (
-          err: Error | null,
-          stream: NodeJS.ReadableStream & {
-            stderr: NodeJS.ReadableStream;
-            on: (event: string, cb: (...args: unknown[]) => void) => void;
-          },
-        ) => void,
-      ) => void;
-      end: () => void;
-    };
+    let SSHClient: Awaited<ReturnType<typeof importSsh2Client>>;
     try {
-      ({ Client: SSHClient } = (await import('ssh2')) as unknown as { Client: typeof SSHClient });
+      SSHClient = await importSsh2Client();
     } catch {
       throw new Error('ssh2 not installed — needed for SSH exec');
     }
@@ -553,7 +522,7 @@ class SaveService extends EventEmitter {
 
     if (!buf) return;
 
-    const parsed = parseSave(buf) as unknown as Record<string, unknown>;
+    const parsed = parseSave(buf) as unknown as Record<string, unknown>; // SAFETY: parseSave returns untyped game data structure
     let clans: unknown[] = [];
     if (clanBuf) {
       try {
@@ -713,14 +682,9 @@ class SaveService extends EventEmitter {
   }
 
   async _readSftp(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      stat: (p: string) => Promise<{ modifyTime: number }>;
-      get: (p: string) => Promise<Buffer>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
+      SFTPClient = await importSftpClient();
     } catch {
       throw new Error('ssh2-sftp-client not installed — needed for SFTP polling');
     }
@@ -735,14 +699,14 @@ class SaveService extends EventEmitter {
         return { saveBuf: null, clanBuf: null };
       }
       this._log.info('Downloading save file (direct mode)...');
-      const saveBuf = await sftp.get(this._savePath);
+      const saveBuf = (await sftp.get(this._savePath)) as Buffer;
       this._lastMtime = mtime;
       let clanBuf: Buffer | null = null;
       if (this._clanSavePath) {
         try {
           const clanStat = await sftp.stat(this._clanSavePath);
           if (!this._lastClanMtime || clanStat.modifyTime !== this._lastClanMtime) {
-            clanBuf = await sftp.get(this._clanSavePath);
+            clanBuf = (await sftp.get(this._clanSavePath)) as Buffer;
             this._lastClanMtime = clanStat.modifyTime;
           }
         } catch {
@@ -751,7 +715,7 @@ class SaveService extends EventEmitter {
       }
       return { saveBuf, clanBuf };
     } finally {
-      sftp.end();
+      await sftp.end();
     }
   }
 
@@ -837,14 +801,9 @@ class SaveService extends EventEmitter {
   }
 
   async _readCacheViaSftp(force: boolean): Promise<unknown> {
-    let SFTPClient: new () => {
-      connect: (config: SftpConfig) => Promise<void>;
-      stat: (p: string) => Promise<{ modifyTime: number }>;
-      get: (p: string) => Promise<Buffer>;
-      end: () => void;
-    };
+    let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
-      SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: typeof SFTPClient }).default;
+      SFTPClient = await importSftpClient();
     } catch {
       return undefined;
     }
@@ -861,11 +820,11 @@ class SaveService extends EventEmitter {
       }
       const mtime = stat.modifyTime;
       if (!force && this._lastCacheMtime && mtime === this._lastCacheMtime) return null;
-      const buf = await sftp.get(this._cachePath);
+      const buf = (await sftp.get(this._cachePath)) as Buffer;
       const json = buf.toString('utf-8');
       return this._parseCache(json, mtime);
     } finally {
-      sftp.end();
+      await sftp.end();
     }
   }
 
@@ -910,15 +869,9 @@ class SaveService extends EventEmitter {
 
   async _fetchClanData(): Promise<unknown[]> {
     if (this._sftpConfig) {
-      type SFTPClientType = new () => {
-        connect: (config: SftpConfig) => Promise<void>;
-        stat: (p: string) => Promise<{ modifyTime: number }>;
-        get: (p: string) => Promise<Buffer>;
-        end: () => Promise<void>;
-      };
-      let SFTPClient: SFTPClientType | undefined;
+      let SFTPClient: Awaited<ReturnType<typeof importSftpClient>> | undefined;
       try {
-        SFTPClient = ((await import('ssh2-sftp-client')) as unknown as { default: SFTPClientType }).default;
+        SFTPClient = await importSftpClient();
       } catch {
         /* ignore */
       }
@@ -928,7 +881,7 @@ class SaveService extends EventEmitter {
           await sftp.connect(this._sftpConfig);
           const clanStat = await sftp.stat(this._clanSavePath);
           if (!this._lastClanMtime || clanStat.modifyTime !== this._lastClanMtime) {
-            const clanBuf = await sftp.get(this._clanSavePath);
+            const clanBuf = (await sftp.get(this._clanSavePath)) as Buffer;
             this._lastClanMtime = clanStat.modifyTime;
             return parseClanData(clanBuf);
           }
@@ -1093,6 +1046,7 @@ class SaveService extends EventEmitter {
         return (p?.['name'] as string) || this._idMap[steamId] || steamId;
       };
       itemStats = reconcileItems(
+        // SAFETY: HumanitZDBLike requires index signature not present on class
         this._db as unknown as Parameters<typeof reconcileItems>[0],
         {
           players,
@@ -1103,7 +1057,7 @@ class SaveService extends EventEmitter {
           worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
         },
         nameResolver,
-      ) as unknown as Record<string, unknown>;
+      ) as unknown as Record<string, unknown>; // SAFETY: reconcileItems returns untyped diff data
       if (this._syncCount % 100 === 0) {
         this._db.purgeOldLostItems('-7 days');
         this._db.purgeOldLostGroups('-7 days');
@@ -1115,7 +1069,7 @@ class SaveService extends EventEmitter {
 
     if (diffEvents.length > 0) {
       try {
-        this._db.insertActivities(diffEvents);
+        this._db.insertActivities(diffEvents as Array<Record<string, unknown>>);
         this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
       } catch (err: unknown) {
         this._log.warn('Failed to write activity log:', errMsg(err));
@@ -1183,14 +1137,14 @@ class SaveService extends EventEmitter {
   _readOldStateForDiff(): Record<string, unknown> | null {
     if (this._syncCount === 0) return null;
     try {
-      const containers = this._db.getAllContainers ? this._db.getAllContainers() : [];
-      const horses = this._db.getAllWorldHorses ? this._db.getAllWorldHorses() : [];
-      const worldState = this._db.getAllWorldState ? this._db.getAllWorldState() : {};
-      const vehiclesList = this._db.getAllVehicles ? this._db.getAllVehicles() : [];
-      const structuresList = this._db.getStructures ? this._db.getStructures() : [];
+      const containers = this._db.getAllContainers();
+      const horses = this._db.getAllWorldHorses();
+      const worldState = this._db.getAllWorldState();
+      const vehiclesList = this._db.getAllVehicles();
+      const structuresList = this._db.getStructures();
       let playersList: unknown[] = [];
       try {
-        playersList = this._db.getOnlinePlayersForDiff ? this._db.getOnlinePlayersForDiff() : [];
+        playersList = this._db.getOnlinePlayersForDiff();
       } catch {
         /* empty */
       }

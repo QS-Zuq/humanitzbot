@@ -12,6 +12,7 @@ import { t, getLocalizations } from '../i18n/index.js';
 import _SftpClient from 'ssh2-sftp-client';
 import { errMsg } from '../utils/error.js';
 const SftpClient = _SftpClient as unknown as new () => {
+  // SAFETY: ssh2-sftp-client CJS default export
   connect(config: unknown): Promise<void>;
   get(path: string): Promise<Buffer>;
   end(): Promise<void>;

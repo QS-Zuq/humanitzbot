@@ -147,7 +147,7 @@ function _weatherLabel(locale: string, weather: unknown): string {
 }
 
 function _footer(playtimeTracker: PlaytimeLike, cfg: ConfigType): string {
-  const locale = getLocale({ serverConfig: cfg as unknown as { locale?: string } });
+  const locale = getLocale({ serverConfig: cfg });
   const since = fmtDate(playtimeTracker.getTrackingSince(), locale, cfg.botTimezone);
   return _ts(locale, 'tracking_footer', { since });
 }
@@ -159,7 +159,7 @@ function _settingsBlock(
 ): Array<{ name: string; value: string; inline?: boolean }> {
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
   if (cfg.showServerSettings && Object.keys(settings).length > 0) {
-    const sf = _buildSettingsFields(settings, cfg as unknown as Record<string, unknown>);
+    const sf = _buildSettingsFields(settings, cfg);
     if (sf.length > 0) fields.push(...sf);
   }
 
@@ -254,7 +254,7 @@ function _buildEmbed(
   playerList: PlayerList | null,
   resources?: ResourceData | null,
 ): EmbedBuilder {
-  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
+  const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)
@@ -267,7 +267,7 @@ function _buildEmbed(
     return embed;
   }
 
-  const schedField = _buildScheduleField(this._config as unknown as Record<string, unknown>);
+  const schedField = _buildScheduleField(this._config);
   if (schedField) embed.addFields(schedField);
 
   const host = this._config.publicHost || this._config.rconHost || _ts(locale, 'unknown');
@@ -403,7 +403,7 @@ function _buildEmbed(
 }
 
 async function _buildOfflineEmbed(this: StatusContext): Promise<EmbedBuilder> {
-  const locale = getLocale({ serverConfig: this._config as unknown as { locale?: string } });
+  const locale = getLocale({ serverConfig: this._config });
   const serverTag = this._config.serverName ? ` \u2014 ${this._config.serverName}` : '';
   const embed = new EmbedBuilder()
     .setTitle(`${_ts(locale, 'title')}${serverTag}`)
@@ -439,7 +439,7 @@ async function _buildOfflineEmbed(this: StatusContext): Promise<EmbedBuilder> {
   if (this._lastInfo?.version)
     embed.addFields({ name: _ts(locale, 'version'), value: _str(this._lastInfo.version), inline: true });
 
-  const schedField = _buildScheduleField(this._config as unknown as Record<string, unknown>);
+  const schedField = _buildScheduleField(this._config);
   if (schedField) embed.addFields(schedField);
 
   if (this._config.showHostResources && this._serverResources.backend) {

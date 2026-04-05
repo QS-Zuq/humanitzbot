@@ -427,7 +427,7 @@ async function buildWelcomeContent(deps: WelcomeContentDeps = {}) {
   }
 
   // ── Footer ──
-  const allLog = ps.getAllPlayers() as unknown as PlayerRow[];
+  const allLog = ps.getAllPlayers() as unknown as PlayerRow[]; // SAFETY: DB row shape validated by schema
   if (allLog.length > 0) {
     const totalDeaths = allLog.reduce((s: number, p: PlayerRow) => s + p.deaths, 0);
     const totalBuilds = allLog.reduce((s: number, p: PlayerRow) => s + p.builds, 0);

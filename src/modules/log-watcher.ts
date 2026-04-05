@@ -497,6 +497,35 @@ class LogWatcher {
     return this._pvpKills.slice(-count);
   }
 
+  /** @internal Set the day-rollover callback (used by external modules to chain behaviour). */
+  setDayRolloverCallback(cb: (() => Promise<void>) | null): void {
+    this._dayRolloverCb = cb;
+  }
+
+  /** @internal Get the current day-rollover callback. */
+  getDayRolloverCallback(): (() => Promise<void>) | null {
+    return this._dayRolloverCb;
+  }
+
+  /** @internal Get or create the current daily thread (public wrapper over the mixin). */
+  getOrCreateDailyThread(): Promise<{ send(options: unknown): Promise<unknown> } | null> {
+    return this._getOrCreateDailyThread();
+  }
+
+  /** @internal Wrap the _onDeath handler to inject additional behaviour. */
+  wrapOnDeath(
+    wrapper: (orig: (playerName: string, timestamp: Date) => void) => (playerName: string, timestamp: Date) => void,
+  ): void {
+    this._log.info('Wrapping _onDeath handler');
+    const orig = this._onDeath.bind(this);
+    this._onDeath = wrapper(orig);
+  }
+
+  /** @internal Enable or disable nuke suppression mode. */
+  setNukeActive(active: boolean): void {
+    this._nukeActive = active;
+  }
+
   async start() {
     // Validate required SFTP config
     if (!this._config.sftpHost || this._config.sftpHost.startsWith('PASTE_')) {
@@ -1024,6 +1053,7 @@ class LogWatcher {
     return new Promise<string>((resolve, reject) => {
       const sftpSession = (
         sftpClient as unknown as {
+          // SAFETY: ssh2-sftp-client exposes underlying sftp session not in type defs
           sftp?: { createReadStream(path: string, opts: Record<string, unknown>): import('stream').Readable };
         }
       ).sftp;

@@ -655,6 +655,11 @@ class RecapService {
 
   // ── Utility ────────────────────────────────────────────────
 
+  /** Return yesterday's date string (YYYY-MM-DD). */
+  getYesterday(): string {
+    return this._getYesterday();
+  }
+
   _getYesterday(): string {
     const today = this._config.getToday();
     const d = new Date(`${today}T12:00:00Z`);

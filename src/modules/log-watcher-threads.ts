@@ -7,7 +7,7 @@
  * is the LogWatcher instance.
  */
 
-import { EmbedBuilder, type Message, type ThreadChannel, type Guild } from 'discord.js';
+import { EmbedBuilder, type Message, type Guild } from 'discord.js';
 import { cleanName } from '../parsers/ue4-names.js';
 import { errMsg } from '../utils/error.js';
 
@@ -18,6 +18,7 @@ interface ThreadLike {
   name?: string;
   id?: string;
   guild?: unknown;
+  members?: { add(id: string): Promise<unknown> };
   threads?: {
     fetchActive(): Promise<{ threads: Map<string, ThreadLike> }>;
     fetchArchived(opts: { limit: number }): Promise<{ threads: Map<string, ThreadLike> }>;
@@ -63,7 +64,7 @@ interface LogWatcherThis {
     getDateLabel(date?: Date): string;
     useActivityThreads: boolean;
     serverName?: string;
-    addAdminMembers(thread: ThreadChannel, guild: Guild): Promise<void>;
+    addAdminMembers(thread: { members?: { add(id: string): Promise<unknown> } }, guild: Guild): Promise<void>;
     [key: string]: unknown;
   };
   _db: {
@@ -223,9 +224,7 @@ async function _getOrCreateDailyThread(this: LogWatcherThis): Promise<ThreadLike
       this._dailyDate = today;
       this._log.info(`Using existing thread: ${threadName}`);
       // Re-add admin members (they may have been removed if bot restarted)
-      void this._config
-        .addAdminMembers(this._dailyThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
-        .catch(() => {});
+      void this._config.addAdminMembers(this._dailyThread, (channel as { guild: Guild }).guild).catch(() => {});
       return this._dailyThread;
     }
 
@@ -240,9 +239,7 @@ async function _getOrCreateDailyThread(this: LogWatcherThis): Promise<ThreadLike
       this._dailyThread = archivedMatch;
       this._dailyDate = today;
       this._log.info(`Unarchived existing thread: ${threadName}`);
-      void this._config
-        .addAdminMembers(this._dailyThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
-        .catch(() => {});
+      void this._config.addAdminMembers(this._dailyThread, (channel as { guild: Guild }).guild).catch(() => {});
       return this._dailyThread;
     }
   } catch (err: unknown) {
@@ -264,14 +261,12 @@ async function _getOrCreateDailyThread(this: LogWatcherThis): Promise<ThreadLike
       name: threadName,
       autoArchiveDuration: 1440, // keep alive 24h
       reason: 'Daily summary thread',
-    })) as unknown as ThreadLike;
+    })) as ThreadLike;
     this._dailyDate = today;
     this._log.info(`Created daily thread: ${threadName}`);
 
     // Auto-join admin users/roles so the thread stays visible for them
-    void this._config
-      .addAdminMembers(this._dailyThread as unknown as ThreadChannel, (channel as unknown as { guild: Guild }).guild)
-      .catch(() => {});
+    void this._config.addAdminMembers(this._dailyThread, (channel as { guild: Guild }).guild).catch(() => {});
   } catch (err: unknown) {
     this._log.error('Failed to create daily thread:', errMsg(err));
     // Fallback — use the main channel directly
