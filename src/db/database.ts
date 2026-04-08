@@ -21,198 +21,42 @@ import fs from 'fs';
 import { SCHEMA_VERSION, ALL_TABLES } from './schema.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
+import { PlayerRepository } from './repositories/player-repository.js';
+import { ClanRepository } from './repositories/clan-repository.js';
+import { LeaderboardRepository } from './repositories/leaderboard-repository.js';
+import { WorldObjectRepository } from './repositories/world-object-repository.js';
+import { ItemRepository } from './repositories/item-repository.js';
+import { ActivityLogRepository } from './repositories/activity-log-repository.js';
+import { ChatLogRepository } from './repositories/chat-log-repository.js';
+import { DeathCauseRepository } from './repositories/death-cause-repository.js';
+import { AntiCheatRepository } from './repositories/anti-cheat-repository.js';
+import { TimelineRepository } from './repositories/timeline-repository.js';
+import { GameDataRepository } from './repositories/game-data-repository.js';
+import { type DbRow } from './repositories/db-utils.js';
 
 const __dirname = getDirname(import.meta.url);
 const DEFAULT_DB_PATH = path.join(__dirname, '..', '..', 'data', 'humanitz.db');
 
-/** Generic row type for untyped SQLite query results. */
-type DbRow = Record<string, unknown>;
-
-/** All prepared statements cached after init(). Keys are guaranteed present at runtime. */
+/** Prepared statements that remain in the facade (not delegated to repositories). */
 interface PreparedStatements {
-  areClanmates: Database.Statement;
-  clearActivityLog: Database.Statement;
-  clearChatLog: Database.Statement;
-  clearCompanions: Database.Statement;
-  clearContainers: Database.Statement;
-  clearCurrentAlias: Database.Statement;
-  clearDeadBodies: Database.Statement;
-  clearLootActors: Database.Statement;
-  clearQuests: Database.Statement;
-  clearStructures: Database.Statement;
-  clearVehicles: Database.Statement;
-  clearWorldDrops: Database.Statement;
-  clearWorldHorses: Database.Statement;
-  countActivity: Database.Statement;
-  countActivityBySource: Database.Statement;
-  countChat: Database.Statement;
-  countStructuresByOwner: Database.Statement;
-  deleteClanMembers: Database.Statement;
-  escalateAcFlag: Database.Statement;
-  findActiveGroupByLocation: Database.Statement;
-  findActiveGroupsByFingerprint: Database.Statement;
-  findItemGroupById: Database.Statement;
-  findItemInstanceByFingerprint: Database.Statement;
-  findItemInstanceById: Database.Statement;
-  findItemInstancesByFingerprint: Database.Statement;
-  getAcFlagCount: Database.Statement;
-  getAcFlags: Database.Statement;
-  getAcFlagsByDetector: Database.Statement;
-  getAcFlagsBySteam: Database.Statement;
-  getAcFlagsSince: Database.Statement;
-  getActiveItemGroups: Database.Statement;
-  getActiveItemInstances: Database.Statement;
-  getActivityByActor: Database.Statement;
-  getActivityByActorPaged: Database.Statement;
-  getActivityByCategory: Database.Statement;
-  getActivityByCategoryPaged: Database.Statement;
-  getActivitySince: Database.Statement;
-  getActivitySinceBySource: Database.Statement;
-  getAIPopulationHistory: Database.Statement;
-  getAliasStats: Database.Statement;
-  getAllAliases: Database.Statement;
-  getAllClans: Database.Statement;
-  getAllCompanions: Database.Statement;
-  getAllContainers: Database.Statement;
-  getAllPlayerLogStats: Database.Statement;
-  getAllPlayerPlaytime: Database.Statement;
-  getAllPlayers: Database.Statement;
-  getAllRiskScores: Database.Statement;
-  getAllServerPeaks: Database.Statement;
-  getAllSettings: Database.Statement;
-  getAllVehicles: Database.Statement;
-  getAllWorldDrops: Database.Statement;
-  getAllWorldHorses: Database.Statement;
-  getAllWorldState: Database.Statement;
-  getChatSince: Database.Statement;
-  getClanForSteamId: Database.Statement;
-  getClanMembers: Database.Statement;
-  getContainersWithItems: Database.Statement;
-  getDeathCauses: Database.Statement;
-  getDeathCausesByPlayer: Database.Statement;
-  getDeathCausesSince: Database.Statement;
-  getDeathCauseStats: Database.Statement;
-  getFingerprint: Database.Statement;
-  getFingerprintEvents: Database.Statement;
-  getFingerprintsByType: Database.Statement;
-  getGameItem: Database.Statement;
-  getItemGroupCount: Database.Statement;
-  getItemGroupsByItem: Database.Statement;
-  getItemGroupsByLocation: Database.Statement;
-  getItemInstanceCount: Database.Statement;
-  getItemInstancesByGroup: Database.Statement;
-  getItemInstancesByItem: Database.Statement;
-  getItemInstancesByLocation: Database.Statement;
-  getItemMovements: Database.Statement;
-  getItemMovementsByGroup: Database.Statement;
-  getItemMovementsByLocation: Database.Statement;
-  getItemMovementsByPlayer: Database.Statement;
-  getLatestSnapshot: Database.Statement;
+  // Meta
   getMeta: Database.Statement;
-  getOnlinePlayers: Database.Statement;
-  getOnlinePlayersForDiff: Database.Statement;
-  getPlayer: Database.Statement;
-  getPlayerPositionHistory: Database.Statement;
-  getRecentActivity: Database.Statement;
-  getRecentActivityPaged: Database.Statement;
-  getRecentChat: Database.Statement;
-  getRecentItemMovements: Database.Statement;
-  getRiskScore: Database.Statement;
-  getServerPeak: Database.Statement;
-  getSetting: Database.Statement;
-  getStructures: Database.Statement;
-  getStructuresByOwner: Database.Statement;
-  getTimelineAI: Database.Statement;
-  getTimelineBackpacks: Database.Statement;
-  getTimelineCompanions: Database.Statement;
-  getTimelineHouses: Database.Statement;
-  getTimelinePlayers: Database.Statement;
-  getTimelineSnapshotBounds: Database.Statement;
-  getTimelineSnapshotById: Database.Statement;
-  getTimelineSnapshotCount: Database.Statement;
-  getTimelineSnapshotRange: Database.Statement;
-  getTimelineSnapshots: Database.Statement;
-  getTimelineStructures: Database.Statement;
-  getTimelineVehicles: Database.Statement;
-  getWorldDropsByType: Database.Statement;
-  getWorldDropsWithItems: Database.Statement;
-  getWorldState: Database.Statement;
-  insertAcFlag: Database.Statement;
-  insertActivity: Database.Statement;
-  insertActivityAt: Database.Statement;
-  insertChat: Database.Statement;
-  insertChatAt: Database.Statement;
-  insertClanMember: Database.Statement;
-  insertCompanion: Database.Statement;
-  insertContainer: Database.Statement;
-  insertDeadBody: Database.Statement;
-  insertDeathCause: Database.Statement;
-  insertFingerprintEvent: Database.Statement;
-  insertItemGroup: Database.Statement;
-  insertItemInstance: Database.Statement;
-  insertItemMovement: Database.Statement;
-  insertLootActor: Database.Statement;
-  insertQuest: Database.Statement;
-  insertSnapshot: Database.Statement;
-  insertStructure: Database.Statement;
-  insertTimelineAI: Database.Statement;
-  insertTimelineBackpack: Database.Statement;
-  insertTimelineCompanion: Database.Statement;
-  insertTimelineHouse: Database.Statement;
-  insertTimelinePlayer: Database.Statement;
-  insertTimelineSnapshot: Database.Statement;
-  insertTimelineStructure: Database.Statement;
-  insertTimelineVehicle: Database.Statement;
-  insertVehicle: Database.Statement;
-  insertWorldDrop: Database.Statement;
-  insertWorldHorse: Database.Statement;
-  lookupByName: Database.Statement;
-  lookupByNameLike: Database.Statement;
-  lookupBySteamId: Database.Statement;
-  markAllItemGroupsLost: Database.Statement;
-  markAllItemInstancesLost: Database.Statement;
-  markItemGroupLost: Database.Statement;
-  markItemInstanceLost: Database.Statement;
-  purgeOldActivity: Database.Statement;
-  purgeOldChat: Database.Statement;
-  purgeOldLostGroups: Database.Statement;
-  purgeOldLostItems: Database.Statement;
-  purgeOldMovements: Database.Statement;
-  purgeOldSnapshots: Database.Statement;
-  purgeOldTimeline: Database.Statement;
-  searchChat: Database.Statement;
-  searchGameItems: Database.Statement;
-  searchItemGroups: Database.Statement;
-  searchItemInstances: Database.Statement;
-  setAllOffline: Database.Statement;
   setMeta: Database.Statement;
-  setPlayerOnline: Database.Statement;
-  setServerPeak: Database.Statement;
+  // World state
   setWorldState: Database.Statement;
-  topBitten: Database.Statement;
-  topBuilders: Database.Statement;
-  topDeaths: Database.Statement;
-  topFish: Database.Statement;
-  topKillers: Database.Statement;
-  topLooters: Database.Statement;
-  topPlaytime: Database.Statement;
-  topPvp: Database.Statement;
-  topSurvival: Database.Statement;
-  touchItemGroup: Database.Statement;
-  touchItemInstance: Database.Statement;
-  updateAcFlagStatus: Database.Statement;
-  updateItemGroupLocation: Database.Statement;
-  updateItemGroupQuantity: Database.Statement;
-  updateItemInstanceLocation: Database.Statement;
-  upsertAlias: Database.Statement;
-  upsertClan: Database.Statement;
-  upsertFingerprint: Database.Statement;
-  upsertGameItem: Database.Statement;
-  upsertPlayer: Database.Statement;
-  upsertPlayerLogStats: Database.Statement;
-  upsertPlayerPlaytime: Database.Statement;
-  upsertRiskScore: Database.Statement;
+  getWorldState: Database.Statement;
+  getAllWorldState: Database.Statement;
+  // Quests
+  clearQuests: Database.Statement;
+  insertQuest: Database.Statement;
+  // Server settings
   upsertSetting: Database.Statement;
+  getSetting: Database.Statement;
+  getAllSettings: Database.Statement;
+  // Snapshots
+  insertSnapshot: Database.Statement;
+  getLatestSnapshot: Database.Statement;
+  purgeOldSnapshots: Database.Statement;
 }
 
 class HumanitZDB {
@@ -222,6 +66,19 @@ class HumanitZDB {
   _db: Database.Database | null;
   _stmts: PreparedStatements;
   private _dbRaw: Database.Database | null;
+
+  // ── Repository references ──
+  private _playerRepo: PlayerRepository | null = null;
+  private _clanRepo: ClanRepository | null = null;
+  private _leaderboardRepo: LeaderboardRepository | null = null;
+  private _worldObjectRepo: WorldObjectRepository | null = null;
+  private _itemRepo: ItemRepository | null = null;
+  private _activityLogRepo: ActivityLogRepository | null = null;
+  private _chatLogRepo: ChatLogRepository | null = null;
+  private _deathCauseRepo: DeathCauseRepository | null = null;
+  private _antiCheatRepo: AntiCheatRepository | null = null;
+  private _timelineRepo: TimelineRepository | null = null;
+  private _gameDataRepo: GameDataRepository | null = null;
 
   constructor(options: { dbPath?: string; memory?: boolean; label?: string } = {}) {
     this._dbPath = options.dbPath ?? DEFAULT_DB_PATH;
@@ -236,6 +93,51 @@ class HumanitZDB {
   private get _handle(): Database.Database {
     if (!this._db) throw new Error('Database not initialized — call init() first');
     return this._db;
+  }
+
+  private get _player(): PlayerRepository {
+    if (!this._playerRepo) throw new Error('Database not initialized — call init() first');
+    return this._playerRepo;
+  }
+  private get _clan(): ClanRepository {
+    if (!this._clanRepo) throw new Error('Database not initialized — call init() first');
+    return this._clanRepo;
+  }
+  private get _leaderboard(): LeaderboardRepository {
+    if (!this._leaderboardRepo) throw new Error('Database not initialized — call init() first');
+    return this._leaderboardRepo;
+  }
+  private get _worldObject(): WorldObjectRepository {
+    if (!this._worldObjectRepo) throw new Error('Database not initialized — call init() first');
+    return this._worldObjectRepo;
+  }
+  private get _item(): ItemRepository {
+    if (!this._itemRepo) throw new Error('Database not initialized — call init() first');
+    return this._itemRepo;
+  }
+  private get _activityLog(): ActivityLogRepository {
+    if (!this._activityLogRepo) throw new Error('Database not initialized — call init() first');
+    return this._activityLogRepo;
+  }
+  private get _chatLog(): ChatLogRepository {
+    if (!this._chatLogRepo) throw new Error('Database not initialized — call init() first');
+    return this._chatLogRepo;
+  }
+  private get _deathCause(): DeathCauseRepository {
+    if (!this._deathCauseRepo) throw new Error('Database not initialized — call init() first');
+    return this._deathCauseRepo;
+  }
+  private get _antiCheat(): AntiCheatRepository {
+    if (!this._antiCheatRepo) throw new Error('Database not initialized — call init() first');
+    return this._antiCheatRepo;
+  }
+  private get _timeline(): TimelineRepository {
+    if (!this._timelineRepo) throw new Error('Database not initialized — call init() first');
+    return this._timelineRepo;
+  }
+  private get _gameData(): GameDataRepository {
+    if (!this._gameDataRepo) throw new Error('Database not initialized — call init() first');
+    return this._gameDataRepo;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -269,6 +171,19 @@ class HumanitZDB {
     this._applySchema();
     this._prepareStatements();
 
+    // Instantiate repositories
+    this._playerRepo = new PlayerRepository(this._handle, this._log.label);
+    this._clanRepo = new ClanRepository(this._handle, this._log.label);
+    this._leaderboardRepo = new LeaderboardRepository(this._handle, this._log.label);
+    this._worldObjectRepo = new WorldObjectRepository(this._handle, this._log.label);
+    this._itemRepo = new ItemRepository(this._handle, this._log.label);
+    this._activityLogRepo = new ActivityLogRepository(this._handle, this._log.label);
+    this._chatLogRepo = new ChatLogRepository(this._handle, this._log.label);
+    this._deathCauseRepo = new DeathCauseRepository(this._handle, this._log.label);
+    this._antiCheatRepo = new AntiCheatRepository(this._handle, this._log.label);
+    this._timelineRepo = new TimelineRepository(this._handle, this._log.label);
+    this._gameDataRepo = new GameDataRepository(this._handle, this._log.label);
+
     const version = this._getMeta('schema_version');
     this._log.info(`Database ready (v${version}, ${this._memory ? 'in-memory' : this._dbPath})`);
   }
@@ -279,6 +194,17 @@ class HumanitZDB {
       this._db = null;
       this._dbRaw = null;
       this._stmts = {} as PreparedStatements;
+      this._playerRepo = null;
+      this._clanRepo = null;
+      this._leaderboardRepo = null;
+      this._worldObjectRepo = null;
+      this._itemRepo = null;
+      this._activityLogRepo = null;
+      this._chatLogRepo = null;
+      this._deathCauseRepo = null;
+      this._antiCheatRepo = null;
+      this._timelineRepo = null;
+      this._gameDataRepo = null;
     }
   }
 
@@ -1286,326 +1212,9 @@ class HumanitZDB {
   // ═══════════════════════════════════════════════════════════════════════════
 
   _prepareStatements() {
-    // Player upsert — all columns
-    this._stmts.upsertPlayer = this._handle.prepare(`
-      INSERT INTO players (
-        steam_id, name, male, starting_perk, affliction, char_profile,
-        zeeks_killed, headshots, melee_kills, gun_kills, blast_kills,
-        fist_kills, takedown_kills, vehicle_kills,
-        lifetime_kills, lifetime_headshots, lifetime_melee_kills,
-        lifetime_gun_kills, lifetime_blast_kills, lifetime_fist_kills,
-        lifetime_takedown_kills, lifetime_vehicle_kills, lifetime_days_survived,
-        has_extended_stats,
-        days_survived, times_bitten, bites, fish_caught, fish_caught_pike,
-        health, max_health, hunger, max_hunger, thirst, max_thirst,
-        stamina, max_stamina, infection, max_infection, battery,
-        fatigue, infection_buildup, well_rested, energy, hood, hypo_handle,
-        exp, level, exp_current, exp_required, skills_point,
-        pos_x, pos_y, pos_z, rotation_yaw,
-        respawn_x, respawn_y, respawn_z,
-        cb_radio_cooldown, day_incremented, infection_timer,
-        player_states, body_conditions,
-        crafting_recipes, building_recipes,
-        unlocked_professions, unlocked_skills, skills_data,
-        inventory, equipment, quick_slots, backpack_items, backpack_data,
-        lore, unique_loots, crafted_uniques, loot_item_unique,
-        quest_data, mini_quest, challenges, quest_spawner_done,
-        companion_data, horses, extended_stats,
-        challenge_kill_zombies, challenge_kill_50, challenge_catch_20_fish,
-        challenge_regular_angler, challenge_kill_zombie_bear, challenge_9_squares,
-        challenge_craft_firearm, challenge_craft_furnace, challenge_craft_melee_bench,
-        challenge_craft_melee_weapon, challenge_craft_rain_collector, challenge_craft_tablesaw,
-        challenge_craft_treatment, challenge_craft_weapons_bench, challenge_craft_workbench,
-        challenge_find_dog, challenge_find_heli, challenge_lockpick_suv, challenge_repair_radio,
-        custom_data, first_seen, last_seen, updated_at
-      ) VALUES (
-        @steam_id, @name, @male, @starting_perk, @affliction, @char_profile,
-        @zeeks_killed, @headshots, @melee_kills, @gun_kills, @blast_kills,
-        @fist_kills, @takedown_kills, @vehicle_kills,
-        @lifetime_kills, @lifetime_headshots, @lifetime_melee_kills,
-        @lifetime_gun_kills, @lifetime_blast_kills, @lifetime_fist_kills,
-        @lifetime_takedown_kills, @lifetime_vehicle_kills, @lifetime_days_survived,
-        @has_extended_stats,
-        @days_survived, @times_bitten, @bites, @fish_caught, @fish_caught_pike,
-        @health, @max_health, @hunger, @max_hunger, @thirst, @max_thirst,
-        @stamina, @max_stamina, @infection, @max_infection, @battery,
-        @fatigue, @infection_buildup, @well_rested, @energy, @hood, @hypo_handle,
-        @exp, @level, @exp_current, @exp_required, @skills_point,
-        @pos_x, @pos_y, @pos_z, @rotation_yaw,
-        @respawn_x, @respawn_y, @respawn_z,
-        @cb_radio_cooldown, @day_incremented, @infection_timer,
-        @player_states, @body_conditions,
-        @crafting_recipes, @building_recipes,
-        @unlocked_professions, @unlocked_skills, @skills_data,
-        @inventory, @equipment, @quick_slots, @backpack_items, @backpack_data,
-        @lore, @unique_loots, @crafted_uniques, @loot_item_unique,
-        @quest_data, @mini_quest, @challenges, @quest_spawner_done,
-        @companion_data, @horses, @extended_stats,
-        @challenge_kill_zombies, @challenge_kill_50, @challenge_catch_20_fish,
-        @challenge_regular_angler, @challenge_kill_zombie_bear, @challenge_9_squares,
-        @challenge_craft_firearm, @challenge_craft_furnace, @challenge_craft_melee_bench,
-        @challenge_craft_melee_weapon, @challenge_craft_rain_collector, @challenge_craft_tablesaw,
-        @challenge_craft_treatment, @challenge_craft_weapons_bench, @challenge_craft_workbench,
-        @challenge_find_dog, @challenge_find_heli, @challenge_lockpick_suv, @challenge_repair_radio,
-        @custom_data, datetime('now'), datetime('now'), datetime('now')
-      )
-      ON CONFLICT(steam_id) DO UPDATE SET
-        name = excluded.name,
-        male = excluded.male,
-        starting_perk = excluded.starting_perk,
-        affliction = excluded.affliction,
-        char_profile = excluded.char_profile,
-        zeeks_killed = excluded.zeeks_killed,
-        headshots = excluded.headshots,
-        melee_kills = excluded.melee_kills,
-        gun_kills = excluded.gun_kills,
-        blast_kills = excluded.blast_kills,
-        fist_kills = excluded.fist_kills,
-        takedown_kills = excluded.takedown_kills,
-        vehicle_kills = excluded.vehicle_kills,
-        lifetime_kills = excluded.lifetime_kills,
-        lifetime_headshots = excluded.lifetime_headshots,
-        lifetime_melee_kills = excluded.lifetime_melee_kills,
-        lifetime_gun_kills = excluded.lifetime_gun_kills,
-        lifetime_blast_kills = excluded.lifetime_blast_kills,
-        lifetime_fist_kills = excluded.lifetime_fist_kills,
-        lifetime_takedown_kills = excluded.lifetime_takedown_kills,
-        lifetime_vehicle_kills = excluded.lifetime_vehicle_kills,
-        lifetime_days_survived = excluded.lifetime_days_survived,
-        has_extended_stats = excluded.has_extended_stats,
-        days_survived = excluded.days_survived,
-        times_bitten = excluded.times_bitten,
-        bites = excluded.bites,
-        fish_caught = excluded.fish_caught,
-        fish_caught_pike = excluded.fish_caught_pike,
-        health = excluded.health,
-        max_health = excluded.max_health,
-        hunger = excluded.hunger,
-        max_hunger = excluded.max_hunger,
-        thirst = excluded.thirst,
-        max_thirst = excluded.max_thirst,
-        stamina = excluded.stamina,
-        max_stamina = excluded.max_stamina,
-        infection = excluded.infection,
-        max_infection = excluded.max_infection,
-        battery = excluded.battery,
-        fatigue = excluded.fatigue,
-        infection_buildup = excluded.infection_buildup,
-        well_rested = excluded.well_rested,
-        energy = excluded.energy,
-        hood = excluded.hood,
-        hypo_handle = excluded.hypo_handle,
-        exp = excluded.exp,
-        level = excluded.level,
-        exp_current = excluded.exp_current,
-        exp_required = excluded.exp_required,
-        skills_point = excluded.skills_point,
-        pos_x = excluded.pos_x,
-        pos_y = excluded.pos_y,
-        pos_z = excluded.pos_z,
-        rotation_yaw = excluded.rotation_yaw,
-        respawn_x = excluded.respawn_x,
-        respawn_y = excluded.respawn_y,
-        respawn_z = excluded.respawn_z,
-        cb_radio_cooldown = excluded.cb_radio_cooldown,
-        day_incremented = excluded.day_incremented,
-        infection_timer = excluded.infection_timer,
-        player_states = excluded.player_states,
-        body_conditions = excluded.body_conditions,
-        crafting_recipes = excluded.crafting_recipes,
-        building_recipes = excluded.building_recipes,
-        unlocked_professions = excluded.unlocked_professions,
-        unlocked_skills = excluded.unlocked_skills,
-        skills_data = excluded.skills_data,
-        inventory = excluded.inventory,
-        equipment = excluded.equipment,
-        quick_slots = excluded.quick_slots,
-        backpack_items = excluded.backpack_items,
-        backpack_data = excluded.backpack_data,
-        lore = excluded.lore,
-        unique_loots = excluded.unique_loots,
-        crafted_uniques = excluded.crafted_uniques,
-        loot_item_unique = excluded.loot_item_unique,
-        quest_data = excluded.quest_data,
-        mini_quest = excluded.mini_quest,
-        challenges = excluded.challenges,
-        quest_spawner_done = excluded.quest_spawner_done,
-        companion_data = excluded.companion_data,
-        horses = excluded.horses,
-        extended_stats = excluded.extended_stats,
-        challenge_kill_zombies = excluded.challenge_kill_zombies,
-        challenge_kill_50 = excluded.challenge_kill_50,
-        challenge_catch_20_fish = excluded.challenge_catch_20_fish,
-        challenge_regular_angler = excluded.challenge_regular_angler,
-        challenge_kill_zombie_bear = excluded.challenge_kill_zombie_bear,
-        challenge_9_squares = excluded.challenge_9_squares,
-        challenge_craft_firearm = excluded.challenge_craft_firearm,
-        challenge_craft_furnace = excluded.challenge_craft_furnace,
-        challenge_craft_melee_bench = excluded.challenge_craft_melee_bench,
-        challenge_craft_melee_weapon = excluded.challenge_craft_melee_weapon,
-        challenge_craft_rain_collector = excluded.challenge_craft_rain_collector,
-        challenge_craft_tablesaw = excluded.challenge_craft_tablesaw,
-        challenge_craft_treatment = excluded.challenge_craft_treatment,
-        challenge_craft_weapons_bench = excluded.challenge_craft_weapons_bench,
-        challenge_craft_workbench = excluded.challenge_craft_workbench,
-        challenge_find_dog = excluded.challenge_find_dog,
-        challenge_find_heli = excluded.challenge_find_heli,
-        challenge_lockpick_suv = excluded.challenge_lockpick_suv,
-        challenge_repair_radio = excluded.challenge_repair_radio,
-        custom_data = excluded.custom_data,
-        last_seen = datetime('now'),
-        updated_at = datetime('now')
-    `);
-
-    // Fast lookups
-    this._stmts.getPlayer = this._handle.prepare('SELECT * FROM players WHERE steam_id = ?');
-    this._stmts.getAllPlayers = this._handle.prepare('SELECT * FROM players ORDER BY lifetime_kills DESC');
-    this._stmts.getOnlinePlayers = this._handle.prepare('SELECT * FROM players WHERE online = 1');
-    this._stmts.getOnlinePlayersForDiff = this._handle.prepare(
-      'SELECT steam_id, name, online, inventory, equipment, quick_slots, backpack_items, pos_x, pos_y, pos_z FROM players WHERE online = 1',
-    );
-    this._stmts.setPlayerOnline = this._handle.prepare(
-      "UPDATE players SET online = ?, last_seen = datetime('now') WHERE steam_id = ?",
-    );
-    this._stmts.setAllOffline = this._handle.prepare('UPDATE players SET online = 0');
-
-    // Full log stats upsert — used by DB-first player-stats
-    this._stmts.upsertPlayerLogStats = this._handle.prepare(`
-      INSERT INTO players (steam_id, name, log_deaths, log_pvp_kills, log_pvp_deaths,
-        log_builds, log_loots, log_damage_taken, log_raids_out, log_raids_in,
-        log_connects, log_disconnects, log_admin_access, log_destroyed_out, log_destroyed_in,
-        log_build_items, log_killed_by, log_damage_detail, log_cheat_flags, log_last_event,
-        first_seen, last_seen, updated_at)
-      VALUES (@steam_id, @name, @log_deaths, @log_pvp_kills, @log_pvp_deaths,
-        @log_builds, @log_loots, @log_damage_taken, @log_raids_out, @log_raids_in,
-        @log_connects, @log_disconnects, @log_admin_access, @log_destroyed_out, @log_destroyed_in,
-        @log_build_items, @log_killed_by, @log_damage_detail, @log_cheat_flags, @log_last_event,
-        datetime('now'), datetime('now'), datetime('now'))
-      ON CONFLICT(steam_id) DO UPDATE SET
-        name = CASE WHEN excluded.name != '' THEN excluded.name ELSE players.name END,
-        log_deaths = excluded.log_deaths,
-        log_pvp_kills = excluded.log_pvp_kills,
-        log_pvp_deaths = excluded.log_pvp_deaths,
-        log_builds = excluded.log_builds,
-        log_loots = excluded.log_loots,
-        log_damage_taken = excluded.log_damage_taken,
-        log_raids_out = excluded.log_raids_out,
-        log_raids_in = excluded.log_raids_in,
-        log_connects = excluded.log_connects,
-        log_disconnects = excluded.log_disconnects,
-        log_admin_access = excluded.log_admin_access,
-        log_destroyed_out = excluded.log_destroyed_out,
-        log_destroyed_in = excluded.log_destroyed_in,
-        log_build_items = excluded.log_build_items,
-        log_killed_by = excluded.log_killed_by,
-        log_damage_detail = excluded.log_damage_detail,
-        log_cheat_flags = excluded.log_cheat_flags,
-        log_last_event = excluded.log_last_event,
-        updated_at = datetime('now')
-    `);
-
-    // Full playtime upsert — used by DB-first playtime-tracker
-    // Uses MAX() to NEVER reduce existing values — prevents data loss if
-    // the tracker restarts with empty in-memory state.
-    this._stmts.upsertPlayerPlaytime = this._handle.prepare(`
-      INSERT INTO players (steam_id, name, playtime_seconds, session_count,
-        playtime_first_seen, playtime_last_login, playtime_last_seen,
-        first_seen, last_seen, updated_at)
-      VALUES (@steam_id, @name, @playtime_seconds, @session_count,
-        @playtime_first_seen, @playtime_last_login, @playtime_last_seen,
-        datetime('now'), datetime('now'), datetime('now'))
-      ON CONFLICT(steam_id) DO UPDATE SET
-        name = CASE WHEN excluded.name != '' THEN excluded.name ELSE players.name END,
-        playtime_seconds = MAX(players.playtime_seconds, excluded.playtime_seconds),
-        session_count = MAX(players.session_count, excluded.session_count),
-        playtime_first_seen = CASE
-          WHEN players.playtime_first_seen IS NULL THEN excluded.playtime_first_seen
-          WHEN excluded.playtime_first_seen IS NULL THEN players.playtime_first_seen
-          WHEN excluded.playtime_first_seen < players.playtime_first_seen THEN excluded.playtime_first_seen
-          ELSE players.playtime_first_seen END,
-        playtime_last_login = CASE
-          WHEN excluded.playtime_last_login > COALESCE(players.playtime_last_login, '') THEN excluded.playtime_last_login
-          ELSE players.playtime_last_login END,
-        playtime_last_seen = CASE
-          WHEN excluded.playtime_last_seen > COALESCE(players.playtime_last_seen, '') THEN excluded.playtime_last_seen
-          ELSE players.playtime_last_seen END,
-        updated_at = datetime('now')
-    `);
-
-    // Get all player log stats (for loading into in-memory cache)
-    this._stmts.getAllPlayerLogStats = this._handle.prepare(`
-      SELECT steam_id, name, log_deaths, log_pvp_kills, log_pvp_deaths,
-        log_builds, log_loots, log_damage_taken, log_raids_out, log_raids_in,
-        log_connects, log_disconnects, log_admin_access, log_destroyed_out, log_destroyed_in,
-        log_build_items, log_killed_by, log_damage_detail, log_cheat_flags, log_last_event
-      FROM players
-      WHERE log_deaths > 0 OR log_pvp_kills > 0 OR log_builds > 0
-        OR log_loots > 0 OR log_raids_out > 0 OR log_connects > 0
-        OR log_admin_access > 0
-    `);
-
-    // Get all player playtime (for loading into in-memory cache)
-    this._stmts.getAllPlayerPlaytime = this._handle.prepare(`
-      SELECT steam_id, name, playtime_seconds, session_count,
-        playtime_first_seen, playtime_last_login, playtime_last_seen
-      FROM players
-      WHERE playtime_seconds > 0 OR session_count > 0
-    `);
-
-    // Server peaks
-    this._stmts.setServerPeak = this._handle.prepare(
-      "INSERT OR REPLACE INTO server_peaks (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-    );
-    this._stmts.getServerPeak = this._handle.prepare('SELECT value FROM server_peaks WHERE key = ?');
-    this._stmts.getAllServerPeaks = this._handle.prepare('SELECT * FROM server_peaks');
-
-    // Leaderboards
-    this._stmts.topKillers = this._handle.prepare(
-      'SELECT steam_id, name, lifetime_kills, lifetime_headshots, lifetime_melee_kills, lifetime_gun_kills FROM players ORDER BY lifetime_kills DESC LIMIT ?',
-    );
-    this._stmts.topPlaytime = this._handle.prepare(
-      'SELECT steam_id, name, playtime_seconds, session_count FROM players ORDER BY playtime_seconds DESC LIMIT ?',
-    );
-    this._stmts.topSurvival = this._handle.prepare(
-      'SELECT steam_id, name, lifetime_days_survived, days_survived FROM players ORDER BY lifetime_days_survived DESC LIMIT ?',
-    );
-    this._stmts.topFish = this._handle.prepare(
-      'SELECT steam_id, name, fish_caught, fish_caught_pike FROM players WHERE fish_caught > 0 ORDER BY fish_caught DESC LIMIT ?',
-    );
-    this._stmts.topBitten = this._handle.prepare(
-      'SELECT steam_id, name, times_bitten FROM players WHERE times_bitten > 0 ORDER BY times_bitten DESC LIMIT ?',
-    );
-    this._stmts.topPvp = this._handle.prepare(
-      'SELECT steam_id, name, log_pvp_kills, log_pvp_deaths FROM players WHERE log_pvp_kills > 0 ORDER BY log_pvp_kills DESC LIMIT ?',
-    );
-    this._stmts.topBuilders = this._handle.prepare(
-      'SELECT steam_id, name, log_builds FROM players WHERE log_builds > 0 ORDER BY log_builds DESC LIMIT ?',
-    );
-    this._stmts.topDeaths = this._handle.prepare(
-      'SELECT steam_id, name, log_deaths, log_killed_by FROM players WHERE log_deaths > 0 ORDER BY log_deaths DESC LIMIT ?',
-    );
-    this._stmts.topLooters = this._handle.prepare(
-      'SELECT steam_id, name, log_loots FROM players WHERE log_loots > 0 ORDER BY log_loots DESC LIMIT ?',
-    );
-
-    // Clans
-    this._stmts.upsertClan = this._handle.prepare(
-      "INSERT OR REPLACE INTO clans (name, updated_at) VALUES (?, datetime('now'))",
-    );
-    this._stmts.deleteClanMembers = this._handle.prepare('DELETE FROM clan_members WHERE clan_name = ?');
-    this._stmts.insertClanMember = this._handle.prepare(
-      'INSERT OR REPLACE INTO clan_members (clan_name, steam_id, name, rank, can_invite, can_kick) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    this._stmts.getAllClans = this._handle.prepare('SELECT * FROM clans ORDER BY name');
-    this._stmts.getClanMembers = this._handle.prepare(
-      'SELECT * FROM clan_members WHERE clan_name = ? ORDER BY rank DESC, name',
-    );
-    this._stmts.getClanForSteamId = this._handle.prepare(
-      'SELECT clan_name FROM clan_members WHERE steam_id = ? LIMIT 1',
-    );
-    this._stmts.areClanmates = this._handle.prepare(
-      `SELECT 1 FROM clan_members a JOIN clan_members b ON a.clan_name = b.clan_name WHERE a.steam_id = ? AND b.steam_id = ? LIMIT 1`,
-    );
+    // Meta
+    this._stmts.getMeta = this._handle.prepare('SELECT value FROM meta WHERE key = ?');
+    this._stmts.setMeta = this._handle.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
 
     // World state
     this._stmts.setWorldState = this._handle.prepare(
@@ -1613,192 +1222,6 @@ class HumanitZDB {
     );
     this._stmts.getWorldState = this._handle.prepare('SELECT value FROM world_state WHERE key = ?');
     this._stmts.getAllWorldState = this._handle.prepare('SELECT * FROM world_state');
-
-    // Structures
-    this._stmts.clearStructures = this._handle.prepare('DELETE FROM structures');
-    this._stmts.insertStructure = this._handle.prepare(`
-      INSERT INTO structures (actor_class, display_name, owner_steam_id, pos_x, pos_y, pos_z,
-        current_health, max_health, upgrade_level, attached_to_trailer, inventory, no_spawn, extra_data, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `);
-    this._stmts.getStructures = this._handle.prepare('SELECT * FROM structures ORDER BY actor_class');
-    this._stmts.getStructuresByOwner = this._handle.prepare('SELECT * FROM structures WHERE owner_steam_id = ?');
-    this._stmts.countStructuresByOwner = this._handle.prepare(
-      'SELECT owner_steam_id, COUNT(*) as count FROM structures GROUP BY owner_steam_id ORDER BY count DESC',
-    );
-
-    // Vehicles
-    this._stmts.clearVehicles = this._handle.prepare('DELETE FROM vehicles');
-    this._stmts.insertVehicle = this._handle.prepare(`
-      INSERT INTO vehicles (class, display_name, pos_x, pos_y, pos_z, health, max_health, fuel, inventory, upgrades, extra, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `);
-    this._stmts.getAllVehicles = this._handle.prepare('SELECT * FROM vehicles');
-
-    // Companions
-    this._stmts.clearCompanions = this._handle.prepare('DELETE FROM companions');
-    this._stmts.insertCompanion = this._handle.prepare(`
-      INSERT INTO companions (type, actor_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `);
-    this._stmts.getAllCompanions = this._handle.prepare('SELECT * FROM companions');
-
-    // World horses
-    this._stmts.clearWorldHorses = this._handle.prepare('DELETE FROM world_horses');
-    this._stmts.insertWorldHorse = this._handle.prepare(`
-      INSERT INTO world_horses (actor_name, class, display_name, horse_name, owner_steam_id, pos_x, pos_y, pos_z, health, max_health, energy, stamina, saddle_inventory, inventory, extra, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `);
-    this._stmts.getAllWorldHorses = this._handle.prepare('SELECT * FROM world_horses');
-
-    // Dead bodies
-    this._stmts.clearDeadBodies = this._handle.prepare('DELETE FROM dead_bodies');
-    this._stmts.insertDeadBody = this._handle.prepare(
-      "INSERT OR REPLACE INTO dead_bodies (actor_name, pos_x, pos_y, pos_z, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
-    );
-
-    // Containers
-    this._stmts.clearContainers = this._handle.prepare('DELETE FROM containers');
-    this._stmts.insertContainer = this._handle.prepare(`
-      INSERT OR REPLACE INTO containers (actor_name, items, quick_slots, locked, does_spawn_loot, alarm_off, crafting_content, pos_x, pos_y, pos_z, extra, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `);
-    this._stmts.getAllContainers = this._handle.prepare('SELECT * FROM containers ORDER BY actor_name');
-    this._stmts.getContainersWithItems = this._handle.prepare(
-      "SELECT * FROM containers WHERE items != '[]' ORDER BY actor_name",
-    );
-
-    // Loot actors
-    this._stmts.clearLootActors = this._handle.prepare('DELETE FROM loot_actors');
-    this._stmts.insertLootActor = this._handle.prepare(
-      "INSERT INTO loot_actors (name, type, pos_x, pos_y, pos_z, items, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-    );
-
-    // Item instances (fingerprint tracking)
-    this._stmts.insertItemInstance = this._handle.prepare(`
-      INSERT INTO item_instances (fingerprint, item, durability, ammo, attachments, cap, max_dur, location_type, location_id, location_slot, pos_x, pos_y, pos_z, amount, group_id, first_seen, last_seen, lost)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 0)
-    `);
-    this._stmts.updateItemInstanceLocation = this._handle.prepare(`
-      UPDATE item_instances SET location_type = ?, location_id = ?, location_slot = ?, pos_x = ?, pos_y = ?, pos_z = ?, amount = ?, group_id = ?, last_seen = datetime('now'), lost = 0, lost_at = NULL WHERE id = ?
-    `);
-    this._stmts.markItemInstanceLost = this._handle.prepare(`
-      UPDATE item_instances SET lost = 1, lost_at = datetime('now') WHERE id = ?
-    `);
-    this._stmts.markAllItemInstancesLost = this._handle.prepare(`
-      UPDATE item_instances SET lost = 1, lost_at = datetime('now') WHERE lost = 0
-    `);
-    this._stmts.touchItemInstance = this._handle.prepare(`
-      UPDATE item_instances SET last_seen = datetime('now'), lost = 0 WHERE id = ?
-    `);
-    this._stmts.findItemInstanceByFingerprint = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE fingerprint = ? AND lost = 0 LIMIT 1',
-    );
-    this._stmts.findItemInstancesByFingerprint = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE fingerprint = ? AND lost = 0',
-    );
-    this._stmts.findItemInstanceById = this._handle.prepare('SELECT * FROM item_instances WHERE id = ?');
-    this._stmts.getActiveItemInstances = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE lost = 0 ORDER BY item, location_type',
-    );
-    this._stmts.getItemInstancesByItem = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE item = ? AND lost = 0 ORDER BY location_type',
-    );
-    this._stmts.getItemInstancesByLocation = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE location_type = ? AND location_id = ? AND lost = 0',
-    );
-    this._stmts.getItemInstanceCount = this._handle.prepare(
-      'SELECT COUNT(*) as count FROM item_instances WHERE lost = 0',
-    );
-    this._stmts.searchItemInstances = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
-    );
-    this._stmts.purgeOldLostItems = this._handle.prepare(
-      "DELETE FROM item_instances WHERE lost = 1 AND lost_at < datetime('now', ?)",
-    );
-    this._stmts.getItemInstancesByGroup = this._handle.prepare(
-      'SELECT * FROM item_instances WHERE group_id = ? AND lost = 0',
-    );
-
-    // Item groups (fungible item tracking)
-    this._stmts.insertItemGroup = this._handle.prepare(`
-      INSERT INTO item_groups (fingerprint, item, durability, ammo, attachments, cap, max_dur, location_type, location_id, location_slot, pos_x, pos_y, pos_z, quantity, stack_size, first_seen, last_seen, lost)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 0)
-    `);
-    this._stmts.updateItemGroupQuantity = this._handle.prepare(`
-      UPDATE item_groups SET quantity = ?, last_seen = datetime('now'), lost = 0, lost_at = NULL WHERE id = ?
-    `);
-    this._stmts.updateItemGroupLocation = this._handle.prepare(`
-      UPDATE item_groups SET location_type = ?, location_id = ?, location_slot = ?, pos_x = ?, pos_y = ?, pos_z = ?, quantity = ?, last_seen = datetime('now'), lost = 0, lost_at = NULL WHERE id = ?
-    `);
-    this._stmts.markItemGroupLost = this._handle.prepare(`
-      UPDATE item_groups SET lost = 1, lost_at = datetime('now') WHERE id = ?
-    `);
-    this._stmts.markAllItemGroupsLost = this._handle.prepare(`
-      UPDATE item_groups SET lost = 1, lost_at = datetime('now') WHERE lost = 0
-    `);
-    this._stmts.touchItemGroup = this._handle.prepare(`
-      UPDATE item_groups SET last_seen = datetime('now'), lost = 0 WHERE id = ?
-    `);
-    this._stmts.findActiveGroupByLocation = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE fingerprint = ? AND location_type = ? AND location_id = ? AND location_slot = ? AND lost = 0 LIMIT 1',
-    );
-    this._stmts.findActiveGroupsByFingerprint = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE fingerprint = ? AND lost = 0',
-    );
-    this._stmts.findItemGroupById = this._handle.prepare('SELECT * FROM item_groups WHERE id = ?');
-    this._stmts.getActiveItemGroups = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE lost = 0 ORDER BY item, location_type',
-    );
-    this._stmts.getItemGroupsByItem = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE item = ? AND lost = 0 ORDER BY location_type',
-    );
-    this._stmts.getItemGroupsByLocation = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE location_type = ? AND location_id = ? AND lost = 0',
-    );
-    this._stmts.getItemGroupCount = this._handle.prepare('SELECT COUNT(*) as count FROM item_groups WHERE lost = 0');
-    this._stmts.searchItemGroups = this._handle.prepare(
-      'SELECT * FROM item_groups WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
-    );
-    this._stmts.purgeOldLostGroups = this._handle.prepare(
-      "DELETE FROM item_groups WHERE lost = 1 AND lost_at < datetime('now', ?)",
-    );
-
-    // Item movements (chain-of-custody)
-    this._stmts.insertItemMovement = this._handle.prepare(`
-      INSERT INTO item_movements (instance_id, group_id, move_type, item, from_type, from_id, from_slot, to_type, to_id, to_slot, amount, attributed_steam_id, attributed_name, pos_x, pos_y, pos_z)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.getItemMovements = this._handle.prepare(
-      'SELECT * FROM item_movements WHERE instance_id = ? ORDER BY created_at ASC',
-    );
-    this._stmts.getItemMovementsByGroup = this._handle.prepare(
-      'SELECT * FROM item_movements WHERE group_id = ? ORDER BY created_at ASC',
-    );
-    this._stmts.getRecentItemMovements = this._handle.prepare(
-      'SELECT * FROM item_movements ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getItemMovementsByPlayer = this._handle.prepare(
-      'SELECT * FROM item_movements WHERE attributed_steam_id = ? ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getItemMovementsByLocation = this._handle.prepare(
-      'SELECT * FROM item_movements WHERE (from_type = ? AND from_id = ?) OR (to_type = ? AND to_id = ?) ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.purgeOldMovements = this._handle.prepare(
-      "DELETE FROM item_movements WHERE created_at < datetime('now', ?)",
-    );
-
-    // World drops
-    this._stmts.clearWorldDrops = this._handle.prepare('DELETE FROM world_drops');
-    this._stmts.insertWorldDrop = this._handle.prepare(`
-      INSERT INTO world_drops (type, actor_name, item, amount, durability, items, world_loot, placed, spawned, locked, does_spawn_loot, pos_x, pos_y, pos_z)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.getAllWorldDrops = this._handle.prepare('SELECT * FROM world_drops ORDER BY type, item');
-    this._stmts.getWorldDropsByType = this._handle.prepare('SELECT * FROM world_drops WHERE type = ? ORDER BY item');
-    this._stmts.getWorldDropsWithItems = this._handle.prepare(
-      "SELECT * FROM world_drops WHERE (item != '' OR items != '[]') ORDER BY type",
-    );
 
     // Quests
     this._stmts.clearQuests = this._handle.prepare('DELETE FROM quests');
@@ -1813,820 +1236,149 @@ class HumanitZDB {
     this._stmts.getSetting = this._handle.prepare('SELECT value FROM server_settings WHERE key = ?');
     this._stmts.getAllSettings = this._handle.prepare('SELECT * FROM server_settings ORDER BY key');
 
-    // Game reference
-    this._stmts.upsertGameItem = this._handle.prepare(`INSERT OR REPLACE INTO game_items (
-      id, name, description, type, type_raw, specific_type, wear_position, category,
-      chance_to_spawn, durability_loss, armor_protection, max_stack_size, can_stack,
-      item_size, weight, first_value, second_item_type, second_value,
-      value_to_trader, value_for_player,
-      does_decay, decay_per_day, only_decay_if_opened,
-      warmth_value, infection_protection, clothing_rain_mod, clothing_snow_mod, summer_cool_value,
-      is_skill_book, no_pocket, exclude_from_vendor, exclude_from_ai, use_as_fertilizer,
-      state, tag, open_item, body_attach_socket,
-      supported_attachments, items_inside, skill_book_data, extra
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    this._stmts.getGameItem = this._handle.prepare('SELECT * FROM game_items WHERE id = ?');
-    this._stmts.searchGameItems = this._handle.prepare(
-      'SELECT * FROM game_items WHERE name LIKE ? OR id LIKE ? LIMIT 20',
-    );
-
     // Snapshots
     this._stmts.insertSnapshot = this._handle.prepare('INSERT INTO snapshots (type, steam_id, data) VALUES (?, ?, ?)');
     this._stmts.getLatestSnapshot = this._handle.prepare(
       'SELECT * FROM snapshots WHERE type = ? AND steam_id = ? ORDER BY created_at DESC LIMIT 1',
     );
     this._stmts.purgeOldSnapshots = this._handle.prepare("DELETE FROM snapshots WHERE created_at < datetime('now', ?)");
-
-    // Activity log
-    this._stmts.insertActivity = this._handle.prepare(`
-      INSERT INTO activity_log (type, category, actor, actor_name, item, amount, details, pos_x, pos_y, pos_z, steam_id, source, target_name, target_steam_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertActivityAt = this._handle.prepare(`
-      INSERT INTO activity_log (type, category, actor, actor_name, item, amount, details, pos_x, pos_y, pos_z, created_at, steam_id, source, target_name, target_steam_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.clearActivityLog = this._handle.prepare('DELETE FROM activity_log');
-    this._stmts.getRecentActivity = this._handle.prepare(
-      'SELECT * FROM activity_log ORDER BY created_at DESC, id DESC LIMIT ?',
-    );
-    this._stmts.getRecentActivityPaged = this._handle.prepare(
-      'SELECT * FROM activity_log ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
-    );
-    this._stmts.getActivityByCategory = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE category = ? ORDER BY created_at DESC, id DESC LIMIT ?',
-    );
-    this._stmts.getActivityByCategoryPaged = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE category = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
-    );
-    this._stmts.getActivityByActor = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE actor = ? ORDER BY created_at DESC, id DESC LIMIT ?',
-    );
-    this._stmts.getActivityByActorPaged = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE actor = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
-    );
-    this._stmts.getActivitySince = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE created_at >= ? ORDER BY created_at ASC, id ASC',
-    );
-    this._stmts.getActivitySinceBySource = this._handle.prepare(
-      'SELECT * FROM activity_log WHERE created_at >= ? AND source = ? ORDER BY created_at ASC, id ASC',
-    );
-    this._stmts.purgeOldActivity = this._handle.prepare(
-      "DELETE FROM activity_log WHERE created_at < datetime('now', ?)",
-    );
-    this._stmts.countActivity = this._handle.prepare('SELECT COUNT(*) as count FROM activity_log');
-    this._stmts.countActivityBySource = this._handle.prepare(
-      'SELECT source, COUNT(*) as count FROM activity_log GROUP BY source',
-    );
-
-    // Chat log
-    this._stmts.insertChat = this._handle.prepare(`
-      INSERT INTO chat_log (type, player_name, steam_id, message, direction, discord_user, is_admin)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertChatAt = this._handle.prepare(`
-      INSERT INTO chat_log (type, player_name, steam_id, message, direction, discord_user, is_admin, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.getRecentChat = this._handle.prepare(
-      'SELECT * FROM chat_log ORDER BY created_at DESC, id DESC LIMIT ?',
-    );
-    this._stmts.searchChat = this._handle.prepare(
-      'SELECT * FROM chat_log WHERE (message LIKE ? OR player_name LIKE ?) ORDER BY created_at DESC, id DESC LIMIT ?',
-    );
-    this._stmts.getChatSince = this._handle.prepare(
-      'SELECT * FROM chat_log WHERE created_at >= ? ORDER BY created_at ASC, id ASC',
-    );
-    this._stmts.clearChatLog = this._handle.prepare('DELETE FROM chat_log');
-    this._stmts.purgeOldChat = this._handle.prepare("DELETE FROM chat_log WHERE created_at < datetime('now', ?)");
-    this._stmts.countChat = this._handle.prepare('SELECT COUNT(*) as count FROM chat_log');
-
-    // Meta
-    this._stmts.getMeta = this._handle.prepare('SELECT value FROM meta WHERE key = ?');
-    this._stmts.setMeta = this._handle.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
-
-    // ── Player aliases (identity resolution) ──
-    this._stmts.upsertAlias = this._handle.prepare(`
-      INSERT INTO player_aliases (steam_id, name, name_lower, source, first_seen, last_seen, is_current)
-      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), 1)
-      ON CONFLICT(steam_id, name_lower) DO UPDATE SET
-        name = excluded.name,
-        last_seen = datetime('now'),
-        source = CASE
-          WHEN excluded.source IN ('idmap', 'connect_log') THEN excluded.source
-          ELSE player_aliases.source
-        END,
-        is_current = excluded.is_current
-    `);
-    this._stmts.clearCurrentAlias = this._handle.prepare(
-      'UPDATE player_aliases SET is_current = 0 WHERE steam_id = ? AND source = ?',
-    );
-    this._stmts.lookupBySteamId = this._handle.prepare(
-      'SELECT * FROM player_aliases WHERE steam_id = ? ORDER BY is_current DESC, last_seen DESC',
-    );
-    this._stmts.lookupByName = this._handle.prepare(
-      'SELECT * FROM player_aliases WHERE name_lower = ? ORDER BY is_current DESC, last_seen DESC',
-    );
-    this._stmts.lookupByNameLike = this._handle.prepare(
-      'SELECT * FROM player_aliases WHERE name_lower LIKE ? ORDER BY is_current DESC, last_seen DESC LIMIT 10',
-    );
-    this._stmts.getAllAliases = this._handle.prepare('SELECT * FROM player_aliases ORDER BY steam_id, last_seen DESC');
-    this._stmts.getAliasStats = this._handle.prepare(
-      'SELECT COUNT(DISTINCT steam_id) as unique_players, COUNT(*) as total_aliases FROM player_aliases',
-    );
-
-    // ── Timeline snapshots ──
-    this._stmts.insertTimelineSnapshot = this._handle.prepare(`
-      INSERT INTO timeline_snapshots (game_day, game_time, player_count, online_count,
-        ai_count, structure_count, vehicle_count, container_count, world_item_count,
-        weather_type, season, airdrop_active, airdrop_x, airdrop_y, airdrop_ai_alive, summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.getTimelineSnapshots = this._handle.prepare(
-      'SELECT * FROM timeline_snapshots ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getTimelineSnapshotRange = this._handle.prepare(
-      'SELECT * FROM timeline_snapshots WHERE created_at BETWEEN ? AND ? ORDER BY created_at ASC',
-    );
-    this._stmts.getTimelineSnapshotById = this._handle.prepare('SELECT * FROM timeline_snapshots WHERE id = ?');
-    this._stmts.getTimelineSnapshotCount = this._handle.prepare('SELECT COUNT(*) as count FROM timeline_snapshots');
-    this._stmts.purgeOldTimeline = this._handle.prepare(
-      "DELETE FROM timeline_snapshots WHERE created_at < datetime('now', ?)",
-    );
-    this._stmts.getTimelineSnapshotBounds = this._handle.prepare(
-      'SELECT MIN(created_at) as earliest, MAX(created_at) as latest, COUNT(*) as count FROM timeline_snapshots',
-    );
-
-    // ── Timeline entity inserts (bulk via transactions) ──
-    this._stmts.insertTimelinePlayer = this._handle.prepare(`
-      INSERT INTO timeline_players (snapshot_id, steam_id, name, online, pos_x, pos_y, pos_z,
-        health, max_health, hunger, thirst, infection, stamina, level, zeeks_killed, days_survived, lifetime_kills)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineAI = this._handle.prepare(`
-      INSERT INTO timeline_ai (snapshot_id, ai_type, category, display_name, node_uid, pos_x, pos_y, pos_z)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineVehicle = this._handle.prepare(`
-      INSERT INTO timeline_vehicles (snapshot_id, class, display_name, pos_x, pos_y, pos_z, health, max_health, fuel, item_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineStructure = this._handle.prepare(`
-      INSERT INTO timeline_structures (snapshot_id, actor_class, display_name, owner_steam_id, pos_x, pos_y, pos_z, current_health, max_health, upgrade_level)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineHouse = this._handle.prepare(`
-      INSERT INTO timeline_houses (snapshot_id, uid, name, windows_open, windows_total, doors_open, doors_locked, doors_total, destroyed_furniture, has_generator, sleepers, clean, pos_x, pos_y)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineCompanion = this._handle.prepare(`
-      INSERT INTO timeline_companions (snapshot_id, entity_type, actor_name, display_name, owner_steam_id, pos_x, pos_y, pos_z, health, extra)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.insertTimelineBackpack = this._handle.prepare(`
-      INSERT INTO timeline_backpacks (snapshot_id, class, pos_x, pos_y, pos_z, item_count, items_summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    // ── Timeline queries (for time-scroll API) ──
-    this._stmts.getTimelinePlayers = this._handle.prepare('SELECT * FROM timeline_players WHERE snapshot_id = ?');
-    this._stmts.getTimelineAI = this._handle.prepare('SELECT * FROM timeline_ai WHERE snapshot_id = ?');
-    this._stmts.getTimelineVehicles = this._handle.prepare('SELECT * FROM timeline_vehicles WHERE snapshot_id = ?');
-    this._stmts.getTimelineStructures = this._handle.prepare('SELECT * FROM timeline_structures WHERE snapshot_id = ?');
-    this._stmts.getTimelineHouses = this._handle.prepare('SELECT * FROM timeline_houses WHERE snapshot_id = ?');
-    this._stmts.getTimelineCompanions = this._handle.prepare('SELECT * FROM timeline_companions WHERE snapshot_id = ?');
-    this._stmts.getTimelineBackpacks = this._handle.prepare('SELECT * FROM timeline_backpacks WHERE snapshot_id = ?');
-
-    // Player position history (for trails/heatmaps)
-    this._stmts.getPlayerPositionHistory = this._handle.prepare(`
-      SELECT tp.pos_x, tp.pos_y, tp.pos_z, tp.health, tp.online, ts.created_at, ts.game_day
-      FROM timeline_players tp
-      JOIN timeline_snapshots ts ON tp.snapshot_id = ts.id
-      WHERE tp.steam_id = ? AND ts.created_at BETWEEN ? AND ?
-      ORDER BY ts.created_at ASC
-    `);
-
-    // AI population summary over time
-    this._stmts.getAIPopulationHistory = this._handle.prepare(`
-      SELECT ts.id, ts.created_at, ts.game_day, ts.ai_count,
-        (SELECT COUNT(*) FROM timeline_ai WHERE snapshot_id = ts.id AND category = 'zombie') as zombies,
-        (SELECT COUNT(*) FROM timeline_ai WHERE snapshot_id = ts.id AND category = 'animal') as animals,
-        (SELECT COUNT(*) FROM timeline_ai WHERE snapshot_id = ts.id AND category = 'bandit') as bandits
-      FROM timeline_snapshots ts
-      WHERE ts.created_at BETWEEN ? AND ?
-      ORDER BY ts.created_at ASC
-    `);
-
-    // ── Death causes ──
-    this._stmts.insertDeathCause = this._handle.prepare(`
-      INSERT INTO death_causes (victim_name, victim_steam_id, cause_type, cause_name, cause_raw, damage_total, pos_x, pos_y, pos_z)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this._stmts.getDeathCauses = this._handle.prepare('SELECT * FROM death_causes ORDER BY created_at DESC LIMIT ?');
-    this._stmts.getDeathCausesByPlayer = this._handle.prepare(
-      'SELECT * FROM death_causes WHERE victim_name = ? OR victim_steam_id = ? ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getDeathCauseStats = this._handle.prepare(
-      'SELECT cause_type, cause_name, COUNT(*) as count FROM death_causes GROUP BY cause_type, cause_name ORDER BY count DESC',
-    );
-    this._stmts.getDeathCausesSince = this._handle.prepare(
-      'SELECT * FROM death_causes WHERE created_at >= ? ORDER BY created_at ASC',
-    );
-
-    // ── Anticheat: flags, risk scores, fingerprints ─────────────────────────
-    this._stmts.insertAcFlag = this._handle.prepare(`
-      INSERT INTO anticheat_flags (steam_id, player_name, detector, severity, score, details, evidence, auto_escalated)
-      VALUES (@steam_id, @player_name, @detector, @severity, @score, @details, @evidence, @auto_escalated)
-    `);
-    this._stmts.getAcFlags = this._handle.prepare(
-      'SELECT * FROM anticheat_flags WHERE status = ? ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getAcFlagsBySteam = this._handle.prepare(
-      'SELECT * FROM anticheat_flags WHERE steam_id = ? ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getAcFlagsByDetector = this._handle.prepare(
-      'SELECT * FROM anticheat_flags WHERE detector = ? AND status = ? ORDER BY created_at DESC LIMIT ?',
-    );
-    this._stmts.getAcFlagsSince = this._handle.prepare(
-      'SELECT * FROM anticheat_flags WHERE steam_id = ? AND created_at >= ? ORDER BY created_at ASC',
-    );
-    this._stmts.getAcFlagCount = this._handle.prepare(
-      'SELECT COUNT(*) as count FROM anticheat_flags WHERE steam_id = ? AND severity IN (?, ?) AND status = ? AND created_at >= ?',
-    );
-    this._stmts.updateAcFlagStatus = this._handle.prepare(
-      "UPDATE anticheat_flags SET status = ?, reviewed_by = ?, reviewed_at = datetime('now'), review_notes = ? WHERE id = ?",
-    );
-    this._stmts.escalateAcFlag = this._handle.prepare(
-      'UPDATE anticheat_flags SET severity = ?, auto_escalated = 1 WHERE id = ?',
-    );
-
-    this._stmts.upsertRiskScore = this._handle.prepare(`
-      INSERT INTO player_risk_scores (steam_id, risk_score, open_flags, confirmed_flags, dismissed_flags, last_flag_at, last_scored_at, baseline_data, updated_at)
-      VALUES (@steam_id, @risk_score, @open_flags, @confirmed_flags, @dismissed_flags, @last_flag_at, datetime('now'), @baseline_data, datetime('now'))
-      ON CONFLICT(steam_id) DO UPDATE SET
-        risk_score = excluded.risk_score,
-        open_flags = excluded.open_flags,
-        confirmed_flags = excluded.confirmed_flags,
-        dismissed_flags = excluded.dismissed_flags,
-        last_flag_at = excluded.last_flag_at,
-        last_scored_at = datetime('now'),
-        baseline_data = excluded.baseline_data,
-        updated_at = datetime('now')
-    `);
-    this._stmts.getRiskScore = this._handle.prepare('SELECT * FROM player_risk_scores WHERE steam_id = ?');
-    this._stmts.getAllRiskScores = this._handle.prepare('SELECT * FROM player_risk_scores ORDER BY risk_score DESC');
-
-    this._stmts.upsertFingerprint = this._handle.prepare(`
-      INSERT INTO entity_fingerprints (entity_type, entity_id, fingerprint, parent_id, creator_steam_id, last_validated, tamper_score, metadata)
-      VALUES (@entity_type, @entity_id, @fingerprint, @parent_id, @creator_steam_id, datetime('now'), @tamper_score, @metadata)
-      ON CONFLICT(entity_type, entity_id) DO UPDATE SET
-        fingerprint = excluded.fingerprint,
-        last_validated = datetime('now'),
-        tamper_score = excluded.tamper_score,
-        metadata = excluded.metadata
-    `);
-    this._stmts.getFingerprint = this._handle.prepare(
-      'SELECT * FROM entity_fingerprints WHERE entity_type = ? AND entity_id = ?',
-    );
-    this._stmts.getFingerprintsByType = this._handle.prepare('SELECT * FROM entity_fingerprints WHERE entity_type = ?');
-    this._stmts.insertFingerprintEvent = this._handle.prepare(`
-      INSERT INTO fingerprint_events (fingerprint_id, event_type, old_state, new_state, attributed_to, source, confidence)
-      VALUES (@fingerprint_id, @event_type, @old_state, @new_state, @attributed_to, @source, @confidence)
-    `);
-    this._stmts.getFingerprintEvents = this._handle.prepare(
-      'SELECT * FROM fingerprint_events WHERE fingerprint_id = ? ORDER BY created_at DESC LIMIT ?',
-    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Player CRUD
+  //  Player CRUD — delegation to PlayerRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Upsert a player record from parsed save data.
-   * @param {string} steamId
-   * @param {object} data - Flat object matching column names (from save parser)
-   */
   upsertPlayer(steamId: string, data: Record<string, unknown>) {
-    const params = {
-      steam_id: steamId,
-      name: data.name || '',
-      male: data.male ? 1 : 0,
-      starting_perk: data.startingPerk || 'Unknown',
-      affliction: data.affliction || 0,
-      char_profile: _json(data.charProfile),
-      zeeks_killed: data.zeeksKilled || 0,
-      headshots: data.headshots || 0,
-      melee_kills: data.meleeKills || 0,
-      gun_kills: data.gunKills || 0,
-      blast_kills: data.blastKills || 0,
-      fist_kills: data.fistKills || 0,
-      takedown_kills: data.takedownKills || 0,
-      vehicle_kills: data.vehicleKills || 0,
-      lifetime_kills: data.lifetimeKills || 0,
-      lifetime_headshots: data.lifetimeHeadshots || 0,
-      lifetime_melee_kills: data.lifetimeMeleeKills || 0,
-      lifetime_gun_kills: data.lifetimeGunKills || 0,
-      lifetime_blast_kills: data.lifetimeBlastKills || 0,
-      lifetime_fist_kills: data.lifetimeFistKills || 0,
-      lifetime_takedown_kills: data.lifetimeTakedownKills || 0,
-      lifetime_vehicle_kills: data.lifetimeVehicleKills || 0,
-      lifetime_days_survived: data.lifetimeDaysSurvived || 0,
-      has_extended_stats: data.hasExtendedStats ? 1 : 0,
-      days_survived: data.daysSurvived || 0,
-      times_bitten: data.timesBitten || 0,
-      bites: data.bites || 0,
-      fish_caught: data.fishCaught || 0,
-      fish_caught_pike: data.fishCaughtPike || 0,
-      health: data.health || 0,
-      max_health: data.maxHealth || 100,
-      hunger: data.hunger || 0,
-      max_hunger: data.maxHunger || 100,
-      thirst: data.thirst || 0,
-      max_thirst: data.maxThirst || 100,
-      stamina: data.stamina || 0,
-      max_stamina: data.maxStamina || 100,
-      infection: data.infection || 0,
-      max_infection: data.maxInfection || 100,
-      battery: data.battery || 100,
-      fatigue: data.fatigue || 0,
-      infection_buildup: data.infectionBuildup || 0,
-      well_rested: data.wellRested || 0,
-      energy: data.energy || 0,
-      hood: data.hood || 0,
-      hypo_handle: data.hypoHandle || 0,
-      exp: data.exp || 0,
-      level: data.level || 0,
-      exp_current: data.expCurrent || 0,
-      exp_required: data.expRequired || 0,
-      skills_point: data.skillPoints || 0,
-      pos_x: data.x ?? null,
-      pos_y: data.y ?? null,
-      pos_z: data.z ?? null,
-      rotation_yaw: data.rotationYaw ?? null,
-      respawn_x: data.respawnX ?? null,
-      respawn_y: data.respawnY ?? null,
-      respawn_z: data.respawnZ ?? null,
-      cb_radio_cooldown: data.cbRadioCooldown || 0,
-      day_incremented: data.dayIncremented ? 1 : 0,
-      infection_timer: data.infectionTimer || 0,
-      player_states: _json(data.playerStates),
-      body_conditions: _json(data.bodyConditions),
-      crafting_recipes: _json(data.craftingRecipes),
-      building_recipes: _json(data.buildingRecipes),
-      unlocked_professions: _json(data.unlockedProfessions),
-      unlocked_skills: _json(data.unlockedSkills),
-      skills_data: _json(data.skillTree || data.skillsData),
-      inventory: _json(data.inventory),
-      equipment: _json(data.equipment),
-      quick_slots: _json(data.quickSlots),
-      backpack_items: _json(data.backpackItems),
-      backpack_data: _json(data.backpackData),
-      lore: _json(data.lore),
-      unique_loots: _json(data.uniqueLoots),
-      crafted_uniques: _json(data.craftedUniques),
-      loot_item_unique: _json(data.lootItemUnique),
-      quest_data: _json(data.questData),
-      mini_quest: _json(data.miniQuest),
-      challenges: _json(data.challenges),
-      quest_spawner_done: _json(data.questSpawnerDone),
-      companion_data: _json(data.companionData),
-      horses: _json(data.horses),
-      extended_stats: _json(data.extendedStats),
-      challenge_kill_zombies: data.challengeKillZombies || 0,
-      challenge_kill_50: data.challengeKill50 || 0,
-      challenge_catch_20_fish: data.challengeCatch20Fish || 0,
-      challenge_regular_angler: data.challengeRegularAngler || 0,
-      challenge_kill_zombie_bear: data.challengeKillZombieBear || 0,
-      challenge_9_squares: data.challenge9Squares || 0,
-      challenge_craft_firearm: data.challengeCraftFirearm || 0,
-      challenge_craft_furnace: data.challengeCraftFurnace || 0,
-      challenge_craft_melee_bench: data.challengeCraftMeleeBench || 0,
-      challenge_craft_melee_weapon: data.challengeCraftMeleeWeapon || 0,
-      challenge_craft_rain_collector: data.challengeCraftRainCollector || 0,
-      challenge_craft_tablesaw: data.challengeCraftTablesaw || 0,
-      challenge_craft_treatment: data.challengeCraftTreatment || 0,
-      challenge_craft_weapons_bench: data.challengeCraftWeaponsBench || 0,
-      challenge_craft_workbench: data.challengeCraftWorkbench || 0,
-      challenge_find_dog: data.challengeFindDog || 0,
-      challenge_find_heli: data.challengeFindHeli || 0,
-      challenge_lockpick_suv: data.challengeLockpickSUV || 0,
-      challenge_repair_radio: data.challengeRepairRadio || 0,
-      custom_data: _json(data.customData),
-    };
-
-    this._stmts.upsertPlayer.run(params);
-
-    // Auto-register alias when a name is available
-    if (data.name && /^\d{17}$/.test(steamId)) {
-      this.registerAlias(steamId, data.name as string, 'save');
-    }
+    this._player.upsertPlayer(steamId, data);
   }
-
   getPlayer(steamId: string) {
-    const row = this._stmts.getPlayer.get(steamId);
-    return row ? _parsePlayerRow(row) : null;
+    return this._player.getPlayer(steamId);
   }
-
   getAllPlayers(): DbRow[] {
-    return this._stmts.getAllPlayers
-      .all()
-      .map(_parsePlayerRow)
-      .filter((r): r is DbRow => r !== null);
+    return this._player.getAllPlayers();
   }
-
   getOnlinePlayers(): DbRow[] {
-    return this._stmts.getOnlinePlayers
-      .all()
-      .map(_parsePlayerRow)
-      .filter((r): r is DbRow => r !== null);
+    return this._player.getOnlinePlayers();
   }
-
-  /**
-   * Lightweight query for diff engine — only columns needed for inventory comparison.
-   * Returns online players with only inventory/equipment/quick_slots/backpack_items + identity/position.
-   * Avoids the full 133-column SELECT * + 27-column JSON parse that causes OOM on large servers.
-   */
   getOnlinePlayersForDiff() {
-    return this._stmts.getOnlinePlayersForDiff.all().map(_parsePlayerRowForDiff);
+    return this._player.getOnlinePlayersForDiff();
   }
-
   setPlayerOnline(steamId: string, online: boolean) {
-    this._stmts.setPlayerOnline.run(online ? 1 : 0, steamId);
+    this._player.setPlayerOnline(steamId, online);
   }
-
   setAllPlayersOffline() {
-    this._stmts.setAllOffline.run();
+    this._player.setAllPlayersOffline();
   }
-
-  /** Update kill tracker JSON for a player. */
   updateKillTracker(steamId: string, killData: Record<string, unknown>) {
-    this._handle
-      .prepare("UPDATE players SET kill_tracker = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      .run(JSON.stringify(killData), steamId);
+    this._player.updateKillTracker(steamId, killData);
   }
-
-  /** Update name and name history. */
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
-    this._handle
-      .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
-      .run(name, JSON.stringify(nameHistory ?? []), steamId);
+    this._player.updatePlayerName(steamId, name, nameHistory);
   }
-
-  /**
-   * Upsert full player log stats (DB-first — called by player-stats.js on every record call).
-   * Creates the player row if it doesn't exist.
-   */
   upsertFullLogStats(steamId: string, data: Record<string, unknown>) {
-    this._stmts.upsertPlayerLogStats.run({
-      steam_id: steamId,
-      name: data.name || '',
-      log_deaths: data.deaths || 0,
-      log_pvp_kills: data.pvpKills || 0,
-      log_pvp_deaths: data.pvpDeaths || 0,
-      log_builds: data.builds || 0,
-      log_loots: data.containersLooted || 0,
-      log_damage_taken: data.damageTakenTotal || 0,
-      log_raids_out: data.raidsOut || 0,
-      log_raids_in: data.raidsIn || 0,
-      log_connects: data.connects || 0,
-      log_disconnects: data.disconnects || 0,
-      log_admin_access: data.adminAccess || 0,
-      log_destroyed_out: data.destroyedOut || 0,
-      log_destroyed_in: data.destroyedIn || 0,
-      log_build_items: JSON.stringify(data.buildItems || {}),
-      log_killed_by: JSON.stringify(data.killedBy || {}),
-      log_damage_detail: JSON.stringify(data.damageTaken || {}),
-      log_cheat_flags: JSON.stringify(data.cheatFlags || []),
-      log_last_event: data.lastEvent || null,
-    });
+    this._player.upsertFullLogStats(steamId, data);
   }
-
-  /**
-   * Get all player log stats from DB (for loading into PlayerStats cache on startup).
-   * Returns an array of objects matching the DB columns.
-   */
   getAllPlayerLogStats(): DbRow[] {
-    return this._stmts.getAllPlayerLogStats.all() as DbRow[];
+    return this._player.getAllPlayerLogStats();
   }
-
-  /**
-   * Upsert full playtime data (DB-first — called by playtime-tracker.js).
-   * Creates the player row if it doesn't exist.
-   */
   upsertFullPlaytime(steamId: string, data: Record<string, unknown>) {
-    this._stmts.upsertPlayerPlaytime.run({
-      steam_id: steamId,
-      name: data.name || '',
-      playtime_seconds: Math.floor((Number(data.totalMs) || 0) / 1000),
-      session_count: data.sessions || 0,
-      playtime_first_seen: data.firstSeen || null,
-      playtime_last_login: data.lastLogin || null,
-      playtime_last_seen: data.lastSeen || null,
-    });
+    this._player.upsertFullPlaytime(steamId, data);
   }
-
-  /**
-   * Get all player playtime from DB (for loading into PlaytimeTracker cache on startup).
-   */
   getAllPlayerPlaytime(): DbRow[] {
-    return this._stmts.getAllPlayerPlaytime.all() as DbRow[];
+    return this._player.getAllPlayerPlaytime();
   }
-
-  /**
-   * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
-   */
   setServerPeak(key: string, value: unknown): void {
-    const stored =
-      value != null && typeof value === 'object'
-        ? JSON.stringify(value)
-        : String((value ?? '') as string | number | boolean);
-    this._stmts.setServerPeak.run(key, stored);
+    this._player.setServerPeak(key, value);
   }
-
-  /**
-   * Get a server peak value.
-   */
   getServerPeak(key: string) {
-    const r = this._stmts.getServerPeak.get(key) as DbRow | undefined;
-    return r ? r.value : null;
+    return this._player.getServerPeak(key);
   }
-
-  /**
-   * Get all server peak values as a flat object.
-   */
   getAllServerPeaks() {
-    const rows = this._stmts.getAllServerPeaks.all() as DbRow[];
-    const result: Record<string, unknown> = {};
-    for (const r of rows) result[r.key as string] = r.value;
-    return result;
+    return this._player.getAllServerPeaks();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Player identity / alias resolution
+  //  Player identity / alias resolution — delegation to PlayerRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Register a name ↔ SteamID association from any data source.
-   * This is the single entry point for building the identity graph.
-   *
-   * @param {string} steamId - 17-digit SteamID64
-   * @param {string} name    - Player display name
-   * @param {string} source  - Origin: 'idmap', 'save', 'connect_log', 'log', 'playtime', 'manual'
-   */
   registerAlias(steamId: string, name: string, source: string = '') {
-    if (!steamId || !name || !/^\d{17}$/.test(steamId)) return;
-    const nameLower = name.toLowerCase().trim();
-    if (!nameLower) return;
-
-    // Mark previous aliases from this source as non-current
-    this._stmts.clearCurrentAlias.run(steamId, source);
-    // Upsert the new alias
-    this._stmts.upsertAlias.run(steamId, name.trim(), nameLower, source);
+    this._player.registerAlias(steamId, name, source);
   }
-
-  /**
-   * Bulk-register aliases from a parsed PlayerIDMapped.txt.
-   * @param {Array<{steamId: string, name: string}>} entries
-   */
   importIdMap(entries: Array<{ steamId: string; name: string }>): void {
-    const tx = this._handle.transaction((list: Array<{ steamId: string; name: string }>) => {
-      for (const { steamId, name } of list) {
-        this.registerAlias(steamId, name, 'idmap');
-      }
-    });
-    tx(entries);
+    this._player.importIdMap(entries);
   }
-
-  /**
-   * Bulk-register aliases from parsed PlayerConnectedLog.txt.
-   * @param {Array<{steamId: string, name: string}>} entries
-   */
   importConnectLog(entries: Array<{ steamId: string; name: string }>): void {
-    const tx = this._handle.transaction((list: Array<{ steamId: string; name: string }>) => {
-      for (const { steamId, name } of list) {
-        this.registerAlias(steamId, name, 'connect_log');
-      }
-    });
-    tx(entries);
+    this._player.importConnectLog(entries);
   }
-
-  /**
-   * Register aliases from save parser output (keyed by SteamID, name from idMap).
-   * @param {Map<string, object>} players - steamId → playerData (with .name if injected)
-   */
   importFromSave(players: Map<string, Record<string, unknown>>) {
-    const tx = this._handle.transaction(() => {
-      for (const [steamId, data] of players) {
-        if (typeof data.name === 'string') this.registerAlias(steamId, data.name, 'save');
-      }
-    });
-    tx();
+    this._player.importFromSave(players);
   }
-
-  /**
-   * Resolve a player name to a SteamID64.
-   * Returns the best match: most recent, highest-priority source.
-   *
-   * @param {string} name - Player name (case-insensitive)
-   * @returns {{ steamId: string, name: string, source: string, isCurrent: boolean } | null}
-   */
   resolveNameToSteamId(name: string) {
-    if (!name) return null;
-    const nameLower = name.toLowerCase().trim();
-
-    // If it's already a SteamID, return directly
-    if (/^\d{17}$/.test(name)) return { steamId: name, name, source: 'direct', isCurrent: true };
-
-    const rows = this._stmts.lookupByName.all(nameLower) as DbRow[];
-    if (rows.length === 0) return null;
-
-    // Prefer is_current=1 entries, then most recently seen
-    const first = rows[0] as DbRow;
-    return {
-      steamId: first.steam_id,
-      name: first.name,
-      source: first.source,
-      isCurrent: !!first.is_current,
-    };
+    return this._player.resolveNameToSteamId(name);
   }
-
-  /**
-   * Resolve a SteamID to the best current display name.
-   *
-   * Priority: idmap > connect_log > save > playtime > log
-   *
-   * @param {string} steamId
-   * @returns {string} Display name, or the steamId itself as fallback
-   */
   resolveSteamIdToName(steamId: string) {
-    if (!steamId) return steamId;
-
-    const rows = this._stmts.lookupBySteamId.all(steamId) as DbRow[];
-    if (rows.length === 0) return steamId;
-
-    // Source priority for "best name"
-    const priority: Record<string, number> = { idmap: 5, connect_log: 4, save: 3, playtime: 2, log: 1, manual: 0 };
-
-    // Among is_current=1 entries, pick the highest-priority source
-    const current = rows.filter((r) => r.is_current);
-    if (current.length > 0) {
-      current.sort((a, b) => (priority[b.source as string] ?? 0) - (priority[a.source as string] ?? 0));
-      return (current[0] as DbRow).name as string;
-    }
-
-    // Fallback: most recently seen alias
-    return (rows[0] as DbRow).name as string;
+    return this._player.resolveSteamIdToName(steamId);
   }
-
-  /**
-   * Get all known aliases for a SteamID.
-   * @param {string} steamId
-   * @returns {Array<{ name: string, source: string, firstSeen: string, lastSeen: string, isCurrent: boolean }>}
-   */
   getPlayerAliases(steamId: string) {
-    return (this._stmts.lookupBySteamId.all(steamId) as DbRow[]).map((r) => ({
-      name: r.name,
-      source: r.source,
-      firstSeen: r.first_seen,
-      lastSeen: r.last_seen,
-      isCurrent: !!r.is_current,
-    }));
+    return this._player.getPlayerAliases(steamId);
   }
-
-  /**
-   * Search for players by partial name match.
-   * @param {string} query - Partial name (case-insensitive)
-   * @returns {Array<{ steamId: string, name: string, source: string }>}
-   */
   searchPlayersByName(query: string) {
-    if (!query) return [];
-    const rows = this._stmts.lookupByNameLike.all(`%${query.toLowerCase().trim()}%`) as DbRow[];
-    // Deduplicate by steamId, keeping the best for each
-    const seen = new Map<unknown, { steamId: unknown; name: unknown; source: unknown }>();
-    for (const r of rows) {
-      if (!seen.has(r.steam_id) || r.is_current) {
-        seen.set(r.steam_id, { steamId: r.steam_id, name: r.name, source: r.source });
-      }
-    }
-    return [...seen.values()];
+    return this._player.searchPlayersByName(query);
   }
-
-  /**
-   * Get summary stats about the alias table.
-   * @returns {{ uniquePlayers: number, totalAliases: number }}
-   */
   getAliasStats() {
-    const row = this._stmts.getAliasStats.get() as DbRow | undefined;
-    return { uniquePlayers: row?.unique_players || 0, totalAliases: row?.total_aliases || 0 };
+    return this._player.getAliasStats();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Leaderboards
+  //  Leaderboards — delegation to LeaderboardRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   topKillers(limit = 10) {
-    return this._stmts.topKillers.all(limit);
+    return this._leaderboard.topKillers(limit);
   }
   topPlaytime(limit = 10) {
-    return this._stmts.topPlaytime.all(limit);
+    return this._leaderboard.topPlaytime(limit);
   }
   topSurvival(limit = 10) {
-    return this._stmts.topSurvival.all(limit);
+    return this._leaderboard.topSurvival(limit);
   }
   topFish(limit = 10) {
-    return this._stmts.topFish.all(limit);
+    return this._leaderboard.topFish(limit);
   }
   topBitten(limit = 10) {
-    return this._stmts.topBitten.all(limit);
+    return this._leaderboard.topBitten(limit);
   }
   topPvp(limit = 10) {
-    return this._stmts.topPvp.all(limit);
+    return this._leaderboard.topPvp(limit);
   }
   topBuilders(limit = 10) {
-    return this._stmts.topBuilders.all(limit);
+    return this._leaderboard.topBuilders(limit);
   }
   topDeaths(limit = 10) {
-    return this._stmts.topDeaths.all(limit);
+    return this._leaderboard.topDeaths(limit);
   }
   topLooters(limit = 10) {
-    return this._stmts.topLooters.all(limit);
+    return this._leaderboard.topLooters(limit);
   }
-
-  /** Aggregate server totals. */
   getServerTotals() {
-    return this._handle
-      .prepare(
-        `
-      SELECT
-        COUNT(*) as total_players,
-        SUM(CASE WHEN online = 1 THEN 1 ELSE 0 END) as online_players,
-        SUM(lifetime_kills) as total_kills,
-        SUM(lifetime_headshots) as total_headshots,
-        SUM(lifetime_days_survived) as total_days,
-        SUM(log_deaths) as total_deaths,
-        SUM(log_pvp_kills) as total_pvp_kills,
-        SUM(log_builds) as total_builds,
-        SUM(log_loots) as total_loots,
-        SUM(fish_caught) as total_fish,
-        SUM(playtime_seconds) as total_playtime
-      FROM players
-    `,
-      )
-      .get();
+    return this._leaderboard.getServerTotals();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Clans
+  //  Clans — delegation to ClanRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   upsertClan(name: string, members: Array<Record<string, unknown>>) {
-    this._stmts.upsertClan.run(name);
-    this._stmts.deleteClanMembers.run(name);
-    for (const m of members) {
-      this._stmts.insertClanMember.run(name, m.steamId, m.name, m.rank, m.canInvite ? 1 : 0, m.canKick ? 1 : 0);
-    }
+    this._clan.upsertClan(name, members);
   }
-
   getAllClans() {
-    const clans = this._stmts.getAllClans.all() as DbRow[];
-    return clans.map((c) => ({
-      ...c,
-      members: (this._stmts.getClanMembers.all(c.name) as DbRow[]).map((m) => ({
-        steamId: m.steam_id,
-        name: m.name,
-        rank: m.rank,
-        canInvite: m.can_invite,
-        canKick: m.can_kick,
-        // Preserve snake_case for any code that still uses it
-        steam_id: m.steam_id,
-        can_invite: m.can_invite,
-        can_kick: m.can_kick,
-      })),
-    }));
+    return this._clan.getAllClans();
   }
-
-  /**
-   * Check if two steam IDs are in the same clan.
-   * @param {string} steamId1
-   * @param {string} steamId2
-   * @returns {boolean}
-   */
   areClanmates(steamId1: string, steamId2: string) {
-    if (!steamId1 || !steamId2 || steamId1 === steamId2) return false;
-    return !!this._stmts.areClanmates.get(steamId1, steamId2);
+    return this._clan.areClanmates(steamId1, steamId2);
   }
-
-  /**
-   * Get the clan name for a steam ID, or null.
-   * @param {string} steamId
-   * @returns {string|null}
-   */
   getClanForSteamId(steamId: string) {
-    if (!steamId) return null;
-    const row = this._stmts.getClanForSteamId.get(steamId) as DbRow | undefined;
-    return row ? row.clan_name : null;
+    return this._clan.getClanForSteamId(steamId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2649,586 +1401,231 @@ class HumanitZDB {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Structures
+  //  Structures — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceStructures(structures: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._stmts.clearStructures.run();
-      for (const s of items) {
-        this._stmts.insertStructure.run(
-          s.actorClass,
-          s.displayName || '',
-          s.ownerSteamId || '',
-          s.x ?? null,
-          s.y ?? null,
-          s.z ?? null,
-          s.currentHealth || 0,
-          s.maxHealth || 0,
-          s.upgradeLevel || 0,
-          s.attachedToTrailer ? 1 : 0,
-          _json(s.inventory),
-          s.noSpawn ? 1 : 0,
-          s.extraData || '',
-        );
-      }
-    });
-    insert(structures);
+    this._worldObject.replaceStructures(structures);
   }
-
   getStructures() {
-    return this._stmts.getStructures.all();
+    return this._worldObject.getStructures();
   }
   getStructuresByOwner(steamId: string) {
-    return this._stmts.getStructuresByOwner.all(steamId);
+    return this._worldObject.getStructuresByOwner(steamId);
   }
   getStructureCounts() {
-    return this._stmts.countStructuresByOwner.all();
+    return this._worldObject.getStructureCounts();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Vehicles
+  //  Vehicles — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceVehicles(vehicles: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._stmts.clearVehicles.run();
-      for (const v of items) {
-        this._stmts.insertVehicle.run(
-          v.class,
-          v.displayName || '',
-          v.x ?? null,
-          v.y ?? null,
-          v.z ?? null,
-          v.health || 0,
-          v.maxHealth || 0,
-          v.fuel || 0,
-          _json(v.inventory),
-          _json(v.upgrades),
-          _json(v.extra),
-        );
-      }
-    });
-    insert(vehicles);
+    this._worldObject.replaceVehicles(vehicles);
   }
-
   getAllVehicles() {
-    return this._stmts.getAllVehicles.all();
+    return this._worldObject.getAllVehicles();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Companions
+  //  Companions — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceCompanions(companions: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._stmts.clearCompanions.run();
-      for (const c of items) {
-        this._stmts.insertCompanion.run(
-          c.type,
-          c.actorName,
-          c.ownerSteamId || '',
-          c.x ?? null,
-          c.y ?? null,
-          c.z ?? null,
-          c.health || 0,
-          _json(c.extra),
-        );
-      }
-    });
-    insert(companions);
+    this._worldObject.replaceCompanions(companions);
   }
-
   getAllCompanions() {
-    return this._stmts.getAllCompanions.all();
+    return this._worldObject.getAllCompanions();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  World horses
+  //  World horses — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceWorldHorses(horses: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._replaceWorldHorsesInner(items);
-    });
-    insert(horses);
+    this._worldObject.replaceWorldHorses(horses);
   }
-
-  _replaceWorldHorsesInner(horses: Array<Record<string, unknown>>) {
-    this._stmts.clearWorldHorses.run();
-    for (const h of horses) {
-      this._stmts.insertWorldHorse.run(
-        h.actorName || h.class || '',
-        h.class || '',
-        h.displayName || '',
-        h.name || '',
-        h.ownerSteamId || '',
-        h.x ?? null,
-        h.y ?? null,
-        h.z ?? null,
-        h.health || 0,
-        h.maxHealth || 0,
-        h.energy || 0,
-        h.stamina || 0,
-        _json(h.saddleInventory),
-        _json(h.inventory),
-        _json(h.extra),
-      );
-    }
-  }
-
   getAllWorldHorses() {
-    return this._stmts.getAllWorldHorses.all();
+    return this._worldObject.getAllWorldHorses();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Dead bodies
+  //  Dead bodies — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceDeadBodies(bodies: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._replaceDeadBodiesInner(items);
-    });
-    insert(bodies);
-  }
-
-  _replaceDeadBodiesInner(bodies: Array<Record<string, unknown>>) {
-    this._stmts.clearDeadBodies.run();
-    for (const b of bodies) {
-      this._stmts.insertDeadBody.run(b.actorName, b.x ?? null, b.y ?? null, b.z ?? null);
-    }
+    this._worldObject.replaceDeadBodies(bodies);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Containers
+  //  Containers — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceContainers(containers: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._replaceContainersInner(items);
-    });
-    insert(containers);
+    this._worldObject.replaceContainers(containers);
   }
-
-  _replaceContainersInner(containers: Array<Record<string, unknown>>): void {
-    this._stmts.clearContainers.run();
-    for (const c of containers) {
-      const extra: Record<string, unknown> = {};
-      if (c.hackCoolDown != null) extra['hackCoolDown'] = c.hackCoolDown;
-      if (c.destroyTime != null) extra['destroyTime'] = c.destroyTime;
-      if (c.extraFloats) extra['extraFloats'] = c.extraFloats;
-      if (c.extraBools) extra['extraBools'] = c.extraBools;
-      this._stmts.insertContainer.run(
-        c.actorName,
-        JSON.stringify(c.items || []),
-        JSON.stringify(c.quickSlots || []),
-        c.locked ? 1 : 0,
-        c.doesSpawnLoot ? 1 : 0,
-        c.alarmOff ? 1 : 0,
-        JSON.stringify(c.craftingContent || []),
-        c.x ?? null,
-        c.y ?? null,
-        c.z ?? null,
-        JSON.stringify(extra),
-      );
-    }
-  }
-
   getAllContainers() {
-    return this._stmts.getAllContainers.all();
+    return this._worldObject.getAllContainers();
   }
   getContainersWithItems() {
-    return this._stmts.getContainersWithItems.all();
+    return this._worldObject.getContainersWithItems();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Loot actors
+  //  Loot actors — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceLootActors(lootActors: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._replaceLootActorsInner(items);
-    });
-    insert(lootActors);
-  }
-
-  _replaceLootActorsInner(lootActors: Array<Record<string, unknown>>) {
-    this._stmts.clearLootActors.run();
-    for (const la of lootActors) {
-      this._stmts.insertLootActor.run(
-        la.name,
-        la.type,
-        la.x ?? null,
-        la.y ?? null,
-        la.z ?? null,
-        JSON.stringify(la.items),
-      );
-    }
+    this._worldObject.replaceLootActors(lootActors);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Item instances (fingerprint tracking)
+  //  Item instances — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Create a new item instance and return its row id.
-   * @param {object} item - { fingerprint, item, durability, ammo, attachments, cap, maxDur, locationType, locationId, locationSlot, x, y, z, amount }
-   * @returns {number} The auto-incremented ID of the new instance
-   */
-  /**
-   * Create a new item instance and return its row id.
-   * @param {object} item - { fingerprint, item, durability, ammo, attachments, cap, maxDur, locationType, locationId, locationSlot, x, y, z, amount, groupId }
-   * @returns {number} The auto-incremented ID of the new instance
-   */
   createItemInstance(item: Record<string, unknown>) {
-    const result = this._stmts.insertItemInstance.run(
-      item.fingerprint,
-      item.item,
-      item.durability || 0,
-      item.ammo || 0,
-      _json(item.attachments),
-      item.cap || 0,
-      item.maxDur || 0,
-      item.locationType,
-      item.locationId || '',
-      item.locationSlot || '',
-      item.x ?? null,
-      item.y ?? null,
-      item.z ?? null,
-      item.amount || 1,
-      item.groupId ?? null,
-    );
-    return result.lastInsertRowid;
+    return this._item.createItemInstance(item);
   }
-
-  /**
-   * Move an item instance to a new location and record the movement.
-   * @param {number} instanceId - item_instances.id
-   * @param {object} to - { locationType, locationId, locationSlot, x, y, z, amount, groupId }
-   * @param {object} [attribution] - { steamId, name } of the player who caused the move
-   * @param {string} [moveType='move'] - movement type
-   */
   moveItemInstance(
     instanceId: number,
     to: Record<string, unknown>,
     attribution: Record<string, unknown> | null,
     moveType: string = 'move',
   ) {
-    const old = this._stmts.findItemInstanceById.get(instanceId) as DbRow | undefined;
-    if (!old) return;
-
-    // Update location
-    this._stmts.updateItemInstanceLocation.run(
-      to.locationType,
-      to.locationId || '',
-      to.locationSlot || '',
-      to.x ?? null,
-      to.y ?? null,
-      to.z ?? null,
-      to.amount ?? old.amount,
-      to.groupId ?? null,
-      instanceId,
-    );
-
-    // Record movement
-    this._stmts.insertItemMovement.run(
-      instanceId,
-      null,
-      moveType,
-      old.item,
-      old.location_type,
-      old.location_id,
-      old.location_slot,
-      to.locationType,
-      to.locationId || '',
-      to.locationSlot || '',
-      to.amount ?? old.amount,
-      attribution?.steamId || '',
-      attribution?.name || '',
-      to.x ?? null,
-      to.y ?? null,
-      to.z ?? null,
-    );
+    this._item.moveItemInstance(instanceId, to, attribution, moveType);
   }
-
-  /**
-   * Mark an item instance as lost (no longer found in save data).
-   */
   markItemLost(instanceId: number) {
-    this._stmts.markItemInstanceLost.run(instanceId);
+    this._item.markItemLost(instanceId);
   }
-
-  /**
-   * Mark all active instances as lost (used before reconciliation).
-   */
   markAllItemsLost() {
-    this._stmts.markAllItemInstancesLost.run();
+    this._item.markAllItemsLost();
   }
-
-  /**
-   * Touch an instance (update last_seen, clear lost flag).
-   */
   touchItemInstance(instanceId: number) {
-    this._stmts.touchItemInstance.run(instanceId);
+    this._item.touchItemInstance(instanceId);
   }
-
   findItemByFingerprint(fingerprint: string) {
-    return this._stmts.findItemInstanceByFingerprint.get(fingerprint);
+    return this._item.findItemByFingerprint(fingerprint);
   }
-
   findItemsByFingerprint(fingerprint: string) {
-    return this._stmts.findItemInstancesByFingerprint.all(fingerprint);
+    return this._item.findItemsByFingerprint(fingerprint);
   }
-
   getItemInstance(id: number) {
-    return this._stmts.findItemInstanceById.get(id);
+    return this._item.getItemInstance(id);
   }
-
   getActiveItemInstances() {
-    return this._stmts.getActiveItemInstances.all();
+    return this._item.getActiveItemInstances();
   }
-
   getItemInstancesByItem(item: string) {
-    return this._stmts.getItemInstancesByItem.all(item);
+    return this._item.getItemInstancesByItem(item);
   }
-
   getItemInstancesByLocation(locationType: string, locationId: string) {
-    return this._stmts.getItemInstancesByLocation.all(locationType, locationId);
+    return this._item.getItemInstancesByLocation(locationType, locationId);
   }
-
   getItemInstanceCount() {
-    const row = this._stmts.getItemInstanceCount.get() as DbRow | undefined;
-    return row?.count ?? 0;
+    return this._item.getItemInstanceCount();
   }
-
   searchItemInstances(query: string, limit = 50) {
-    const like = `%${query}%`;
-    return this._stmts.searchItemInstances.all(like, like, limit);
+    return this._item.searchItemInstances(query, limit);
   }
-
   purgeOldLostItems(age = '-30 days') {
-    return this._stmts.purgeOldLostItems.run(age);
+    this._item.purgeOldLostItems(age);
   }
-
   getItemInstancesByGroup(groupId: number) {
-    return this._stmts.getItemInstancesByGroup.all(groupId);
+    return this._item.getItemInstancesByGroup(groupId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Item groups (fungible item tracking)
+  //  Item groups — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Create or update an item group at a specific location.
-   * If a group with the same fingerprint+location already exists (active), update its quantity.
-   * Otherwise create a new group.
-   * @returns {{ id: number, created: boolean }}
-   */
   upsertItemGroup(group: Record<string, unknown>) {
-    const existing = this._stmts.findActiveGroupByLocation.get(
-      group.fingerprint,
-      group.locationType,
-      group.locationId || '',
-      group.locationSlot || '',
-    ) as DbRow | undefined;
-    if (existing) {
-      this._stmts.updateItemGroupQuantity.run(group.quantity, existing.id);
-      return { id: existing.id as number, created: false };
-    }
-    const result = this._stmts.insertItemGroup.run(
-      group.fingerprint,
-      group.item,
-      group.durability || 0,
-      group.ammo || 0,
-      _json(group.attachments),
-      group.cap || 0,
-      group.maxDur || 0,
-      group.locationType,
-      group.locationId || '',
-      group.locationSlot || '',
-      group.x ?? null,
-      group.y ?? null,
-      group.z ?? null,
-      group.quantity || 1,
-      group.stackSize || 1,
-    );
-    return { id: Number(result.lastInsertRowid), created: true };
+    return this._item.upsertItemGroup(group);
   }
-
   updateItemGroupQuantity(groupId: number, quantity: number) {
-    this._stmts.updateItemGroupQuantity.run(quantity, groupId);
+    this._item.updateItemGroupQuantity(groupId, quantity);
   }
-
   updateItemGroupLocation(groupId: number, to: Record<string, unknown>) {
-    this._stmts.updateItemGroupLocation.run(
-      to.locationType,
-      to.locationId || '',
-      to.locationSlot || '',
-      to.x ?? null,
-      to.y ?? null,
-      to.z ?? null,
-      to.quantity ?? 1,
-      groupId,
-    );
+    this._item.updateItemGroupLocation(groupId, to);
   }
-
   markItemGroupLost(groupId: number) {
-    this._stmts.markItemGroupLost.run(groupId);
+    this._item.markItemGroupLost(groupId);
   }
-
   markAllItemGroupsLost() {
-    this._stmts.markAllItemGroupsLost.run();
+    this._item.markAllItemGroupsLost();
   }
-
   touchItemGroup(groupId: number) {
-    this._stmts.touchItemGroup.run(groupId);
+    this._item.touchItemGroup(groupId);
   }
-
   findActiveGroupByLocation(fingerprint: string, locationType: string, locationId: string, locationSlot: string) {
-    return this._stmts.findActiveGroupByLocation.get(fingerprint, locationType, locationId || '', locationSlot || '');
+    return this._item.findActiveGroupByLocation(fingerprint, locationType, locationId, locationSlot);
   }
-
   findActiveGroupsByFingerprint(fingerprint: string) {
-    return this._stmts.findActiveGroupsByFingerprint.all(fingerprint);
+    return this._item.findActiveGroupsByFingerprint(fingerprint);
   }
-
   getItemGroup(id: number) {
-    return this._stmts.findItemGroupById.get(id);
+    return this._item.getItemGroup(id);
   }
-
   getActiveItemGroups() {
-    return this._stmts.getActiveItemGroups.all();
+    return this._item.getActiveItemGroups();
   }
-
   getItemGroupsByItem(item: Record<string, unknown>) {
-    return this._stmts.getItemGroupsByItem.all(item);
+    return this._item.getItemGroupsByItem(item);
   }
-
   getItemGroupsByLocation(locationType: string, locationId: string) {
-    return this._stmts.getItemGroupsByLocation.all(locationType, locationId);
+    return this._item.getItemGroupsByLocation(locationType, locationId);
   }
-
   getItemGroupCount() {
-    const row = this._stmts.getItemGroupCount.get() as DbRow | undefined;
-    return row?.count ?? 0;
+    return this._item.getItemGroupCount();
   }
-
   searchItemGroups(query: string, limit = 50) {
-    const like = `%${query}%`;
-    return this._stmts.searchItemGroups.all(like, like, limit);
+    return this._item.searchItemGroups(query, limit);
   }
-
   purgeOldLostGroups(age = '-30 days') {
-    return this._stmts.purgeOldLostGroups.run(age);
+    this._item.purgeOldLostGroups(age);
   }
-
-  /**
-   * Record a group-level movement (split, merge, transfer, adjust).
-   * @param {object} opts
-   * @param {number} [opts.instanceId] - individual instance (for splits)
-   * @param {number} [opts.groupId] - group id
-   * @param {string} opts.moveType - 'group_split', 'group_merge', 'group_transfer', 'group_adjust'
-   * @param {string} opts.item - item name
-   * @param {object} opts.from - { type, id, slot }
-   * @param {object} opts.to - { type, id, slot }
-   * @param {number} opts.amount - how many items moved
-   * @param {object} [opts.attribution] - { steamId, name }
-   * @param {{ x?: number, y?: number, z?: number }} [opts.pos] - position
-   */
   recordGroupMovement(opts: Record<string, unknown>): void {
-    const from = (opts.from ?? {}) as Record<string, unknown>;
-    const to = (opts.to ?? {}) as Record<string, unknown>;
-    const attribution = (opts.attribution ?? {}) as Record<string, unknown>;
-    const pos = (opts.pos ?? {}) as Record<string, unknown>;
-    this._stmts.insertItemMovement.run(
-      opts.instanceId ?? null,
-      opts.groupId ?? null,
-      opts.moveType,
-      opts.item,
-      from.type || '',
-      from.id || '',
-      from.slot || '',
-      to.type || '',
-      to.id || '',
-      to.slot || '',
-      opts.amount || 1,
-      attribution.steamId || '',
-      attribution.name || '',
-      pos.x ?? null,
-      pos.y ?? null,
-      pos.z ?? null,
-    );
+    this._item.recordGroupMovement(opts);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Item movements (chain-of-custody)
+  //  Item movements — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   getItemMovements(instanceId: number) {
-    return this._stmts.getItemMovements.all(instanceId);
+    return this._item.getItemMovements(instanceId);
   }
-
   getItemMovementsByGroup(groupId: number) {
-    return this._stmts.getItemMovementsByGroup.all(groupId);
+    return this._item.getItemMovementsByGroup(groupId);
   }
-
   getRecentItemMovements(limit = 50) {
-    return this._stmts.getRecentItemMovements.all(limit);
+    return this._item.getRecentItemMovements(limit);
   }
-
   getItemMovementsByPlayer(steamId: string, limit = 50) {
-    return this._stmts.getItemMovementsByPlayer.all(steamId, limit);
+    return this._item.getItemMovementsByPlayer(steamId, limit);
   }
-
   getItemMovementsByLocation(locationType: string, locationId: string, limit = 50) {
-    return this._stmts.getItemMovementsByLocation.all(locationType, locationId, locationType, locationId, limit);
+    return this._item.getItemMovementsByLocation(locationType, locationId, limit);
   }
-
   purgeOldMovements(age = '-30 days') {
-    return this._stmts.purgeOldMovements.run(age);
+    this._item.purgeOldMovements(age);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  World drops (LODPickups, dropped backpacks, global containers)
+  //  World drops — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   replaceWorldDrops(drops: Array<Record<string, unknown>>): void {
-    const insert = this._handle.transaction((items: Array<Record<string, unknown>>) => {
-      this._replaceWorldDropsInner(items);
-    });
-    insert(drops);
+    this._worldObject.replaceWorldDrops(drops);
   }
-
-  _replaceWorldDropsInner(drops: Array<Record<string, unknown>>) {
-    this._stmts.clearWorldDrops.run();
-    for (const d of drops) {
-      this._stmts.insertWorldDrop.run(
-        d.type,
-        d.actorName || '',
-        d.item || '',
-        d.amount || 0,
-        d.durability || 0,
-        _json(d.items),
-        d.worldLoot ? 1 : 0,
-        d.placed ? 1 : 0,
-        d.spawned ? 1 : 0,
-        d.locked ? 1 : 0,
-        d.doesSpawnLoot ? 1 : 0,
-        d.x ?? null,
-        d.y ?? null,
-        d.z ?? null,
-      );
-    }
-  }
-
   getAllWorldDrops() {
-    return this._stmts.getAllWorldDrops.all();
+    return this._worldObject.getAllWorldDrops();
   }
   getWorldDropsByType(type: string) {
-    return this._stmts.getWorldDropsByType.all(type);
+    return this._worldObject.getWorldDropsByType(type);
   }
   getWorldDropsWithItems() {
-    return this._stmts.getWorldDropsWithItems.all();
+    return this._worldObject.getWorldDropsWithItems();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3291,210 +1688,73 @@ class HumanitZDB {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Activity log
+  //  Activity log — delegation to ActivityLogRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Insert a single activity log entry.
-   * @param {object} entry - { type, category, actor, actorName, item, amount, details, x, y, z, steamId, source, targetName, targetSteamId }
-   */
   insertActivity(entry: Record<string, unknown>) {
-    this._stmts.insertActivity.run(
-      entry.type,
-      entry.category || '',
-      entry.actor || '',
-      entry.actorName || '',
-      entry.item || '',
-      entry.amount || 0,
-      JSON.stringify(entry.details || {}),
-      entry.x ?? null,
-      entry.y ?? null,
-      entry.z ?? null,
-      entry.steamId || '',
-      entry.source || 'save',
-      entry.targetName || '',
-      entry.targetSteamId || '',
-    );
+    this._activityLog.insertActivity(entry);
   }
-
-  /**
-   * Insert multiple activity entries in a single transaction.
-   * @param {Array<object>} entries
-   */
   insertActivities(entries: Array<Record<string, unknown>>): void {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
-    if (!entries || entries.length === 0) return;
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const entry of list) {
-        this._stmts.insertActivity.run(
-          entry.type,
-          entry.category || '',
-          entry.actor || '',
-          entry.actorName || '',
-          entry.item || '',
-          entry.amount || 0,
-          JSON.stringify(entry.details || {}),
-          entry.x ?? null,
-          entry.y ?? null,
-          entry.z ?? null,
-          entry.steamId || '',
-          entry.source || 'save',
-          entry.targetName || '',
-          entry.targetSteamId || '',
-        );
-      }
-    });
-    tx(entries);
+    this._activityLog.insertActivities(entries);
   }
-
-  /**
-   * Insert multiple activity entries with explicit timestamps (for backfill).
-   * Each entry must have a `createdAt` ISO string.
-   * @param {Array<object>} entries
-   */
   insertActivitiesAt(entries: Array<Record<string, unknown>>): void {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
-    if (!entries || entries.length === 0) return;
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const entry of list) {
-        this._stmts.insertActivityAt.run(
-          entry.type,
-          entry.category || '',
-          entry.actor || '',
-          entry.actorName || '',
-          entry.item || '',
-          entry.amount || 0,
-          JSON.stringify(entry.details || {}),
-          entry.x ?? null,
-          entry.y ?? null,
-          entry.z ?? null,
-          entry.createdAt,
-          entry.steamId || '',
-          entry.source || 'save',
-          entry.targetName || '',
-          entry.targetSteamId || '',
-        );
-      }
-    });
-    tx(entries);
+    this._activityLog.insertActivitiesAt(entries);
   }
-
-  /** Delete all activity log entries (used by setup --fix/--backfill). */
   clearActivityLog() {
-    this._stmts.clearActivityLog.run();
+    this._activityLog.clearActivityLog();
   }
-
-  /** Get the most recent N activity entries. */
   getRecentActivity(limit = 50, offset = 0) {
-    if (offset > 0) return this._stmts.getRecentActivityPaged.all(limit, offset).map(_parseActivityRow);
-    return this._stmts.getRecentActivity.all(limit).map(_parseActivityRow);
+    return this._activityLog.getRecentActivity(limit, offset);
   }
-
-  /** Get recent activity for a specific category. */
   getActivityByCategory(category: string, limit = 50, offset = 0) {
-    if (offset > 0) return this._stmts.getActivityByCategoryPaged.all(category, limit, offset).map(_parseActivityRow);
-    return this._stmts.getActivityByCategory.all(category, limit).map(_parseActivityRow);
+    return this._activityLog.getActivityByCategory(category, limit, offset);
   }
-
-  /** Get recent activity for a specific actor (container name, steam ID, etc.). */
   getActivityByActor(actor: string, limit = 50, offset = 0) {
-    if (offset > 0) return this._stmts.getActivityByActorPaged.all(actor, limit, offset).map(_parseActivityRow);
-    return this._stmts.getActivityByActor.all(actor, limit).map(_parseActivityRow);
+    return this._activityLog.getActivityByActor(actor, limit, offset);
   }
-
-  /** Get all activity since a given ISO timestamp. */
   getActivitySince(isoTimestamp: string) {
-    return this._stmts.getActivitySince.all(isoTimestamp).map(_parseActivityRow);
+    return this._activityLog.getActivitySince(isoTimestamp);
   }
-
-  /** Purge old activity entries (e.g. '-30 days'). */
   purgeOldActivity(olderThan: string) {
-    this._stmts.purgeOldActivity.run(olderThan);
+    this._activityLog.purgeOldActivity(olderThan);
   }
-
-  /** Count total activity entries. */
   getActivityCount() {
-    const row = this._stmts.countActivity.get() as DbRow | undefined;
-    return row?.count || 0;
+    return this._activityLog.getActivityCount();
   }
-
-  /** Get activity counts grouped by source. */
   getActivityCountBySource() {
-    return this._stmts.countActivityBySource.all();
+    return this._activityLog.getActivityCountBySource();
   }
-
-  /** Get all activity since a given ISO timestamp, filtered by source. */
   getActivitySinceBySource(isoTimestamp: string, source: string) {
-    return this._stmts.getActivitySinceBySource.all(isoTimestamp, source).map(_parseActivityRow);
+    return this._activityLog.getActivitySinceBySource(isoTimestamp, source);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Chat log
+  //  Chat log — delegation to ChatLogRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Insert a single chat log entry.
-   * @param {object} entry - { type, playerName, steamId, message, direction, discordUser, isAdmin }
-   */
   insertChat(entry: Record<string, unknown>) {
-    this._stmts.insertChat.run(
-      entry.type,
-      entry.playerName || '',
-      entry.steamId || '',
-      entry.message || '',
-      entry.direction || 'game',
-      entry.discordUser || '',
-      entry.isAdmin ? 1 : 0,
-    );
+    this._chatLog.insertChat(entry);
   }
-
-  /**
-   * Insert a chat entry with explicit timestamp (for backfill).
-   * @param {object} entry - includes createdAt ISO string
-   */
   insertChatAt(entry: Record<string, unknown>) {
-    this._stmts.insertChatAt.run(
-      entry.type,
-      entry.playerName || '',
-      entry.steamId || '',
-      entry.message || '',
-      entry.direction || 'game',
-      entry.discordUser || '',
-      entry.isAdmin ? 1 : 0,
-      entry.createdAt,
-    );
+    this._chatLog.insertChatAt(entry);
   }
-
-  /** Get the most recent N chat entries. */
   getRecentChat(limit = 50) {
-    return this._stmts.getRecentChat.all(limit);
+    return this._chatLog.getRecentChat(limit);
   }
-
-  /** Search chat messages by text or player name. */
   searchChat(query: string, limit = 200) {
-    const pattern = '%' + query + '%';
-    return this._stmts.searchChat.all(pattern, pattern, limit);
+    return this._chatLog.searchChat(query, limit);
   }
-
-  /** Get all chat since a given ISO timestamp. */
   getChatSince(isoTimestamp: string) {
-    return this._stmts.getChatSince.all(isoTimestamp);
+    return this._chatLog.getChatSince(isoTimestamp);
   }
-
-  /** Delete all chat log entries. */
   clearChatLog() {
-    this._stmts.clearChatLog.run();
+    this._chatLog.clearChatLog();
   }
-
-  /** Purge old chat entries (e.g. '-30 days'). */
   purgeOldChat(olderThan: string) {
-    this._stmts.purgeOldChat.run(olderThan);
+    this._chatLog.purgeOldChat(olderThan);
   }
-
-  /** Count total chat entries. */
   getChatCount() {
-    const row = this._stmts.countChat.get() as DbRow | undefined;
-    return row?.count || 0;
+    return this._chatLog.getChatCount();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -3509,7 +1769,7 @@ class HumanitZDB {
   bulkUpsertPlayers(players: Map<string, Record<string, unknown>>): void {
     const tx = this._handle.transaction((entries: Array<[string, Record<string, unknown>]>) => {
       for (const [steamId, data] of entries) {
-        this.upsertPlayer(steamId, data);
+        this._player.upsertPlayer(steamId, data);
       }
     });
     tx([...players.entries()]);
@@ -3530,22 +1790,22 @@ class HumanitZDB {
 
       // Auxiliary entity sync — all in the SAME transaction
       if (Array.isArray(data.deadBodies) && data.deadBodies.length > 0) {
-        this._replaceDeadBodiesInner(data.deadBodies as Array<Record<string, unknown>>);
+        this._worldObject.innerReplaceDeadBodies(data.deadBodies as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.containers) && data.containers.length > 0) {
-        this._replaceContainersInner(data.containers as Array<Record<string, unknown>>);
+        this._worldObject.innerReplaceContainers(data.containers as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.lootActors) && data.lootActors.length > 0) {
-        this._replaceLootActorsInner(data.lootActors as Array<Record<string, unknown>>);
+        this._worldObject.innerReplaceLootActors(data.lootActors as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.quests) && data.quests.length > 0) {
         this._replaceQuestsInner(data.quests as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.horses) && data.horses.length > 0) {
-        this._replaceWorldHorsesInner(data.horses as Array<Record<string, unknown>>);
+        this._worldObject.innerReplaceWorldHorses(data.horses as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.worldDrops) && data.worldDrops.length > 0) {
-        this._replaceWorldDropsInner(data.worldDrops as Array<Record<string, unknown>>);
+        this._worldObject.innerReplaceWorldDrops(data.worldDrops as Array<Record<string, unknown>>);
       }
     });
     tx();
@@ -3569,7 +1829,7 @@ class HumanitZDB {
     if (parsed.players) {
       const players = parsed.players as Map<string, Record<string, unknown>>;
       for (const [steamId, data] of players) {
-        this.upsertPlayer(steamId, data);
+        this._player.upsertPlayer(steamId, data);
       }
     }
 
@@ -3583,78 +1843,23 @@ class HumanitZDB {
 
     // Structures
     if (parsed.structures) {
-      this._stmts.clearStructures.run();
-      for (const s of parsed.structures as Array<Record<string, unknown>>) {
-        this._stmts.insertStructure.run(
-          s.actorClass,
-          s.displayName || '',
-          s.ownerSteamId || '',
-          s.x ?? null,
-          s.y ?? null,
-          s.z ?? null,
-          s.currentHealth || 0,
-          s.maxHealth || 0,
-          s.upgradeLevel || 0,
-          s.attachedToTrailer ? 1 : 0,
-          _json(s.inventory),
-          s.noSpawn ? 1 : 0,
-          s.extraData || '',
-        );
-      }
+      this._worldObject.innerReplaceStructures(parsed.structures as Array<Record<string, unknown>>);
     }
 
     // Vehicles
     if (parsed.vehicles) {
-      this._stmts.clearVehicles.run();
-      for (const v of parsed.vehicles as Array<Record<string, unknown>>) {
-        this._stmts.insertVehicle.run(
-          v.class,
-          v.displayName || '',
-          v.x ?? null,
-          v.y ?? null,
-          v.z ?? null,
-          v.health || 0,
-          v.maxHealth || 0,
-          v.fuel || 0,
-          _json(v.inventory),
-          _json(v.upgrades),
-          _json(v.extra),
-        );
-      }
+      this._worldObject.innerReplaceVehicles(parsed.vehicles as Array<Record<string, unknown>>);
     }
 
     // Companions
     if (parsed.companions) {
-      this._stmts.clearCompanions.run();
-      for (const c of parsed.companions as Array<Record<string, unknown>>) {
-        this._stmts.insertCompanion.run(
-          c.type,
-          c.actorName,
-          c.ownerSteamId || '',
-          c.x ?? null,
-          c.y ?? null,
-          c.z ?? null,
-          c.health || 0,
-          _json(c.extra),
-        );
-      }
+      this._worldObject.innerReplaceCompanions(parsed.companions as Array<Record<string, unknown>>);
     }
 
     // Clans
     if (parsed.clans) {
       for (const clan of parsed.clans as Array<Record<string, unknown>>) {
-        this._stmts.upsertClan.run(clan.name);
-        this._stmts.deleteClanMembers.run(clan.name);
-        for (const m of clan.members as Array<Record<string, unknown>>) {
-          this._stmts.insertClanMember.run(
-            clan.name,
-            m.steamId,
-            m.name,
-            m.rank,
-            m.canInvite ? 1 : 0,
-            m.canKick ? 1 : 0,
-          );
-        }
+        this._clan.upsertClan(clan.name as string, clan.members as Array<Record<string, unknown>>);
       }
     }
 
@@ -3667,1039 +1872,186 @@ class HumanitZDB {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Game reference data seeding
+  //  Game reference data seeding — delegation to GameDataRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
   seedGameItems(items: Array<Record<string, unknown>>): void {
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const item of list) {
-        this._stmts.upsertGameItem.run(
-          item.id,
-          item.name || '',
-          item.description || '',
-          item.type || '',
-          item.typeRaw || '',
-          item.specificType || '',
-          item.wearPosition || '',
-          item.type || '', // category = type
-          item.chanceToSpawn ?? 0,
-          item.durabilityLoss ?? 0,
-          item.armorProtection ?? 0,
-          item.maxStackSize ?? 1,
-          item.canStack ? 1 : 0,
-          item.itemSize ?? 1,
-          item.weight ?? 0,
-          item.firstValue ?? 0,
-          typeof item.secondItemType === 'string' ? item.secondItemType : '',
-          item.secondValue ?? 0,
-          item.valueToTrader ?? 0,
-          item.valueForPlayer ?? 0,
-          item.doesDecay ? 1 : 0,
-          item.decayPerDay ?? 0,
-          item.onlyDecayIfOpened ? 1 : 0,
-          item.warmthValue ?? 0,
-          item.infectionProtection ?? 0,
-          item.clothingRainMod ?? 0,
-          item.clothingSnowMod ?? 0,
-          item.summerCoolValue ?? 0,
-          item.isSkillBook ? 1 : 0,
-          item.noPocket ? 1 : 0,
-          item.excludeFromVendor ? 1 : 0,
-          item.excludeFromAI ? 1 : 0,
-          item.useAsFertilizer ? 1 : 0,
-          typeof item.state === 'string' ? item.state : '',
-          item.tag || '',
-          typeof item.openItem === 'string' ? item.openItem : item.openItem ? '1' : '',
-          item.bodyAttachSocket || '',
-          _json(item.supportedAttachments),
-          _json(item.itemsInside),
-          _json(item.skillBookData),
-          _json({}),
-        );
-      }
-    });
-    tx(items);
+    this._gameData.seedGameItems(items);
   }
-
   getGameItem(id: number) {
-    return this._stmts.getGameItem.get(id);
+    return this._gameData.getGameItem(id);
   }
   searchGameItems(query: string) {
-    const q = `%${query}%`;
-    return this._stmts.searchGameItems.all(q, q);
+    return this._gameData.searchGameItems(query);
   }
-
   seedGameProfessions(professions: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_professions (id, enum_value, enum_index, perk, description, affliction, skills) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const p of list) {
-        stmt.run(
-          p.id,
-          p.enumValue || '',
-          p.enumIndex || 0,
-          p.perk || '',
-          p.description || '',
-          p.affliction || '',
-          _json(p.skills),
-        );
-      }
-    });
-    tx(professions);
+    this._gameData.seedGameProfessions(professions);
   }
-
   seedGameAfflictions(afflictions: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_afflictions (idx, name, description, icon) VALUES (?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const a of list) {
-        stmt.run(a.idx, a.name, a.description || '', a.icon || '');
-      }
-    });
-    tx(afflictions);
+    this._gameData.seedGameAfflictions(afflictions);
   }
-
   seedGameSkills(skills: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_skills (id, name, description, effect, category, icon) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const s of list) {
-        stmt.run(s.id, s.name, s.description || '', s.effect || '', s.category || '', s.icon || '');
-      }
-    });
-    tx(skills);
+    this._gameData.seedGameSkills(skills);
   }
-
   seedGameChallenges(challenges: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_challenges (id, name, description, save_field, target) VALUES (?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const c of list) {
-        stmt.run(c.id, c.name, c.description || '', c.saveField || '', c.target || 0);
-      }
-    });
-    tx(challenges);
+    this._gameData.seedGameChallenges(challenges);
   }
-
   seedLoadingTips(tips: Array<Record<string, unknown> | string>): void {
-    const stmt = this._handle.prepare('INSERT OR REPLACE INTO game_loading_tips (id, text, category) VALUES (?, ?, ?)');
-    const tx = this._handle.transaction((list: Array<Record<string, unknown> | string>) => {
-      for (let i = 0; i < list.length; i++) {
-        const entry = list[i];
-        if (entry == null) continue;
-        if (typeof entry === 'string') {
-          stmt.run(i + 1, entry, '');
-        } else {
-          stmt.run(i + 1, entry.text || '', entry.category || '');
-        }
-      }
-    });
-    tx(tips);
+    this._gameData.seedLoadingTips(tips);
   }
-
   getRandomTip() {
-    return this._handle.prepare('SELECT text FROM game_loading_tips ORDER BY RANDOM() LIMIT 1').get();
+    return this._gameData.getRandomTip();
   }
-
-  // ─── New game reference seed methods (schema v11) ─────────────────────────
-
   seedGameBuildings(buildings: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_buildings (
-      id, name, description, category, category_raw, health,
-      show_in_build_menu, requires_build_tool, moveable, learned_building,
-      landscape_only, water_only, structure_only, wall_placement, require_foundation,
-      xp_multiplier, resources, upgrades
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const b of list) {
-        stmt.run(
-          b.id,
-          b.name || '',
-          b.description || '',
-          b.category || '',
-          b.categoryRaw || '',
-          b.health ?? 0,
-          b.showInBuildMenu ? 1 : 0,
-          b.requiresBuildTool ? 1 : 0,
-          b.moveableAfterPlacement ? 1 : 0,
-          b.learnedBuilding ? 1 : 0,
-          b.placementOnLandscapeOnly ? 1 : 0,
-          b.placementInWaterOnly ? 1 : 0,
-          b.placementOnStructureOnly ? 1 : 0,
-          b.wallPlacement ? 1 : 0,
-          b.requireFoundation ? 1 : 0,
-          b.xpMultiplier ?? 1,
-          _json(b.resources),
-          _json(b.upgrades),
-        );
-      }
-    });
-    tx(buildings);
+    this._gameData.seedGameBuildings(buildings);
   }
-
   seedGameLootPools(lootTables: Record<string, Record<string, unknown>>) {
-    const poolStmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_loot_pools (id, name, item_count) VALUES (?, ?, ?)',
-    );
-    const itemStmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_loot_pool_items (pool_id, item_id, name, chance_to_spawn, type, max_stack_size) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((tables: Record<string, Record<string, unknown>>) => {
-      for (const [poolId, pool] of Object.entries(tables)) {
-        poolStmt.run(poolId, pool.name || poolId, pool.itemCount || 0);
-        const items = (pool.items ?? {}) as Record<string, unknown>;
-        for (const [itemId, itemRaw] of Object.entries(items)) {
-          const item = itemRaw as Record<string, unknown>;
-          itemStmt.run(
-            poolId,
-            itemId,
-            item.name || '',
-            item.chanceToSpawn ?? 0,
-            item.type || '',
-            item.maxStackSize ?? 1,
-          );
-        }
-      }
-    });
-    tx(lootTables);
+    this._gameData.seedGameLootPools(lootTables);
   }
-
   seedGameVehiclesRef(vehicles: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare('INSERT OR REPLACE INTO game_vehicles_ref (id, name) VALUES (?, ?)');
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const v of list) {
-        stmt.run(v.id, v.name || v.id);
-      }
-    });
-    tx(vehicles);
+    this._gameData.seedGameVehiclesRef(vehicles);
   }
-
   seedGameAnimals(animals: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_animals (id, name, type, hide_item_id) VALUES (?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const a of list) {
-        stmt.run(a.id, a.name || a.id, a.type || '', a.hideItemId || '');
-      }
-    });
-    tx(animals);
+    this._gameData.seedGameAnimals(animals);
   }
-
   seedGameCrops(crops: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_crops (
-      id, crop_id, growth_time_days, grid_columns, grid_rows, harvest_result, harvest_count, grow_seasons
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const c of list) {
-        stmt.run(
-          c.id,
-          c.cropId ?? 0,
-          c.growthTimeDays ?? 0,
-          c.gridColumns ?? 1,
-          c.gridRows ?? 1,
-          c.harvestResult || '',
-          c.harvestCount ?? 0,
-          _json(c.growSeasons),
-        );
-      }
-    });
-    tx(crops);
+    this._gameData.seedGameCrops(crops);
   }
-
   seedGameCarUpgrades(upgrades: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_car_upgrades (
-      id, type, type_raw, level, socket, tool_durability_lost, craft_time_minutes, health, craft_cost
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const u of list) {
-        stmt.run(
-          u.id,
-          u.type || '',
-          u.typeRaw || '',
-          u.level ?? 0,
-          u.socket || '',
-          u.toolDurabilityLost ?? 0,
-          u.craftTimeMinutes ?? 0,
-          u.health ?? 0,
-          _json(u.craftCost),
-        );
-      }
-    });
-    tx(upgrades);
+    this._gameData.seedGameCarUpgrades(upgrades);
   }
-
   seedGameAmmoTypes(ammo: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_ammo_types (id, damage, headshot_multiplier, range, penetration) VALUES (?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const a of list) {
-        stmt.run(a.id, a.damage ?? 0, a.headshotMultiplier ?? 1, a.range ?? 0, a.penetration ?? 0);
-      }
-    });
-    tx(ammo);
+    this._gameData.seedGameAmmoTypes(ammo);
   }
-
   seedGameRepairData(repairs: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_repair_data (
-      id, resource_type, resource_type_raw, amount, health_to_add, is_repairable, extra_resources
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const r of list) {
-        stmt.run(
-          r.id,
-          r.resourceType || '',
-          r.resourceTypeRaw || '',
-          r.amount ?? 0,
-          r.healthToAdd ?? 0,
-          r.isRepairable ? 1 : 0,
-          _json(r.extraResources),
-        );
-      }
-    });
-    tx(repairs);
+    this._gameData.seedGameRepairData(repairs);
   }
-
   seedGameFurniture(furniture: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_furniture (id, name, mesh_count, drop_resources) VALUES (?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const f of list) {
-        stmt.run(f.id, f.name || f.id, f.meshCount ?? 0, _json(f.dropResources));
-      }
-    });
-    tx(furniture);
+    this._gameData.seedGameFurniture(furniture);
   }
-
   seedGameTraps(traps: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_traps (id, item_id, requires_weapon, requires_ammo, requires_items, required_ammo_id) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const t of list) {
-        stmt.run(
-          t.id,
-          t.itemId || '',
-          t.requiresWeapon ? 1 : 0,
-          t.requiresAmmo ? 1 : 0,
-          t.requiresItems ? 1 : 0,
-          t.requiredAmmoId || '',
-        );
-      }
-    });
-    tx(traps);
+    this._gameData.seedGameTraps(traps);
   }
-
   seedGameSprays(sprays: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_sprays (id, name, description, color) VALUES (?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const s of list) {
-        stmt.run(s.id, s.name || s.id, s.description || '', s.color || '');
-      }
-    });
-    tx(sprays);
+    this._gameData.seedGameSprays(sprays);
   }
-
   seedGameRecipes(recipes: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(`INSERT OR REPLACE INTO game_recipes (
-      id, name, description, station, station_raw, recipe_type, craft_time,
-      profession, profession_raw, requires_recipe, hidden, inventory_search_only,
-      xp_multiplier, use_any, copy_capacity, no_spoiled, ignore_melee_check,
-      override_name, override_description, crafted_item, also_give_item, also_give_arr,
-      ingredients
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const r of list) {
-        stmt.run(
-          r.id,
-          r.name || '',
-          r.description || '',
-          r.station || '',
-          r.stationRaw || '',
-          r.recipeType || '',
-          r.craftTime ?? 0,
-          r.profession || '',
-          r.professionRaw || '',
-          r.requiresRecipe ? 1 : 0,
-          r.hidden ? 1 : 0,
-          r.inventorySearchOnly ? 1 : 0,
-          r.xpMultiplier ?? 1,
-          r.useAny ? 1 : 0,
-          r.copyCapacity ? 1 : 0,
-          r.noSpoiled ? 1 : 0,
-          r.ignoreMeleeCheck ? 1 : 0,
-          r.overrideName || '',
-          r.overrideDescription || '',
-          _json(r.craftedItem),
-          _json(r.alsoGiveItem),
-          _json(r.alsoGiveArr),
-          _json(r.ingredients),
-        );
-      }
-    });
-    tx(recipes);
+    this._gameData.seedGameRecipes(recipes);
   }
-
   seedGameLore(lore: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_lore (id, title, text, category, sort_order) VALUES (?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const l of list) {
-        stmt.run(l.id, l.title || '', l.text || '', l.category || '', l.order ?? 0);
-      }
-    });
-    tx(lore);
+    this._gameData.seedGameLore(lore);
   }
-
   seedGameQuests(quests: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_quests (id, name, description, xp_reward, requirements, rewards) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const q of list) {
-        stmt.run(q.id, q.name || '', q.description || '', q.xpReward ?? 0, _json(q.requirements), _json(q.rewards));
-      }
-    });
-    tx(quests);
+    this._gameData.seedGameQuests(quests);
   }
-
   seedGameSpawnLocations(spawns: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_spawn_locations (id, name, description, map) VALUES (?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const s of list) {
-        stmt.run(s.id, s.name || s.id, s.description || '', s.map || '');
-      }
-    });
-    tx(spawns);
+    this._gameData.seedGameSpawnLocations(spawns);
   }
-
   seedGameServerSettingDefs(settings: Array<Record<string, unknown>>) {
-    const stmt = this._handle.prepare(
-      'INSERT OR REPLACE INTO game_server_setting_defs (key, label, description, type, default_val, options) VALUES (?, ?, ?, ?, ?, ?)',
-    );
-    const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
-      for (const s of list) {
-        stmt.run(s.key, s.label || '', s.description || '', s.type || 'string', s.defaultVal || '', _json(s.options));
-      }
-    });
-    tx(settings);
+    this._gameData.seedGameServerSettingDefs(settings);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Timeline — full temporal world state tracking
+  //  Timeline — delegation to TimelineRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Record a complete world snapshot (one timeline tick).
-   * All entity arrays are written inside a single transaction for consistency.
-   *
-   * @param {object} data
-   * @param {object} data.snapshot - { gameDday, gameTime, playerCount, onlineCount, aiCount, ... }
-   * @param {Array}  data.players  - [{ steamId, name, online, x, y, z, health, ... }]
-   * @param {Array}  data.ai       - [{ aiType, category, displayName, nodeUid, x, y, z }]
-   * @param {Array}  data.vehicles - [{ class, displayName, x, y, z, health, ... }]
-   * @param {Array}  data.structures - [{ actorClass, displayName, ownerSteamId, ... }]
-   * @param {Array}  data.houses   - [{ uid, name, windowsOpen, ... }]
-   * @param {Array}  data.companions - [{ entityType, actorName, ... }]
-   * @param {Array}  data.backpacks - [{ class, x, y, z, itemCount, items }]
-   * @returns {number} The snapshot ID
-   */
   insertTimelineSnapshot(data: Record<string, unknown>): number {
-    const s = (data.snapshot || {}) as Record<string, unknown>;
-    const result = this._stmts.insertTimelineSnapshot.run(
-      s.gameDay || 0,
-      s.gameTime || 0,
-      s.playerCount || 0,
-      s.onlineCount || 0,
-      s.aiCount || 0,
-      s.structureCount || 0,
-      s.vehicleCount || 0,
-      s.containerCount || 0,
-      s.worldItemCount || 0,
-      s.weatherType || '',
-      s.season || '',
-      s.airdropActive ? 1 : 0,
-      s.airdropX ?? null,
-      s.airdropY ?? null,
-      s.airdropAiAlive || 0,
-      JSON.stringify(s.summary || {}),
-    );
-    const snapId = result.lastInsertRowid;
-
-    const tx = this._handle.transaction(() => {
-      // Players
-      if (data.players) {
-        for (const p of data.players as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelinePlayer.run(
-            snapId,
-            p.steamId,
-            p.name || '',
-            p.online ? 1 : 0,
-            p.x ?? null,
-            p.y ?? null,
-            p.z ?? null,
-            p.health || 0,
-            p.maxHealth || 100,
-            p.hunger || 0,
-            p.thirst || 0,
-            p.infection || 0,
-            p.stamina || 0,
-            p.level || 0,
-            p.zeeksKilled || 0,
-            p.daysSurvived || 0,
-            p.lifetimeKills || 0,
-          );
-        }
-      }
-
-      // AI spawns
-      if (data.ai) {
-        for (const a of data.ai as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineAI.run(
-            snapId,
-            a.aiType,
-            a.category || '',
-            a.displayName || '',
-            a.nodeUid || '',
-            a.x ?? null,
-            a.y ?? null,
-            a.z ?? null,
-          );
-        }
-      }
-
-      // Vehicles
-      if (data.vehicles) {
-        for (const v of data.vehicles as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineVehicle.run(
-            snapId,
-            v.class,
-            v.displayName || '',
-            v.x ?? null,
-            v.y ?? null,
-            v.z ?? null,
-            v.health || 0,
-            v.maxHealth || 0,
-            v.fuel || 0,
-            v.itemCount || 0,
-          );
-        }
-      }
-
-      // Structures
-      if (data.structures) {
-        for (const st of data.structures as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineStructure.run(
-            snapId,
-            st.actorClass,
-            st.displayName || '',
-            st.ownerSteamId || '',
-            st.x ?? null,
-            st.y ?? null,
-            st.z ?? null,
-            st.currentHealth || 0,
-            st.maxHealth || 0,
-            st.upgradeLevel || 0,
-          );
-        }
-      }
-
-      // Houses
-      if (data.houses) {
-        for (const h of data.houses as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineHouse.run(
-            snapId,
-            h.uid,
-            h.name || '',
-            h.windowsOpen || 0,
-            h.windowsTotal || 0,
-            h.doorsOpen || 0,
-            h.doorsLocked || 0,
-            h.doorsTotal || 0,
-            h.destroyedFurniture || 0,
-            h.hasGenerator ? 1 : 0,
-            h.sleepers || 0,
-            h.clean || 0,
-            h.x ?? null,
-            h.y ?? null,
-          );
-        }
-      }
-
-      // Companions + horses
-      if (data.companions) {
-        for (const c of data.companions as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineCompanion.run(
-            snapId,
-            c.entityType,
-            c.actorName || '',
-            c.displayName || '',
-            c.ownerSteamId || '',
-            c.x ?? null,
-            c.y ?? null,
-            c.z ?? null,
-            c.health || 0,
-            JSON.stringify(c.extra || {}),
-          );
-        }
-      }
-
-      // Dropped backpacks
-      if (data.backpacks) {
-        for (const b of data.backpacks as Array<Record<string, unknown>>) {
-          this._stmts.insertTimelineBackpack.run(
-            snapId,
-            b.class || '',
-            b.x ?? null,
-            b.y ?? null,
-            b.z ?? null,
-            b.itemCount || 0,
-            JSON.stringify(b.items || []),
-          );
-        }
-      }
-    });
-
-    tx();
-    return Number(snapId);
+    return this._timeline.insertTimelineSnapshot(data);
   }
-
-  /** Get recent timeline snapshots (metadata only). */
   getTimelineSnapshots(limit = 50): DbRow[] {
-    return (this._stmts.getTimelineSnapshots.all(limit) as DbRow[]).map((r) => {
-      if (r.summary && typeof r.summary === 'string')
-        try {
-          r.summary = JSON.parse(r.summary) as unknown;
-        } catch {
-          /* */
-        }
-      return r;
-    });
+    return this._timeline.getTimelineSnapshots(limit);
   }
-
-  /** Get timeline snapshots in a date range. */
   getTimelineSnapshotRange(from: string, to: string): DbRow[] {
-    return (this._stmts.getTimelineSnapshotRange.all(from, to) as DbRow[]).map((r) => {
-      if (r.summary && typeof r.summary === 'string')
-        try {
-          r.summary = JSON.parse(r.summary) as unknown;
-        } catch {
-          /* */
-        }
-      return r;
-    });
+    return this._timeline.getTimelineSnapshotRange(from, to);
   }
-
-  /** Get full snapshot data by ID (all entities). */
   getTimelineSnapshotFull(snapshotId: number) {
-    const snap = this._stmts.getTimelineSnapshotById.get(snapshotId) as DbRow | undefined;
-    if (!snap) return null;
-    if (snap.summary)
-      try {
-        snap.summary = JSON.parse(snap.summary as string);
-      } catch {
-        /* */
-      }
-    return {
-      snapshot: snap,
-      players: this._stmts.getTimelinePlayers.all(snapshotId),
-      ai: this._stmts.getTimelineAI.all(snapshotId),
-      vehicles: this._stmts.getTimelineVehicles.all(snapshotId),
-      structures: this._stmts.getTimelineStructures.all(snapshotId),
-      houses: this._stmts.getTimelineHouses.all(snapshotId),
-      companions: this._stmts.getTimelineCompanions.all(snapshotId),
-
-      backpacks: (this._stmts.getTimelineBackpacks.all(snapshotId) as DbRow[]).map((b) => {
-        if (b.items_summary && typeof b.items_summary === 'string')
-          try {
-            b.items_summary = JSON.parse(b.items_summary) as unknown;
-          } catch {
-            /* */
-          }
-        return b;
-      }),
-    };
+    return this._timeline.getTimelineSnapshotFull(snapshotId);
   }
-
-  /** Get timeline bounds (earliest, latest, count). */
   getTimelineBounds() {
-    return this._stmts.getTimelineSnapshotBounds.get();
+    return this._timeline.getTimelineBounds();
   }
-
-  /** Get player position history for trails. */
   getPlayerPositionHistory(steamId: string, from: string, to: string) {
-    return this._stmts.getPlayerPositionHistory.all(steamId, from, to);
+    return this._timeline.getPlayerPositionHistory(steamId, from, to);
   }
-
-  /** Get AI population history for charts. */
   getAIPopulationHistory(from: string, to: string) {
-    return this._stmts.getAIPopulationHistory.all(from, to);
+    return this._timeline.getAIPopulationHistory(from, to);
   }
-
-  /** Purge old timeline data (default: keep 7 days). */
   purgeOldTimeline(olderThan: string = '-7 days') {
-    return this._stmts.purgeOldTimeline.run(olderThan);
+    return this._timeline.purgeOldTimeline(olderThan);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Death causes — who/what killed who
+  //  Death causes — delegation to DeathCauseRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Record a death cause attribution.
-   * @param {object} data
-   * @param {string} data.victimName
-   * @param {string} [data.victimSteamId]
-   * @param {string} data.causeType   - 'zombie', 'animal', 'bandit', 'player', 'environment', 'unknown'
-   * @param {string} data.causeName   - classified name ('Runner', 'Wolf', 'PlayerX')
-   * @param {string} [data.causeRaw]  - raw BP_ blueprint name
-   * @param {number} [data.damageTotal]
-   * @param {number} [data.x]
-   * @param {number} [data.y]
-   * @param {number} [data.z]
-   */
   insertDeathCause(data: Record<string, unknown>): void {
-    this._stmts.insertDeathCause.run(
-      data.victimName,
-      data.victimSteamId || '',
-      data.causeType,
-      data.causeName || '',
-      data.causeRaw || '',
-      data.damageTotal || 0,
-      data.x ?? null,
-      data.y ?? null,
-      data.z ?? null,
-    );
+    this._deathCause.insertDeathCause(data);
   }
-
-  /** Get recent death causes. */
   getDeathCauses(limit = 50) {
-    return this._stmts.getDeathCauses.all(limit);
+    return this._deathCause.getDeathCauses(limit);
   }
-
-  /** Get death causes for a specific player. */
   getDeathCausesByPlayer(nameOrSteamId: string, limit = 50) {
-    return this._stmts.getDeathCausesByPlayer.all(nameOrSteamId, nameOrSteamId, limit);
+    return this._deathCause.getDeathCausesByPlayer(nameOrSteamId, limit);
   }
-
-  /** Get death cause statistics (grouped by cause_type + cause_name). */
   getDeathCauseStats() {
-    return this._stmts.getDeathCauseStats.all();
+    return this._deathCause.getDeathCauseStats();
   }
-
-  /** Get death causes since a timestamp. */
   getDeathCausesSince(since: string) {
-    return this._stmts.getDeathCausesSince.all(since);
+    return this._deathCause.getDeathCausesSince(since);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  //  Anticheat — flags, risk scores, entity fingerprints
+  //  Anticheat — delegation to AntiCheatRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Insert an anticheat flag.
-   * @param {object} flag - { steam_id, player_name, detector, severity, score, details, evidence, auto_escalated }
-   * @returns {number} The inserted flag ID
-   */
   insertAcFlag(input: Record<string, unknown>): number | bigint {
-    const flag = input as DbRow;
-    const info = this._stmts.insertAcFlag.run({
-      steam_id: flag.steam_id,
-      player_name: flag.player_name || '',
-      detector: flag.detector,
-      severity: flag.severity || 'low',
-      score: flag.score || 0,
-      details: typeof flag.details === 'string' ? flag.details : JSON.stringify(flag.details || {}),
-      evidence: typeof flag.evidence === 'string' ? flag.evidence : JSON.stringify(flag.evidence || []),
-      auto_escalated: flag.auto_escalated ? 1 : 0,
-    });
-    return info.lastInsertRowid;
+    return this._antiCheat.insertAcFlag(input);
   }
-
-  /** Get flags by status ('open', 'confirmed', 'dismissed', 'whitelisted'). */
   getAcFlags(status: string = 'open', limit = 100) {
-    return this._stmts.getAcFlags.all(status, limit).map(_parseAcFlagRow);
+    return this._antiCheat.getAcFlags(status, limit);
   }
-
-  /** Get all flags for a specific player. */
   getAcFlagsBySteam(steamId: string, limit = 100) {
-    return this._stmts.getAcFlagsBySteam.all(steamId, limit).map(_parseAcFlagRow);
+    return this._antiCheat.getAcFlagsBySteam(steamId, limit);
   }
-
-  /** Get flags by detector type and status. */
   getAcFlagsByDetector(detector: string, status: string = 'open', limit = 100) {
-    return this._stmts.getAcFlagsByDetector.all(detector, status, limit).map(_parseAcFlagRow);
+    return this._antiCheat.getAcFlagsByDetector(detector, status, limit);
   }
-
-  /** Get flags for a player since a timestamp. */
   getAcFlagsSince(steamId: string, since: string) {
-    return this._stmts.getAcFlagsSince.all(steamId, since).map(_parseAcFlagRow);
+    return this._antiCheat.getAcFlagsSince(steamId, since);
   }
-
-  /** Count flags for a player matching severities and status since a timestamp. */
   getAcFlagCount(steamId: string, sev1: string, sev2: string, status: string, since: string) {
-    const row = this._stmts.getAcFlagCount.get(steamId, sev1, sev2, status, since) as DbRow | undefined;
-    return row?.count ?? 0;
+    return this._antiCheat.getAcFlagCount(steamId, sev1, sev2, status, since);
   }
-
-  /** Update a flag's review status. */
   updateAcFlagStatus(flagId: number, status: string, reviewedBy: string | null = null, notes: string | null = null) {
-    this._stmts.updateAcFlagStatus.run(status, reviewedBy, notes, flagId);
+    this._antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes);
   }
-
-  /** Auto-escalate a flag's severity. */
   escalateAcFlag(flagId: number, newSeverity: string) {
-    this._stmts.escalateAcFlag.run(newSeverity, flagId);
+    this._antiCheat.escalateAcFlag(flagId, newSeverity);
   }
-
-  /**
-   * Upsert a player risk score.
-   * @param {object} data - { steam_id, risk_score, open_flags, confirmed_flags, dismissed_flags, last_flag_at, baseline_data }
-   */
   upsertRiskScore(data: Record<string, unknown>): void {
-    this._stmts.upsertRiskScore.run({
-      steam_id: data.steam_id,
-      risk_score: data.risk_score || 0,
-      open_flags: data.open_flags || 0,
-      confirmed_flags: data.confirmed_flags || 0,
-      dismissed_flags: data.dismissed_flags || 0,
-      last_flag_at: data.last_flag_at || null,
-      baseline_data:
-        typeof data.baseline_data === 'string' ? data.baseline_data : JSON.stringify(data.baseline_data || {}),
-    });
+    this._antiCheat.upsertRiskScore(data);
   }
-
-  /** Get a player's risk score record. */
   getRiskScore(steamId: string) {
-    const row = this._stmts.getRiskScore.get(steamId);
-    return row ? _parseRiskRow(row) : null;
+    return this._antiCheat.getRiskScore(steamId);
   }
-
-  /** Get all player risk scores, highest first. */
   getAllRiskScores() {
-    return this._stmts.getAllRiskScores.all().map(_parseRiskRow);
+    return this._antiCheat.getAllRiskScores();
   }
-
-  /**
-   * Upsert an entity fingerprint.
-   * @param {object} fp - { entity_type, entity_id, fingerprint, parent_id, creator_steam_id, tamper_score, metadata }
-   */
   upsertFingerprint(fp: Record<string, unknown>): void {
-    this._stmts.upsertFingerprint.run({
-      entity_type: fp.entity_type,
-      entity_id: fp.entity_id,
-      fingerprint: fp.fingerprint,
-      parent_id: fp.parent_id || null,
-      creator_steam_id: fp.creator_steam_id || null,
-      tamper_score: fp.tamper_score || 0,
-      metadata: typeof fp.metadata === 'string' ? fp.metadata : JSON.stringify(fp.metadata || {}),
-    });
+    this._antiCheat.upsertFingerprint(fp);
   }
-
-  /** Get a fingerprint by entity type + id. */
   getFingerprint(entityType: string, entityId: string) {
-    const row = this._stmts.getFingerprint.get(entityType, entityId);
-    return row ? _parseFingerprintRow(row) : null;
+    return this._antiCheat.getFingerprint(entityType, entityId);
   }
-
-  /** Get all fingerprints for an entity type. */
   getFingerprintsByType(entityType: string) {
-    return this._stmts.getFingerprintsByType.all(entityType).map(_parseFingerprintRow);
+    return this._antiCheat.getFingerprintsByType(entityType);
   }
-
-  /**
-   * Insert a fingerprint event (state change provenance).
-   * @param {object} evt - { fingerprint_id, event_type, old_state, new_state, attributed_to, source, confidence }
-   * @returns {number} The inserted event ID
-   */
   insertFingerprintEvent(evt: Record<string, unknown>): number | bigint {
-    const info = this._stmts.insertFingerprintEvent.run({
-      fingerprint_id: evt.fingerprint_id,
-      event_type: evt.event_type,
-      old_state: typeof evt.old_state === 'string' ? evt.old_state : JSON.stringify(evt.old_state || null),
-      new_state: typeof evt.new_state === 'string' ? evt.new_state : JSON.stringify(evt.new_state || null),
-      attributed_to: evt.attributed_to || null,
-      source: evt.source || 'inferred',
-      confidence: evt.confidence ?? 1.0,
-    });
-    return info.lastInsertRowid;
+    return this._antiCheat.insertFingerprintEvent(evt);
   }
-
-  /** Get events for a fingerprint. */
   getFingerprintEvents(fingerprintId: number, limit = 50) {
-    return this._stmts.getFingerprintEvents.all(fingerprintId, limit).map(_parseFingerprintEventRow);
+    return this._antiCheat.getFingerprintEvents(fingerprintId, limit);
   }
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function _json(value: unknown): string {
-  if (value === undefined || value === null) return '[]';
-  if (typeof value === 'string') return value;
-  return JSON.stringify(value);
-}
-
-function _parsePlayerRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  // Parse JSON columns back to objects
-  const jsonCols = [
-    'name_history',
-    'char_profile',
-    'player_states',
-    'body_conditions',
-    'crafting_recipes',
-    'building_recipes',
-    'unlocked_professions',
-    'unlocked_skills',
-    'skills_data',
-    'inventory',
-    'equipment',
-    'quick_slots',
-    'backpack_items',
-    'backpack_data',
-    'lore',
-    'unique_loots',
-    'crafted_uniques',
-    'loot_item_unique',
-    'quest_data',
-    'mini_quest',
-    'challenges',
-    'quest_spawner_done',
-    'companion_data',
-    'horses',
-    'extended_stats',
-    'kill_tracker',
-    'custom_data',
-  ];
-  const parsed: DbRow = { ...(row as DbRow) };
-  for (const col of jsonCols) {
-    if (parsed[col] && typeof parsed[col] === 'string') {
-      try {
-        parsed[col] = JSON.parse(parsed[col]) as unknown;
-      } catch {
-        /* leave as string */
-      }
-    }
-  }
-  // Convert SQLite integers to booleans where appropriate
-  parsed.male = !!parsed.male;
-  parsed.online = !!parsed.online;
-  parsed.has_extended_stats = !!parsed.has_extended_stats;
-  return parsed;
-}
-
-/**
- * Lightweight player row parser for the diff engine.
- * Only parses the 4 inventory JSON columns needed by diffPlayerInventories().
- * Avoids the { ...row } spread + 27-column JSON.parse of _parsePlayerRow().
- */
-
-function _parsePlayerRowForDiff(row: unknown): DbRow | null {
-  if (!row) return null;
-  const r = row as DbRow;
-  const parsed: DbRow = {
-    steam_id: r.steam_id,
-    name: r.name,
-    online: !!r.online,
-    pos_x: r.pos_x,
-    pos_y: r.pos_y,
-    pos_z: r.pos_z,
-    inventory: null,
-    equipment: null,
-    quick_slots: null,
-    backpack_items: null,
-  };
-  for (const col of ['inventory', 'equipment', 'quick_slots', 'backpack_items'] as const) {
-    if (r[col] && typeof r[col] === 'string') {
-      try {
-        parsed[col] = JSON.parse(r[col]) as unknown;
-      } catch {
-        parsed[col] = r[col];
-      }
-    }
-  }
-  return parsed;
-}
-
-function _parseActivityRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  const parsed: DbRow = { ...(row as DbRow) };
-  if (parsed.details && typeof parsed.details === 'string') {
-    try {
-      parsed.details = JSON.parse(parsed.details) as unknown;
-    } catch {
-      /* leave as string */
-    }
-  }
-  return parsed;
-}
-
-function _parseAcFlagRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  const parsed: DbRow = { ...(row as DbRow) };
-  for (const col of ['details', 'evidence']) {
-    if (parsed[col] && typeof parsed[col] === 'string') {
-      try {
-        parsed[col] = JSON.parse(parsed[col]) as unknown;
-      } catch {
-        /* leave as string */
-      }
-    }
-  }
-  parsed.auto_escalated = !!parsed.auto_escalated;
-  return parsed;
-}
-
-function _parseRiskRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  const parsed: DbRow = { ...(row as DbRow) };
-  if (parsed.baseline_data && typeof parsed.baseline_data === 'string') {
-    try {
-      parsed.baseline_data = JSON.parse(parsed.baseline_data) as unknown;
-    } catch {
-      /* leave as string */
-    }
-  }
-  return parsed;
-}
-
-function _parseFingerprintRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  const parsed: DbRow = { ...(row as DbRow) };
-  if (parsed.metadata && typeof parsed.metadata === 'string') {
-    try {
-      parsed.metadata = JSON.parse(parsed.metadata) as unknown;
-    } catch {
-      /* leave as string */
-    }
-  }
-  return parsed;
-}
-
-function _parseFingerprintEventRow(row: unknown): DbRow | null {
-  if (!row) return null;
-  const parsed: DbRow = { ...(row as DbRow) };
-  for (const col of ['old_state', 'new_state']) {
-    if (parsed[col] && typeof parsed[col] === 'string') {
-      try {
-        parsed[col] = JSON.parse(parsed[col]) as unknown;
-      } catch {
-        /* leave as string */
-      }
-    }
-  }
-  return parsed;
 }
 
 export default HumanitZDB;
