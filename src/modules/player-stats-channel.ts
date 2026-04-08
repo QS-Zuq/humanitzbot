@@ -166,7 +166,8 @@ interface LogWatcher {
  * save-data format matching parseSave() output.  This allows all embed
  * builders and the kill tracker to work unchanged after the DB-first switch.
  */
-function _dbRowToSave(row: DbPlayerRow): Record<string, unknown> {
+function _dbRowToSave(row: DbPlayerRow | null): Record<string, unknown> | null {
+  if (!row) return null;
   return {
     name: row.name,
     male: row.male,
@@ -531,7 +532,8 @@ class PlayerStatsChannel {
       for (const row of dbPlayers) {
         const steamId = row['steam_id'];
         if (typeof steamId === 'string') {
-          players.set(steamId, _dbRowToSave(row as unknown as DbPlayerRow)); // SAFETY: DB row shape validated by schema
+          const save = _dbRowToSave(row as unknown as DbPlayerRow); // SAFETY: DB row shape validated by schema
+          if (save) players.set(steamId, save);
         }
       }
 

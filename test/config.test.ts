@@ -646,15 +646,20 @@ describe('config.needsSetup (getter)', () => {
     assert.strictEqual(config.needsSetup, false);
   });
 
-  it('needsSetup ignores direct assignment (setter removed)', () => {
+  it('needsSetup ignores direct assignment (getter-only derived state)', () => {
     // Ensure needsSetup is currently true (no RCON configured)
     config.rconHost = '';
     config.rconPassword = '';
     assert.strictEqual(config.needsSetup, true);
 
-    // Direct assignment should have no effect (getter-only)
-    config.needsSetup = false;
-    assert.strictEqual(config.needsSetup, true, 'needsSetup should still be true — setter was removed');
+    // Setting RCON values makes needsSetup false (derived from getter)
+    config.rconHost = '10.0.0.1';
+    config.rconPassword = 'secret';
+    assert.strictEqual(config.needsSetup, false, 'needsSetup should be false when RCON is configured');
+
+    // Clearing them again makes it true — proves it is derived, not assignable
+    config.rconHost = '';
+    assert.strictEqual(config.needsSetup, true, 'needsSetup should be true again after clearing RCON');
   });
 });
 

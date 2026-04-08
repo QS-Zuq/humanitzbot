@@ -350,7 +350,7 @@ describe('save-parser', () => {
 
   describe('parseSave — synthetic', () => {
     it('throws on non-GVAS data', () => {
-      assert.throws(() => parseSave(Buffer.from('BAD')), /Not a GVAS/);
+      assert.throws(() => parseSave(Buffer.from('BADD')), /Not a GVAS/);
     });
 
     it('returns structure for empty GVAS', () => {

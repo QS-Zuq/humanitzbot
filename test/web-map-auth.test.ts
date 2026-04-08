@@ -388,67 +388,76 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const { setupAuth: setup, TIER: T } = cjsRequire('../src/web-map/auth');
+      // Set guildId on the config singleton directly — env vars are only read at
+      // module load time so process.env.DISCORD_GUILD_ID has no effect here.
+      const config = cjsRequire('../src/config/index').default;
+      const savedGuildId = config.guildId;
+      config.guildId = '987654321';
 
-      // Build a mock bot client with a guild member cache
-      const mockMember = {
-        roles: { cache: { map: () => ['111'] } },
-        permissions: { bitfield: 0n },
-      };
+      try {
+        const { setupAuth: setup, TIER: T } = cjsRequire('../src/web-map/auth');
 
-      const mockGuild = {
-        members: { cache: { get: () => mockMember } },
-      };
-      const mockClient = {
-        guilds: { cache: { get: (id: string) => (id === '987654321' ? mockGuild : null) } },
-      };
+        // Build a mock bot client with a guild member cache
+        const mockMember = {
+          roles: { cache: { map: () => ['111'] } },
+          permissions: { bitfield: 0n },
+        };
 
-      const app = {
-        get: () => {},
-        post: () => {},
-        use: () => {},
-      };
+        const mockGuild = {
+          members: { cache: { get: () => mockMember } },
+        };
+        const mockClient = {
+          guilds: { cache: { get: (id: string) => (id === '987654321' ? mockGuild : null) } },
+        };
 
-      const middleware = setup(app, mockClient);
+        const app = {
+          get: () => {},
+          post: () => {},
+          use: () => {},
+        };
 
-      // Mock session with stale lastRoleCheck (admin tier, but mock member has no admin role/permission)
-      let saveCalled = false;
-      const req: Record<string, unknown> = {
-        path: '/api/players',
-        headers: {},
-        session: {
-          user: {
-            userId: 'user123',
-            username: 'TestUser',
-            displayName: 'Test',
-            avatar: null,
-            roles: ['999'], // old admin role
-            tier: 'admin',
-            tierLevel: T.admin,
-            inGuild: true,
-            lastRoleCheck: 0, // way in the past → triggers refresh
+        const middleware = setup(app, mockClient);
+
+        // Mock session with stale lastRoleCheck (admin tier, but mock member has no admin role/permission)
+        let saveCalled = false;
+        const req: Record<string, unknown> = {
+          path: '/api/players',
+          headers: {},
+          session: {
+            user: {
+              userId: 'user123',
+              username: 'TestUser',
+              displayName: 'Test',
+              avatar: null,
+              roles: ['999'], // old admin role
+              tier: 'admin',
+              tierLevel: T.admin,
+              inGuild: true,
+              lastRoleCheck: 0, // way in the past → triggers refresh
+            },
+            save: (cb: ((err: null) => void) | undefined) => {
+              saveCalled = true;
+              if (cb) cb(null);
+            },
           },
-          save: (cb: ((err: null) => void) | undefined) => {
-            saveCalled = true;
-            if (cb) cb(null);
-          },
-        },
-      };
+        };
 
-      let nextCalled = false;
-      middleware(req, {}, () => {
-        nextCalled = true;
-      });
-      assert.equal(nextCalled, true);
+        let nextCalled = false;
+        middleware(req, {}, () => {
+          nextCalled = true;
+        });
+        assert.equal(nextCalled, true);
 
-      // The mock member has no admin role/permission → tier should downgrade
-      const user = (req.session as Record<string, unknown>).user as Record<string, unknown>;
-      assert.notEqual(user.tier, 'admin', 'Tier should have been downgraded from admin');
-      assert.ok((user.lastRoleCheck as number) > 0, 'lastRoleCheck should be updated');
-      assert.ok(saveCalled, 'session.save() should be called after role mutation');
-
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
+        // The mock member has no admin role/permission → tier should downgrade
+        const user = (req.session as Record<string, unknown>).user as Record<string, unknown>;
+        assert.notEqual(user.tier, 'admin', 'Tier should have been downgraded from admin');
+        assert.ok((user.lastRoleCheck as number) > 0, 'lastRoleCheck should be updated');
+        assert.ok(saveCalled, 'session.save() should be called after role mutation');
+      } finally {
+        delete process.env.DISCORD_OAUTH_SECRET;
+        delete process.env.WEB_MAP_CALLBACK_URL;
+        config.guildId = savedGuildId;
+      }
     });
   });
 

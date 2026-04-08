@@ -4488,7 +4488,7 @@ class WebMapServer {
     /** POST /api/panel/servers/test-connection — Stateless connection validation */
     app.post('/api/panel/servers/test-connection', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
       try {
-        const bodyConn = req.body as {
+        const bodyConn = (req.body ?? {}) as {
           rcon?: { host: string; port: number; password: string };
           sftp?: Record<string, unknown>;
         };
@@ -4597,8 +4597,8 @@ class WebMapServer {
     app.patch('/api/panel/servers/:id', requireTier('admin'), rateLimit(10000, 5), async (req, res) => {
       try {
         const id = req.params.id as string;
-        const updates: Record<string, unknown> = req.body as Record<string, unknown>;
-        if (typeof updates !== 'object' || Array.isArray(updates)) {
+        const updates = req.body as Record<string, unknown> | null;
+        if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
           sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
           return;
         }

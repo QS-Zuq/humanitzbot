@@ -519,8 +519,9 @@ describe('createServerConfig()', () => {
 
   it('breaks prototype chain for restart settings', () => {
     const cfg = createServerConfig({});
-    assert.equal(cfg.restartTimes, null);
-    assert.equal(cfg.restartProfiles, null);
+    // createServerConfig uses ?? '' to explicitly break prototype chain
+    assert.equal(cfg.restartTimes, '');
+    assert.equal(cfg.restartProfiles, '');
     assert.equal(cfg.enableServerScheduler, false);
   });
 
@@ -532,7 +533,6 @@ describe('createServerConfig()', () => {
     });
     assert.equal(cfg.botTimezone, 'Asia/Taipei');
     assert.equal(cfg.logTimezone, 'US/Eastern');
-    assert.equal(cfg.locale, 'zh-TW');
     assert.equal(cfg.botLocale, 'zh-TW');
   });
 

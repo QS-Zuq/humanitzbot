@@ -519,21 +519,21 @@ describe('diffPlayerInventories', () => {
 
 describe('diffWorldState', () => {
   it('returns empty for identical world state', () => {
-    const ws = { dayNumber: 5, currentSeason: 'Summer', totalPlayers: 10 };
+    const ws = { dedi_days_passed: '5', current_season: 'Summer', totalPlayers: '10' };
     const events = diffWorldState(ws, ws);
     assert.equal(events.length, 0);
   });
 
   it('detects day advanced', () => {
-    const old = { dayNumber: 5, currentSeason: 'Summer' };
-    const now = { dayNumber: 6, currentSeason: 'Summer' };
+    const old = { dedi_days_passed: '5', current_season: 'Summer' };
+    const now = { dedi_days_passed: '6', current_season: 'Summer' };
     const events = diffWorldState(old, now);
     assert.ok(events.some((e: any) => e.type === 'world_day_advanced'));
   });
 
   it('detects season change', () => {
-    const old = { dayNumber: 5, currentSeason: 'Summer' };
-    const now = { dayNumber: 6, currentSeason: 'Autumn' };
+    const old = { dedi_days_passed: '5', current_season: 'Summer' };
+    const now = { dedi_days_passed: '6', current_season: 'Autumn' };
     const events = diffWorldState(old, now);
     assert.ok(events.some((e: any) => e.type === 'world_season_changed'));
   });
@@ -545,14 +545,14 @@ describe('diffWorldState', () => {
 
 describe('diffVehicleInventories', () => {
   it('returns empty for identical vehicles', () => {
-    const v = [{ id: 'v1', items: [{ item: 'Fuel', amount: 10 }] }];
+    const v = [{ id: 'v1', inventory: [{ item: 'Fuel', amount: 10 }] }];
     const events = diffVehicleInventories(v, v);
     assert.equal(events.length, 0);
   });
 
   it('detects item added to vehicle', () => {
-    const old = [{ id: 'v1', items: [] }];
-    const now = [{ id: 'v1', items: [{ item: 'Fuel', amount: 10 }] }];
+    const old = [{ id: 'v1', inventory: [] }];
+    const now = [{ id: 'v1', inventory: [{ item: 'Fuel', amount: 10 }] }];
     const events = diffVehicleInventories(old, now);
     assert.equal(events.length, 1);
     assert.equal(events[0].type, 'vehicle_item_added');
