@@ -1,18 +1,21 @@
 /**
  * Database manager for the HumanitZ bot.
  *
- * Wraps better-sqlite3 with:
+ * Thin facade over 11 domain repositories (see src/db/repositories/).
+ * Handles lifecycle, schema migration, and delegates all domain queries.
+ *
  *   - Auto-initialisation (creates tables on first run)
  *   - Schema versioning & migration
- *   - Convenience query helpers for every data domain
  *   - WAL mode for concurrent reads during bot operation
+ *   - Facade delegation to domain repositories
  *
  * Usage:
- *   const db = require('./database');
- *   db.init();                           // call once at startup
- *   db.upsertPlayer(steamId, data);      // write parsed save data
- *   const p = db.getPlayer(steamId);     // read back
- *   db.close();                          // on shutdown
+ *   import HumanitZDB from './database.js';
+ *   const db = new HumanitZDB();
+ *   db.init();                           // create schema + repositories
+ *   db.upsertPlayer(steamId, data);      // delegates to PlayerRepository
+ *   const p = db.getPlayer(steamId);     // delegates to PlayerRepository
+ *   db.close();                          // closes handle + nulls repos
  */
 
 import Database from 'better-sqlite3';
