@@ -519,7 +519,7 @@ describe('diffPlayerInventories', () => {
 
 describe('diffWorldState', () => {
   it('returns empty for identical world state', () => {
-    const ws = { dayNumber: 5, currentSeason: 'Summer', totalPlayers: 10 };
+    const ws = { dedi_days_passed: '5', current_season: 'Summer', totalPlayers: '10' };
     const events = diffWorldState(ws, ws);
     assert.equal(events.length, 0);
   });
