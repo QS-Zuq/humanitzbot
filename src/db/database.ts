@@ -1856,12 +1856,11 @@ class HumanitZDB {
    * @param {Map<string, object>} players - steamId → parsed player data
    */
   bulkUpsertPlayers(players: Map<string, Record<string, unknown>>): void {
-    const tx = this._handle.transaction((entries: Array<[string, Record<string, unknown>]>) => {
-      for (const [steamId, data] of entries) {
+    this.transaction(() => {
+      for (const [steamId, data] of players) {
         this.player.upsertPlayer(steamId, data);
       }
     });
-    tx([...players.entries()]);
   }
 
   /**
@@ -1873,7 +1872,7 @@ class HumanitZDB {
    *                          deadBodies, containers, lootActors, quests, horses, worldDrops }
    */
   syncAllFromSave(data: Record<string, unknown>): void {
-    const tx = this._handle.transaction(() => {
+    this.transaction(() => {
       // Core entity sync (players, world state, structures, vehicles, companions, clans)
       this._syncFromSaveInner(data);
 
@@ -1897,7 +1896,6 @@ class HumanitZDB {
         this.worldObject.innerReplaceWorldDrops(data.worldDrops as Array<Record<string, unknown>>);
       }
     });
-    tx();
   }
 
   /**
@@ -1906,10 +1904,9 @@ class HumanitZDB {
    * When called from syncAllFromSave(), use _syncFromSaveInner() directly.
    */
   syncFromSave(parsed: Record<string, unknown>) {
-    const tx = this._handle.transaction(() => {
+    this.transaction(() => {
       this._syncFromSaveInner(parsed);
     });
-    tx();
   }
 
   /** Inner sync logic — no transaction wrapper, safe to call inside an outer transaction. */
