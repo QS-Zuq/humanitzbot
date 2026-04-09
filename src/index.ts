@@ -541,7 +541,8 @@ client.once(Events.ClientReady, (readyClient) => {
     // ── Web panel — start EARLY so it's reachable while modules initialise ──
     const webMapPort = parseInt(process.env['WEB_MAP_PORT'] ?? '', 10);
     if (webMapPort) {
-      if (!config.discordClientSecret && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
+      const oauthConfigured = !!(config.discordClientSecret && process.env['WEB_MAP_CALLBACK_URL']);
+      if (!oauthConfigured && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
         setStatus('WebMap', '⚠️ Requires Discord OAuth (set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL)');
         console.warn(
           '[BOT] Web panel requires Discord OAuth — set DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL in .env',
@@ -549,8 +550,8 @@ client.once(Events.ClientReady, (readyClient) => {
         console.warn('[BOT] To run without auth (dev only), set WEB_PANEL_ALLOW_NO_AUTH=true');
       } else {
         try {
-          if (!config.discordClientSecret) {
-            console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
+          if (!oauthConfigured) {
+            console.warn('[BOT] Web panel starting in dev mode — auto-login as admin (WEB_PANEL_ALLOW_NO_AUTH)');
           }
           webMapServer = new WebMapServer(readyClient, { db, configRepo });
           await webMapServer.start();

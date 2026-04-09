@@ -246,14 +246,57 @@ function setupAuth(
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
-    console.warn('[AUTH] Discord OAuth not configured — all routes UNPROTECTED');
+    const allowNoAuth = !!process.env['WEB_PANEL_ALLOW_NO_AUTH'];
+
+    if (allowNoAuth) {
+      console.warn('[AUTH] Discord OAuth not configured — dev mode active (WEB_PANEL_ALLOW_NO_AUTH)');
+      // Stub session so req.session.user/username don't crash in route handlers
+      const devSession = {
+        user: { displayName: 'Developer', username: 'Developer' },
+        username: 'Developer',
+        discordId: 'dev',
+        save(_cb: (err: Error | null) => void) {
+          _cb(null);
+        },
+        destroy(_cb: (err: Error | null) => void) {
+          _cb(null);
+        },
+      };
+      app.use((_req: Request, _res: Response, next: NextFunction) => {
+        Object.assign(_req, { session: devSession });
+        next();
+      });
+      app.get('/auth/me', (_req: Request, res: Response) => {
+        res.json({
+          authenticated: true,
+          tier: 'admin',
+          tierLevel: TIER['admin'],
+          username: 'Developer',
+          devMode: true,
+        });
+      });
+      app.get('/auth/login', (_req: Request, res: Response) => {
+        res.redirect('/');
+      });
+      app.get('/auth/logout', (_req: Request, res: Response) => {
+        res.redirect('/');
+      });
+      return (_req: Request, _res: Response, next: NextFunction) => {
+        const hmzReq = _req as HmzRequest;
+        hmzReq.tier = 'admin';
+        hmzReq.tierLevel = TIER['admin'];
+        next();
+      };
+    }
+
+    console.warn('[AUTH] Discord OAuth not configured — web panel login disabled');
+    console.warn('[AUTH] Set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL in .env to enable');
     app.get('/auth/me', (_req: Request, res: Response) => {
       res.json({
-        authenticated: true,
-        tier: 'admin',
-        tierLevel: TIER['admin'],
-        username: 'Admin (no OAuth)',
-        devMode: true,
+        authenticated: false,
+        tier: 'public',
+        tierLevel: TIER['public'],
+        oauthNotConfigured: true,
       });
     });
     app.get('/auth/login', (_req: Request, res: Response) => {
@@ -264,8 +307,8 @@ function setupAuth(
     });
     return (_req: Request, _res: Response, next: NextFunction) => {
       const hmzReq = _req as HmzRequest;
-      hmzReq.tier = 'admin';
-      hmzReq.tierLevel = TIER['admin'];
+      hmzReq.tier = 'public';
+      hmzReq.tierLevel = TIER['public'];
       next();
     };
   }
