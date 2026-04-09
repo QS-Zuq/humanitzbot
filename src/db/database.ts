@@ -97,53 +97,95 @@ class HumanitZDB {
     return this._db;
   }
 
-  private get _player(): PlayerRepository {
+  /** PlayerRepository — player CRUD, playtime, aliases, peaks. */
+  get player(): PlayerRepository {
     if (!this._playerRepo) throw new Error('Database not initialized — call init() first');
     return this._playerRepo;
   }
-  private get _clan(): ClanRepository {
+  /** ClanRepository — clan CRUD and membership. */
+  get clan(): ClanRepository {
     if (!this._clanRepo) throw new Error('Database not initialized — call init() first');
     return this._clanRepo;
   }
-  private get _leaderboard(): LeaderboardRepository {
+  /** LeaderboardRepository — leaderboard queries. */
+  get leaderboard(): LeaderboardRepository {
     if (!this._leaderboardRepo) throw new Error('Database not initialized — call init() first');
     return this._leaderboardRepo;
   }
-  private get _worldObject(): WorldObjectRepository {
+  /** WorldObjectRepository — world objects and loot. */
+  get worldObject(): WorldObjectRepository {
     if (!this._worldObjectRepo) throw new Error('Database not initialized — call init() first');
     return this._worldObjectRepo;
   }
-  private get _item(): ItemRepository {
+  /** ItemRepository — item instances, groups, and movements. */
+  get item(): ItemRepository {
     if (!this._itemRepo) throw new Error('Database not initialized — call init() first');
     return this._itemRepo;
   }
-  private get _activityLog(): ActivityLogRepository {
+  /** ActivityLogRepository — activity log entries. */
+  get activityLog(): ActivityLogRepository {
     if (!this._activityLogRepo) throw new Error('Database not initialized — call init() first');
     return this._activityLogRepo;
   }
-  private get _chatLog(): ChatLogRepository {
+  /** ChatLogRepository — chat log entries. */
+  get chatLog(): ChatLogRepository {
     if (!this._chatLogRepo) throw new Error('Database not initialized — call init() first');
     return this._chatLogRepo;
   }
-  private get _deathCause(): DeathCauseRepository {
+  /** DeathCauseRepository — death cause statistics. */
+  get deathCause(): DeathCauseRepository {
     if (!this._deathCauseRepo) throw new Error('Database not initialized — call init() first');
     return this._deathCauseRepo;
   }
-  private get _antiCheat(): AntiCheatRepository {
+  /** AntiCheatRepository — anti-cheat flags and logs. */
+  get antiCheat(): AntiCheatRepository {
     if (!this._antiCheatRepo) throw new Error('Database not initialized — call init() first');
     return this._antiCheatRepo;
   }
-  private get _timeline(): TimelineRepository {
+  /** TimelineRepository — timeline events and queries. */
+  get timeline(): TimelineRepository {
     if (!this._timelineRepo) throw new Error('Database not initialized — call init() first');
     return this._timelineRepo;
   }
-  private get _gameData(): GameDataRepository {
+  /** GameDataRepository — game data tables (items, buildings, vehicles, etc.). */
+  get gameData(): GameDataRepository {
     if (!this._gameDataRepo) throw new Error('Database not initialized — call init() first');
     return this._gameDataRepo;
   }
-  private get _quest(): QuestRepository {
+  /** QuestRepository — quest data. */
+  get quest(): QuestRepository {
     if (!this._questRepo) throw new Error('Database not initialized — call init() first');
     return this._questRepo;
+  }
+
+  /**
+   * Run a function inside a database transaction.
+   * Use this when performing multi-repository writes that must be atomic.
+   *
+   * Note: `fn` must be synchronous. `better-sqlite3` transactions are
+   * synchronous and will not await asynchronous work.
+   *
+   * @example
+   * db.transaction(() => {
+   *   db.player.upsertPlayer(steamId, data);
+   *   db.activityLog.insertActivity(entry);
+   * });
+   */
+  transaction<T>(fn: () => PromiseLike<T>): never;
+  transaction<T>(fn: () => T): T;
+  transaction<T>(fn: () => T | PromiseLike<T>): T {
+    return this._handle.transaction(() => {
+      const result = fn();
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'then' in result &&
+        typeof (result as unknown as Record<string, unknown>).then === 'function'
+      ) {
+        throw new TypeError('Database.transaction() callback must be synchronous and must not return a Promise');
+      }
+      return result as T;
+    })();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1250,137 +1292,156 @@ class HumanitZDB {
   //  Player CRUD — delegation to PlayerRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.player.upsertPlayer(steamId, data)` instead. */
   upsertPlayer(steamId: string, data: Record<string, unknown>) {
-    this._player.upsertPlayer(steamId, data);
+    this.player.upsertPlayer(steamId, data);
   }
+  /** @deprecated Use `db.player.getPlayer(steamId)` instead. */
   getPlayer(steamId: string) {
-    return this._player.getPlayer(steamId);
+    return this.player.getPlayer(steamId);
   }
+  /** @deprecated Use `db.player.getAllPlayers()` instead. */
   getAllPlayers(): DbRow[] {
-    return this._player.getAllPlayers();
+    return this.player.getAllPlayers();
   }
+  /** @deprecated Use `db.player.getOnlinePlayers()` instead. */
   getOnlinePlayers(): DbRow[] {
-    return this._player.getOnlinePlayers();
+    return this.player.getOnlinePlayers();
   }
+  /** @deprecated Use `db.player.getOnlinePlayersForDiff()` instead. */
   getOnlinePlayersForDiff() {
-    return this._player.getOnlinePlayersForDiff();
+    return this.player.getOnlinePlayersForDiff();
   }
+  /** @deprecated Use `db.player.setPlayerOnline(steamId, online)` instead. */
   setPlayerOnline(steamId: string, online: boolean) {
-    this._player.setPlayerOnline(steamId, online);
+    this.player.setPlayerOnline(steamId, online);
   }
+  /** @deprecated Use `db.player.setAllPlayersOffline()` instead. */
   setAllPlayersOffline() {
-    this._player.setAllPlayersOffline();
+    this.player.setAllPlayersOffline();
   }
+  /** @deprecated Use `db.player.updateKillTracker(steamId, killData)` instead. */
   updateKillTracker(steamId: string, killData: Record<string, unknown>) {
-    this._player.updateKillTracker(steamId, killData);
+    this.player.updateKillTracker(steamId, killData);
   }
+  /** @deprecated Use `db.player.updatePlayerName(steamId, name, nameHistory)` instead. */
   updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
-    this._player.updatePlayerName(steamId, name, nameHistory);
+    this.player.updatePlayerName(steamId, name, nameHistory);
   }
+  /** @deprecated Use `db.player.upsertFullLogStats(steamId, data)` instead. */
   upsertFullLogStats(steamId: string, data: Record<string, unknown>) {
-    this._player.upsertFullLogStats(steamId, data);
+    this.player.upsertFullLogStats(steamId, data);
   }
+  /** @deprecated Use `db.player.getAllPlayerLogStats()` instead. */
   getAllPlayerLogStats(): DbRow[] {
-    return this._player.getAllPlayerLogStats();
-  }
-  upsertFullPlaytime(steamId: string, data: Record<string, unknown>) {
-    this._player.upsertFullPlaytime(steamId, data);
-  }
-  getAllPlayerPlaytime(): DbRow[] {
-    return this._player.getAllPlayerPlaytime();
-  }
-  setServerPeak(key: string, value: unknown): void {
-    this._player.setServerPeak(key, value);
-  }
-  getServerPeak(key: string) {
-    return this._player.getServerPeak(key);
-  }
-  getAllServerPeaks() {
-    return this._player.getAllServerPeaks();
+    return this.player.getAllPlayerLogStats();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Player identity / alias resolution — delegation to PlayerRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.player.registerAlias(steamId, name, source)` instead. */
   registerAlias(steamId: string, name: string, source: string = '') {
-    this._player.registerAlias(steamId, name, source);
+    this.player.registerAlias(steamId, name, source);
   }
+  /** @deprecated Use `db.player.importIdMap(entries)` instead. */
   importIdMap(entries: Array<{ steamId: string; name: string }>): void {
-    this._player.importIdMap(entries);
+    this.player.importIdMap(entries);
   }
+  /** @deprecated Use `db.player.importConnectLog(entries)` instead. */
   importConnectLog(entries: Array<{ steamId: string; name: string }>): void {
-    this._player.importConnectLog(entries);
+    this.player.importConnectLog(entries);
   }
+  /** @deprecated Use `db.player.importFromSave(players)` instead. */
   importFromSave(players: Map<string, Record<string, unknown>>) {
-    this._player.importFromSave(players);
+    this.player.importFromSave(players);
   }
+  /** @deprecated Use `db.player.resolveNameToSteamId(name)` instead. */
   resolveNameToSteamId(name: string) {
-    return this._player.resolveNameToSteamId(name);
+    return this.player.resolveNameToSteamId(name);
   }
+  /** @deprecated Use `db.player.resolveSteamIdToName(steamId)` instead. */
   resolveSteamIdToName(steamId: string) {
-    return this._player.resolveSteamIdToName(steamId);
+    return this.player.resolveSteamIdToName(steamId);
   }
+  /** @deprecated Use `db.player.getPlayerAliases(steamId)` instead. */
   getPlayerAliases(steamId: string) {
-    return this._player.getPlayerAliases(steamId);
+    return this.player.getPlayerAliases(steamId);
   }
+  /** @deprecated Use `db.player.searchPlayersByName(query)` instead. */
   searchPlayersByName(query: string) {
-    return this._player.searchPlayersByName(query);
+    return this.player.searchPlayersByName(query);
   }
+  /** @deprecated Use `db.player.getAliasStats()` instead. */
   getAliasStats() {
-    return this._player.getAliasStats();
+    return this.player.getAliasStats();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Leaderboards — delegation to LeaderboardRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.leaderboard.topKillers(limit)` instead. */
   topKillers(limit = 10) {
-    return this._leaderboard.topKillers(limit);
+    return this.leaderboard.topKillers(limit);
   }
+  /** @deprecated Use `db.leaderboard.topPlaytime(limit)` instead. */
   topPlaytime(limit = 10) {
-    return this._leaderboard.topPlaytime(limit);
+    return this.leaderboard.topPlaytime(limit);
   }
+  /** @deprecated Use `db.leaderboard.topSurvival(limit)` instead. */
   topSurvival(limit = 10) {
-    return this._leaderboard.topSurvival(limit);
+    return this.leaderboard.topSurvival(limit);
   }
+  /** @deprecated Use `db.leaderboard.topFish(limit)` instead. */
   topFish(limit = 10) {
-    return this._leaderboard.topFish(limit);
+    return this.leaderboard.topFish(limit);
   }
+  /** @deprecated Use `db.leaderboard.topBitten(limit)` instead. */
   topBitten(limit = 10) {
-    return this._leaderboard.topBitten(limit);
+    return this.leaderboard.topBitten(limit);
   }
+  /** @deprecated Use `db.leaderboard.topPvp(limit)` instead. */
   topPvp(limit = 10) {
-    return this._leaderboard.topPvp(limit);
+    return this.leaderboard.topPvp(limit);
   }
+  /** @deprecated Use `db.leaderboard.topBuilders(limit)` instead. */
   topBuilders(limit = 10) {
-    return this._leaderboard.topBuilders(limit);
+    return this.leaderboard.topBuilders(limit);
   }
+  /** @deprecated Use `db.leaderboard.topDeaths(limit)` instead. */
   topDeaths(limit = 10) {
-    return this._leaderboard.topDeaths(limit);
+    return this.leaderboard.topDeaths(limit);
   }
+  /** @deprecated Use `db.leaderboard.topLooters(limit)` instead. */
   topLooters(limit = 10) {
-    return this._leaderboard.topLooters(limit);
+    return this.leaderboard.topLooters(limit);
   }
+  /** @deprecated Use `db.leaderboard.getServerTotals()` instead. */
   getServerTotals() {
-    return this._leaderboard.getServerTotals();
+    return this.leaderboard.getServerTotals();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Clans — delegation to ClanRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.clan.upsertClan(name, members)` instead. */
   upsertClan(name: string, members: Array<Record<string, unknown>>) {
-    this._clan.upsertClan(name, members);
+    this.clan.upsertClan(name, members);
   }
+  /** @deprecated Use `db.clan.getAllClans()` instead. */
   getAllClans() {
-    return this._clan.getAllClans();
+    return this.clan.getAllClans();
   }
+  /** @deprecated Use `db.clan.areClanmates(steamId1, steamId2)` instead. */
   areClanmates(steamId1: string, steamId2: string) {
-    return this._clan.areClanmates(steamId1, steamId2);
+    return this.clan.areClanmates(steamId1, steamId2);
   }
+  /** @deprecated Use `db.clan.getClanForSteamId(steamId)` instead. */
   getClanForSteamId(steamId: string) {
-    return this._clan.getClanForSteamId(steamId);
+    return this.clan.getClanForSteamId(steamId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1406,236 +1467,252 @@ class HumanitZDB {
   //  Structures — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceStructures(structures)` instead. */
   replaceStructures(structures: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceStructures(structures);
+    this.worldObject.replaceStructures(structures);
   }
+  /** @deprecated Use `db.worldObject.getStructures()` instead. */
   getStructures() {
-    return this._worldObject.getStructures();
+    return this.worldObject.getStructures();
   }
+  /** @deprecated Use `db.worldObject.getStructuresByOwner(steamId)` instead. */
   getStructuresByOwner(steamId: string) {
-    return this._worldObject.getStructuresByOwner(steamId);
+    return this.worldObject.getStructuresByOwner(steamId);
   }
+  /** @deprecated Use `db.worldObject.getStructureCounts()` instead. */
   getStructureCounts() {
-    return this._worldObject.getStructureCounts();
+    return this.worldObject.getStructureCounts();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Vehicles — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceVehicles(vehicles)` instead. */
   replaceVehicles(vehicles: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceVehicles(vehicles);
+    this.worldObject.replaceVehicles(vehicles);
   }
+  /** @deprecated Use `db.worldObject.getAllVehicles()` instead. */
   getAllVehicles() {
-    return this._worldObject.getAllVehicles();
+    return this.worldObject.getAllVehicles();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Companions — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceCompanions(companions)` instead. */
   replaceCompanions(companions: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceCompanions(companions);
+    this.worldObject.replaceCompanions(companions);
   }
+  /** @deprecated Use `db.worldObject.getAllCompanions()` instead. */
   getAllCompanions() {
-    return this._worldObject.getAllCompanions();
+    return this.worldObject.getAllCompanions();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  World horses — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceWorldHorses(horses)` instead. */
   replaceWorldHorses(horses: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceWorldHorses(horses);
+    this.worldObject.replaceWorldHorses(horses);
   }
+  /** @deprecated Use `db.worldObject.getAllWorldHorses()` instead. */
   getAllWorldHorses() {
-    return this._worldObject.getAllWorldHorses();
+    return this.worldObject.getAllWorldHorses();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Dead bodies — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceDeadBodies(bodies)` instead. */
   replaceDeadBodies(bodies: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceDeadBodies(bodies);
+    this.worldObject.replaceDeadBodies(bodies);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Containers — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceContainers(containers)` instead. */
   replaceContainers(containers: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceContainers(containers);
+    this.worldObject.replaceContainers(containers);
   }
+  /** @deprecated Use `db.worldObject.getAllContainers()` instead. */
   getAllContainers() {
-    return this._worldObject.getAllContainers();
+    return this.worldObject.getAllContainers();
   }
+  /** @deprecated Use `db.worldObject.getContainersWithItems()` instead. */
   getContainersWithItems() {
-    return this._worldObject.getContainersWithItems();
+    return this.worldObject.getContainersWithItems();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Loot actors — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceLootActors(lootActors)` instead. */
   replaceLootActors(lootActors: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceLootActors(lootActors);
+    this.worldObject.replaceLootActors(lootActors);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Item instances — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  createItemInstance(item: Record<string, unknown>) {
-    return this._item.createItemInstance(item);
-  }
-  moveItemInstance(
-    instanceId: number,
-    to: Record<string, unknown>,
-    attribution: Record<string, unknown> | null,
-    moveType: string = 'move',
-  ) {
-    this._item.moveItemInstance(instanceId, to, attribution, moveType);
-  }
-  markItemLost(instanceId: number) {
-    this._item.markItemLost(instanceId);
-  }
+  /** @deprecated Use `db.item.markAllItemsLost()` instead. */
   markAllItemsLost() {
-    this._item.markAllItemsLost();
+    this.item.markAllItemsLost();
   }
-  touchItemInstance(instanceId: number) {
-    this._item.touchItemInstance(instanceId);
-  }
+  /** @deprecated Use `db.item.findItemByFingerprint(fingerprint)` instead. */
   findItemByFingerprint(fingerprint: string) {
-    return this._item.findItemByFingerprint(fingerprint);
+    return this.item.findItemByFingerprint(fingerprint);
   }
+  /** @deprecated Use `db.item.findItemsByFingerprint(fingerprint)` instead. */
   findItemsByFingerprint(fingerprint: string) {
-    return this._item.findItemsByFingerprint(fingerprint);
+    return this.item.findItemsByFingerprint(fingerprint);
   }
+  /** @deprecated Use `db.item.getItemInstance(id)` instead. */
   getItemInstance(id: number) {
-    return this._item.getItemInstance(id);
+    return this.item.getItemInstance(id);
   }
+  /** @deprecated Use `db.item.getActiveItemInstances()` instead. */
   getActiveItemInstances() {
-    return this._item.getActiveItemInstances();
+    return this.item.getActiveItemInstances();
   }
+  /** @deprecated Use `db.item.getItemInstancesByItem(item)` instead. */
   getItemInstancesByItem(item: string) {
-    return this._item.getItemInstancesByItem(item);
+    return this.item.getItemInstancesByItem(item);
   }
+  /** @deprecated Use `db.item.getItemInstancesByLocation(locationType, locationId)` instead. */
   getItemInstancesByLocation(locationType: string, locationId: string) {
-    return this._item.getItemInstancesByLocation(locationType, locationId);
+    return this.item.getItemInstancesByLocation(locationType, locationId);
   }
+  /** @deprecated Use `db.item.getItemInstanceCount()` instead. */
   getItemInstanceCount() {
-    return this._item.getItemInstanceCount();
+    return this.item.getItemInstanceCount();
   }
+  /** @deprecated Use `db.item.searchItemInstances(query, limit)` instead. */
   searchItemInstances(query: string, limit = 50) {
-    return this._item.searchItemInstances(query, limit);
+    return this.item.searchItemInstances(query, limit);
   }
+  /** @deprecated Use `db.item.purgeOldLostItems(age)` instead. */
   purgeOldLostItems(age = '-30 days') {
-    return this._item.purgeOldLostItems(age);
+    return this.item.purgeOldLostItems(age);
   }
+  /** @deprecated Use `db.item.getItemInstancesByGroup(groupId)` instead. */
   getItemInstancesByGroup(groupId: number) {
-    return this._item.getItemInstancesByGroup(groupId);
+    return this.item.getItemInstancesByGroup(groupId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Item groups — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
-  upsertItemGroup(group: Record<string, unknown>) {
-    return this._item.upsertItemGroup(group);
-  }
-  updateItemGroupQuantity(groupId: number, quantity: number) {
-    this._item.updateItemGroupQuantity(groupId, quantity);
-  }
+  /** @deprecated Use `db.item.updateItemGroupLocation(groupId, to)` instead. */
   updateItemGroupLocation(groupId: number, to: Record<string, unknown>) {
-    this._item.updateItemGroupLocation(groupId, to);
+    this.item.updateItemGroupLocation(groupId, to);
   }
-  markItemGroupLost(groupId: number) {
-    this._item.markItemGroupLost(groupId);
-  }
+  /** @deprecated Use `db.item.markAllItemGroupsLost()` instead. */
   markAllItemGroupsLost() {
-    this._item.markAllItemGroupsLost();
+    this.item.markAllItemGroupsLost();
   }
-  touchItemGroup(groupId: number) {
-    this._item.touchItemGroup(groupId);
-  }
+  /** @deprecated Use `db.item.findActiveGroupByLocation(fingerprint, locationType, locationId, locationSlot)` instead. */
   findActiveGroupByLocation(fingerprint: string, locationType: string, locationId: string, locationSlot: string) {
-    return this._item.findActiveGroupByLocation(fingerprint, locationType, locationId, locationSlot);
+    return this.item.findActiveGroupByLocation(fingerprint, locationType, locationId, locationSlot);
   }
+  /** @deprecated Use `db.item.findActiveGroupsByFingerprint(fingerprint)` instead. */
   findActiveGroupsByFingerprint(fingerprint: string) {
-    return this._item.findActiveGroupsByFingerprint(fingerprint);
+    return this.item.findActiveGroupsByFingerprint(fingerprint);
   }
+  /** @deprecated Use `db.item.getItemGroup(id)` instead. */
   getItemGroup(id: number) {
-    return this._item.getItemGroup(id);
+    return this.item.getItemGroup(id);
   }
+  /** @deprecated Use `db.item.getActiveItemGroups()` instead. */
   getActiveItemGroups() {
-    return this._item.getActiveItemGroups();
+    return this.item.getActiveItemGroups();
   }
+  /** @deprecated Use `db.item.getItemGroupsByItem(item)` instead. */
   getItemGroupsByItem(item: string) {
-    return this._item.getItemGroupsByItem(item);
+    return this.item.getItemGroupsByItem(item);
   }
+  /** @deprecated Use `db.item.getItemGroupsByLocation(locationType, locationId)` instead. */
   getItemGroupsByLocation(locationType: string, locationId: string) {
-    return this._item.getItemGroupsByLocation(locationType, locationId);
+    return this.item.getItemGroupsByLocation(locationType, locationId);
   }
+  /** @deprecated Use `db.item.getItemGroupCount()` instead. */
   getItemGroupCount() {
-    return this._item.getItemGroupCount();
+    return this.item.getItemGroupCount();
   }
+  /** @deprecated Use `db.item.searchItemGroups(query, limit)` instead. */
   searchItemGroups(query: string, limit = 50) {
-    return this._item.searchItemGroups(query, limit);
+    return this.item.searchItemGroups(query, limit);
   }
+  /** @deprecated Use `db.item.purgeOldLostGroups(age)` instead. */
   purgeOldLostGroups(age = '-30 days') {
-    return this._item.purgeOldLostGroups(age);
-  }
-  recordGroupMovement(opts: Record<string, unknown>): void {
-    this._item.recordGroupMovement(opts);
+    return this.item.purgeOldLostGroups(age);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Item movements — delegation to ItemRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.item.getItemMovements(instanceId)` instead. */
   getItemMovements(instanceId: number) {
-    return this._item.getItemMovements(instanceId);
+    return this.item.getItemMovements(instanceId);
   }
+  /** @deprecated Use `db.item.getItemMovementsByGroup(groupId)` instead. */
   getItemMovementsByGroup(groupId: number) {
-    return this._item.getItemMovementsByGroup(groupId);
+    return this.item.getItemMovementsByGroup(groupId);
   }
+  /** @deprecated Use `db.item.getRecentItemMovements(limit)` instead. */
   getRecentItemMovements(limit = 50) {
-    return this._item.getRecentItemMovements(limit);
+    return this.item.getRecentItemMovements(limit);
   }
+  /** @deprecated Use `db.item.getItemMovementsByPlayer(steamId, limit)` instead. */
   getItemMovementsByPlayer(steamId: string, limit = 50) {
-    return this._item.getItemMovementsByPlayer(steamId, limit);
+    return this.item.getItemMovementsByPlayer(steamId, limit);
   }
+  /** @deprecated Use `db.item.getItemMovementsByLocation(locationType, locationId, limit)` instead. */
   getItemMovementsByLocation(locationType: string, locationId: string, limit = 50) {
-    return this._item.getItemMovementsByLocation(locationType, locationId, limit);
+    return this.item.getItemMovementsByLocation(locationType, locationId, limit);
   }
+  /** @deprecated Use `db.item.purgeOldMovements(age)` instead. */
   purgeOldMovements(age = '-30 days') {
-    return this._item.purgeOldMovements(age);
+    return this.item.purgeOldMovements(age);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  World drops — delegation to WorldObjectRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.worldObject.replaceWorldDrops(drops)` instead. */
   replaceWorldDrops(drops: Array<Record<string, unknown>>): void {
-    this._worldObject.replaceWorldDrops(drops);
+    this.worldObject.replaceWorldDrops(drops);
   }
+  /** @deprecated Use `db.worldObject.getAllWorldDrops()` instead. */
   getAllWorldDrops() {
-    return this._worldObject.getAllWorldDrops();
+    return this.worldObject.getAllWorldDrops();
   }
+  /** @deprecated Use `db.worldObject.getWorldDropsByType(type)` instead. */
   getWorldDropsByType(type: string) {
-    return this._worldObject.getWorldDropsByType(type);
+    return this.worldObject.getWorldDropsByType(type);
   }
+  /** @deprecated Use `db.worldObject.getWorldDropsWithItems()` instead. */
   getWorldDropsWithItems() {
-    return this._worldObject.getWorldDropsWithItems();
+    return this.worldObject.getWorldDropsWithItems();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Quests
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.quest.replaceQuests(quests)` instead. */
   replaceQuests(quests: Array<Record<string, unknown>>): void {
-    this._quest.replaceQuests(quests);
+    this.quest.replaceQuests(quests);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1683,70 +1760,90 @@ class HumanitZDB {
   //  Activity log — delegation to ActivityLogRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.activityLog.insertActivity(entry)` instead. */
   insertActivity(entry: Record<string, unknown>) {
-    this._activityLog.insertActivity(entry);
+    this.activityLog.insertActivity(entry);
   }
+  /** @deprecated Use `db.activityLog.insertActivities(entries)` instead. */
   insertActivities(entries: Array<Record<string, unknown>>): void {
-    this._activityLog.insertActivities(entries);
+    this.activityLog.insertActivities(entries);
   }
+  /** @deprecated Use `db.activityLog.insertActivitiesAt(entries)` instead. */
   insertActivitiesAt(entries: Array<Record<string, unknown>>): void {
-    this._activityLog.insertActivitiesAt(entries);
+    this.activityLog.insertActivitiesAt(entries);
   }
+  /** @deprecated Use `db.activityLog.clearActivityLog()` instead. */
   clearActivityLog() {
-    this._activityLog.clearActivityLog();
+    this.activityLog.clearActivityLog();
   }
+  /** @deprecated Use `db.activityLog.getRecentActivity(limit, offset)` instead. */
   getRecentActivity(limit = 50, offset = 0) {
-    return this._activityLog.getRecentActivity(limit, offset);
+    return this.activityLog.getRecentActivity(limit, offset);
   }
+  /** @deprecated Use `db.activityLog.getActivityByCategory(category, limit, offset)` instead. */
   getActivityByCategory(category: string, limit = 50, offset = 0) {
-    return this._activityLog.getActivityByCategory(category, limit, offset);
+    return this.activityLog.getActivityByCategory(category, limit, offset);
   }
+  /** @deprecated Use `db.activityLog.getActivityByActor(actor, limit, offset)` instead. */
   getActivityByActor(actor: string, limit = 50, offset = 0) {
-    return this._activityLog.getActivityByActor(actor, limit, offset);
+    return this.activityLog.getActivityByActor(actor, limit, offset);
   }
+  /** @deprecated Use `db.activityLog.getActivitySince(isoTimestamp)` instead. */
   getActivitySince(isoTimestamp: string) {
-    return this._activityLog.getActivitySince(isoTimestamp);
+    return this.activityLog.getActivitySince(isoTimestamp);
   }
+  /** @deprecated Use `db.activityLog.purgeOldActivity(olderThan)` instead. */
   purgeOldActivity(olderThan: string) {
-    return this._activityLog.purgeOldActivity(olderThan);
+    return this.activityLog.purgeOldActivity(olderThan);
   }
+  /** @deprecated Use `db.activityLog.getActivityCount()` instead. */
   getActivityCount() {
-    return this._activityLog.getActivityCount();
+    return this.activityLog.getActivityCount();
   }
+  /** @deprecated Use `db.activityLog.getActivityCountBySource()` instead. */
   getActivityCountBySource() {
-    return this._activityLog.getActivityCountBySource();
+    return this.activityLog.getActivityCountBySource();
   }
+  /** @deprecated Use `db.activityLog.getActivitySinceBySource(isoTimestamp, source)` instead. */
   getActivitySinceBySource(isoTimestamp: string, source: string) {
-    return this._activityLog.getActivitySinceBySource(isoTimestamp, source);
+    return this.activityLog.getActivitySinceBySource(isoTimestamp, source);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Chat log — delegation to ChatLogRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.chatLog.insertChat(entry)` instead. */
   insertChat(entry: Record<string, unknown>) {
-    this._chatLog.insertChat(entry);
+    this.chatLog.insertChat(entry);
   }
+  /** @deprecated Use `db.chatLog.insertChatAt(entry)` instead. */
   insertChatAt(entry: Record<string, unknown>) {
-    this._chatLog.insertChatAt(entry);
+    this.chatLog.insertChatAt(entry);
   }
+  /** @deprecated Use `db.chatLog.getRecentChat(limit)` instead. */
   getRecentChat(limit = 50) {
-    return this._chatLog.getRecentChat(limit);
+    return this.chatLog.getRecentChat(limit);
   }
+  /** @deprecated Use `db.chatLog.searchChat(query, limit)` instead. */
   searchChat(query: string, limit = 200) {
-    return this._chatLog.searchChat(query, limit);
+    return this.chatLog.searchChat(query, limit);
   }
+  /** @deprecated Use `db.chatLog.getChatSince(isoTimestamp)` instead. */
   getChatSince(isoTimestamp: string) {
-    return this._chatLog.getChatSince(isoTimestamp);
+    return this.chatLog.getChatSince(isoTimestamp);
   }
+  /** @deprecated Use `db.chatLog.clearChatLog()` instead. */
   clearChatLog() {
-    this._chatLog.clearChatLog();
+    this.chatLog.clearChatLog();
   }
+  /** @deprecated Use `db.chatLog.purgeOldChat(olderThan)` instead. */
   purgeOldChat(olderThan: string) {
-    return this._chatLog.purgeOldChat(olderThan);
+    return this.chatLog.purgeOldChat(olderThan);
   }
+  /** @deprecated Use `db.chatLog.getChatCount()` instead. */
   getChatCount() {
-    return this._chatLog.getChatCount();
+    return this.chatLog.getChatCount();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1761,7 +1858,7 @@ class HumanitZDB {
   bulkUpsertPlayers(players: Map<string, Record<string, unknown>>): void {
     const tx = this._handle.transaction((entries: Array<[string, Record<string, unknown>]>) => {
       for (const [steamId, data] of entries) {
-        this._player.upsertPlayer(steamId, data);
+        this.player.upsertPlayer(steamId, data);
       }
     });
     tx([...players.entries()]);
@@ -1782,22 +1879,22 @@ class HumanitZDB {
 
       // Auxiliary entity sync — all in the SAME transaction
       if (Array.isArray(data.deadBodies) && data.deadBodies.length > 0) {
-        this._worldObject.innerReplaceDeadBodies(data.deadBodies as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceDeadBodies(data.deadBodies as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.containers) && data.containers.length > 0) {
-        this._worldObject.innerReplaceContainers(data.containers as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceContainers(data.containers as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.lootActors) && data.lootActors.length > 0) {
-        this._worldObject.innerReplaceLootActors(data.lootActors as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceLootActors(data.lootActors as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.quests) && data.quests.length > 0) {
-        this._quest.innerReplaceQuests(data.quests as Array<Record<string, unknown>>);
+        this.quest.innerReplaceQuests(data.quests as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.horses) && data.horses.length > 0) {
-        this._worldObject.innerReplaceWorldHorses(data.horses as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceWorldHorses(data.horses as Array<Record<string, unknown>>);
       }
       if (Array.isArray(data.worldDrops) && data.worldDrops.length > 0) {
-        this._worldObject.innerReplaceWorldDrops(data.worldDrops as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceWorldDrops(data.worldDrops as Array<Record<string, unknown>>);
       }
     });
     tx();
@@ -1821,7 +1918,7 @@ class HumanitZDB {
     if (parsed.players) {
       const players = parsed.players as Map<string, Record<string, unknown>>;
       for (const [steamId, data] of players) {
-        this._player.upsertPlayer(steamId, data);
+        this.player.upsertPlayer(steamId, data);
       }
     }
 
@@ -1835,23 +1932,23 @@ class HumanitZDB {
 
     // Structures
     if (parsed.structures) {
-      this._worldObject.innerReplaceStructures(parsed.structures as Array<Record<string, unknown>>);
+      this.worldObject.innerReplaceStructures(parsed.structures as Array<Record<string, unknown>>);
     }
 
     // Vehicles
     if (parsed.vehicles) {
-      this._worldObject.innerReplaceVehicles(parsed.vehicles as Array<Record<string, unknown>>);
+      this.worldObject.innerReplaceVehicles(parsed.vehicles as Array<Record<string, unknown>>);
     }
 
     // Companions
     if (parsed.companions) {
-      this._worldObject.innerReplaceCompanions(parsed.companions as Array<Record<string, unknown>>);
+      this.worldObject.innerReplaceCompanions(parsed.companions as Array<Record<string, unknown>>);
     }
 
     // Clans
     if (parsed.clans) {
       for (const clan of parsed.clans as Array<Record<string, unknown>>) {
-        this._clan.upsertClan(clan.name as string, clan.members as Array<Record<string, unknown>>);
+        this.clan.upsertClan(clan.name as string, clan.members as Array<Record<string, unknown>>);
       }
     }
 
@@ -1867,182 +1964,236 @@ class HumanitZDB {
   //  Game reference data seeding — delegation to GameDataRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.gameData.seedGameItems(items)` instead. */
   seedGameItems(items: Array<Record<string, unknown>>): void {
-    this._gameData.seedGameItems(items);
+    this.gameData.seedGameItems(items);
   }
+  /** @deprecated Use `db.gameData.getGameItem(id)` instead. */
   getGameItem(id: number) {
-    return this._gameData.getGameItem(id);
+    return this.gameData.getGameItem(id);
   }
+  /** @deprecated Use `db.gameData.searchGameItems(query)` instead. */
   searchGameItems(query: string) {
-    return this._gameData.searchGameItems(query);
+    return this.gameData.searchGameItems(query);
   }
+  /** @deprecated Use `db.gameData.seedGameProfessions(professions)` instead. */
   seedGameProfessions(professions: Array<Record<string, unknown>>) {
-    this._gameData.seedGameProfessions(professions);
+    this.gameData.seedGameProfessions(professions);
   }
+  /** @deprecated Use `db.gameData.seedGameAfflictions(afflictions)` instead. */
   seedGameAfflictions(afflictions: Array<Record<string, unknown>>) {
-    this._gameData.seedGameAfflictions(afflictions);
+    this.gameData.seedGameAfflictions(afflictions);
   }
+  /** @deprecated Use `db.gameData.seedGameSkills(skills)` instead. */
   seedGameSkills(skills: Array<Record<string, unknown>>) {
-    this._gameData.seedGameSkills(skills);
+    this.gameData.seedGameSkills(skills);
   }
+  /** @deprecated Use `db.gameData.seedGameChallenges(challenges)` instead. */
   seedGameChallenges(challenges: Array<Record<string, unknown>>) {
-    this._gameData.seedGameChallenges(challenges);
+    this.gameData.seedGameChallenges(challenges);
   }
+  /** @deprecated Use `db.gameData.seedLoadingTips(tips)` instead. */
   seedLoadingTips(tips: Array<Record<string, unknown> | string>): void {
-    this._gameData.seedLoadingTips(tips);
+    this.gameData.seedLoadingTips(tips);
   }
+  /** @deprecated Use `db.gameData.getRandomTip()` instead. */
   getRandomTip() {
-    return this._gameData.getRandomTip();
+    return this.gameData.getRandomTip();
   }
+  /** @deprecated Use `db.gameData.seedGameBuildings(buildings)` instead. */
   seedGameBuildings(buildings: Array<Record<string, unknown>>) {
-    this._gameData.seedGameBuildings(buildings);
+    this.gameData.seedGameBuildings(buildings);
   }
+  /** @deprecated Use `db.gameData.seedGameLootPools(lootTables)` instead. */
   seedGameLootPools(lootTables: Record<string, Record<string, unknown>>) {
-    this._gameData.seedGameLootPools(lootTables);
+    this.gameData.seedGameLootPools(lootTables);
   }
+  /** @deprecated Use `db.gameData.seedGameVehiclesRef(vehicles)` instead. */
   seedGameVehiclesRef(vehicles: Array<Record<string, unknown>>) {
-    this._gameData.seedGameVehiclesRef(vehicles);
+    this.gameData.seedGameVehiclesRef(vehicles);
   }
+  /** @deprecated Use `db.gameData.seedGameAnimals(animals)` instead. */
   seedGameAnimals(animals: Array<Record<string, unknown>>) {
-    this._gameData.seedGameAnimals(animals);
+    this.gameData.seedGameAnimals(animals);
   }
+  /** @deprecated Use `db.gameData.seedGameCrops(crops)` instead. */
   seedGameCrops(crops: Array<Record<string, unknown>>) {
-    this._gameData.seedGameCrops(crops);
+    this.gameData.seedGameCrops(crops);
   }
+  /** @deprecated Use `db.gameData.seedGameCarUpgrades(upgrades)` instead. */
   seedGameCarUpgrades(upgrades: Array<Record<string, unknown>>) {
-    this._gameData.seedGameCarUpgrades(upgrades);
+    this.gameData.seedGameCarUpgrades(upgrades);
   }
+  /** @deprecated Use `db.gameData.seedGameAmmoTypes(ammo)` instead. */
   seedGameAmmoTypes(ammo: Array<Record<string, unknown>>) {
-    this._gameData.seedGameAmmoTypes(ammo);
+    this.gameData.seedGameAmmoTypes(ammo);
   }
+  /** @deprecated Use `db.gameData.seedGameRepairData(repairs)` instead. */
   seedGameRepairData(repairs: Array<Record<string, unknown>>) {
-    this._gameData.seedGameRepairData(repairs);
+    this.gameData.seedGameRepairData(repairs);
   }
+  /** @deprecated Use `db.gameData.seedGameFurniture(furniture)` instead. */
   seedGameFurniture(furniture: Array<Record<string, unknown>>) {
-    this._gameData.seedGameFurniture(furniture);
+    this.gameData.seedGameFurniture(furniture);
   }
+  /** @deprecated Use `db.gameData.seedGameTraps(traps)` instead. */
   seedGameTraps(traps: Array<Record<string, unknown>>) {
-    this._gameData.seedGameTraps(traps);
+    this.gameData.seedGameTraps(traps);
   }
+  /** @deprecated Use `db.gameData.seedGameSprays(sprays)` instead. */
   seedGameSprays(sprays: Array<Record<string, unknown>>) {
-    this._gameData.seedGameSprays(sprays);
+    this.gameData.seedGameSprays(sprays);
   }
+  /** @deprecated Use `db.gameData.seedGameRecipes(recipes)` instead. */
   seedGameRecipes(recipes: Array<Record<string, unknown>>) {
-    this._gameData.seedGameRecipes(recipes);
+    this.gameData.seedGameRecipes(recipes);
   }
+  /** @deprecated Use `db.gameData.seedGameLore(lore)` instead. */
   seedGameLore(lore: Array<Record<string, unknown>>) {
-    this._gameData.seedGameLore(lore);
+    this.gameData.seedGameLore(lore);
   }
+  /** @deprecated Use `db.gameData.seedGameQuests(quests)` instead. */
   seedGameQuests(quests: Array<Record<string, unknown>>) {
-    this._gameData.seedGameQuests(quests);
+    this.gameData.seedGameQuests(quests);
   }
+  /** @deprecated Use `db.gameData.seedGameSpawnLocations(spawns)` instead. */
   seedGameSpawnLocations(spawns: Array<Record<string, unknown>>) {
-    this._gameData.seedGameSpawnLocations(spawns);
+    this.gameData.seedGameSpawnLocations(spawns);
   }
+  /** @deprecated Use `db.gameData.seedGameServerSettingDefs(settings)` instead. */
   seedGameServerSettingDefs(settings: Array<Record<string, unknown>>) {
-    this._gameData.seedGameServerSettingDefs(settings);
+    this.gameData.seedGameServerSettingDefs(settings);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Timeline — delegation to TimelineRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.timeline.insertTimelineSnapshot(data)` instead. */
   insertTimelineSnapshot(data: Record<string, unknown>): number {
-    return this._timeline.insertTimelineSnapshot(data);
+    return this.timeline.insertTimelineSnapshot(data);
   }
+  /** @deprecated Use `db.timeline.getTimelineSnapshots(limit)` instead. */
   getTimelineSnapshots(limit = 50): DbRow[] {
-    return this._timeline.getTimelineSnapshots(limit);
+    return this.timeline.getTimelineSnapshots(limit);
   }
+  /** @deprecated Use `db.timeline.getTimelineSnapshotRange(from, to)` instead. */
   getTimelineSnapshotRange(from: string, to: string): DbRow[] {
-    return this._timeline.getTimelineSnapshotRange(from, to);
+    return this.timeline.getTimelineSnapshotRange(from, to);
   }
+  /** @deprecated Use `db.timeline.getTimelineSnapshotFull(snapshotId)` instead. */
   getTimelineSnapshotFull(snapshotId: number) {
-    return this._timeline.getTimelineSnapshotFull(snapshotId);
+    return this.timeline.getTimelineSnapshotFull(snapshotId);
   }
+  /** @deprecated Use `db.timeline.getTimelineBounds()` instead. */
   getTimelineBounds() {
-    return this._timeline.getTimelineBounds();
+    return this.timeline.getTimelineBounds();
   }
+  /** @deprecated Use `db.timeline.getPlayerPositionHistory(steamId, from, to)` instead. */
   getPlayerPositionHistory(steamId: string, from: string, to: string) {
-    return this._timeline.getPlayerPositionHistory(steamId, from, to);
+    return this.timeline.getPlayerPositionHistory(steamId, from, to);
   }
+  /** @deprecated Use `db.timeline.getAIPopulationHistory(from, to)` instead. */
   getAIPopulationHistory(from: string, to: string) {
-    return this._timeline.getAIPopulationHistory(from, to);
+    return this.timeline.getAIPopulationHistory(from, to);
   }
+  /** @deprecated Use `db.timeline.purgeOldTimeline(olderThan)` instead. */
   purgeOldTimeline(olderThan: string = '-7 days') {
-    return this._timeline.purgeOldTimeline(olderThan);
+    return this.timeline.purgeOldTimeline(olderThan);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Death causes — delegation to DeathCauseRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.deathCause.insertDeathCause(data)` instead. */
   insertDeathCause(data: Record<string, unknown>): void {
-    this._deathCause.insertDeathCause(data);
+    this.deathCause.insertDeathCause(data);
   }
+  /** @deprecated Use `db.deathCause.getDeathCauses(limit)` instead. */
   getDeathCauses(limit = 50) {
-    return this._deathCause.getDeathCauses(limit);
+    return this.deathCause.getDeathCauses(limit);
   }
+  /** @deprecated Use `db.deathCause.getDeathCausesByPlayer(nameOrSteamId, limit)` instead. */
   getDeathCausesByPlayer(nameOrSteamId: string, limit = 50) {
-    return this._deathCause.getDeathCausesByPlayer(nameOrSteamId, limit);
+    return this.deathCause.getDeathCausesByPlayer(nameOrSteamId, limit);
   }
+  /** @deprecated Use `db.deathCause.getDeathCauseStats()` instead. */
   getDeathCauseStats() {
-    return this._deathCause.getDeathCauseStats();
+    return this.deathCause.getDeathCauseStats();
   }
+  /** @deprecated Use `db.deathCause.getDeathCausesSince(since)` instead. */
   getDeathCausesSince(since: string) {
-    return this._deathCause.getDeathCausesSince(since);
+    return this.deathCause.getDeathCausesSince(since);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  Anticheat — delegation to AntiCheatRepository
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** @deprecated Use `db.antiCheat.insertAcFlag(input)` instead. */
   insertAcFlag(input: Record<string, unknown>): number | bigint {
-    return this._antiCheat.insertAcFlag(input);
+    return this.antiCheat.insertAcFlag(input);
   }
+  /** @deprecated Use `db.antiCheat.getAcFlags(status, limit)` instead. */
   getAcFlags(status: string = 'open', limit = 100) {
-    return this._antiCheat.getAcFlags(status, limit);
+    return this.antiCheat.getAcFlags(status, limit);
   }
+  /** @deprecated Use `db.antiCheat.getAcFlagsBySteam(steamId, limit)` instead. */
   getAcFlagsBySteam(steamId: string, limit = 100) {
-    return this._antiCheat.getAcFlagsBySteam(steamId, limit);
+    return this.antiCheat.getAcFlagsBySteam(steamId, limit);
   }
+  /** @deprecated Use `db.antiCheat.getAcFlagsByDetector(detector, status, limit)` instead. */
   getAcFlagsByDetector(detector: string, status: string = 'open', limit = 100) {
-    return this._antiCheat.getAcFlagsByDetector(detector, status, limit);
+    return this.antiCheat.getAcFlagsByDetector(detector, status, limit);
   }
+  /** @deprecated Use `db.antiCheat.getAcFlagsSince(steamId, since)` instead. */
   getAcFlagsSince(steamId: string, since: string) {
-    return this._antiCheat.getAcFlagsSince(steamId, since);
+    return this.antiCheat.getAcFlagsSince(steamId, since);
   }
+  /** @deprecated Use `db.antiCheat.getAcFlagCount(steamId, sev1, sev2, status, since)` instead. */
   getAcFlagCount(steamId: string, sev1: string, sev2: string, status: string, since: string) {
-    return this._antiCheat.getAcFlagCount(steamId, sev1, sev2, status, since);
+    return this.antiCheat.getAcFlagCount(steamId, sev1, sev2, status, since);
   }
+  /** @deprecated Use `db.antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes)` instead. */
   updateAcFlagStatus(flagId: number, status: string, reviewedBy: string | null = null, notes: string | null = null) {
-    this._antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes);
+    this.antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes);
   }
+  /** @deprecated Use `db.antiCheat.escalateAcFlag(flagId, newSeverity)` instead. */
   escalateAcFlag(flagId: number, newSeverity: string) {
-    this._antiCheat.escalateAcFlag(flagId, newSeverity);
+    this.antiCheat.escalateAcFlag(flagId, newSeverity);
   }
+  /** @deprecated Use `db.antiCheat.upsertRiskScore(data)` instead. */
   upsertRiskScore(data: Record<string, unknown>): void {
-    this._antiCheat.upsertRiskScore(data);
+    this.antiCheat.upsertRiskScore(data);
   }
+  /** @deprecated Use `db.antiCheat.getRiskScore(steamId)` instead. */
   getRiskScore(steamId: string) {
-    return this._antiCheat.getRiskScore(steamId);
+    return this.antiCheat.getRiskScore(steamId);
   }
+  /** @deprecated Use `db.antiCheat.getAllRiskScores()` instead. */
   getAllRiskScores() {
-    return this._antiCheat.getAllRiskScores();
+    return this.antiCheat.getAllRiskScores();
   }
+  /** @deprecated Use `db.antiCheat.upsertFingerprint(fp)` instead. */
   upsertFingerprint(fp: Record<string, unknown>): void {
-    this._antiCheat.upsertFingerprint(fp);
+    this.antiCheat.upsertFingerprint(fp);
   }
+  /** @deprecated Use `db.antiCheat.getFingerprint(entityType, entityId)` instead. */
   getFingerprint(entityType: string, entityId: string) {
-    return this._antiCheat.getFingerprint(entityType, entityId);
+    return this.antiCheat.getFingerprint(entityType, entityId);
   }
+  /** @deprecated Use `db.antiCheat.getFingerprintsByType(entityType)` instead. */
   getFingerprintsByType(entityType: string) {
-    return this._antiCheat.getFingerprintsByType(entityType);
+    return this.antiCheat.getFingerprintsByType(entityType);
   }
+  /** @deprecated Use `db.antiCheat.insertFingerprintEvent(evt)` instead. */
   insertFingerprintEvent(evt: Record<string, unknown>): number | bigint {
-    return this._antiCheat.insertFingerprintEvent(evt);
+    return this.antiCheat.insertFingerprintEvent(evt);
   }
+  /** @deprecated Use `db.antiCheat.getFingerprintEvents(fingerprintId, limit)` instead. */
   getFingerprintEvents(fingerprintId: number, limit = 50) {
-    return this._antiCheat.getFingerprintEvents(fingerprintId, limit);
+    return this.antiCheat.getFingerprintEvents(fingerprintId, limit);
   }
 }
 

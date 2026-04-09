@@ -170,7 +170,7 @@ export class PlaytimeTracker {
     // real DB values on the next _persistPlaytime() call.
     if (this._data) {
       try {
-        const rows = db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
+        const rows = db.player.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
         if (rows.length > 0) {
           let reloaded = 0;
           for (const row of rows) {
@@ -255,7 +255,7 @@ export class PlaytimeTracker {
     // Register alias in unified identity DB
     if (this._db) {
       try {
-        this._db.registerAlias(id, name, 'playtime');
+        this._db.player.registerAlias(id, name, 'playtime');
       } catch (_) {
         /* non-critical */
       }
@@ -458,11 +458,11 @@ export class PlaytimeTracker {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
+      const rows = this._db.player.getAllPlayerPlaytime() as unknown as DbPlaytimeRow[]; // SAFETY: DB row shape validated by schema
       if (rows.length === 0) return; // DB empty — fall through to JSON
 
       // Load peaks from server_peaks table
-      const peaksData = this._db.getAllServerPeaks() as DbPeaksRow;
+      const peaksData = this._db.player.getAllServerPeaks() as DbPeaksRow;
       const peaks: PeaksData = {
         allTimePeak: parseInt(peaksData.all_time_peak ?? '0', 10),
         allTimePeakDate: peaksData.all_time_peak_date ?? null,
@@ -503,7 +503,7 @@ export class PlaytimeTracker {
     const record = this._data?.players[steamId];
     if (!record) return;
     try {
-      this._db.upsertFullPlaytime(steamId, {
+      this._db.player.upsertFullPlaytime(steamId, {
         name: record.name || '',
         totalMs: record.totalMs,
         sessions: record.sessions,
@@ -525,14 +525,14 @@ export class PlaytimeTracker {
     const peaks = this._data?.peaks;
     if (!peaks) return;
     try {
-      this._db.setServerPeak('all_time_peak', String(peaks.allTimePeak));
-      this._db.setServerPeak('all_time_peak_date', peaks.allTimePeakDate ?? '');
-      this._db.setServerPeak('today_peak', String(peaks.todayPeak));
-      this._db.setServerPeak('today_date', peaks.todayDate);
-      this._db.setServerPeak('unique_today', JSON.stringify(peaks.uniqueToday));
-      this._db.setServerPeak('unique_day_peak', String(peaks.uniqueDayPeak));
-      this._db.setServerPeak('unique_day_peak_date', peaks.uniqueDayPeakDate ?? '');
-      this._db.setServerPeak('yesterday_unique', String(peaks.yesterdayUnique));
+      this._db.player.setServerPeak('all_time_peak', String(peaks.allTimePeak));
+      this._db.player.setServerPeak('all_time_peak_date', peaks.allTimePeakDate ?? '');
+      this._db.player.setServerPeak('today_peak', String(peaks.todayPeak));
+      this._db.player.setServerPeak('today_date', peaks.todayDate);
+      this._db.player.setServerPeak('unique_today', JSON.stringify(peaks.uniqueToday));
+      this._db.player.setServerPeak('unique_day_peak', String(peaks.uniqueDayPeak));
+      this._db.player.setServerPeak('unique_day_peak_date', peaks.uniqueDayPeakDate ?? '');
+      this._db.player.setServerPeak('yesterday_unique', String(peaks.yesterdayUnique));
     } catch (_err) {
       // Non-critical
     }

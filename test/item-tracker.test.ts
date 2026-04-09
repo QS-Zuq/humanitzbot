@@ -62,7 +62,7 @@ describe('Item Tracker', () => {
       assert.equal(stats.moved, 0);
       assert.equal(stats.lost, 0);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       assert.equal(instances.length, 2);
 
       const ak = instances.find((i: any) => i.item === 'AK47');
@@ -164,12 +164,12 @@ describe('Item Tracker', () => {
       assert.equal(stats.moved, 1);
       assert.equal(stats.lost, 0);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       const ak = instances.find((i: any) => i.item === 'AK47');
       assert.equal(ak.location_type, 'container');
       assert.equal(ak.location_id, 'StorageChest_1');
 
-      const movements = db.getItemMovements(ak.id);
+      const movements = db.item.getItemMovements(ak.id);
       assert.equal(movements.length, 1);
       assert.equal(movements[0].from_type, 'player');
       assert.equal(movements[0].from_id, '76561100000000001');
@@ -225,7 +225,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snap2);
       assert.equal(stats.lost, 1);
 
-      const active = db.getActiveItemInstances();
+      const active = db.item.getActiveItemInstances();
       assert.equal(active.length, 0);
     });
 
@@ -250,7 +250,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       assert.equal(instances[0].location_type, 'vehicle');
       assert.equal(instances[0].location_slot, 'trunk');
     });
@@ -277,7 +277,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       assert.equal(instances[0].location_type, 'horse');
       assert.equal(instances[0].location_slot, 'saddle');
     });
@@ -298,7 +298,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       assert.equal(instances[0].location_type, 'world_drop');
       assert.equal(instances[0].item, 'Axe');
     });
@@ -338,7 +338,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snap1);
       assert.equal(stats.created, 2);
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       const playerNails = instances.find((i: any) => i.location_type === 'player');
       const chestNails = instances.find((i: any) => i.location_type === 'container');
       assert.ok(playerNails);
@@ -374,10 +374,10 @@ describe('Item Tracker', () => {
       };
       reconcileItems(db, snapshot);
 
-      const akItems = db.searchItemInstances('AK47');
+      const akItems = db.item.searchItemInstances('AK47');
       assert.equal(akItems.length, 2);
 
-      const shotgunItems = db.searchItemInstances('Shotgun');
+      const shotgunItems = db.item.searchItemInstances('Shotgun');
       assert.equal(shotgunItems.length, 1);
     });
 
@@ -408,12 +408,12 @@ describe('Item Tracker', () => {
       };
       reconcileItems(db, snapshot);
 
-      const allAk = db.searchItemInstances('AK47');
+      const allAk = db.item.searchItemInstances('AK47');
       assert.ok(allAk.length >= 1);
       const fp = allAk[0].fingerprint;
       assert.ok(fp, 'item should have a fingerprint');
 
-      const byFp = db.searchItemInstances(fp);
+      const byFp = db.item.searchItemInstances(fp);
       assert.ok(byFp.length >= 1);
       assert.equal(byFp[0].item, 'AK47');
     });
@@ -445,12 +445,12 @@ describe('Item Tracker', () => {
       };
       reconcileItems(db, snapshot);
 
-      const allNails = db.searchItemGroups('Nails');
+      const allNails = db.item.searchItemGroups('Nails');
       assert.ok(allNails.length >= 1);
       const fp = allNails[0].fingerprint;
       assert.ok(fp);
 
-      const byFp = db.searchItemGroups(fp);
+      const byFp = db.item.searchItemGroups(fp);
       assert.ok(byFp.length >= 1);
       assert.equal(byFp[0].item, 'Nails');
     });
@@ -570,9 +570,9 @@ describe('Item Tracker', () => {
         (steamId: string) => (steamId === '76561100000000001' ? 'TestPlayer' : steamId),
       );
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       const ak = instances.find((i: any) => i.item === 'AK47');
-      const movements = db.getItemMovements(ak.id);
+      const movements = db.item.getItemMovements(ak.id);
       assert.equal(movements.length, 1);
       assert.equal(movements[0].attributed_steam_id, '76561100000000001');
       assert.equal(movements[0].attributed_name, 'TestPlayer');
@@ -581,7 +581,7 @@ describe('Item Tracker', () => {
 
   describe('world drops DB methods', () => {
     it('replaceWorldDrops stores and retrieves drops', () => {
-      db.replaceWorldDrops([
+      db.worldObject.replaceWorldDrops([
         { type: 'pickup', item: 'Axe', amount: 1, durability: 0.7, x: 100, y: 200, z: 30 },
         { type: 'backpack', actorName: 'backpack_0', items: [{ item: 'Nails', amount: 10 }], x: 300, y: 400, z: 10 },
         {
@@ -595,33 +595,33 @@ describe('Item Tracker', () => {
         },
       ]);
 
-      const all = db.getAllWorldDrops();
+      const all = db.worldObject.getAllWorldDrops();
       assert.equal(all.length, 3);
 
-      const pickups = db.getWorldDropsByType('pickup');
+      const pickups = db.worldObject.getWorldDropsByType('pickup');
       assert.equal(pickups.length, 1);
       assert.equal(pickups[0].item, 'Axe');
 
-      const withItems = db.getWorldDropsWithItems();
+      const withItems = db.worldObject.getWorldDropsWithItems();
       assert.equal(withItems.length, 3);
     });
 
     it('replaceWorldDrops clears old data', () => {
-      db.replaceWorldDrops([
+      db.worldObject.replaceWorldDrops([
         { type: 'pickup', item: 'Axe', amount: 1, x: 100, y: 200, z: 30 },
         { type: 'pickup', item: 'Hammer', amount: 1, x: 150, y: 250, z: 30 },
       ]);
-      assert.equal(db.getAllWorldDrops().length, 2);
+      assert.equal(db.worldObject.getAllWorldDrops().length, 2);
 
-      db.replaceWorldDrops([{ type: 'pickup', item: 'Sword', amount: 1, x: 200, y: 300, z: 30 }]);
-      assert.equal(db.getAllWorldDrops().length, 1);
-      assert.equal(db.getAllWorldDrops()[0].item, 'Sword');
+      db.worldObject.replaceWorldDrops([{ type: 'pickup', item: 'Sword', amount: 1, x: 200, y: 300, z: 30 }]);
+      assert.equal(db.worldObject.getAllWorldDrops().length, 1);
+      assert.equal(db.worldObject.getAllWorldDrops()[0].item, 'Sword');
     });
   });
 
   describe('item movement queries', () => {
     it('getItemMovementsByPlayer returns player-attributed movements', () => {
-      const id = db.createItemInstance({
+      const id = db.item.createItemInstance({
         fingerprint: 'abc123def456',
         item: 'AK47',
         durability: 0.85,
@@ -634,7 +634,7 @@ describe('Item Tracker', () => {
         amount: 1,
       });
 
-      db.moveItemInstance(
+      db.item.moveItemInstance(
         id,
         {
           locationType: 'container',
@@ -648,13 +648,13 @@ describe('Item Tracker', () => {
         { steamId: '76561100000000001', name: 'TestPlayer' },
       );
 
-      const moves = db.getItemMovementsByPlayer('76561100000000001');
+      const moves = db.item.getItemMovementsByPlayer('76561100000000001');
       assert.equal(moves.length, 1);
       assert.equal(moves[0].item, 'AK47');
     });
 
     it('getItemMovementsByLocation returns all movements involving a location', () => {
-      const id = db.createItemInstance({
+      const id = db.item.createItemInstance({
         fingerprint: 'abc123def456',
         item: 'AK47',
         durability: 0.85,
@@ -667,7 +667,7 @@ describe('Item Tracker', () => {
         amount: 1,
       });
 
-      db.moveItemInstance(id, {
+      db.item.moveItemInstance(id, {
         locationType: 'player',
         locationId: '76561100000000001',
         locationSlot: 'inventory',
@@ -676,7 +676,7 @@ describe('Item Tracker', () => {
         z: 50,
       });
 
-      const moves = db.getItemMovementsByLocation('container', 'Chest_1');
+      const moves = db.item.getItemMovementsByLocation('container', 'Chest_1');
       assert.equal(moves.length, 1);
       assert.equal(moves[0].from_type, 'container');
       assert.equal(moves[0].from_id, 'Chest_1');
@@ -715,7 +715,7 @@ describe('Item Tracker', () => {
       assert.equal(stats.groups.created, 1);
       assert.equal(stats.created, 0);
 
-      const groups = db.getActiveItemGroups();
+      const groups = db.item.getActiveItemGroups();
       assert.equal(groups.length, 1);
       assert.equal(groups[0].item, 'Nails');
       assert.equal(groups[0].quantity, 3);
@@ -810,7 +810,7 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snap2);
       assert.equal(stats.groups.adjusted, 1);
 
-      const groups = db.getActiveItemGroups();
+      const groups = db.item.getActiveItemGroups();
       assert.equal(groups[0].quantity, 2);
     });
 
@@ -916,11 +916,11 @@ describe('Item Tracker', () => {
       assert.equal(stats.groups.created, 1);
       assert.equal(stats.created, 1);
 
-      const groups = db.getActiveItemGroups();
+      const groups = db.item.getActiveItemGroups();
       assert.equal(groups.length, 1);
       assert.equal(groups[0].item, 'Nails');
 
-      const instances = db.getActiveItemInstances();
+      const instances = db.item.getActiveItemInstances();
       const nonGroupInstances = instances.filter((i: any) => !i.group_id);
       assert.equal(nonGroupInstances.length, 1);
       assert.equal(nonGroupInstances[0].item, 'AK47');
@@ -977,14 +977,14 @@ describe('Item Tracker', () => {
       const stats = reconcileItems(db, snap2);
       assert.equal(stats.groups.lost, 1);
 
-      const activeGroups = db.getActiveItemGroups();
+      const activeGroups = db.item.getActiveItemGroups();
       assert.equal(activeGroups.length, 0);
     });
   });
 
   describe('item group DB methods', () => {
     it('upsertItemGroup creates and updates groups', () => {
-      const result1 = db.upsertItemGroup({
+      const result1 = db.item.upsertItemGroup({
         fingerprint: 'aaa111bbb222',
         item: 'Nails',
         locationType: 'player',
@@ -999,7 +999,7 @@ describe('Item Tracker', () => {
       assert.ok(result1.id > 0);
       assert.equal(result1.created, true);
 
-      const result2 = db.upsertItemGroup({
+      const result2 = db.item.upsertItemGroup({
         fingerprint: 'aaa111bbb222',
         item: 'Nails',
         locationType: 'player',
@@ -1013,12 +1013,12 @@ describe('Item Tracker', () => {
       assert.equal(result2.id, result1.id);
       assert.equal(result2.created, false);
 
-      const group = db.getItemGroup(result1.id);
+      const group = db.item.getItemGroup(result1.id);
       assert.equal(group.quantity, 5);
     });
 
     it('markItemGroupLost and purge', () => {
-      const { id } = db.upsertItemGroup({
+      const { id } = db.item.upsertItemGroup({
         fingerprint: 'aaa111bbb222',
         item: 'Nails',
         locationType: 'player',
@@ -1027,16 +1027,16 @@ describe('Item Tracker', () => {
         quantity: 3,
       });
 
-      db.markItemGroupLost(id);
-      const activeGroups = db.getActiveItemGroups();
+      db.item.markItemGroupLost(id);
+      const activeGroups = db.item.getActiveItemGroups();
       assert.equal(activeGroups.length, 0);
 
-      const group = db.getItemGroup(id);
+      const group = db.item.getItemGroup(id);
       assert.equal(group.lost, 1);
     });
 
     it('recordGroupMovement writes movement records', () => {
-      const { id: groupId } = db.upsertItemGroup({
+      const { id: groupId } = db.item.upsertItemGroup({
         fingerprint: 'aaa111bbb222',
         item: 'Nails',
         locationType: 'container',
@@ -1045,7 +1045,7 @@ describe('Item Tracker', () => {
         quantity: 5,
       });
 
-      db.recordGroupMovement({
+      db.item.recordGroupMovement({
         groupId,
         moveType: 'group_transfer',
         item: 'Nails',
@@ -1056,7 +1056,7 @@ describe('Item Tracker', () => {
         pos: { x: 100, y: 200, z: 50 },
       });
 
-      const movements = db.getItemMovementsByGroup(groupId);
+      const movements = db.item.getItemMovementsByGroup(groupId);
       assert.equal(movements.length, 1);
       assert.equal(movements[0].move_type, 'group_transfer');
       assert.equal(movements[0].item, 'Nails');
@@ -1065,7 +1065,7 @@ describe('Item Tracker', () => {
     });
 
     it('getItemGroupsByLocation returns groups at a location', () => {
-      db.upsertItemGroup({
+      db.item.upsertItemGroup({
         fingerprint: 'aaa111bbb222',
         item: 'Nails',
         locationType: 'container',
@@ -1073,7 +1073,7 @@ describe('Item Tracker', () => {
         locationSlot: 'items',
         quantity: 3,
       });
-      db.upsertItemGroup({
+      db.item.upsertItemGroup({
         fingerprint: 'ccc333ddd444',
         item: 'Wood',
         locationType: 'container',
@@ -1082,7 +1082,7 @@ describe('Item Tracker', () => {
         quantity: 5,
       });
 
-      const groups = db.getItemGroupsByLocation('container', 'Chest_1');
+      const groups = db.item.getItemGroupsByLocation('container', 'Chest_1');
       assert.equal(groups.length, 2);
     });
   });

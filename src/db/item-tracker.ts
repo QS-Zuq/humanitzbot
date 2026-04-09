@@ -19,6 +19,9 @@
  */
 
 import { normalizeInventory } from './item-fingerprint.js';
+// HumanitZDB is the canonical type; HumanitZDBLike below provides a typed
+// adapter so reconcileItems() can use db.item.xxx() with correct return types.
+// Once ItemRepository has typed return values, replace HumanitZDBLike with HumanitZDB.
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -123,19 +126,20 @@ interface SnapshotData {
 }
 
 interface HumanitZDBLike {
-  [key: string]: unknown;
-  getActiveItemInstances(): ItemInstance[];
-  touchItemInstance(id: number): void;
-  moveItemInstance(id: number, data: Record<string, unknown>, attribution: unknown, reason: string): void;
-  createItemInstance(data: Record<string, unknown>): number;
-  markItemLost(id: number): void;
-  getActiveItemGroups(): ItemGroup[];
-  touchItemGroup(id: number): void;
-  updateItemGroupQuantity(id: number, qty: number): void;
-  upsertItemGroup(data: Record<string, unknown>): { id: number };
-  markItemGroupLost(id: number): void;
-  getItemGroup(id: number): { item?: string } | undefined;
-  recordGroupMovement(data: Record<string, unknown>): void;
+  item: {
+    getActiveItemInstances(): ItemInstance[];
+    touchItemInstance(id: number): void;
+    moveItemInstance(id: number, data: Record<string, unknown>, attribution: unknown, reason: string): void;
+    createItemInstance(data: Record<string, unknown>): number;
+    markItemLost(id: number): void;
+    getActiveItemGroups(): ItemGroup[];
+    touchItemGroup(id: number): void;
+    updateItemGroupQuantity(id: number, qty: number): void;
+    upsertItemGroup(data: Record<string, unknown>): { id: number };
+    markItemGroupLost(id: number): void;
+    getItemGroup(id: number): { item?: string } | undefined;
+    recordGroupMovement(data: Record<string, unknown>): void;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -329,7 +333,7 @@ function _reconcileUniqueItems(
   nameResolver: ((steamId: string) => string) | undefined,
   stats: ReconcileStats,
 ): void {
-  const existing = db.getActiveItemInstances();
+  const existing = db.item.getActiveItemInstances();
   const existingByFP = new Map<string, ItemInstance[]>();
   for (const inst of existing) {
     if (inst.group_id) continue;
@@ -356,7 +360,7 @@ function _reconcileUniqueItems(
       exact._matched = true;
       ci._matchedInstanceId = exact.id;
       ci._matchType = 'exact';
-      db.touchItemInstance(exact.id);
+      db.item.touchItemInstance(exact.id);
       stats.matched++;
     }
   }
@@ -372,7 +376,7 @@ function _reconcileUniqueItems(
       ci._matchedInstanceId = moved.id;
       ci._matchType = 'moved';
       const attribution = _attributeMovement(ci, moved, snapshot, nameResolver);
-      db.moveItemInstance(
+      db.item.moveItemInstance(
         moved.id,
         {
           locationType: ci.locationType,
@@ -394,7 +398,7 @@ function _reconcileUniqueItems(
   // Pass 3: create new
   for (const ci of currentItems) {
     if (ci._matchedInstanceId) continue;
-    const id = db.createItemInstance({
+    const id = db.item.createItemInstance({
       fingerprint: ci.fingerprint,
       item: ci.item,
       durability: ci.durability,
@@ -419,7 +423,7 @@ function _reconcileUniqueItems(
   for (const candidates of existingByFP.values()) {
     for (const inst of candidates) {
       if (!inst._matched) {
-        db.markItemLost(inst.id);
+        db.item.markItemLost(inst.id);
         stats.lost++;
       }
     }
@@ -433,7 +437,7 @@ function _reconcileFungibleGroups(
   nameResolver: ((steamId: string) => string) | undefined,
   stats: ReconcileStats,
 ): void {
-  const existingGroups = db.getActiveItemGroups();
+  const existingGroups = db.item.getActiveItemGroups();
   const existingByFP = new Map<string, ItemGroup[]>();
   for (const g of existingGroups) {
     let list = existingByFP.get(g.fingerprint);
@@ -465,10 +469,10 @@ function _reconcileFungibleGroups(
       const newQty = cg.quantity;
 
       if (oldQty === newQty) {
-        db.touchItemGroup(exact.id);
+        db.item.touchItemGroup(exact.id);
         stats.groups.matched++;
       } else {
-        db.updateItemGroupQuantity(exact.id, newQty);
+        db.item.updateItemGroupQuantity(exact.id, newQty);
         stats.groups.adjusted++;
 
         let delta = deltas.get(cg.fingerprint);
@@ -501,7 +505,7 @@ function _reconcileFungibleGroups(
         }
       }
     } else {
-      const { id } = db.upsertItemGroup({
+      const { id } = db.item.upsertItemGroup({
         fingerprint: cg.fingerprint,
         item: rep.item,
         durability: rep.durability,
@@ -543,7 +547,7 @@ function _reconcileFungibleGroups(
   for (const [fp, groups] of existingByFP) {
     for (const g of groups) {
       if (!g._matched) {
-        db.markItemGroupLost(g.id);
+        db.item.markItemGroupLost(g.id);
         stats.groups.lost++;
 
         let deltaFp = deltas.get(fp);
@@ -597,10 +601,10 @@ function _reconcileFungibleGroups(
           nameResolver,
         );
 
-        const srcGroup = db.getItemGroup(dec.groupId) as { item?: string } | undefined;
+        const srcGroup = db.item.getItemGroup(dec.groupId) as { item?: string } | undefined;
         const itemName = srcGroup?.item ?? fingerprint;
 
-        db.recordGroupMovement({
+        db.item.recordGroupMovement({
           groupId: inc.groupId,
           moveType: 'group_transfer',
           item: itemName,
