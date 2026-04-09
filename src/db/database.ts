@@ -36,6 +36,9 @@ import { AntiCheatRepository } from './repositories/anti-cheat-repository.js';
 import { TimelineRepository } from './repositories/timeline-repository.js';
 import { GameDataRepository } from './repositories/game-data-repository.js';
 import { QuestRepository } from './repositories/quest-repository.js';
+import { MetaRepository } from './repositories/meta-repository.js';
+import { WorldStateRepository } from './repositories/world-state-repository.js';
+import { BotStateRepository } from './repositories/bot-state-repository.js';
 import { type DbRow } from './repositories/db-utils.js';
 
 const __dirname = getDirname(import.meta.url);
@@ -78,6 +81,9 @@ class HumanitZDB {
   private _chatLogRepo: ChatLogRepository | null = null;
   private _deathCauseRepo: DeathCauseRepository | null = null;
   private _antiCheatRepo: AntiCheatRepository | null = null;
+  private _metaRepo: MetaRepository | null = null;
+  private _worldStateRepo: WorldStateRepository | null = null;
+  private _botStateRepo: BotStateRepository | null = null;
   private _timelineRepo: TimelineRepository | null = null;
   private _gameDataRepo: GameDataRepository | null = null;
   private _questRepo: QuestRepository | null = null;
@@ -158,6 +164,24 @@ class HumanitZDB {
     return this._questRepo;
   }
 
+  /** MetaRepository — schema metadata key-value store. */
+  get meta(): MetaRepository {
+    if (!this._metaRepo) throw new Error('Database not initialized — call init() first');
+    return this._metaRepo;
+  }
+
+  /** WorldStateRepository — world state, server settings, and snapshots. */
+  get worldState(): WorldStateRepository {
+    if (!this._worldStateRepo) throw new Error('Database not initialized — call init() first');
+    return this._worldStateRepo;
+  }
+
+  /** BotStateRepository — runtime operational state. */
+  get botState(): BotStateRepository {
+    if (!this._botStateRepo) throw new Error('Database not initialized — call init() first');
+    return this._botStateRepo;
+  }
+
   /**
    * Run a function inside a database transaction.
    * Use this when performing multi-repository writes that must be atomic.
@@ -232,6 +256,9 @@ class HumanitZDB {
     this._timelineRepo = new TimelineRepository(this._handle, this._log.label);
     this._gameDataRepo = new GameDataRepository(this._handle, this._log.label);
     this._questRepo = new QuestRepository(this._handle, this._log.label);
+    this._metaRepo = new MetaRepository(this._handle, this._log.label);
+    this._worldStateRepo = new WorldStateRepository(this._handle, this._log.label);
+    this._botStateRepo = new BotStateRepository(this._handle, this._log.label);
 
     const version = this._getMeta('schema_version');
     this._log.info(`Database ready (v${version}, ${this._memory ? 'in-memory' : this._dbPath})`);
@@ -255,6 +282,9 @@ class HumanitZDB {
       this._timelineRepo = null;
       this._gameDataRepo = null;
       this._questRepo = null;
+      this._metaRepo = null;
+      this._worldStateRepo = null;
+      this._botStateRepo = null;
     }
   }
 
@@ -1922,8 +1952,7 @@ class HumanitZDB {
     // World state
     if (parsed.worldState) {
       for (const [key, value] of Object.entries(parsed.worldState as Record<string, unknown>)) {
-        const stored = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
-        this._stmts.setWorldState.run(key, stored);
+        this.worldState.innerSetWorldState(key, value);
       }
     }
 
@@ -1952,7 +1981,7 @@ class HumanitZDB {
     // Server settings
     if (parsed.serverSettings) {
       for (const [key, value] of Object.entries(parsed.serverSettings as Record<string, unknown>)) {
-        this._stmts.upsertSetting.run(key, String(value));
+        this.worldState.innerUpsertSetting(key, String(value));
       }
     }
   }
