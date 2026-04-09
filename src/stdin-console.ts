@@ -231,7 +231,7 @@ Available commands:
       return;
     }
     const limit = parseInt(args[0] ?? '', 10) || 20;
-    const players = this._db.getAllPlayers() as DbRow[];
+    const players = this._db.player.getAllPlayers() as DbRow[];
     const sorted = players.sort((a, b) => (s(b.last_seen, s(b.updated_at)) > s(a.last_seen, s(a.updated_at)) ? 1 : -1));
     const slice = sorted.slice(0, limit);
 
@@ -265,7 +265,7 @@ Available commands:
       return;
     }
     const steamId = args[0] ?? '';
-    const p = this._db.getPlayer(steamId) as DbRow | null;
+    const p = this._db.player.getPlayer(steamId) as DbRow | null;
     if (!p) {
       this._print(`Player not found: ${steamId}`);
       return;
@@ -287,7 +287,7 @@ Available commands:
 
     // Aliases
     try {
-      const aliases = this._db.getPlayerAliases(steamId) as DbRow[];
+      const aliases = this._db.player.getPlayerAliases(steamId) as DbRow[];
       if (aliases.length > 0) {
         this._print(`  Aliases:     ${aliases.map((a) => s(a.name, s(a.player_name))).join(', ')}`);
       }
@@ -301,7 +301,7 @@ Available commands:
       this._print('No database available.');
       return;
     }
-    const players = this._db.getOnlinePlayers() as DbRow[];
+    const players = this._db.player.getOnlinePlayers() as DbRow[];
     if (players.length === 0) {
       this._print('No players online.');
       return;
@@ -325,7 +325,7 @@ Available commands:
     const query = args.join(' ');
 
     try {
-      const results = this._db.searchPlayersByName(query) as DbRow[];
+      const results = this._db.player.searchPlayersByName(query) as DbRow[];
       if (results.length === 0) {
         this._print(`No players found matching "${query}".`);
         return;
@@ -348,7 +348,7 @@ Available commands:
     const limit = parseInt(args[0] ?? '', 10) || 10;
 
     try {
-      const rows = this._db.getRecentActivity(limit) as DbRow[];
+      const rows = this._db.activityLog.getRecentActivity(limit) as DbRow[];
       if (rows.length === 0) {
         this._print('No activity found.');
         return;
@@ -375,7 +375,7 @@ Available commands:
     const limit = parseInt(args[0] ?? '', 10) || 10;
 
     try {
-      const rows = this._db.getRecentChat(limit) as DbRow[];
+      const rows = this._db.chatLog.getRecentChat(limit) as DbRow[];
       if (rows.length === 0) {
         this._print('No chat messages found.');
         return;
@@ -661,7 +661,7 @@ Available commands:
       return;
     }
     try {
-      const clans = this._db.getAllClans() as DbRow[];
+      const clans = this._db.clan.getAllClans() as DbRow[];
       if (clans.length === 0) {
         this._print('No clans found.');
         return;
@@ -684,7 +684,7 @@ Available commands:
       return;
     }
     try {
-      const vehicles = this._db.getAllVehicles() as DbRow[];
+      const vehicles = this._db.worldObject.getAllVehicles() as DbRow[];
       if (vehicles.length === 0) {
         this._print('No vehicles found.');
         return;

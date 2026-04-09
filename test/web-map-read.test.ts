@@ -62,13 +62,15 @@ function makeSrv(overrides: Record<string, unknown> = {}) {
 }
 
 function makeMockDb(overrides: Record<string, unknown> = {}) {
-  return {
+  const defaults: Record<string, unknown> = {
     getAllClans: () => [],
     getRecentActivity: () => [],
     getActivityByCategory: () => [],
     getActivityByActor: () => [],
+    getActivitySince: () => [],
     getRecentChat: () => [],
     searchChat: () => [],
+    getChatSince: () => [],
     getTimelineBounds: () => ({ earliest: null, latest: null, count: 0 }),
     getTimelineSnapshots: () => [],
     getTimelineSnapshotRange: () => [],
@@ -79,8 +81,44 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     getDeathCausesByPlayer: () => [],
     getDeathCauseStats: () => [],
     db: { prepare: () => ({ all: () => [], get: () => null }) },
-    ...overrides,
   };
+  const merged = { ...defaults, ...overrides } as Record<string, any>;
+  // Build repository getters from merged flat methods
+  const clanOvr = (overrides.clan || {}) as Record<string, unknown>;
+  const actOvr = (overrides.activityLog || {}) as Record<string, unknown>;
+  const chatOvr = (overrides.chatLog || {}) as Record<string, unknown>;
+  const tlOvr = (overrides.timeline || {}) as Record<string, unknown>;
+  const dcOvr = (overrides.deathCause || {}) as Record<string, unknown>;
+  merged.clan = { getAllClans: merged.getAllClans, ...clanOvr };
+  merged.activityLog = {
+    getRecentActivity: merged.getRecentActivity,
+    getActivityByCategory: merged.getActivityByCategory,
+    getActivityByActor: merged.getActivityByActor,
+    getActivitySince: merged.getActivitySince,
+    ...actOvr,
+  };
+  merged.chatLog = {
+    getRecentChat: merged.getRecentChat,
+    searchChat: merged.searchChat,
+    getChatSince: merged.getChatSince,
+    ...chatOvr,
+  };
+  merged.timeline = {
+    getTimelineBounds: merged.getTimelineBounds,
+    getTimelineSnapshots: merged.getTimelineSnapshots,
+    getTimelineSnapshotRange: merged.getTimelineSnapshotRange,
+    getTimelineSnapshotFull: merged.getTimelineSnapshotFull,
+    getPlayerPositionHistory: merged.getPlayerPositionHistory,
+    getAIPopulationHistory: merged.getAIPopulationHistory,
+    ...tlOvr,
+  };
+  merged.deathCause = {
+    getDeathCauses: merged.getDeathCauses,
+    getDeathCausesByPlayer: merged.getDeathCausesByPlayer,
+    getDeathCauseStats: merged.getDeathCauseStats,
+    ...dcOvr,
+  };
+  return merged;
 }
 
 function makeSqlMock(tables: Record<string, unknown[]> = {}) {
