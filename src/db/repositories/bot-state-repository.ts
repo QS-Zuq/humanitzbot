@@ -7,31 +7,40 @@ import { BaseRepository } from './base-repository.js';
  * message IDs, tracker offsets, server settings cache, etc.
  */
 export class BotStateRepository extends BaseRepository {
+  declare private _stmts: {
+    get: import('better-sqlite3').Statement;
+    set: import('better-sqlite3').Statement;
+    del: import('better-sqlite3').Statement;
+    all: import('better-sqlite3').Statement;
+  };
+
   protected _prepareStatements(): void {
-    // bot_state uses inline prepare() calls since the queries are simple
-    // and not called in hot loops.
+    this._stmts = {
+      get: this._handle.prepare('SELECT value FROM bot_state WHERE key = ?'),
+      set: this._handle.prepare(
+        "INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+      ),
+      del: this._handle.prepare('DELETE FROM bot_state WHERE key = ?'),
+      all: this._handle.prepare('SELECT key, value, updated_at FROM bot_state ORDER BY key'),
+    };
   }
 
   /** Get a bot_state value by key. Returns null if not found. */
   getState(key: string): string | null {
-    const row = this._handle.prepare('SELECT value FROM bot_state WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined;
+    const row = this._stmts.get.get(key) as { value: string } | undefined;
     return row ? row.value : null;
   }
 
   /** Set a bot_state value. Creates or replaces. */
   setState(key: string, value: unknown): void {
-    this._handle
-      .prepare("INSERT OR REPLACE INTO bot_state (key, value, updated_at) VALUES (?, ?, datetime('now'))")
-      .run(
-        key,
-        value != null
-          ? typeof value === 'object'
-            ? JSON.stringify(value)
-            : String(value as string | number | boolean)
-          : null,
-      );
+    this._stmts.set.run(
+      key,
+      value != null
+        ? typeof value === 'object'
+          ? JSON.stringify(value)
+          : String(value as string | number | boolean)
+        : null,
+    );
   }
 
   /** Get a bot_state value parsed as JSON. Returns defaultVal if not found or parse fails. */
@@ -55,12 +64,12 @@ export class BotStateRepository extends BaseRepository {
 
   /** Delete a bot_state key. */
   deleteState(key: string): void {
-    this._handle.prepare('DELETE FROM bot_state WHERE key = ?').run(key);
+    this._stmts.del.run(key);
   }
 
   /** Get all bot_state entries. Returns array of { key, value, updated_at }. */
   getAllState(): Array<{ key: string; value: string | null; updated_at: string }> {
-    return this._handle.prepare('SELECT key, value, updated_at FROM bot_state ORDER BY key').all() as Array<{
+    return this._stmts.all.all() as Array<{
       key: string;
       value: string | null;
       updated_at: string;
