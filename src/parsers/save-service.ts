@@ -1059,9 +1059,9 @@ class SaveService extends EventEmitter {
         nameResolver,
       ) as unknown as Record<string, unknown>; // SAFETY: reconcileItems returns untyped diff data
       if (this._syncCount % 100 === 0) {
-        this._db.purgeOldLostItems('-7 days');
-        this._db.purgeOldLostGroups('-7 days');
-        this._db.purgeOldMovements('-30 days');
+        this._db.item.purgeOldLostItems('-7 days');
+        this._db.item.purgeOldLostGroups('-7 days');
+        this._db.item.purgeOldMovements('-30 days');
       }
     } catch (err: unknown) {
       this._log.warn('Item tracker error (non-fatal):', errMsg(err));
@@ -1069,7 +1069,7 @@ class SaveService extends EventEmitter {
 
     if (diffEvents.length > 0) {
       try {
-        this._db.insertActivities(diffEvents as Array<Record<string, unknown>>);
+        this._db.activityLog.insertActivities(diffEvents as Array<Record<string, unknown>>);
         this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
       } catch (err: unknown) {
         this._log.warn('Failed to write activity log:', errMsg(err));
@@ -1077,13 +1077,13 @@ class SaveService extends EventEmitter {
     }
 
     try {
-      this._db.purgeOldActivity('-30 days');
+      this._db.activityLog.purgeOldActivity('-30 days');
     } catch {
       /* ignore */
     }
 
-    this._db.setMeta('last_save_sync', new Date().toISOString());
-    this._db.setMeta('last_save_players', String(players.size));
+    this._db.meta.setMeta('last_save_sync', new Date().toISOString());
+    this._db.meta.setMeta('last_save_players', String(players.size));
 
     const elapsed = Date.now() - startTime;
     const mode = this._mode ?? this._agentMode;
@@ -1137,14 +1137,14 @@ class SaveService extends EventEmitter {
   _readOldStateForDiff(): Record<string, unknown> | null {
     if (this._syncCount === 0) return null;
     try {
-      const containers = this._db.getAllContainers();
-      const horses = this._db.getAllWorldHorses();
+      const containers = this._db.worldObject.getAllContainers();
+      const horses = this._db.worldObject.getAllWorldHorses();
       const worldState = this._db.getAllWorldState();
-      const vehiclesList = this._db.getAllVehicles();
-      const structuresList = this._db.getStructures();
+      const vehiclesList = this._db.worldObject.getAllVehicles();
+      const structuresList = this._db.worldObject.getStructures();
       let playersList: unknown[] = [];
       try {
-        playersList = this._db.getOnlinePlayersForDiff();
+        playersList = this._db.player.getOnlinePlayersForDiff();
       } catch {
         /* empty */
       }

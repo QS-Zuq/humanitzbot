@@ -49,7 +49,9 @@ interface ChatRelayDeps {
 }
 
 interface ChatRelayDB {
-  insertChat(entry: ChatEntry | Record<string, unknown>): void;
+  chatLog: {
+    insertChat(entry: ChatEntry | Record<string, unknown>): void;
+  };
 }
 
 class ChatRelay {
@@ -483,7 +485,7 @@ class ChatRelay {
   _logChat(entry: ChatEntry) {
     if (!this._db) return;
     try {
-      this._db.insertChat(entry);
+      this._db.chatLog.insertChat(entry);
     } catch (err: unknown) {
       if (!this._logChatWarned) {
         this._log.warn('DB chat insert failed:', errMsg(err));

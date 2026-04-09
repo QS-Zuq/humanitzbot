@@ -38,7 +38,9 @@ interface LogWatcherThis {
     getPlaytime(id: string): { name: string } | null;
   };
   _db: {
-    insertDeathCause(data: Record<string, unknown>): void;
+    deathCause: {
+      insertDeathCause(data: Record<string, unknown>): void;
+    };
     areClanmates?(steamId1: string, steamId2: string): boolean;
   } | null;
   _log: { warn(msg: string, ...args: unknown[]): void; error(msg: string, ...args: unknown[]): void };
@@ -179,7 +181,7 @@ function _onDeath(this: LogWatcherThis, playerName: string, timestamp: Date) {
   // Record death cause to DB (regardless of PvP or PvE)
   if (deathCause && this._db) {
     try {
-      this._db.insertDeathCause({
+      this._db.deathCause.insertDeathCause({
         victimName: playerName,
         victimSteamId: this._playerStats.getSteamId?.(playerName) ?? '',
         causeType: pvpKill ? 'player' : deathCause.type,
@@ -196,7 +198,7 @@ function _onDeath(this: LogWatcherThis, playerName: string, timestamp: Date) {
   } else if (!deathCause && this._db) {
     // No damage tracked — log as unknown cause
     try {
-      this._db.insertDeathCause({
+      this._db.deathCause.insertDeathCause({
         victimName: playerName,
         victimSteamId: this._playerStats.getSteamId?.(playerName) ?? '',
         causeType: pvpKill ? 'player' : 'unknown',

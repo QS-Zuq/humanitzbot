@@ -440,7 +440,7 @@ export class SnapshotService {
         : [];
 
       // Write to DB
-      const snapId = this._db.insertTimelineSnapshot({
+      const snapId = this._db.timeline.insertTimelineSnapshot({
         snapshot,
         players: timelinePlayers,
         ai: timelineAI,
@@ -556,7 +556,7 @@ export class SnapshotService {
   /** Prune old timeline data beyond retention period. */
   private _pruneOldData(): void {
     try {
-      const result = this._db.purgeOldTimeline(`-${String(this._retentionDays)} days`);
+      const result = this._db.timeline.purgeOldTimeline(`-${String(this._retentionDays)} days`);
       if (result.changes > 0) {
         this._log.info(`Pruned ${String(result.changes)} old timeline snapshots (>${String(this._retentionDays)}d)`);
       }

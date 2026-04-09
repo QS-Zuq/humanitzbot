@@ -14,13 +14,7 @@ export function mockDb({ players = [], clans = [], state = null, extras = {} }: 
     }
   }
 
-  return {
-    getAllPlayers() {
-      return players;
-    },
-    getAllClans() {
-      return clans;
-    },
+  const stateAccessors = {
     getState(key: string) {
       return store.get(key) ?? null;
     },
@@ -39,6 +33,28 @@ export function mockDb({ players = [], clans = [], state = null, extras = {} }: 
     setStateJSON(key: string, value: any) {
       store.set(key, JSON.stringify(value));
     },
+  };
+
+  return {
+    // Repository getters (new pattern)
+    player: {
+      getAllPlayers() {
+        return players;
+      },
+    },
+    clan: {
+      getAllClans() {
+        return clans;
+      },
+    },
+    // Legacy flat accessors (for backward compat with existing tests)
+    getAllPlayers() {
+      return players;
+    },
+    getAllClans() {
+      return clans;
+    },
+    ...stateAccessors,
     _store: store,
     ...extras,
   };

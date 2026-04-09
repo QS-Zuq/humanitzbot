@@ -74,7 +74,7 @@ function seed(db: HumanitZDB): void {
   // Check if re-seed is needed (version mismatch or empty)
   try {
     const count = db.db?.prepare('SELECT COUNT(*) as n FROM game_items').get() as { n: number } | undefined;
-    const storedVersion = db._getMeta('game_ref_version');
+    const storedVersion = db.getMeta('game_ref_version');
     const currentVersion = String(GAME_REF_VERSION);
 
     if (count && count.n > 0 && storedVersion === currentVersion) {
@@ -117,8 +117,8 @@ function seed(db: HumanitZDB): void {
   seedTraps(db);
   seedSpraysData(db);
 
-  db._setMeta('game_ref_seeded', new Date().toISOString());
-  db._setMeta('game_ref_version', String(GAME_REF_VERSION));
+  db.meta.setMeta('game_ref_seeded', new Date().toISOString());
+  db.meta.setMeta('game_ref_version', String(GAME_REF_VERSION));
   console.log(`[GameRef] All game reference data seeded (v${String(GAME_REF_VERSION)}, 22 tables)`);
 }
 
@@ -126,7 +126,7 @@ function seed(db: HumanitZDB): void {
 
 function seedItems(db: HumanitZDB): void {
   const items = Object.values(ITEM_DATABASE);
-  db.seedGameItems(items);
+  db.gameData.seedGameItems(items);
 }
 
 // ─── Professions ────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ function seedProfessions(db: HumanitZDB): void {
     skills: info.unlockedSkills,
   }));
 
-  db.seedGameProfessions(professions);
+  db.gameData.seedGameProfessions(professions);
 }
 
 function _enumIndex(enumValue: string | undefined): number {
@@ -178,7 +178,7 @@ function seedAfflictions(db: HumanitZDB): void {
     description: detailsByName[name]?.description ?? '',
     icon: '',
   }));
-  db.seedGameAfflictions(afflictions);
+  db.gameData.seedGameAfflictions(afflictions);
 }
 
 // ─── Skills ─────────────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ function seedSkills(db: HumanitZDB): void {
       icon: '',
     };
   });
-  db.seedGameSkills(skills);
+  db.gameData.seedGameSkills(skills);
 }
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ function seedChallenges(db: HumanitZDB): void {
     }
   }
 
-  db.seedGameChallenges(merged);
+  db.gameData.seedGameChallenges(merged);
 }
 
 // ─── Loading tips ───────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ function seedLoadingTipsData(db: HumanitZDB): void {
     else if (/zeek|zombie|spawn/i.test(text)) category = 'combat';
     return { text, category };
   });
-  db.seedLoadingTips(categorized);
+  db.gameData.seedLoadingTips(categorized);
 }
 
 // ─── Server setting definitions ─────────────────────────────────────────────
@@ -262,7 +262,7 @@ function seedServerSettingDefs(db: HumanitZDB): void {
     defaultVal: '',
     options: [] as string[],
   }));
-  db.seedGameServerSettingDefs(settings);
+  db.gameData.seedGameServerSettingDefs(settings);
 }
 
 function _inferSettingType(key: string): string {
@@ -277,41 +277,41 @@ function _inferSettingType(key: string): string {
 
 function seedRecipes(db: HumanitZDB): void {
   const recipes = Object.values(CRAFTING_RECIPES);
-  db.seedGameRecipes(recipes);
+  db.gameData.seedGameRecipes(recipes);
 }
 
 // ─── Lore (game_lore — 12 entries) ──────────────────────────────────────────
 
 function seedLore(db: HumanitZDB): void {
   const lore = Object.values(LORE_ENTRIES);
-  db.seedGameLore(lore);
+  db.gameData.seedGameLore(lore);
 }
 
 // ─── Quests (game_quests — 18 entries) ──────────────────────────────────────
 
 function seedQuests(db: HumanitZDB): void {
   const quests = Object.values(QUEST_DATA);
-  db.seedGameQuests(quests);
+  db.gameData.seedGameQuests(quests);
 }
 
 // ─── Spawn locations (game_spawn_locations — 10 entries) ────────────────────
 
 function seedSpawnLocations(db: HumanitZDB): void {
   const spawns = Object.values(SPAWN_LOCATIONS);
-  db.seedGameSpawnLocations(spawns);
+  db.gameData.seedGameSpawnLocations(spawns);
 }
 
 // ─── Buildings (game_buildings — 122 entries) ───────────────────────────────
 
 function seedBuildings(db: HumanitZDB): void {
   const buildings = Object.values(BUILDINGS);
-  db.seedGameBuildings(buildings);
+  db.gameData.seedGameBuildings(buildings);
 }
 
 // ─── Loot pools (game_loot_pools + game_loot_pool_items — 68 tables) ───────
 
 function seedLootPools(db: HumanitZDB): void {
-  db.seedGameLootPools(LOOT_TABLES);
+  db.gameData.seedGameLootPools(LOOT_TABLES);
 }
 
 // ─── Vehicles (game_vehicles_ref — 27 entries) ─────────────────────────────
@@ -321,63 +321,63 @@ function seedVehiclesRef(db: HumanitZDB): void {
     id,
     name: v.name ?? id,
   }));
-  db.seedGameVehiclesRef(vehicles);
+  db.gameData.seedGameVehiclesRef(vehicles);
 }
 
 // ─── Animals (game_animals — 6 entries) ─────────────────────────────────────
 
 function seedAnimals(db: HumanitZDB): void {
   const animals = Object.values(ANIMALS);
-  db.seedGameAnimals(animals);
+  db.gameData.seedGameAnimals(animals);
 }
 
 // ─── Crops (game_crops — 6 entries) ─────────────────────────────────────────
 
 function seedCrops(db: HumanitZDB): void {
   const crops = Object.values(CROP_DATA);
-  db.seedGameCrops(crops);
+  db.gameData.seedGameCrops(crops);
 }
 
 // ─── Car upgrades (game_car_upgrades — 23 entries) ──────────────────────────
 
 function seedCarUpgrades(db: HumanitZDB): void {
   const upgrades = Object.values(CAR_UPGRADES);
-  db.seedGameCarUpgrades(upgrades);
+  db.gameData.seedGameCarUpgrades(upgrades);
 }
 
 // ─── Ammo types (game_ammo_types — 8 entries) ───────────────────────────────
 
 function seedAmmoTypes(db: HumanitZDB): void {
   const ammo = Object.values(AMMO_DAMAGE);
-  db.seedGameAmmoTypes(ammo);
+  db.gameData.seedGameAmmoTypes(ammo);
 }
 
 // ─── Repair data (game_repair_data — 57 entries) ────────────────────────────
 
 function seedRepairData(db: HumanitZDB): void {
   const repairs = Object.values(REPAIR_RECIPES);
-  db.seedGameRepairData(repairs);
+  db.gameData.seedGameRepairData(repairs);
 }
 
 // ─── Furniture (game_furniture — 21 entries) ─────────────────────────────────
 
 function seedFurniture(db: HumanitZDB): void {
   const furniture = Object.values(FURNITURE_DROPS);
-  db.seedGameFurniture(furniture);
+  db.gameData.seedGameFurniture(furniture);
 }
 
 // ─── Traps (game_traps — 6 entries) ─────────────────────────────────────────
 
 function seedTraps(db: HumanitZDB): void {
   const traps = Object.values(TRAPS);
-  db.seedGameTraps(traps);
+  db.gameData.seedGameTraps(traps);
 }
 
 // ─── Sprays (game_sprays — 8 entries) ───────────────────────────────────────
 
 function seedSpraysData(db: HumanitZDB): void {
   const sprays = Object.values(SPRAYS);
-  db.seedGameSprays(sprays);
+  db.gameData.seedGameSprays(sprays);
 }
 
 export { seed };

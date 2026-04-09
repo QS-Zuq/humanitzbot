@@ -15,23 +15,32 @@ const { makePlayer, makeEvent, mockClient, mockConfig } = _factories as any;
 // ── Domain adapter: adds activity queries and ranking methods ────────────────
 
 function mockDb(players: unknown[] = [], clans: unknown[] = [], activityEvents: unknown[] = []) {
+  const activitySince = (ts: string) =>
+    (activityEvents as Array<{ timestamp: string }>).filter((e) => e.timestamp >= ts);
+  const killers = (limit: number) =>
+    [...(players as Array<{ lifetime_kills?: number }>)]
+      .sort((a, b) => (b.lifetime_kills || 0) - (a.lifetime_kills || 0))
+      .slice(0, limit);
+  const playtime = (limit: number) =>
+    [...(players as Array<{ playtime_seconds?: number }>)]
+      .sort((a, b) => (b.playtime_seconds || 0) - (a.playtime_seconds || 0))
+      .slice(0, limit);
+
   return createMockDb({
     players,
     clans,
     extras: {
-      getActivitySince(ts: string) {
-        return (activityEvents as Array<{ timestamp: string }>).filter((e) => e.timestamp >= ts);
+      activityLog: {
+        getActivitySince: activitySince,
       },
-      topKillers(limit: number) {
-        return [...(players as Array<{ lifetime_kills?: number }>)]
-          .sort((a, b) => (b.lifetime_kills || 0) - (a.lifetime_kills || 0))
-          .slice(0, limit);
+      leaderboard: {
+        topKillers: killers,
+        topPlaytime: playtime,
       },
-      topPlaytime(limit: number) {
-        return [...(players as Array<{ playtime_seconds?: number }>)]
-          .sort((a, b) => (b.playtime_seconds || 0) - (a.playtime_seconds || 0))
-          .slice(0, limit);
-      },
+      // Legacy flat accessors for backward compat
+      getActivitySince: activitySince,
+      topKillers: killers,
+      topPlaytime: playtime,
     },
   });
 }

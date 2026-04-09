@@ -44,10 +44,16 @@ interface RecapLogWatcher {
 }
 
 interface RecapDB {
-  getActivitySince(isoTimestamp: string): DbRow[];
-  getAllPlayers(): DbRow[];
-  topKillers(limit: number): unknown[];
-  topPlaytime(limit: number): unknown[];
+  activityLog: {
+    getActivitySince(isoTimestamp: string): DbRow[];
+  };
+  player: {
+    getAllPlayers(): DbRow[];
+  };
+  leaderboard: {
+    topKillers(limit: number): unknown[];
+    topPlaytime(limit: number): unknown[];
+  };
   getStateJSON(key: string, defaultVal: unknown): unknown;
   setStateJSON(key: string, value: unknown): void;
 }
@@ -209,7 +215,7 @@ class RecapService {
    */
   _gatherDayStats(startOfDay: string, endOfDay: string): DayStats | null {
     if (!this._db) return null;
-    const events = this._db.getActivitySince(startOfDay);
+    const events = this._db.activityLog.getActivitySince(startOfDay);
     // Filter to only this day (getActivitySince returns everything after the timestamp)
     const dayEvents = events.filter((e) => {
       const ts = typeof e.timestamp === 'string' ? e.timestamp : _s(e.timestamp);
@@ -255,7 +261,7 @@ class RecapService {
     // Get kill deltas from players table — use the day's log events for kill counts
     // Kill events are tracked as individual log lines, count them
     // Total kills: count from DB players table (more reliable)
-    const allPlayers = this._db.getAllPlayers();
+    const allPlayers = this._db.player.getAllPlayers();
     let totalKills = 0;
     let topKiller: string | null = null;
     let topKillerKills = 0;
@@ -265,7 +271,7 @@ class RecapService {
     }
 
     // Top killer today — use log_kills or lifetime as proxy
-    const topKillers = this._db.topKillers(1) as DbRow[];
+    const topKillers = this._db.leaderboard.topKillers(1) as DbRow[];
     if (topKillers.length > 0 && topKillers[0]) {
       topKiller = _s(topKillers[0].name);
       topKillerKills = Number(topKillers[0].lifetime_kills ?? 0);
@@ -430,7 +436,7 @@ class RecapService {
       weekAgo.setDate(weekAgo.getDate() - 7);
       const startOfWeek = weekAgo.toISOString();
 
-      const events = this._db.getActivitySince(startOfWeek);
+      const events = this._db.activityLog.getActivitySince(startOfWeek);
       if (events.length === 0) {
         this._log.info('No events this week — skipping weekly digest');
         return;
@@ -464,8 +470,8 @@ class RecapService {
       const pvpKills = counts.player_death_pvp || 0;
 
       // Player of the Week — from DB aggregates
-      const topKillers = this._db.topKillers(1) as DbRow[];
-      const topPlaytime = this._db.topPlaytime(1) as DbRow[];
+      const topKillers = this._db.leaderboard.topKillers(1) as DbRow[];
+      const topPlaytime = this._db.leaderboard.topPlaytime(1) as DbRow[];
 
       // Unluckiest of the week
       let unluckiest: string | null = null,

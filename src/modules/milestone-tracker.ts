@@ -43,8 +43,12 @@ interface MilestoneDB {
   getState(key: string): string | null;
   getStateJSON(key: string, defaultVal: unknown): unknown;
   setStateJSON(key: string, value: unknown): void;
-  getAllPlayers(): DbRow[];
-  getAllClans?(): DbRow[];
+  player: {
+    getAllPlayers(): DbRow[];
+  };
+  clan: {
+    getAllClans(): DbRow[];
+  };
 }
 
 /** Persisted milestone state. */
@@ -181,7 +185,7 @@ class MilestoneTracker {
     this._lastCheckCount = 0;
 
     try {
-      const players = this._db.getAllPlayers();
+      const players = this._db.player.getAllPlayers();
 
       // First-run backfill: if no state existed in DB, silently record all
       // existing milestones without posting announcements
@@ -395,7 +399,7 @@ class MilestoneTracker {
     let changed = false;
 
     try {
-      const clans = this._db.getAllClans ? this._db.getAllClans() : [];
+      const clans = this._db.clan.getAllClans();
       if (clans.length === 0) return false;
 
       for (const clan of clans) {
