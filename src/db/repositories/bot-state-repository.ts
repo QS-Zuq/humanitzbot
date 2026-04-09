@@ -59,10 +59,10 @@ export class BotStateRepository extends BaseRepository {
   }
 
   /** Get all bot_state entries. Returns array of { key, value, updated_at }. */
-  getAllState(): Array<{ key: string; value: string; updated_at: string }> {
+  getAllState(): Array<{ key: string; value: string | null; updated_at: string }> {
     return this._handle.prepare('SELECT key, value, updated_at FROM bot_state ORDER BY key').all() as Array<{
       key: string;
-      value: string;
+      value: string | null;
       updated_at: string;
     }>;
   }
