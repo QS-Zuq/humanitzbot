@@ -1173,7 +1173,7 @@ class LogWatcher {
       const looterId = _s(lootMatch, 2);
       const containerType = _s(lootMatch, 3);
       const ownerSteamId = _s(lootMatch, 4);
-      const isClanAccess = looterId !== ownerSteamId && this._db?.areClanmates(looterId, ownerSteamId);
+      const isClanAccess = looterId !== ownerSteamId && this._db?.clan.areClanmates(looterId, ownerSteamId);
       this._playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
       this._incDayCount('loots');
       // Only batch for Discord if it's not a clanmate accessing shared containers
@@ -1229,7 +1229,7 @@ class LogWatcher {
       if (attackerSteamId && ownerSteamId && attackerSteamId === ownerSteamId) return false;
       // Skip clanmates hitting clan buildings — not a raid, just building/upgrading.
       // Still logged to DB via _logEvent for the web panel.
-      if (attackerSteamId && ownerSteamId && this._db?.areClanmates(attackerSteamId, ownerSteamId)) {
+      if (attackerSteamId && ownerSteamId && this._db?.clan.areClanmates(attackerSteamId, ownerSteamId)) {
         this._logEvent({
           type: 'clan_building_damage',
           category: 'clan',
@@ -1500,7 +1500,7 @@ class LogWatcher {
     if (!this._db) return;
     try {
       if (entry.timestamp) {
-        this._db.insertActivitiesAt([
+        this._db.activityLog.insertActivitiesAt([
           {
             type: entry.type,
             category: entry.category || '',
@@ -1517,7 +1517,7 @@ class LogWatcher {
           },
         ]);
       } else {
-        this._db.insertActivity({
+        this._db.activityLog.insertActivity({
           type: entry.type,
           category: entry.category || '',
           actor: entry.steamId || entry.actorName || '',

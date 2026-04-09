@@ -1113,7 +1113,7 @@ class WebMapServer {
       const clanLookup: Record<string, { clanName: string; rank: string }> = {}; // steamId → { clanName, rank }
       if (srv.db) {
         try {
-          const clans = srv.db.getAllClans();
+          const clans = srv.db.clan.getAllClans();
           for (const clan of clans as unknown as Array<{
             // SAFETY: getAllClans() DbRow preserves steam_id at runtime
             name: string;
@@ -1482,7 +1482,7 @@ class WebMapServer {
         // (don't rely on fetchchat polling — there's a race condition)
         if (req.srv.db) {
           try {
-            req.srv.db.insertChat({
+            req.srv.db.chatLog.insertChat({
               type: 'panel_to_game',
               playerName: '',
               message: safe,
@@ -1685,11 +1685,11 @@ class WebMapServer {
       try {
         let events;
         if (actor) {
-          events = srv.db.getActivityByActor(actor, limit, offset);
+          events = srv.db.activityLog.getActivityByActor(actor, limit, offset);
         } else if (type) {
-          events = srv.db.getActivityByCategory(type, limit, offset);
+          events = srv.db.activityLog.getActivityByCategory(type, limit, offset);
         } else {
-          events = srv.db.getRecentActivity(limit, offset);
+          events = srv.db.activityLog.getRecentActivity(limit, offset);
         }
 
         // Resolve steam IDs to player names + clean UE4 blueprint names
@@ -1993,7 +1993,7 @@ class WebMapServer {
       if (!srv.db) return res.json({ clans: [] });
 
       try {
-        const clans = srv.db.getAllClans();
+        const clans = srv.db.clan.getAllClans();
         res.json({ clans });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -2176,14 +2176,14 @@ class WebMapServer {
         let instances: ItemInstanceRow[], groups: ItemGroupRow[];
 
         if (search) {
-          instances = srv.db.searchItemInstances(search, limit) as ItemInstanceRow[];
-          groups = srv.db.searchItemGroups(search, limit) as ItemGroupRow[];
+          instances = srv.db.item.searchItemInstances(search, limit) as ItemInstanceRow[];
+          groups = srv.db.item.searchItemGroups(search, limit) as ItemGroupRow[];
         } else if (locationType && locationId) {
-          instances = srv.db.getItemInstancesByLocation(locationType, locationId) as ItemInstanceRow[];
-          groups = srv.db.getItemGroupsByLocation(locationType, locationId) as ItemGroupRow[];
+          instances = srv.db.item.getItemInstancesByLocation(locationType, locationId) as ItemInstanceRow[];
+          groups = srv.db.item.getItemGroupsByLocation(locationType, locationId) as ItemGroupRow[];
         } else {
-          instances = srv.db.getActiveItemInstances() as ItemInstanceRow[];
-          groups = srv.db.getActiveItemGroups() as ItemGroupRow[];
+          instances = srv.db.item.getActiveItemInstances() as ItemInstanceRow[];
+          groups = srv.db.item.getActiveItemGroups() as ItemGroupRow[];
         }
 
         // Parse attachments JSON
@@ -2239,8 +2239,8 @@ class WebMapServer {
           groups,
           locations: Object.values(locationSummary),
           counts: {
-            instances: srv.db.getItemInstanceCount(),
-            groups: srv.db.getItemGroupCount(),
+            instances: srv.db.item.getItemInstanceCount(),
+            groups: srv.db.item.getItemGroupCount(),
           },
         });
       } catch (err: unknown) {
@@ -2254,13 +2254,13 @@ class WebMapServer {
       if (!srv.db) return res.json({ movements: [] });
       try {
         const id = parseInt(req.params.id as string, 10);
-        const instance = srv.db.getItemInstance(id);
+        const instance = srv.db.item.getItemInstance(id);
         if (!instance) {
           sendError(res, API_ERRORS.INSTANCE_NOT_FOUND, 404);
           return;
         }
 
-        const movements = srv.db.getItemMovements(id) as ItemMovementRow[];
+        const movements = srv.db.item.getItemMovements(id) as ItemMovementRow[];
         res.json({ instance, movements });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -2273,7 +2273,7 @@ class WebMapServer {
       if (!srv.db) return res.json({ group: null, movements: [] });
       try {
         const id = parseInt(req.params.id as string, 10);
-        const group = srv.db.getItemGroup(id) as ItemGroupRow | undefined;
+        const group = srv.db.item.getItemGroup(id) as ItemGroupRow | undefined;
         if (!group) {
           sendError(res, API_ERRORS.GROUP_NOT_FOUND, 404);
           return;
@@ -2286,7 +2286,7 @@ class WebMapServer {
         }
         const groupOut = { ...group, attachments: groupAttachments };
 
-        const movements = srv.db.getItemMovementsByGroup(id) as ItemMovementRow[];
+        const movements = srv.db.item.getItemMovementsByGroup(id) as ItemMovementRow[];
         res.json({ group: groupOut, movements });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -2305,11 +2305,11 @@ class WebMapServer {
 
         let movements;
         if (steamId) {
-          movements = srv.db.getItemMovementsByPlayer(steamId, limit) as ItemMovementRow[];
+          movements = srv.db.item.getItemMovementsByPlayer(steamId, limit) as ItemMovementRow[];
         } else if (locationType && locationId) {
-          movements = srv.db.getItemMovementsByLocation(locationType, locationId, limit) as ItemMovementRow[];
+          movements = srv.db.item.getItemMovementsByLocation(locationType, locationId, limit) as ItemMovementRow[];
         } else {
-          movements = srv.db.getRecentItemMovements(limit) as ItemMovementRow[];
+          movements = srv.db.item.getRecentItemMovements(limit) as ItemMovementRow[];
         }
 
         res.json({ movements });
@@ -2337,7 +2337,7 @@ class WebMapServer {
         // Try exact fingerprint match first
         if (fingerprint) {
           // Check instances
-          const instances = srv.db.findItemsByFingerprint(fingerprint as string) as ItemInstanceRow[];
+          const instances = srv.db.item.findItemsByFingerprint(fingerprint as string) as ItemInstanceRow[];
           if (instances.length > 0) {
             // If steamId provided, prefer the instance at that player's location
             const inst = steamId
@@ -2352,13 +2352,13 @@ class WebMapServer {
               } catch {
                 match.attachments = [];
               }
-              movements = srv.db.getItemMovements(match.id) as ItemMovementRow[];
+              movements = srv.db.item.getItemMovements(match.id) as ItemMovementRow[];
             }
           }
 
           // Check groups if no instance match
           if (!match) {
-            const groups = srv.db.findActiveGroupsByFingerprint(fingerprint as string) as ItemGroupRow[];
+            const groups = srv.db.item.findActiveGroupsByFingerprint(fingerprint as string) as ItemGroupRow[];
             if (groups.length > 0) {
               const grp = steamId
                 ? (groups.find((g: ItemGroupRow) => g.location_type === 'player' && g.location_id === steamId) ??
@@ -2372,7 +2372,7 @@ class WebMapServer {
                 } catch {
                   match.attachments = [];
                 }
-                movements = srv.db.getItemMovementsByGroup(match.id) as ItemMovementRow[];
+                movements = srv.db.item.getItemMovementsByGroup(match.id) as ItemMovementRow[];
               }
             }
           }
@@ -2380,7 +2380,7 @@ class WebMapServer {
 
         // Fall back to item name search if no fingerprint match
         if (!match && itemName) {
-          const instances = srv.db.getItemInstancesByItem(itemName as string) as ItemInstanceRow[];
+          const instances = srv.db.item.getItemInstancesByItem(itemName as string) as ItemInstanceRow[];
           if (instances.length > 0) {
             const inst = steamId
               ? (instances.find((i: ItemInstanceRow) => i.location_type === 'player' && i.location_id === steamId) ??
@@ -2394,7 +2394,7 @@ class WebMapServer {
               } catch {
                 match.attachments = [];
               }
-              movements = srv.db.getItemMovements(match.id) as ItemMovementRow[];
+              movements = srv.db.item.getItemMovements(match.id) as ItemMovementRow[];
             }
           }
         }
@@ -2675,9 +2675,9 @@ class WebMapServer {
       try {
         let messages: ChatRow[];
         if (search) {
-          messages = srv.db.searchChat(search, limit) as ChatRow[];
+          messages = srv.db.chatLog.searchChat(search, limit) as ChatRow[];
         } else {
-          messages = srv.db.getRecentChat(limit) as ChatRow[];
+          messages = srv.db.chatLog.getRecentChat(limit) as ChatRow[];
         }
         res.json({ messages });
       } catch (err: unknown) {
@@ -3946,13 +3946,13 @@ class WebMapServer {
         let flags;
 
         if (steam_id) {
-          flags = srv.db.getAcFlagsBySteam(steam_id as string, maxRows);
+          flags = srv.db.antiCheat.getAcFlagsBySteam(steam_id as string, maxRows);
         } else if (detector) {
-          flags = srv.db.getAcFlagsByDetector(detector as string, (status || 'open') as string, maxRows);
+          flags = srv.db.antiCheat.getAcFlagsByDetector(detector as string, (status || 'open') as string, maxRows);
         } else if (status) {
-          flags = srv.db.getAcFlags(status as string, maxRows);
+          flags = srv.db.antiCheat.getAcFlags(status as string, maxRows);
         } else {
-          flags = srv.db.getAcFlags('open', maxRows);
+          flags = srv.db.antiCheat.getAcFlags('open', maxRows);
         }
 
         // Apply severity filter client-side if both status and severity are set
@@ -3987,7 +3987,7 @@ class WebMapServer {
     app.get('/api/panel/anticheat/risk-scores', requireTier('admin'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
-        const scores = req.srv.db.getAllRiskScores();
+        const scores = req.srv.db.antiCheat.getAllRiskScores();
         res.json(scores);
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -4016,7 +4016,7 @@ class WebMapServer {
         // Get reviewer identity from session
         const reviewedBy = req.session.username || req.session.discordId || 'admin';
 
-        req.srv.db.updateAcFlagStatus(flagId, status, reviewedBy, notes ?? '');
+        req.srv.db.antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes ?? '');
         res.json({ ok: true, flagId, status });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -4932,7 +4932,7 @@ class WebMapServer {
     app.get('/api/timeline/bounds', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json({ earliest: null, latest: null, count: 0 });
       try {
-        const bounds = req.srv.db.getTimelineBounds();
+        const bounds = req.srv.db.timeline.getTimelineBounds();
         res.json(bounds || { earliest: null, latest: null, count: 0 });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -4946,9 +4946,9 @@ class WebMapServer {
         const { from, to, limit } = req.query;
         let snapshots;
         if (from && to) {
-          snapshots = req.srv.db.getTimelineSnapshotRange(from as string, to as string);
+          snapshots = req.srv.db.timeline.getTimelineSnapshotRange(from as string, to as string);
         } else {
-          snapshots = req.srv.db.getTimelineSnapshots(parseInt(limit as string, 10) || 50);
+          snapshots = req.srv.db.timeline.getTimelineSnapshots(parseInt(limit as string, 10) || 50);
         }
         res.json(snapshots);
       } catch (err: unknown) {
@@ -4969,7 +4969,7 @@ class WebMapServer {
           return;
         }
 
-        const full = req.srv.db.getTimelineSnapshotFull(id);
+        const full = req.srv.db.timeline.getTimelineSnapshotFull(id);
         if (!full) {
           sendError(res, API_ERRORS.SNAPSHOT_NOT_FOUND, 404);
           return;
@@ -5021,7 +5021,7 @@ class WebMapServer {
           return;
         }
 
-        const positions = req.srv.db.getPlayerPositionHistory(steamId as string, from as string, to as string);
+        const positions = req.srv.db.timeline.getPlayerPositionHistory(steamId as string, from as string, to as string);
         // Convert to map coordinates
         const trail = (positions as Record<string, unknown>[])
           .map((p) => {
@@ -5048,7 +5048,7 @@ class WebMapServer {
           sendError(res, API_ERRORS.FROM_AND_TO_REQUIRED, 400);
           return;
         }
-        const data = req.srv.db.getAIPopulationHistory(from as string, to as string);
+        const data = req.srv.db.timeline.getAIPopulationHistory(from as string, to as string);
         res.json(data);
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -5062,9 +5062,9 @@ class WebMapServer {
         const { limit, player } = req.query;
         let deaths;
         if (player) {
-          deaths = req.srv.db.getDeathCausesByPlayer(player as string, parseInt(limit as string, 10) || 50);
+          deaths = req.srv.db.deathCause.getDeathCausesByPlayer(player as string, parseInt(limit as string, 10) || 50);
         } else {
-          deaths = req.srv.db.getDeathCauses(parseInt(limit as string, 10) || 50);
+          deaths = req.srv.db.deathCause.getDeathCauses(parseInt(limit as string, 10) || 50);
         }
         // Add map coordinates
         deaths = (deaths as DeathCauseRow[]).map((d: DeathCauseRow) => {
@@ -5084,7 +5084,7 @@ class WebMapServer {
     app.get('/api/timeline/deaths/stats', requireTier('survivor'), rateLimit(10000, 10), (req, res) => {
       if (!req.srv.db) return res.json([]);
       try {
-        const stats = req.srv.db.getDeathCauseStats();
+        const stats = req.srv.db.deathCause.getDeathCauseStats();
         res.json(stats);
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -5606,9 +5606,9 @@ class WebMapServer {
         const localDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: tz }));
         const offsetMs = tzDate.getTime() - localDate.getTime();
         const todayIso = new Date(todayMidnight.getTime() + offsetMs).toISOString();
-        const activities = srv.db.getActivitySince(todayIso);
+        const activities = srv.db.activityLog.getActivitySince(todayIso);
         result.eventsToday = activities.length;
-        const chats = srv.db.getChatSince(todayIso);
+        const chats = srv.db.chatLog.getChatSince(todayIso);
         result.chatsToday = chats.length;
       } catch {
         /* db unavailable */

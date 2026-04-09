@@ -70,7 +70,9 @@ interface LogWatcherThis {
   _db: {
     getStateJSON(key: string, defaultVal: unknown): unknown;
     setStateJSON(key: string, value: unknown): void;
-    getActivitySince(isoTimestamp: string): ActivityEvent[];
+    activityLog: {
+      getActivitySince(isoTimestamp: string): ActivityEvent[];
+    };
   } | null;
   _log: {
     info(msg: string, ...args: unknown[]): void;
@@ -326,7 +328,7 @@ async function _postDailySummary(this: LogWatcherThis) {
   if (this._db && this._dailyDate) {
     try {
       const startOfDay = `${this._dailyDate}T00:00:00.000Z`;
-      const events = this._db.getActivitySince(startOfDay);
+      const events = this._db.activityLog.getActivitySince(startOfDay);
       if (events.length > 0) {
         const counts: Record<string, number> = {};
         for (const e of events) {

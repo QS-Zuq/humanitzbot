@@ -34,6 +34,8 @@ function mockSrv(overrides: Record<string, unknown> = {}) {
     isPrimary: true,
     db: mockDb({
       extras: {
+        chatLog: { insertChat: () => {} },
+        antiCheat: { updateAcFlagStatus: () => {} },
         insertChat: () => {},
         updateAcFlagStatus: () => {},
         db: {
@@ -329,8 +331,10 @@ describe('Web Map Admin — POST endpoints', () => {
       const srv = mockSrv({
         rcon: { send: async () => '' },
       });
-      srv.db.insertChat = () => {
-        chatInserted = true;
+      srv.db.chatLog = {
+        insertChat: () => {
+          chatInserted = true;
+        },
       };
       const req = mockReq({ body: { message: 'Test msg' }, srv });
       const res = mockRes();
@@ -883,8 +887,10 @@ describe('Web Map Admin — POST endpoints', () => {
     it('accepts "confirmed" status and calls db.updateAcFlagStatus', () => {
       let updateArgs: unknown[] | null = null;
       const srv = mockSrv();
-      srv.db.updateAcFlagStatus = (...args: unknown[]) => {
-        updateArgs = args;
+      srv.db.antiCheat = {
+        updateAcFlagStatus: (...args: unknown[]) => {
+          updateArgs = args;
+        },
       };
       const req = mockReq({ params: { id: '42' }, body: { status: 'confirmed', notes: 'Cheater' }, srv });
       const res = mockRes();
@@ -897,7 +903,7 @@ describe('Web Map Admin — POST endpoints', () => {
 
     it('accepts "dismissed" status', () => {
       const srv = mockSrv();
-      srv.db.updateAcFlagStatus = () => {};
+      srv.db.antiCheat = { updateAcFlagStatus: () => {} };
       const req = mockReq({ params: { id: '1' }, body: { status: 'dismissed' }, srv });
       const res = mockRes();
       handler(req, res);
@@ -907,7 +913,7 @@ describe('Web Map Admin — POST endpoints', () => {
 
     it('accepts "whitelisted" status', () => {
       const srv = mockSrv();
-      srv.db.updateAcFlagStatus = () => {};
+      srv.db.antiCheat = { updateAcFlagStatus: () => {} };
       const req = mockReq({ params: { id: '1' }, body: { status: 'whitelisted' }, srv });
       const res = mockRes();
       handler(req, res);

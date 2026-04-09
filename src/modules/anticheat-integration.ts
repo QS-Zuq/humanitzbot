@@ -12,6 +12,7 @@
 import { createRequire } from 'node:module';
 import _defaultConfig from '../config/index.js';
 import { errMsg } from '../utils/error.js';
+import type { HumanitZDB } from '../db/database.js';
 
 type ConfigType = typeof _defaultConfig;
 
@@ -28,19 +29,9 @@ try {
 }
 
 interface AnticheatOpts {
-  db?: DbLike | null;
+  db?: HumanitZDB | null;
   config?: ConfigType;
   logWatcher?: unknown;
-}
-
-interface DbLike {
-  getStateJSON(key: string, defaultVal: null): Record<string, unknown> | null;
-  setStateJSON?(key: string, value: unknown): void;
-  insertAcFlag(flag: AcFlag): number;
-  getAcFlagsBySteam(steamId: string, limit: number): AcFlag[];
-  getAcFlags(status: string, limit: number): AcFlag[];
-  updateAcFlagStatus(flagId: number, status: string, reviewedBy: string | null, notes: string | null): void;
-  upsertRiskScore(data: RiskScoreData): void;
 }
 
 interface AcFlag {
@@ -53,17 +44,6 @@ interface AcFlag {
   created_at?: string;
 }
 
-interface RiskScoreData {
-  [key: string]: unknown;
-  steam_id: string;
-  risk_score: number;
-  open_flags: number;
-  confirmed_flags: number;
-  dismissed_flags: number;
-  last_flag_at: string | null;
-  baseline_data: Record<string, unknown>;
-}
-
 interface EngineInstance {
   init?(): Promise<void>;
   analyze(): Promise<AcFlag[] | null>;
@@ -72,11 +52,11 @@ interface EngineInstance {
   onFlagReview?(flagId: number, status: string, reviewedBy: string | null): void;
   getDiagnostics?(): Record<string, unknown>;
   shutdown?(): Promise<void>;
-  create?(opts: { db: DbLike | null; config: ConfigType }): EngineInstance;
+  create?(opts: { db: HumanitZDB | null; config: ConfigType }): EngineInstance;
 }
 
 class AnticheatIntegration {
-  private _db: DbLike | null;
+  private _db: HumanitZDB | null;
   private _config: ConfigType;
   private _engine: EngineInstance | null;
   private _analyzeTimer: ReturnType<typeof setInterval> | null;
@@ -117,8 +97,8 @@ class AnticheatIntegration {
 
     try {
       type EngineFactory =
-        | (new (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance)
-        | { create?: (opts: { db: DbLike | null; config: ConfigType }) => EngineInstance };
+        | (new (opts: { db: HumanitZDB | null; config: ConfigType }) => EngineInstance)
+        | { create?: (opts: { db: HumanitZDB | null; config: ConfigType }) => EngineInstance };
       const EngineRef = AnticheatEngine as EngineFactory | null;
       if (typeof EngineRef === 'function') {
         this._engine = new EngineRef({ db: this._db, config: this._config });
@@ -197,8 +177,8 @@ class AnticheatIntegration {
     if (!this._db) return;
     for (const flag of flags) {
       try {
-        const flagId = this._db.insertAcFlag(flag);
-        flag.id = flagId;
+        const flagId = this._db.antiCheat.insertAcFlag(flag);
+        flag.id = Number(flagId);
 
         // Update risk score for the player
         this._updateRiskScore(flag.steam_id);
@@ -214,17 +194,19 @@ class AnticheatIntegration {
   _updateRiskScore(steamId: string) {
     if (!this._db) return;
     try {
-      const flags = this._db.getAcFlagsBySteam(steamId, 500);
+      const flags = this._db.antiCheat.getAcFlagsBySteam(steamId, 500).filter((f) => f !== null);
       let open = 0,
         confirmed = 0,
         dismissed = 0;
       let lastFlagAt: string | null = null;
 
       for (const f of flags) {
-        if (f.status === 'open') open++;
-        else if (f.status === 'confirmed') confirmed++;
-        else if (f.status === 'dismissed') dismissed++;
-        if (!lastFlagAt || (f.created_at && f.created_at > lastFlagAt)) lastFlagAt = f.created_at ?? null;
+        if (f['status'] === 'open') open++;
+        else if (f['status'] === 'confirmed') confirmed++;
+        else if (f['status'] === 'dismissed') dismissed++;
+        const cat = f['created_at'];
+        const catStr = typeof cat === 'string' ? cat : null;
+        if (!lastFlagAt || (catStr && catStr > lastFlagAt)) lastFlagAt = catStr;
       }
 
       // Risk score: weighted sum of flag severities
@@ -237,15 +219,17 @@ class AnticheatIntegration {
       };
       let rawScore = 0;
       for (const f of flags) {
-        if (f.status === 'dismissed' || f.status === 'whitelisted') continue;
-        const w = SEVERITY_WEIGHT[f.severity] ?? 0.05;
-        const statusMult = f.status === 'confirmed' ? 1.5 : 1.0;
-        rawScore += w * statusMult * (f.score || 0.5);
+        if (f['status'] === 'dismissed' || f['status'] === 'whitelisted') continue;
+        const sev = typeof f['severity'] === 'string' ? f['severity'] : '';
+        const w = SEVERITY_WEIGHT[sev] ?? 0.05;
+        const statusMult = f['status'] === 'confirmed' ? 1.5 : 1.0;
+        const score = typeof f['score'] === 'number' ? f['score'] : 0.5;
+        rawScore += w * statusMult * (score || 0.5);
       }
       // Normalise to 0-1 range (sigmoid-like clamping)
       const riskScore = Math.min(1.0, rawScore / (rawScore + 1));
 
-      this._db.upsertRiskScore({
+      this._db.antiCheat.upsertRiskScore({
         steam_id: steamId,
         risk_score: riskScore,
         open_flags: open,
@@ -278,7 +262,7 @@ class AnticheatIntegration {
    */
   reviewFlag(flagId: number, status: string, reviewedBy: string | null = null, notes: string | null = null) {
     if (!this._db) return;
-    this._db.updateAcFlagStatus(flagId, status, reviewedBy, notes);
+    this._db.antiCheat.updateAcFlagStatus(flagId, status, reviewedBy, notes);
 
     // Feed back to engine for self-tuning
     if (this._engine && typeof this._engine.onFlagReview === 'function') {
@@ -304,7 +288,7 @@ class AnticheatIntegration {
     }
     if (this._db) {
       try {
-        diag.flagsOpen = this._db.getAcFlags('open', 1000).length;
+        diag.flagsOpen = this._db.antiCheat.getAcFlags('open', 1000).length;
       } catch {
         /* table may not exist yet */
       }

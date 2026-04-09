@@ -524,7 +524,7 @@ class PlayerStatsChannel {
   _loadFromDb() {
     if (!this._db) return false;
     try {
-      const dbPlayers = this._db.getAllPlayers();
+      const dbPlayers = this._db.player.getAllPlayers();
       if (dbPlayers.length === 0) return false;
 
       // Convert DB rows (snake_case) → save format (camelCase)
@@ -546,7 +546,7 @@ class PlayerStatsChannel {
 
       // Clan data from DB
       try {
-        this._clanData = this._db.getAllClans();
+        this._clanData = this._db.clan.getAllClans();
       } catch (err: unknown) {
         this._log.error('Clan DB read error:', (err as Error).message);
       }
@@ -555,13 +555,12 @@ class PlayerStatsChannel {
 
       // Load entity data from DB for save-cache.json (map data)
       try {
-        this._vehicles = this._db.getAllVehicles();
-        this._horses = this._db.getAllWorldHorses();
-        this._containers = this._db.getAllContainers();
-        this._companions = this._db.getAllCompanions();
-        // Structures: read directly from DB (no getAllStructures method — use raw query)
+        this._vehicles = this._db.worldObject.getAllVehicles();
+        this._horses = this._db.worldObject.getAllWorldHorses();
+        this._containers = this._db.worldObject.getAllContainers();
+        this._companions = this._db.worldObject.getAllCompanions();
         try {
-          this._structures = this._db.db?.prepare('SELECT * FROM structures').all() ?? [];
+          this._structures = this._db.worldObject.getStructures();
         } catch {
           this._structures = [];
         }

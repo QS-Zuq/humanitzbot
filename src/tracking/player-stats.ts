@@ -167,7 +167,7 @@ export class PlayerStats {
     // Bulk-register in unified identity DB
     if (this._db) {
       try {
-        this._db.importIdMap(entries);
+        this._db.player.importIdMap(entries);
       } catch (_) {
         /* non-critical */
       }
@@ -199,7 +199,7 @@ export class PlayerStats {
   private _loadFromDb(): void {
     if (!this._db) return;
     try {
-      const rows = this._db.getAllPlayerLogStats() as unknown as DbLogStatRow[]; // SAFETY: DB row shape validated by schema
+      const rows = this._db.player.getAllPlayerLogStats() as unknown as DbLogStatRow[]; // SAFETY: DB row shape validated by schema
       if (rows.length === 0) return; // DB empty — fall through to JSON
       this._data = { players: {} };
       for (const row of rows) {
@@ -250,7 +250,7 @@ export class PlayerStats {
   private _persistRecord(key: string | null, record: PlayerRecord): void {
     if (!this._db || !key || key.startsWith('name:') || !/^\d{17}$/.test(key)) return;
     try {
-      this._db.upsertFullLogStats(key, {
+      this._db.player.upsertFullLogStats(key, {
         name: record.name || '',
         deaths: record.deaths,
         pvpKills: record.pvpKills,
@@ -465,7 +465,7 @@ export class PlayerStats {
     // 4. Unified identity DB
     if (this._db) {
       try {
-        const name = this._db.resolveSteamIdToName(steamId);
+        const name = this._db.player.resolveSteamIdToName(steamId);
         if (name && name !== steamId) return name;
       } catch (_) {
         /* non-critical */
@@ -536,7 +536,7 @@ export class PlayerStats {
     // Register in unified identity DB
     if (this._db) {
       try {
-        this._db.registerAlias(steamId, name, 'log');
+        this._db.player.registerAlias(steamId, name, 'log');
       } catch (_) {
         /* non-critical */
       }
@@ -594,7 +594,7 @@ export class PlayerStats {
     // 4. Cross-reference unified identity DB
     if (this._db) {
       try {
-        const resolved = this._db.resolveNameToSteamId(name);
+        const resolved = this._db.player.resolveNameToSteamId(name);
         if (resolved && /^\d{17}$/.test(String(resolved.steamId))) {
           return this._getOrCreate(String(resolved.steamId), name);
         }
