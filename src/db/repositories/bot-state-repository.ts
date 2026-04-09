@@ -40,7 +40,10 @@ export class BotStateRepository extends BaseRepository {
     if (raw == null) return defaultVal;
     try {
       return JSON.parse(raw) as unknown;
-    } catch {
+    } catch (err: unknown) {
+      this._log.warn(
+        `Failed to parse bot_state JSON for key "${key}": ${err instanceof Error ? err.message : String(err)}`,
+      );
       return defaultVal;
     }
   }

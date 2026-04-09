@@ -36,8 +36,10 @@ export class MetaRepository extends BaseRepository {
         | { value: string }
         | undefined;
       return row ? row.value : null;
-    } catch {
-      return null;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('no such table')) return null;
+      throw err;
     }
   }
 
