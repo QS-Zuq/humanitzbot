@@ -541,25 +541,24 @@ client.once(Events.ClientReady, (readyClient) => {
     // ── Web panel — start EARLY so it's reachable while modules initialise ──
     const webMapPort = parseInt(process.env['WEB_MAP_PORT'] ?? '', 10);
     if (webMapPort) {
-      if (!config.discordClientSecret && !process.env['WEB_PANEL_ALLOW_NO_AUTH']) {
-        setStatus('WebMap', '⚠️ Requires Discord OAuth (set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL)');
-        console.warn(
-          '[BOT] Web panel requires Discord OAuth — set DISCORD_OAUTH_SECRET and WEB_MAP_CALLBACK_URL in .env',
-        );
-        console.warn('[BOT] To run without auth (dev only), set WEB_PANEL_ALLOW_NO_AUTH=true');
-      } else {
-        try {
-          if (!config.discordClientSecret) {
-            console.warn('[BOT] Web panel starting WITHOUT Discord OAuth — all routes unprotected (dev mode)');
+      const oauthConfigured = !!(config.discordClientSecret && process.env['WEB_MAP_CALLBACK_URL']);
+      try {
+        if (!oauthConfigured) {
+          if (process.env['WEB_PANEL_ALLOW_NO_AUTH'] === 'true') {
+            console.warn('[BOT] Web panel starting in dev mode — auto-login as admin (WEB_PANEL_ALLOW_NO_AUTH)');
+          } else {
+            console.log('[BOT] Web panel starting without OAuth — landing page only (login disabled)');
+            console.log('[BOT] Set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL in .env to enable login');
           }
-          webMapServer = new WebMapServer(readyClient, { db, configRepo });
-          await webMapServer.start();
-          setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}`);
-          console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
-        } catch (err: unknown) {
-          setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);
-          console.error('[BOT] Web panel failed to start:', errMsg(err));
         }
+        webMapServer = new WebMapServer(readyClient, { db, configRepo });
+        await webMapServer.start();
+        const suffix = oauthConfigured ? '' : ' (no auth)';
+        setStatus('WebMap', `🟢 Running on http://localhost:${webMapPort}${suffix}`);
+        console.log(`[BOT] Web panel started: http://localhost:${webMapPort}`);
+      } catch (err: unknown) {
+        setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);
+        console.error('[BOT] Web panel failed to start:', errMsg(err));
       }
     } else {
       setStatus('WebMap', '⚫ Disabled (no WEB_MAP_PORT)');

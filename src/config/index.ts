@@ -30,6 +30,8 @@ if (!fs.existsSync(_envPath)) {
   console.log('  .env file created from template.');
   console.log('  Open .env and set your Discord credentials:');
   console.log('    DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID');
+  console.log('  For the web panel, also set:');
+  console.log('    DISCORD_OAUTH_SECRET, WEB_MAP_CALLBACK_URL');
   console.log('  Then set RCON and SFTP credentials for your game server.');
   console.log('  See .env.example comments for guidance.');
   console.log('══════════════════════════════════════════════════════════');
