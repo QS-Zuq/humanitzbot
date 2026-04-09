@@ -162,14 +162,30 @@ class HumanitZDB {
    * Run a function inside a database transaction.
    * Use this when performing multi-repository writes that must be atomic.
    *
+   * Note: `fn` must be synchronous. `better-sqlite3` transactions are
+   * synchronous and will not await asynchronous work.
+   *
    * @example
    * db.transaction(() => {
    *   db.player.upsertPlayer(steamId, data);
    *   db.activityLog.insertActivity(entry);
    * });
    */
-  transaction<T>(fn: () => T): T {
-    return this._handle.transaction(fn)();
+  transaction<T>(fn: () => PromiseLike<T>): never;
+  transaction<T>(fn: () => T): T;
+  transaction<T>(fn: () => T | PromiseLike<T>): T {
+    return this._handle.transaction(() => {
+      const result = fn();
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'then' in result &&
+        typeof (result as unknown as Record<string, unknown>).then === 'function'
+      ) {
+        throw new TypeError('Database.transaction() callback must be synchronous and must not return a Promise');
+      }
+      return result as T;
+    })();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
