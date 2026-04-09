@@ -194,15 +194,13 @@ describe('Web Map Auth', () => {
   // ── setupAuth ──────────────────────────────────────────────
 
   describe('setupAuth', () => {
-    it('returns no-op middleware when OAuth is not configured', () => {
+    it('disabled mode: sets public tier when OAuth is not configured', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
-
-      // Fresh require to pick up env changes — actually setupAuth reads env at call time
+      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       const { setupAuth: setup } = _auth as any;
 
-      // Minimal Express app mock
       const routes: Record<string, unknown> = {};
       const app = {
         get: (path: string, handler: unknown) => {
@@ -217,16 +215,116 @@ describe('Web Map Auth', () => {
       const middleware = setup(app);
       assert.equal(typeof middleware, 'function');
 
-      // No-op middleware should call next()
+      // Middleware should set public tier
+      const req: Record<string, unknown> = {};
       let nextCalled = false;
-      middleware({}, {}, () => {
+      middleware(req, {}, () => {
         nextCalled = true;
       });
       assert.equal(nextCalled, true);
+      assert.equal(req.tier, 'public');
+      assert.equal(req.tierLevel, 0);
 
-      // Stub auth routes should still be registered (so frontend can function)
+      // /auth/me should return authenticated: false + oauthNotConfigured
+      let meResponse: Record<string, unknown> = {};
+      const meHandler = routes['GET /auth/me'] as (req: unknown, res: unknown) => void;
+      meHandler(
+        {},
+        {
+          json: (data: Record<string, unknown>) => {
+            meResponse = data;
+          },
+        },
+      );
+      assert.equal(meResponse.authenticated, false);
+      assert.equal(meResponse.tier, 'public');
+      assert.equal(meResponse.oauthNotConfigured, true);
+
+      // Auth routes should still be registered
       assert.equal(typeof routes['GET /auth/login'], 'function');
-      assert.equal(typeof routes['GET /auth/me'], 'function');
+    });
+
+    it('dev mode: sets admin tier when WEB_PANEL_ALLOW_NO_AUTH=true', () => {
+      delete process.env.DISCORD_OAUTH_SECRET;
+      delete process.env.WEB_MAP_CALLBACK_URL;
+      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'true';
+
+      try {
+        const { setupAuth: setup } = _auth as any;
+
+        const routes: Record<string, unknown> = {};
+        const app = {
+          get: (path: string, handler: unknown) => {
+            routes[`GET ${path}`] = handler;
+          },
+          post: (path: string, handler: unknown) => {
+            routes[`POST ${path}`] = handler;
+          },
+          use: () => {},
+        };
+
+        const middleware = setup(app);
+        assert.equal(typeof middleware, 'function');
+
+        // Middleware should set admin tier
+        const req: Record<string, unknown> = {};
+        let nextCalled = false;
+        middleware(req, {}, () => {
+          nextCalled = true;
+        });
+        assert.equal(nextCalled, true);
+        assert.equal(req.tier, 'admin');
+        assert.equal(req.tierLevel, 3);
+
+        // /auth/me should return authenticated: true + devMode
+        let meResponse: Record<string, unknown> = {};
+        const meHandler = routes['GET /auth/me'] as (req: unknown, res: unknown) => void;
+        meHandler(
+          {},
+          {
+            json: (data: Record<string, unknown>) => {
+              meResponse = data;
+            },
+          },
+        );
+        assert.equal(meResponse.authenticated, true);
+        assert.equal(meResponse.tier, 'admin');
+        assert.equal(meResponse.username, 'Developer');
+        assert.equal(meResponse.devMode, true);
+      } finally {
+        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
+      }
+    });
+
+    it('strict check: WEB_PANEL_ALLOW_NO_AUTH=false does not enable dev mode', () => {
+      delete process.env.DISCORD_OAUTH_SECRET;
+      delete process.env.WEB_MAP_CALLBACK_URL;
+      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'false';
+
+      try {
+        const { setupAuth: setup } = _auth as any;
+
+        const routes: Record<string, unknown> = {};
+        const app = {
+          get: (path: string, handler: unknown) => {
+            routes[`GET ${path}`] = handler;
+          },
+          post: (path: string, handler: unknown) => {
+            routes[`POST ${path}`] = handler;
+          },
+          use: () => {},
+        };
+
+        const middleware = setup(app);
+
+        // Should be public, not admin
+        const req: Record<string, unknown> = {};
+        middleware(req, {}, () => {});
+        assert.equal(req.tier, 'public');
+        assert.equal(req.tierLevel, 0);
+      } finally {
+        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
+      }
     });
 
     it('registers auth routes when OAuth is configured', () => {

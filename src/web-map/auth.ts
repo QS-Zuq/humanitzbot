@@ -246,26 +246,41 @@ function setupAuth(
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
-    const allowNoAuth = !!process.env['WEB_PANEL_ALLOW_NO_AUTH'];
+    const allowNoAuth = process.env['WEB_PANEL_ALLOW_NO_AUTH'] === 'true';
+
+    // Stub session for both modes to prevent req.session crashes in route handlers
+    function createStubSession() {
+      return {
+        user: allowNoAuth
+          ? {
+              userId: 'dev',
+              username: 'Developer',
+              displayName: 'Developer',
+              avatar: null,
+              roles: [] as string[],
+              tier: 'admin',
+              tierLevel: TIER['admin'],
+              inGuild: true,
+              lastRoleCheck: Date.now(),
+            }
+          : undefined,
+        username: allowNoAuth ? 'Developer' : undefined,
+        discordId: allowNoAuth ? 'dev' : undefined,
+        save(cb: (err: Error | null) => void) {
+          cb(null);
+        },
+        destroy(cb: (err: Error | null) => void) {
+          cb(null);
+        },
+      };
+    }
+    app.use((_req: Request, _res: Response, next: NextFunction) => {
+      Object.assign(_req, { session: createStubSession() });
+      next();
+    });
 
     if (allowNoAuth) {
       console.warn('[AUTH] Discord OAuth not configured — dev mode active (WEB_PANEL_ALLOW_NO_AUTH)');
-      // Stub session so req.session.user/username don't crash in route handlers
-      const devSession = {
-        user: { displayName: 'Developer', username: 'Developer' },
-        username: 'Developer',
-        discordId: 'dev',
-        save(_cb: (err: Error | null) => void) {
-          _cb(null);
-        },
-        destroy(_cb: (err: Error | null) => void) {
-          _cb(null);
-        },
-      };
-      app.use((_req: Request, _res: Response, next: NextFunction) => {
-        Object.assign(_req, { session: devSession });
-        next();
-      });
       app.get('/auth/me', (_req: Request, res: Response) => {
         res.json({
           authenticated: true,
