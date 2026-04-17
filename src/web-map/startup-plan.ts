@@ -1,10 +1,10 @@
 /**
  * Pure helper deciding whether/how the web panel should start at boot.
- * Extracted from src/index.ts so the three-way auth branch can be unit-tested
+ * Extracted from src/index.ts so the branch logic can be unit-tested
  * without booting the Discord client or Express.
  */
 
-export type WebPanelMode = 'oauth' | 'devAutoLogin' | 'landingOnly';
+export type WebPanelMode = 'oauth' | 'landingOnly';
 
 export type WebPanelPlan =
   | { action: 'disabled'; reason: 'noPort' }
@@ -13,7 +13,6 @@ export type WebPanelPlan =
 interface PlanEnv {
   WEB_MAP_PORT?: string;
   WEB_MAP_CALLBACK_URL?: string;
-  WEB_PANEL_ALLOW_NO_AUTH?: string;
 }
 
 interface PlanConfig {
@@ -25,10 +24,7 @@ function planWebPanelStartup(env: PlanEnv, config: PlanConfig): WebPanelPlan {
   if (!port) return { action: 'disabled', reason: 'noPort' };
 
   const oauthConfigured = !!(config.discordClientSecret && env.WEB_MAP_CALLBACK_URL);
-  if (oauthConfigured) return { action: 'start', port, mode: 'oauth' };
-
-  const mode: WebPanelMode = env.WEB_PANEL_ALLOW_NO_AUTH === 'true' ? 'devAutoLogin' : 'landingOnly';
-  return { action: 'start', port, mode };
+  return { action: 'start', port, mode: oauthConfigured ? 'oauth' : 'landingOnly' };
 }
 
 export { planWebPanelStartup };

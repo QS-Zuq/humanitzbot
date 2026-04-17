@@ -23,6 +23,8 @@ interface SessionUser {
   tierLevel: number | undefined;
   inGuild: boolean;
   lastRoleCheck: number;
+  // Marks sessions created via /auth/test-login so audit logs can filter them out.
+  isTestSession?: boolean;
 }
 
 interface HmzSession {
@@ -51,6 +53,22 @@ const COOKIE_NAME = 'hmz_session';
 const ROLE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getTestAuthToken(): string | null {
+  const raw = process.env['WEB_PANEL_TEST_AUTH_TOKEN'];
+  if (!raw) return null;
+  if (process.env['NODE_ENV'] === 'production') {
+    console.error(
+      '[AUTH] WEB_PANEL_TEST_AUTH_TOKEN is set but NODE_ENV=production — refusing to register /auth/test-login',
+    );
+    return null;
+  }
+  if (raw.length < 32) {
+    console.error('[AUTH] WEB_PANEL_TEST_AUTH_TOKEN must be >= 32 characters — refusing to register /auth/test-login');
+    return null;
+  }
+  return raw;
+}
 
 let _cachedSessionSecret: string | undefined;
 function getSessionSecret(): string {
@@ -246,63 +264,21 @@ function setupAuth(
   const authCfg = getAuthConfig();
 
   if (!authCfg.clientSecret || !authCfg.callbackUrl) {
-    const allowNoAuth = process.env['WEB_PANEL_ALLOW_NO_AUTH'] === 'true';
-
-    // Stub session for both modes to prevent req.session crashes in route handlers
-    function createStubSession() {
-      return {
-        user: allowNoAuth
-          ? {
-              userId: 'dev',
-              username: 'Developer',
-              displayName: 'Developer',
-              avatar: null,
-              roles: [] as string[],
-              tier: 'admin',
-              tierLevel: TIER['admin'],
-              inGuild: true,
-              lastRoleCheck: Date.now(),
-            }
-          : undefined,
-        username: allowNoAuth ? 'Developer' : undefined,
-        discordId: allowNoAuth ? 'dev' : undefined,
-        save(cb: (err: Error | null) => void) {
-          cb(null);
-        },
-        destroy(cb: (err: Error | null) => void) {
-          cb(null);
-        },
-      };
-    }
+    // Per-request stub session so route handlers that call req.session.* don't crash.
     app.use((_req: Request, _res: Response, next: NextFunction) => {
-      Object.assign(_req, { session: createStubSession() });
+      Object.assign(_req, {
+        session: {
+          user: undefined,
+          save(cb: (err: Error | null) => void) {
+            cb(null);
+          },
+          destroy(cb: (err: Error | null) => void) {
+            cb(null);
+          },
+        },
+      });
       next();
     });
-
-    if (allowNoAuth) {
-      console.warn('[AUTH] Discord OAuth not configured — dev mode active (WEB_PANEL_ALLOW_NO_AUTH)');
-      app.get('/auth/me', (_req: Request, res: Response) => {
-        res.json({
-          authenticated: true,
-          tier: 'admin',
-          tierLevel: TIER['admin'],
-          username: 'Developer',
-          devMode: true,
-        });
-      });
-      app.get('/auth/login', (_req: Request, res: Response) => {
-        res.redirect('/');
-      });
-      app.get('/auth/logout', (_req: Request, res: Response) => {
-        res.redirect('/');
-      });
-      return (_req: Request, _res: Response, next: NextFunction) => {
-        const hmzReq = _req as HmzRequest;
-        hmzReq.tier = 'admin';
-        hmzReq.tierLevel = TIER['admin'];
-        next();
-      };
-    }
 
     console.warn('[AUTH] Discord OAuth not configured — web panel login disabled');
     console.warn('[AUTH] Set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL in .env to enable');
@@ -421,6 +397,49 @@ function setupAuth(
   if (authCfg.modRoles.length > 0) console.log(`[AUTH] Mod roles: ${authCfg.modRoles.join(', ')}`);
   if (authCfg.survivorRoles.length > 0) console.log(`[AUTH] Survivor roles: ${authCfg.survivorRoles.join(', ')}`);
   else console.log(`[AUTH] No survivor roles set — any guild member gets survivor access`);
+
+  // ── Test login (E2E / AI automation) ──
+  // Registered only when WEB_PANEL_TEST_AUTH_TOKEN is set, token length >= 32,
+  // and NODE_ENV !== 'production'. Creates a synthetic session bypassing Discord.
+  const testAuthToken = getTestAuthToken();
+  if (testAuthToken) {
+    console.warn(
+      `[AUTH] Test login enabled — /auth/test-login accepts the configured token (NODE_ENV=${process.env['NODE_ENV'] ?? 'unset'})`,
+    );
+    app.get('/auth/test-login', (req: Request, res: Response) => {
+      const hmzReq = req as HmzRequest;
+      const provided = req.query['token'];
+      if (typeof provided !== 'string') {
+        return res.status(401).send('Missing token');
+      }
+      const expected = Buffer.from(testAuthToken);
+      const actual = Buffer.from(provided);
+      if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+        console.warn(`[AUTH] Test login rejected: invalid token (len=${String(actual.length)})`);
+        return res.status(401).send('Invalid token');
+      }
+      const requestedTier = req.query['tier'];
+      const tier = typeof requestedTier === 'string' && requestedTier in TIER ? requestedTier : 'admin';
+
+      hmzReq.session.user = {
+        userId: 'e2e-test',
+        username: 'E2E Test User',
+        displayName: 'E2E Test',
+        avatar: null,
+        roles: [],
+        tier,
+        tierLevel: TIER[tier],
+        inGuild: false,
+        lastRoleCheck: Date.now(),
+        isTestSession: true,
+      };
+      hmzReq.session.save((err: Error | null) => {
+        if (err) console.error('[AUTH] Test session save error:', err.message);
+        console.warn(`[AUTH] Test login granted tier=${tier} userId=e2e-test`);
+        res.redirect('/');
+      });
+    });
+  }
 
   // ── Auth routes ──
   app.get('/auth/login', (_req: Request, res: Response) => {
@@ -668,5 +687,5 @@ export { setupAuth, requireTier, isEnabled, isAuthorised, resolveTier, TIER };
 export type { HmzRequest, SessionUser, DiscordClient };
 
 // Exported for testing
-const _test = { getSessionSecret, _parseCookies, getAuthConfig };
+const _test = { getSessionSecret, _parseCookies, getAuthConfig, getTestAuthToken };
 export { _test };

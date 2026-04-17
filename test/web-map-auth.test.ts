@@ -197,7 +197,6 @@ describe('Web Map Auth', () => {
     it('disabled mode: sets public tier when OAuth is not configured', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       const { setupAuth: setup } = _auth as any;
 
@@ -244,129 +243,11 @@ describe('Web Map Auth', () => {
       assert.equal(typeof routes['GET /auth/login'], 'function');
     });
 
-    it('dev mode: sets admin tier when WEB_PANEL_ALLOW_NO_AUTH=true', () => {
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'true';
-
-      try {
-        const { setupAuth: setup } = _auth as any;
-
-        const routes: Record<string, unknown> = {};
-        const useHandlers: Array<(req: unknown, res: unknown, next: () => void) => void> = [];
-        const app = {
-          get: (path: string, handler: unknown) => {
-            routes[`GET ${path}`] = handler;
-          },
-          post: (path: string, handler: unknown) => {
-            routes[`POST ${path}`] = handler;
-          },
-          use: (mw: (req: unknown, res: unknown, next: () => void) => void) => {
-            useHandlers.push(mw);
-          },
-        };
-
-        const middleware = setup(app);
-        assert.equal(typeof middleware, 'function');
-
-        // Middleware should set admin tier
-        const req: Record<string, unknown> = {};
-        let nextCalled = false;
-        middleware(req, {}, () => {
-          nextCalled = true;
-        });
-        assert.equal(nextCalled, true);
-        assert.equal(req.tier, 'admin');
-        assert.equal(req.tierLevel, 3);
-
-        // Run the stub-session middleware and cross-check that /auth/me agrees
-        // with the injected session.user — so a future drift between the two
-        // (e.g. username changed in one place but not the other) fails loudly.
-        const stubSession = useHandlers[0];
-        assert.ok(stubSession, 'stub session middleware should be registered');
-        const sessionReq: Record<string, unknown> = {};
-        stubSession(sessionReq, {}, () => {});
-        const sessionUser = (sessionReq.session as Record<string, unknown>).user as Record<string, unknown>;
-
-        let meResponse: Record<string, unknown> = {};
-        const meHandler = routes['GET /auth/me'] as (req: unknown, res: unknown) => void;
-        meHandler(
-          {},
-          {
-            json: (data: Record<string, unknown>) => {
-              meResponse = data;
-            },
-          },
-        );
-        assert.equal(meResponse.authenticated, true);
-        assert.equal(meResponse.devMode, true);
-        assert.equal(meResponse.tier, sessionUser.tier);
-        assert.equal(meResponse.tierLevel, sessionUser.tierLevel);
-        assert.equal(meResponse.username, sessionUser.username);
-      } finally {
-        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-      }
-    });
-
-    it('strict check: WEB_PANEL_ALLOW_NO_AUTH=false does not enable dev mode', () => {
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'false';
-
-      try {
-        const { setupAuth: setup } = _auth as any;
-
-        const routes: Record<string, unknown> = {};
-        const app = {
-          get: (path: string, handler: unknown) => {
-            routes[`GET ${path}`] = handler;
-          },
-          post: (path: string, handler: unknown) => {
-            routes[`POST ${path}`] = handler;
-          },
-          use: () => {},
-        };
-
-        const middleware = setup(app);
-
-        // Should be public, not admin
-        const req: Record<string, unknown> = {};
-        middleware(req, {}, () => {});
-        assert.equal(req.tier, 'public');
-        assert.equal(req.tierLevel, 0);
-      } finally {
-        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-      }
-    });
-
-    // ── Strict flag: only the literal string "true" activates dev mode ──
-
-    for (const badValue of ['TRUE', 'True', '1', 'yes', 'on']) {
-      it(`strict check: WEB_PANEL_ALLOW_NO_AUTH=${JSON.stringify(badValue)} does not enable dev mode`, () => {
-        delete process.env.DISCORD_OAUTH_SECRET;
-        delete process.env.WEB_MAP_CALLBACK_URL;
-        process.env.WEB_PANEL_ALLOW_NO_AUTH = badValue;
-
-        try {
-          const { setupAuth: setup } = _auth as any;
-          const app = { get: () => {}, post: () => {}, use: () => {} };
-          const middleware = setup(app);
-          const req: Record<string, unknown> = {};
-          middleware(req, {}, () => {});
-          assert.equal(req.tier, 'public');
-          assert.equal(req.tierLevel, 0);
-        } finally {
-          delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-        }
-      });
-    }
-
     // ── Partial OAuth config: both secret and callback URL must be set ──
 
     it('partial OAuth: only DISCORD_OAUTH_SECRET set → disabled mode', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       delete process.env.WEB_MAP_CALLBACK_URL;
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       try {
         const { setupAuth: setup } = _auth as any;
@@ -406,7 +287,6 @@ describe('Web Map Auth', () => {
     it('partial OAuth: only WEB_MAP_CALLBACK_URL set → disabled mode', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       try {
         const { setupAuth: setup } = _auth as any;
@@ -449,7 +329,6 @@ describe('Web Map Auth', () => {
     it('disabled mode: stub session middleware injects empty session with working save/destroy', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       const { setupAuth: setup } = _auth as any;
 
@@ -476,8 +355,6 @@ describe('Web Map Auth', () => {
       const session = req.session as Record<string, unknown>;
       assert.ok(session, 'req.session should be injected');
       assert.equal(session.user, undefined, 'disabled mode leaves user undefined');
-      assert.equal(session.username, undefined);
-      assert.equal(session.discordId, undefined);
       assert.equal(typeof session.save, 'function');
       assert.equal(typeof session.destroy, 'function');
 
@@ -494,91 +371,11 @@ describe('Web Map Auth', () => {
       assert.equal(destroyErr, null, 'stub destroy() invokes callback with null');
     });
 
-    it('dev mode: stub session middleware populates Developer user with full SessionUser fields', () => {
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'true';
-
-      try {
-        const { setupAuth: setup } = _auth as any;
-
-        const middlewares: StubMiddleware[] = [];
-        const app = {
-          get: () => {},
-          post: () => {},
-          use: (mw: StubMiddleware) => {
-            middlewares.push(mw);
-          },
-        };
-
-        setup(app);
-        const stubSession = middlewares[0];
-        assert.ok(stubSession, 'stub session middleware should be registered');
-
-        const before = Date.now();
-        const req: Record<string, unknown> = {};
-        stubSession(req, {}, () => {});
-
-        const session = req.session as Record<string, unknown>;
-        assert.ok(session, 'req.session should be injected');
-        assert.equal(session.username, 'Developer');
-        assert.equal(session.discordId, 'dev');
-
-        const user = session.user as Record<string, unknown>;
-        assert.ok(user, 'dev mode populates session.user');
-        assert.equal(user.userId, 'dev');
-        assert.equal(user.username, 'Developer');
-        assert.equal(user.displayName, 'Developer');
-        assert.equal(user.avatar, null);
-        assert.deepEqual(user.roles, []);
-        assert.equal(user.tier, 'admin');
-        assert.equal(user.tierLevel, TIER.admin);
-        assert.equal(user.inGuild, true);
-        assert.equal(typeof user.lastRoleCheck, 'number');
-        assert.ok((user.lastRoleCheck as number) >= before, 'lastRoleCheck should be a recent timestamp');
-      } finally {
-        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-      }
-    });
-
     // ── Integration: setupAuth middleware + requireTier ──
-
-    it('dev mode: tier injected by middleware passes requireTier("admin")', () => {
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'true';
-
-      try {
-        const { setupAuth: setup, requireTier: rt } = _auth as any;
-        const app = { get: () => {}, post: () => {}, use: () => {} };
-        const middleware = setup(app);
-
-        const req: Record<string, unknown> = { path: '/api/admin/settings' };
-        middleware(req, {}, () => {});
-
-        const guard = rt('admin');
-        let nextCalled = false;
-        guard(
-          req,
-          {
-            status: () => ({ json: () => {} }),
-            redirect: () => {},
-            send: () => {},
-          },
-          () => {
-            nextCalled = true;
-          },
-        );
-        assert.equal(nextCalled, true, 'dev-injected admin tier should pass admin guard');
-      } finally {
-        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-      }
-    });
 
     it('landingOnly mode: tier injected by middleware is blocked by requireTier("survivor") on API', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       const { setupAuth: setup, requireTier: rt } = _auth as any;
       const app = { get: () => {}, post: () => {}, use: () => {} };
@@ -611,7 +408,6 @@ describe('Web Map Auth', () => {
     it('disabled mode: /auth/login and /auth/logout redirect to /', () => {
       delete process.env.DISCORD_OAUTH_SECRET;
       delete process.env.WEB_MAP_CALLBACK_URL;
-      delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
 
       const { setupAuth: setup } = _auth as any;
       const routes: Record<string, unknown> = {};
@@ -645,49 +441,6 @@ describe('Web Map Auth', () => {
         },
       );
       assert.equal(logoutRedirect, '/');
-    });
-
-    it('dev mode: /auth/login and /auth/logout redirect to /', () => {
-      delete process.env.DISCORD_OAUTH_SECRET;
-      delete process.env.WEB_MAP_CALLBACK_URL;
-      process.env.WEB_PANEL_ALLOW_NO_AUTH = 'true';
-
-      try {
-        const { setupAuth: setup } = _auth as any;
-        const routes: Record<string, unknown> = {};
-        const app = {
-          get: (path: string, handler: unknown) => {
-            routes[`GET ${path}`] = handler;
-          },
-          post: () => {},
-          use: () => {},
-        };
-        setup(app);
-
-        let loginRedirect: string | null = null;
-        (routes['GET /auth/login'] as (req: unknown, res: unknown) => void)(
-          {},
-          {
-            redirect: (t: string) => {
-              loginRedirect = t;
-            },
-          },
-        );
-        assert.equal(loginRedirect, '/');
-
-        let logoutRedirect: string | null = null;
-        (routes['GET /auth/logout'] as (req: unknown, res: unknown) => void)(
-          {},
-          {
-            redirect: (t: string) => {
-              logoutRedirect = t;
-            },
-          },
-        );
-        assert.equal(logoutRedirect, '/');
-      } finally {
-        delete process.env.WEB_PANEL_ALLOW_NO_AUTH;
-      }
     });
 
     it('registers auth routes when OAuth is configured', () => {
@@ -918,6 +671,270 @@ describe('Web Map Auth', () => {
         delete process.env.DISCORD_OAUTH_SECRET;
         delete process.env.WEB_MAP_CALLBACK_URL;
         config.guildId = savedGuildId;
+      }
+    });
+
+    // ── /auth/test-login (E2E / AI automation) ──
+
+    const VALID_TOKEN = 'a'.repeat(64); // 64-char hex-like string, passes length check
+
+    function setupWithTestToken(token: string | undefined, nodeEnv?: string) {
+      if (token === undefined) delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+      else process.env.WEB_PANEL_TEST_AUTH_TOKEN = token;
+      if (nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = nodeEnv;
+      process.env.DISCORD_OAUTH_SECRET = 'test-secret';
+      process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
+
+      const routes: Record<string, unknown> = {};
+      const app = {
+        get: (path: string, handler: unknown) => {
+          routes[`GET ${path}`] = handler;
+        },
+        post: () => {},
+        use: () => {},
+      };
+      const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
+      setup(app);
+      return routes;
+    }
+
+    function cleanupTestTokenEnv() {
+      delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+      delete process.env.NODE_ENV;
+      delete process.env.DISCORD_OAUTH_SECRET;
+      delete process.env.WEB_MAP_CALLBACK_URL;
+    }
+
+    it('test-login: registers /auth/test-login when token is set and NODE_ENV is not production', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        assert.equal(typeof routes['GET /auth/test-login'], 'function');
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: does NOT register endpoint when NODE_ENV=production (security guard)', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'production');
+        assert.equal(routes['GET /auth/test-login'], undefined);
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: does NOT register endpoint when token is shorter than 32 chars', () => {
+      try {
+        const routes = setupWithTestToken('short', 'development');
+        assert.equal(routes['GET /auth/test-login'], undefined);
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: does NOT register endpoint when token is unset', () => {
+      try {
+        const routes = setupWithTestToken(undefined, 'development');
+        assert.equal(routes['GET /auth/test-login'], undefined);
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: valid token creates synthetic admin session and redirects to /', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        let redirectTarget: string | null = null;
+        const session: Record<string, unknown> = {
+          save(cb: (err: Error | null) => void) {
+            cb(null);
+          },
+        };
+        const req = { query: { token: VALID_TOKEN }, session };
+        const res = {
+          status: () => res,
+          send: () => {},
+          redirect: (t: string) => {
+            redirectTarget = t;
+          },
+        };
+
+        handler(req, res);
+
+        assert.equal(redirectTarget, '/');
+        const user = session.user as Record<string, unknown>;
+        assert.ok(user, 'session.user should be populated');
+        assert.equal(user.userId, 'e2e-test');
+        assert.equal(user.username, 'E2E Test User');
+        assert.equal(user.tier, 'admin');
+        assert.equal(user.tierLevel, TIER.admin);
+        assert.equal(user.inGuild, false, 'synthetic session should not claim guild membership');
+        assert.equal(user.isTestSession, true, 'session should be flagged as test');
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: accepts tier query param when it is a valid tier', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        const session: Record<string, unknown> = {
+          save(cb: (err: Error | null) => void) {
+            cb(null);
+          },
+        };
+        const req = { query: { token: VALID_TOKEN, tier: 'survivor' }, session };
+        const res = { status: () => res, send: () => {}, redirect: () => {} };
+        handler(req, res);
+
+        const user = session.user as Record<string, unknown>;
+        assert.equal(user.tier, 'survivor');
+        assert.equal(user.tierLevel, TIER.survivor);
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: falls back to admin tier when tier query param is invalid', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        const session: Record<string, unknown> = {
+          save(cb: (err: Error | null) => void) {
+            cb(null);
+          },
+        };
+        const req = { query: { token: VALID_TOKEN, tier: 'superuser' }, session };
+        const res = { status: () => res, send: () => {}, redirect: () => {} };
+        handler(req, res);
+
+        const user = session.user as Record<string, unknown>;
+        assert.equal(user.tier, 'admin', 'invalid tier should fall back to admin');
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: rejects wrong token with 401', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        const wrongToken = 'b'.repeat(64); // same length, different content
+        let statusCode: number | null = null;
+        let sendBody: unknown = null;
+        const req = { query: { token: wrongToken }, session: {} };
+        const res = {
+          status: (c: number) => {
+            statusCode = c;
+            return res;
+          },
+          send: (body: unknown) => {
+            sendBody = body;
+          },
+          redirect: () => {},
+        };
+        handler(req, res);
+
+        assert.equal(statusCode, 401);
+        assert.equal(sendBody, 'Invalid token');
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: rejects different-length token without timingSafeEqual crash', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        let statusCode: number | null = null;
+        const req = { query: { token: 'tooshort' }, session: {} };
+        const res = {
+          status: (c: number) => {
+            statusCode = c;
+            return res;
+          },
+          send: () => {},
+          redirect: () => {},
+        };
+        handler(req, res);
+        assert.equal(statusCode, 401, 'different-length token should be rejected before timingSafeEqual');
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: rejects missing token with 401', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+
+        let statusCode: number | null = null;
+        const req = { query: {}, session: {} };
+        const res = {
+          status: (c: number) => {
+            statusCode = c;
+            return res;
+          },
+          send: () => {},
+          redirect: () => {},
+        };
+        handler(req, res);
+        assert.equal(statusCode, 401);
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+  });
+
+  // ── getTestAuthToken ───────────────────────────────────────
+
+  describe('getTestAuthToken', () => {
+    const { getTestAuthToken } = _test;
+
+    it('returns null when WEB_PANEL_TEST_AUTH_TOKEN is unset', () => {
+      delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+      delete process.env.NODE_ENV;
+      assert.equal(getTestAuthToken(), null);
+    });
+
+    it('returns null when NODE_ENV=production even with a valid token', () => {
+      process.env.WEB_PANEL_TEST_AUTH_TOKEN = 'a'.repeat(64);
+      process.env.NODE_ENV = 'production';
+      try {
+        assert.equal(getTestAuthToken(), null);
+      } finally {
+        delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+        delete process.env.NODE_ENV;
+      }
+    });
+
+    it('returns null when token is shorter than 32 characters', () => {
+      process.env.WEB_PANEL_TEST_AUTH_TOKEN = 'a'.repeat(31);
+      delete process.env.NODE_ENV;
+      try {
+        assert.equal(getTestAuthToken(), null);
+      } finally {
+        delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+      }
+    });
+
+    it('returns the token when valid and NODE_ENV is not production', () => {
+      const token = 'a'.repeat(32);
+      process.env.WEB_PANEL_TEST_AUTH_TOKEN = token;
+      process.env.NODE_ENV = 'development';
+      try {
+        assert.equal(getTestAuthToken(), token);
+      } finally {
+        delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
+        delete process.env.NODE_ENV;
       }
     });
   });

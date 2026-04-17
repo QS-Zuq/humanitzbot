@@ -547,9 +547,7 @@ client.once(Events.ClientReady, (readyClient) => {
     } else {
       const { port, mode } = webPanelPlan;
       try {
-        if (mode === 'devAutoLogin') {
-          console.warn('[BOT] Web panel starting in dev mode — auto-login as admin (WEB_PANEL_ALLOW_NO_AUTH)');
-        } else if (mode === 'landingOnly') {
+        if (mode === 'landingOnly') {
           console.log('[BOT] Web panel starting without OAuth — landing page only (login disabled)');
           console.log('[BOT] Set DISCORD_OAUTH_SECRET + WEB_MAP_CALLBACK_URL in .env to enable login');
         }
@@ -558,9 +556,8 @@ client.once(Events.ClientReady, (readyClient) => {
         const server = new WebMapServer(readyClient, { db, configRepo });
         await server.start();
         webMapServer = server;
-        const icon = mode === 'devAutoLogin' ? '🟠' : '🟢';
-        const suffix = mode === 'oauth' ? '' : mode === 'devAutoLogin' ? ' (DEV AUTO-LOGIN)' : ' (no auth)';
-        setStatus('WebMap', `${icon} Running on http://localhost:${port}${suffix}`);
+        const suffix = mode === 'oauth' ? '' : ' (no auth)';
+        setStatus('WebMap', `🟢 Running on http://localhost:${port}${suffix}`);
         console.log(`[BOT] Web panel started: http://localhost:${port}`);
       } catch (err: unknown) {
         setStatus('WebMap', `⚠️ Failed to start: ${errMsg(err)}`);

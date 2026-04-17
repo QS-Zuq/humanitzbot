@@ -26,71 +26,23 @@ describe('planWebPanelStartup', () => {
     assert.deepEqual(plan, { action: 'start', port: 3000, mode: 'oauth' });
   });
 
-  it('returns dev mode when OAuth unset and WEB_PANEL_ALLOW_NO_AUTH=true', () => {
-    const plan = planWebPanelStartup(
-      { WEB_MAP_PORT: '3000', WEB_PANEL_ALLOW_NO_AUTH: 'true' },
-      { discordClientSecret: '' },
-    );
-    assert.deepEqual(plan, { action: 'start', port: 3000, mode: 'devAutoLogin' });
-  });
-
-  it('returns noAuth mode when OAuth unset and no dev flag', () => {
+  it('returns landingOnly mode when OAuth not configured', () => {
     const plan = planWebPanelStartup({ WEB_MAP_PORT: '3000' }, { discordClientSecret: '' });
     assert.deepEqual(plan, { action: 'start', port: 3000, mode: 'landingOnly' });
   });
 
-  it('partial OAuth: only secret set → noAuth', () => {
+  it('partial OAuth: only secret set → landingOnly', () => {
     const plan = planWebPanelStartup({ WEB_MAP_PORT: '3000' }, { discordClientSecret: 'secret' });
     assert.equal(plan.action, 'start');
     assert.equal(plan.mode, 'landingOnly');
   });
 
-  it('partial OAuth: only callback URL set → noAuth', () => {
+  it('partial OAuth: only callback URL set → landingOnly', () => {
     const plan = planWebPanelStartup(
       { WEB_MAP_PORT: '3000', WEB_MAP_CALLBACK_URL: 'http://localhost:3000/auth/callback' },
       { discordClientSecret: '' },
     );
     assert.equal(plan.action, 'start');
     assert.equal(plan.mode, 'landingOnly');
-  });
-
-  it('partial OAuth + dev flag: still routes to dev mode', () => {
-    const plan = planWebPanelStartup(
-      { WEB_MAP_PORT: '3000', WEB_PANEL_ALLOW_NO_AUTH: 'true' },
-      { discordClientSecret: 'secret' },
-    );
-    assert.equal(plan.action, 'start');
-    assert.equal(plan.mode, 'devAutoLogin');
-  });
-
-  it('strict flag: WEB_PANEL_ALLOW_NO_AUTH=TRUE (uppercase) stays in noAuth', () => {
-    const plan = planWebPanelStartup(
-      { WEB_MAP_PORT: '3000', WEB_PANEL_ALLOW_NO_AUTH: 'TRUE' },
-      { discordClientSecret: '' },
-    );
-    assert.equal(plan.action, 'start');
-    assert.equal(plan.mode, 'landingOnly');
-  });
-
-  it('strict flag: WEB_PANEL_ALLOW_NO_AUTH=1 stays in noAuth', () => {
-    const plan = planWebPanelStartup(
-      { WEB_MAP_PORT: '3000', WEB_PANEL_ALLOW_NO_AUTH: '1' },
-      { discordClientSecret: '' },
-    );
-    assert.equal(plan.action, 'start');
-    assert.equal(plan.mode, 'landingOnly');
-  });
-
-  it('configured OAuth takes precedence over WEB_PANEL_ALLOW_NO_AUTH', () => {
-    const plan = planWebPanelStartup(
-      {
-        WEB_MAP_PORT: '3000',
-        WEB_MAP_CALLBACK_URL: 'http://localhost:3000/auth/callback',
-        WEB_PANEL_ALLOW_NO_AUTH: 'true',
-      },
-      { discordClientSecret: 'secret' },
-    );
-    assert.equal(plan.action, 'start');
-    assert.equal(plan.mode, 'oauth');
   });
 });
