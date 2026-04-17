@@ -173,7 +173,10 @@ function needsSync(): boolean {
   if (!fs.existsSync(_envPath)) return true;
   if (!fs.existsSync(_examplePath)) return false;
 
-  const env = parseEnv(_envPath);
+  // includeCommented: true so a user-commented key (e.g. "#FOO=bar") is
+  // treated as present — the user made a deliberate choice to disable it,
+  // and sync should neither re-activate it nor clobber its stored value.
+  const env = parseEnv(_envPath, { includeCommented: true });
   const example = parseEnv(_examplePath, { includeCommented: true });
 
   // Check version mismatch
@@ -195,7 +198,11 @@ function syncEnv(): SyncResult {
     throw new Error('.env.example not found');
   }
 
-  const env = parseEnv(_envPath);
+  // includeCommented: true so user-commented entries are preserved verbatim.
+  // Without this, a user disabling a key by prefixing "#" (e.g. to temporarily
+  // turn off an OAuth secret) would be treated as missing and overwritten with
+  // the example's default on the next schema bump.
+  const env = parseEnv(_envPath, { includeCommented: true });
   const example = parseEnv(_examplePath, { includeCommented: true });
   const sections = extractSections(_examplePath);
 
@@ -233,6 +240,9 @@ function syncEnv(): SyncResult {
         // ENV_SCHEMA_VERSION always takes the example value (it's the target, not user data)
         if (key === ENV_VERSION_KEY) {
           output.push(`${key}=${exampleEntry.value}`);
+        } else if (envEntry.commented) {
+          // User commented this out — preserve their value and the commented state.
+          output.push(`#${key}=${envEntry.value}`);
         } else {
           // Preserve existing user value (whether example was commented or not)
           output.push(`${key}=${envEntry.value}`);
@@ -271,7 +281,9 @@ function syncEnv(): SyncResult {
       const entry = env.entries.get(key);
       if (!entry) continue;
       if (entry.comment) output.push(entry.comment);
-      output.push(`${key}=${entry.value}`);
+      // Respect the commented state so a user-disabled dynamic key stays
+      // disabled across schema bumps (env now parsed with includeCommented: true).
+      output.push(entry.commented ? `#${key}=${entry.value}` : `${key}=${entry.value}`);
       output.push('');
     }
   }

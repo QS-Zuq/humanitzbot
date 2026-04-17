@@ -94,6 +94,16 @@ describe('needsSync', () => {
     fs.writeFileSync(examplePath, 'ENV_SCHEMA_VERSION=5\nDISCORD_TOKEN=placeholder\n');
     assert.equal(envSync.needsSync(), false);
   });
+
+  it('treats user-commented keys as present (no spurious resync)', () => {
+    const { envPath, examplePath } = setupTmp();
+    // User deliberately commented out DISCORD_TOKEN in their .env.
+    // Example still declares it as required (uncommented).
+    // Sync should respect the user's choice, not trigger re-add on every boot.
+    fs.writeFileSync(envPath, 'ENV_SCHEMA_VERSION=5\n#DISCORD_TOKEN=abc123\n');
+    fs.writeFileSync(examplePath, 'ENV_SCHEMA_VERSION=5\nDISCORD_TOKEN=placeholder\n');
+    assert.equal(envSync.needsSync(), false);
+  });
 });
 
 // ══════════════════════════════════════════════════════════
@@ -188,6 +198,34 @@ describe('syncEnv', () => {
     assert.match(content, /^PVP_HOURS_MON=18:00-22:00$/m);
   });
 
+  it('preserves commented state of dynamic keys (no re-activation on schema bump)', () => {
+    const { envPath, examplePath } = setupTmp();
+    // User temporarily disabled a dynamic profile by commenting it.
+    // Before the dynamic-keys commented-state fix, the sync re-activated it
+    // because env was parsed with includeCommented: true but the dynamic-keys
+    // rewrite branch ignored entry.commented.
+    fs.writeFileSync(
+      envPath,
+      [
+        'ENV_SCHEMA_VERSION=4',
+        'DISCORD_TOKEN=tok',
+        '#RESTART_PROFILE_CALM=disabled-profile',
+        'PVP_HOURS_MON=18:00-22:00',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(examplePath, ['ENV_SCHEMA_VERSION=5', 'DISCORD_TOKEN=placeholder', ''].join('\n'));
+
+    envSync.syncEnv();
+    const content = fs.readFileSync(envPath, 'utf8');
+
+    // Commented dynamic key stays commented — not re-activated.
+    assert.match(content, /^#RESTART_PROFILE_CALM=disabled-profile$/m);
+    assert.doesNotMatch(content, /^RESTART_PROFILE_CALM=disabled-profile$/m);
+    // Active dynamic key unchanged.
+    assert.match(content, /^PVP_HOURS_MON=18:00-22:00$/m);
+  });
+
   it('creates a backup of the old .env', () => {
     const { envPath, examplePath, backupDir } = setupTmp();
     fs.writeFileSync(envPath, 'ENV_SCHEMA_VERSION=4\nDISCORD_TOKEN=tok\n');
@@ -234,6 +272,61 @@ describe('syncEnv', () => {
     setupTmp();
     // Don't write .env.example
     assert.throws(() => envSync.syncEnv(), /\.env\.example not found/);
+  });
+
+  // ── Commented-value preservation (regression guard) ─────────────
+
+  it('preserves user-commented value when example has the key uncommented', () => {
+    const { envPath, examplePath } = setupTmp();
+    // User temporarily disabled the OAuth secret by commenting the line.
+    // Example declares it as an uncommented (required-looking) key.
+    // Before the fix, sync clobbered the user's value with the example default.
+    fs.writeFileSync(
+      envPath,
+      ['ENV_SCHEMA_VERSION=5', 'DISCORD_TOKEN=tok', '#DISCORD_OAUTH_SECRET=my-real-secret', ''].join('\n'),
+    );
+    fs.writeFileSync(
+      examplePath,
+      ['ENV_SCHEMA_VERSION=6', 'DISCORD_TOKEN=placeholder', 'DISCORD_OAUTH_SECRET=', ''].join('\n'),
+    );
+
+    envSync.syncEnv();
+    const content = fs.readFileSync(envPath, 'utf8');
+
+    // User's commented value is preserved verbatim — not overwritten with empty default.
+    assert.match(content, /^#DISCORD_OAUTH_SECRET=my-real-secret$/m);
+    // Should NOT appear as an active empty line.
+    assert.doesNotMatch(content, /^DISCORD_OAUTH_SECRET=$/m);
+  });
+
+  it('preserves user-commented value when example has the key also commented', () => {
+    const { envPath, examplePath } = setupTmp();
+    fs.writeFileSync(envPath, ['ENV_SCHEMA_VERSION=5', 'DISCORD_TOKEN=tok', '#WEB_MAP_PORT=9999', ''].join('\n'));
+    fs.writeFileSync(
+      examplePath,
+      ['ENV_SCHEMA_VERSION=6', 'DISCORD_TOKEN=placeholder', '#WEB_MAP_PORT=3000', ''].join('\n'),
+    );
+
+    envSync.syncEnv();
+    const content = fs.readFileSync(envPath, 'utf8');
+
+    // User's custom commented value wins over example's default.
+    assert.match(content, /^#WEB_MAP_PORT=9999$/m);
+  });
+
+  it('active value takes precedence when both commented and active variants are present', () => {
+    const { envPath, examplePath } = setupTmp();
+    // Pathological input: user has both lines in their .env.
+    // parseEnv's active-match overwrites commented, so active wins — keeps it active.
+    fs.writeFileSync(envPath, ['ENV_SCHEMA_VERSION=5', 'DISCORD_TOKEN=tok', '#FOO=old', 'FOO=new', ''].join('\n'));
+    fs.writeFileSync(examplePath, ['ENV_SCHEMA_VERSION=6', 'DISCORD_TOKEN=placeholder', 'FOO=default', ''].join('\n'));
+
+    envSync.syncEnv();
+    const content = fs.readFileSync(envPath, 'utf8');
+
+    assert.match(content, /^FOO=new$/m);
+    // The stray commented variant is naturally dropped since sync rewrites from the example's section order.
+    assert.doesNotMatch(content, /^#FOO=old$/m);
   });
 });
 
