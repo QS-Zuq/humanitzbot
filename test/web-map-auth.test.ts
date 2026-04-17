@@ -678,6 +678,8 @@ describe('Web Map Auth', () => {
 
     const VALID_TOKEN = 'a'.repeat(64); // 64-char hex-like string, passes length check
 
+    type RouteHandler = (req: unknown, res: unknown) => void;
+
     function setupWithTestToken(token: string | undefined, nodeEnv?: string) {
       if (token === undefined) delete process.env.WEB_PANEL_TEST_AUTH_TOKEN;
       else process.env.WEB_PANEL_TEST_AUTH_TOKEN = token;
@@ -686,12 +688,17 @@ describe('Web Map Auth', () => {
       process.env.DISCORD_OAUTH_SECRET = 'test-secret';
       process.env.WEB_MAP_CALLBACK_URL = 'http://localhost:3000/auth/callback';
 
-      const routes: Record<string, unknown> = {};
+      const routes: Record<string, RouteHandler | undefined> = {};
+      // app.post is variadic: (path, ...handlers). The real route handler is
+      // the last arg; earlier args are per-route middleware (e.g. jsonBodyParser).
+      // Store the last one so tests invoke the handler directly with req.body.
       const app = {
-        get: (path: string, handler: unknown) => {
-          routes[`GET ${path}`] = handler;
+        get: (path: string, ...handlers: RouteHandler[]) => {
+          routes[`GET ${path}`] = handlers[handlers.length - 1];
         },
-        post: () => {},
+        post: (path: string, ...handlers: RouteHandler[]) => {
+          routes[`POST ${path}`] = handlers[handlers.length - 1];
+        },
         use: () => {},
       };
       const { setupAuth: setup } = cjsRequire('../src/web-map/auth');
@@ -706,16 +713,37 @@ describe('Web Map Auth', () => {
       delete process.env.WEB_MAP_CALLBACK_URL;
     }
 
-    it('test-login: registers /auth/test-login when token is set and NODE_ENV is not production', () => {
+    function makeResponseCapture(): {
+      res: Record<string, unknown>;
+      status: () => number | null;
+      body: () => unknown;
+    } {
+      let statusCode: number | null = null;
+      let jsonBody: unknown = null;
+      const res: Record<string, unknown> = {};
+      res.status = (c: number) => {
+        statusCode = c;
+        return res;
+      };
+      res.json = (body: unknown) => {
+        jsonBody = body;
+        return res;
+      };
+      return { res, status: () => statusCode, body: () => jsonBody };
+    }
+
+    it('test-login: registers POST /auth/test-login when token is set and NODE_ENV is allowlisted', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        assert.equal(typeof routes['GET /auth/test-login'], 'function');
+        assert.equal(typeof routes['POST /auth/test-login'], 'function');
+        // Should NOT be registered as a GET — URL-query transport is rejected by design.
+        assert.equal(routes['GET /auth/test-login'], undefined);
       } finally {
         cleanupTestTokenEnv();
       }
     });
 
-    it('test-login: startup log prints URL template without leaking the token', () => {
+    it('test-login: startup log prints endpoint template without leaking the token', () => {
       const originalWarn = console.warn;
       const logs: string[] = [];
       console.warn = (msg: unknown) => {
@@ -725,11 +753,9 @@ describe('Web Map Auth', () => {
         setupWithTestToken(VALID_TOKEN, 'development');
         const combined = logs.join('\n');
 
-        // Template with derived origin + placeholder — not the raw token
-        assert.match(
-          combined,
-          /Test login URL: http:\/\/localhost:3000\/auth\/test-login\?token=<YOUR_TOKEN>&tier=admin/,
-        );
+        // Log advertises POST with placeholder — not the raw token
+        assert.match(combined, /POST http:\/\/localhost:3000\/auth\/test-login/);
+        assert.match(combined, /<WEB_PANEL_TEST_AUTH_TOKEN>/);
         assert.match(combined, /Anyone with the token gets admin access/);
 
         // Token MUST NOT appear in logs — prevents leak via log aggregators
@@ -743,7 +769,7 @@ describe('Web Map Auth', () => {
     it('test-login: does NOT register endpoint when NODE_ENV=production (security guard)', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'production');
-        assert.equal(routes['GET /auth/test-login'], undefined);
+        assert.equal(routes['POST /auth/test-login'], undefined);
       } finally {
         cleanupTestTokenEnv();
       }
@@ -752,7 +778,7 @@ describe('Web Map Auth', () => {
     it('test-login: does NOT register endpoint when token is shorter than 32 chars', () => {
       try {
         const routes = setupWithTestToken('short', 'development');
-        assert.equal(routes['GET /auth/test-login'], undefined);
+        assert.equal(routes['POST /auth/test-login'], undefined);
       } finally {
         cleanupTestTokenEnv();
       }
@@ -761,35 +787,32 @@ describe('Web Map Auth', () => {
     it('test-login: does NOT register endpoint when token is unset', () => {
       try {
         const routes = setupWithTestToken(undefined, 'development');
-        assert.equal(routes['GET /auth/test-login'], undefined);
+        assert.equal(routes['POST /auth/test-login'], undefined);
       } finally {
         cleanupTestTokenEnv();
       }
     });
 
-    it('test-login: valid token creates synthetic admin session and redirects to /', () => {
+    it('test-login: valid token creates synthetic admin session and returns ok=true', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
-        let redirectTarget: string | null = null;
         const session: Record<string, unknown> = {
           save(cb: (err: Error | null) => void) {
             cb(null);
           },
         };
-        const req = { query: { token: VALID_TOKEN }, session };
-        const res = {
-          status: () => res,
-          send: () => {},
-          redirect: (t: string) => {
-            redirectTarget = t;
-          },
-        };
+        const req = { body: { token: VALID_TOKEN }, session };
+        const { res, body } = makeResponseCapture();
 
         handler(req, res);
 
-        assert.equal(redirectTarget, '/');
+        const payload = body() as Record<string, unknown>;
+        assert.equal(payload.ok, true);
+        assert.equal(payload.tier, 'admin');
+        assert.equal(payload.userId, 'e2e-test');
+
         const user = session.user as Record<string, unknown>;
         assert.ok(user, 'session.user should be populated');
         assert.equal(user.userId, 'e2e-test');
@@ -803,18 +826,18 @@ describe('Web Map Auth', () => {
       }
     });
 
-    it('test-login: accepts tier query param when it is a valid tier', () => {
+    it('test-login: accepts tier body field when it is a valid tier', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
         const session: Record<string, unknown> = {
           save(cb: (err: Error | null) => void) {
             cb(null);
           },
         };
-        const req = { query: { token: VALID_TOKEN, tier: 'survivor' }, session };
-        const res = { status: () => res, send: () => {}, redirect: () => {} };
+        const req = { body: { token: VALID_TOKEN, tier: 'survivor' }, session };
+        const { res } = makeResponseCapture();
         handler(req, res);
 
         const user = session.user as Record<string, unknown>;
@@ -825,18 +848,18 @@ describe('Web Map Auth', () => {
       }
     });
 
-    it('test-login: falls back to admin tier when tier query param is invalid', () => {
+    it('test-login: falls back to admin tier when tier body field is invalid', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
         const session: Record<string, unknown> = {
           save(cb: (err: Error | null) => void) {
             cb(null);
           },
         };
-        const req = { query: { token: VALID_TOKEN, tier: 'superuser' }, session };
-        const res = { status: () => res, send: () => {}, redirect: () => {} };
+        const req = { body: { token: VALID_TOKEN, tier: 'superuser' }, session };
+        const { res } = makeResponseCapture();
         handler(req, res);
 
         const user = session.user as Record<string, unknown>;
@@ -846,29 +869,18 @@ describe('Web Map Auth', () => {
       }
     });
 
-    it('test-login: rejects wrong token with 401', () => {
+    it('test-login: rejects wrong token with 401 INVALID_TOKEN', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
         const wrongToken = 'b'.repeat(64); // same length, different content
-        let statusCode: number | null = null;
-        let sendBody: unknown = null;
-        const req = { query: { token: wrongToken }, session: {} };
-        const res = {
-          status: (c: number) => {
-            statusCode = c;
-            return res;
-          },
-          send: (body: unknown) => {
-            sendBody = body;
-          },
-          redirect: () => {},
-        };
+        const req = { body: { token: wrongToken }, session: {} };
+        const { res, status, body } = makeResponseCapture();
         handler(req, res);
 
-        assert.equal(statusCode, 401);
-        assert.equal(sendBody, 'Invalid token');
+        assert.equal(status(), 401);
+        assert.deepEqual(body(), { ok: false, error: 'INVALID_TOKEN' });
       } finally {
         cleanupTestTokenEnv();
       }
@@ -877,42 +889,42 @@ describe('Web Map Auth', () => {
     it('test-login: rejects different-length token without timingSafeEqual crash', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
-        let statusCode: number | null = null;
-        const req = { query: { token: 'tooshort' }, session: {} };
-        const res = {
-          status: (c: number) => {
-            statusCode = c;
-            return res;
-          },
-          send: () => {},
-          redirect: () => {},
-        };
+        const req = { body: { token: 'tooshort' }, session: {} };
+        const { res, status } = makeResponseCapture();
         handler(req, res);
-        assert.equal(statusCode, 401, 'different-length token should be rejected before timingSafeEqual');
+        assert.equal(status(), 401, 'different-length token should be rejected before timingSafeEqual');
       } finally {
         cleanupTestTokenEnv();
       }
     });
 
-    it('test-login: rejects missing token with 401', () => {
+    it('test-login: rejects missing token with 401 MISSING_TOKEN', () => {
       try {
         const routes = setupWithTestToken(VALID_TOKEN, 'development');
-        const handler = routes['GET /auth/test-login'] as (req: unknown, res: unknown) => void;
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
 
-        let statusCode: number | null = null;
-        const req = { query: {}, session: {} };
-        const res = {
-          status: (c: number) => {
-            statusCode = c;
-            return res;
-          },
-          send: () => {},
-          redirect: () => {},
-        };
+        const req = { body: {}, session: {} };
+        const { res, status, body } = makeResponseCapture();
         handler(req, res);
-        assert.equal(statusCode, 401);
+        assert.equal(status(), 401);
+        assert.deepEqual(body(), { ok: false, error: 'MISSING_TOKEN' });
+      } finally {
+        cleanupTestTokenEnv();
+      }
+    });
+
+    it('test-login: treats absent req.body as missing token (defensive)', () => {
+      try {
+        const routes = setupWithTestToken(VALID_TOKEN, 'development');
+        const handler = routes['POST /auth/test-login'] as RouteHandler;
+
+        const req = { session: {} };
+        const { res, status, body } = makeResponseCapture();
+        handler(req, res);
+        assert.equal(status(), 401);
+        assert.deepEqual(body(), { ok: false, error: 'MISSING_TOKEN' });
       } finally {
         cleanupTestTokenEnv();
       }

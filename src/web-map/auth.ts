@@ -3,6 +3,7 @@
  */
 
 import crypto from 'crypto';
+import { json as jsonBodyParser } from 'express';
 import expressSession from 'express-session';
 import { doubleCsrf } from 'csrf-csrf';
 import cookieParser from 'cookie-parser';
@@ -342,6 +343,13 @@ function setupAuth(
       next();
       return;
     }
+    // /auth/test-login is authenticated by the token in the request body,
+    // not by session/origin. It must work from CI runners / AI agents whose
+    // Origin may not match WEB_MAP_CALLBACK_URL.
+    if (req.path === '/auth/test-login') {
+      next();
+      return;
+    }
 
     const origin = req.get('origin') || req.get('referer');
     if (!origin) {
@@ -386,6 +394,13 @@ function setupAuth(
       next();
       return;
     }
+    // /auth/test-login has its own bearer-style auth (token in body) and is
+    // only reachable when NODE_ENV is a dev-like value, so a CSRF check is
+    // inapplicable and would require a pre-existing session.
+    if (req.path === '/auth/test-login') {
+      next();
+      return;
+    }
     doubleCsrfProtection(req, res, next);
   });
   app.use((err: Error & { code?: string }, req: Request, res: Response, next: NextFunction) => {
@@ -414,22 +429,23 @@ function setupAuth(
     // and the token alone grants admin access.
     const baseUrl = new URL(authCfg.callbackUrl).origin;
     console.warn(`[AUTH] Test login enabled — NODE_ENV=${process.env['NODE_ENV'] ?? 'unset'}`);
-    console.warn(`[AUTH] Test login URL: ${baseUrl}/auth/test-login?token=<YOUR_TOKEN>&tier=admin`);
-    console.warn('[AUTH] Replace <YOUR_TOKEN> with WEB_PANEL_TEST_AUTH_TOKEN from your .env');
+    console.warn(`[AUTH] Test login endpoint: POST ${baseUrl}/auth/test-login`);
+    console.warn(`[AUTH] Body: {"token":"<WEB_PANEL_TEST_AUTH_TOKEN>","tier":"admin"}`);
     console.warn('[AUTH] ⚠ Anyone with the token gets admin access — treat it like a password');
-    app.get('/auth/test-login', (req: Request, res: Response) => {
+    app.post('/auth/test-login', jsonBodyParser(), (req: Request, res: Response) => {
       const hmzReq = req as HmzRequest;
-      const provided = req.query['token'];
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const provided = body['token'];
       if (typeof provided !== 'string') {
-        return res.status(401).send('Missing token');
+        return res.status(401).json({ ok: false, error: 'MISSING_TOKEN' });
       }
       const expected = Buffer.from(testAuthToken);
       const actual = Buffer.from(provided);
       if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
         console.warn(`[AUTH] Test login rejected: invalid token (len=${String(actual.length)})`);
-        return res.status(401).send('Invalid token');
+        return res.status(401).json({ ok: false, error: 'INVALID_TOKEN' });
       }
-      const requestedTier = req.query['tier'];
+      const requestedTier = body['tier'];
       const tier = typeof requestedTier === 'string' && requestedTier in TIER ? requestedTier : 'admin';
 
       hmzReq.session.user = {
@@ -447,7 +463,7 @@ function setupAuth(
       hmzReq.session.save((err: Error | null) => {
         if (err) console.error('[AUTH] Test session save error:', err.message);
         console.warn(`[AUTH] Test login granted tier=${tier} userId=e2e-test`);
-        res.redirect('/');
+        res.json({ ok: true, tier, userId: 'e2e-test' });
       });
     });
   }
