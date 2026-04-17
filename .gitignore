@@ -54,10 +54,6 @@ GameServerSettings.ini
 /*.jpg
 /*.jpeg
 logs/
-
-# Graphify (知識圖譜 — 衍生產物，隨時可重建)
-graphify-out/
-.graphify_*
 CLAUDE.md
 .claude/
 # Added by code-review-graph
