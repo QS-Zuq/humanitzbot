@@ -12,6 +12,7 @@ const __dirname = getDirname(import.meta.url);
 // All modules using createLogger() automatically write to both outputs.
 import { initLogger, shutdownLogger } from './logger/logger.js';
 import { createLogger } from './utils/log.js';
+import { errMsg } from './utils/error.js';
 initLogger();
 
 import config from './config/index.js';
@@ -355,11 +356,6 @@ const moduleStatus: Record<string, string> = {};
 function setStatus(name: string, status: string): void {
   moduleStatus[name] = status;
   if (botStatusManager) botStatusManager.refreshNow().catch(() => {});
-}
-
-/** Extract error message from unknown catch variable. */
-function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function hasSftp(): boolean {

@@ -64,6 +64,7 @@ interface RepoState {
   closedPrIds?: number[];
   seenCommitShas?: string[];
   bootstrapped?: boolean;
+  _bootstrapAttempts?: number;
 }
 
 interface GhPullRequest {
@@ -103,6 +104,7 @@ class GitHubTracker {
   private _pollTimer: ReturnType<typeof setInterval> | null;
   private _channel: ChannelLike | null;
   private _state: Record<string, RepoState>;
+  private _polling: boolean;
 
   constructor(client: Client, deps: GitHubTrackerDeps = {}) {
     this.client = client;
@@ -118,6 +120,8 @@ class GitHubTracker {
 
     // Persisted state: { [repo]: { lastPrId: number, lastCommitShas: string[] } }
     this._state = {};
+
+    this._polling = false;
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -198,16 +202,33 @@ class GitHubTracker {
   // ── Polling ───────────────────────────────────────────────────────────────
 
   async _poll() {
-    for (const repo of this._config.githubRepos) {
-      try {
-        await this._pollRepo(repo);
-      } catch (err: unknown) {
-        this._log.error(`Error polling ${repo}:`, errMsg(err));
+    if (this._polling) {
+      // Previous poll still running (slow GitHub response, many repos) — skip
+      // this tick to avoid overlapping fetches and repeated bootstrap retries.
+      return;
+    }
+    this._polling = true;
+    try {
+      for (const repo of this._config.githubRepos) {
+        try {
+          await this._pollRepo(repo);
+        } catch (err: unknown) {
+          this._log.error(`Error polling ${repo}:`, errMsg(err));
+        }
       }
+    } finally {
+      this._polling = false;
     }
   }
 
   async _pollRepo(repo: string) {
+    const repoState = this._repoState(repo);
+    if (!repoState.bootstrapped) {
+      // Not yet bootstrapped — retry seeding instead of entering normal poll,
+      // otherwise pre-existing PRs/commits would be re-announced as "new".
+      await this._bootstrapRepo(repo);
+      return;
+    }
     await Promise.all([this._pollPRs(repo), this._pollPushes(repo)]);
   }
 
@@ -289,6 +310,16 @@ class GitHubTracker {
     const repoState = this._repoState(repo);
     if (repoState.bootstrapped) return;
 
+    // Throttle bootstrap warnings so they don't spam forever when GitHub is
+    // unreachable for long periods. Keep retrying (bounded by poll interval);
+    // do NOT force-mark bootstrapped=true on failure, which would re-announce
+    // all existing PRs/commits once connectivity is restored.
+    const attemptsSoFar = repoState._bootstrapAttempts ?? 0;
+    const shouldWarn = attemptsSoFar < 5;
+
+    let prFetched = false;
+    let commitFetched = false;
+
     // Seed PR IDs
     try {
       const res = await this._ghFetch(`/repos/${repo}/pulls?state=all&sort=updated&per_page=50`);
@@ -297,9 +328,18 @@ class GitHubTracker {
         if (Array.isArray(prs)) {
           repoState.seenPrIds = (prs as GhPullRequest[]).map((pr) => pr.number);
           repoState.closedPrIds = (prs as GhPullRequest[]).filter((pr) => pr.state === 'closed').map((pr) => pr.number);
+          prFetched = true;
+        } else if (shouldWarn) {
+          this._log.warn(`[github-tracker:bootstrap-pr] ${repo}: unexpected non-array response body`);
         }
+      } else if (shouldWarn) {
+        this._log.warn(`[github-tracker:bootstrap-pr] ${repo}: HTTP ${String(res.status)}`);
       }
-    } catch (_: unknown) {}
+    } catch (err: unknown) {
+      if (shouldWarn) {
+        this._log.warn(`[github-tracker:bootstrap-pr] ${repo}: ${errMsg(err)}`);
+      }
+    }
 
     // Seed commit SHAs
     try {
@@ -308,15 +348,37 @@ class GitHubTracker {
         const commits = await res.json();
         if (Array.isArray(commits)) {
           repoState.seenCommitShas = (commits as GhCommit[]).map((c) => c.sha);
+          commitFetched = true;
+        } else if (shouldWarn) {
+          this._log.warn(`[github-tracker:bootstrap-commit] ${repo}: unexpected non-array response body`);
         }
+      } else if (shouldWarn) {
+        this._log.warn(`[github-tracker:bootstrap-commit] ${repo}: HTTP ${String(res.status)}`);
       }
-    } catch (_: unknown) {}
+    } catch (err: unknown) {
+      if (shouldWarn) {
+        this._log.warn(`[github-tracker:bootstrap-commit] ${repo}: ${errMsg(err)}`);
+      }
+    }
 
-    repoState.bootstrapped = true;
+    if (prFetched && commitFetched) {
+      repoState.bootstrapped = true;
+      repoState._bootstrapAttempts = 0;
+      this._saveState();
+      this._log.info(
+        `Bootstrapped ${repo} (${String((repoState.seenPrIds ?? []).length)} PR(s), ${String((repoState.seenCommitShas ?? []).length)} commit(s))`,
+      );
+      return;
+    }
+
+    const attempts = attemptsSoFar + 1;
+    repoState._bootstrapAttempts = attempts;
+    if (attempts === 5) {
+      this._log.warn(
+        `[github-tracker:bootstrap] ${repo}: ${String(attempts)} failed attempt(s) \u2014 further warnings silenced until bootstrap succeeds`,
+      );
+    }
     this._saveState();
-    this._log.info(
-      `Bootstrapped ${repo} (${(repoState.seenPrIds ?? []).length} PR(s), ${(repoState.seenCommitShas ?? []).length} commit(s))`,
-    );
   }
 
   // ── Thread management ─────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ import _defaultPanelApi from '../server/panel-api.js';
 import { getDayOffset, getRotatedProfileIndex, getTodaySchedule } from './schedule-utils.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import { logRejection } from '../utils/log-rejection.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
@@ -309,7 +310,13 @@ class ServerScheduler {
     const scheduleNext = () => {
       if (stepIndex >= warnings.length) {
         // Countdown complete — execute
-        void this._executeRestart(profileName, profileIndex, profileSettings);
+        logRejection(
+          this._executeRestart(profileName, profileIndex, profileSettings).finally(() => {
+            this._transitioning = false;
+          }),
+          this._log,
+          'server-scheduler:restart',
+        );
         return;
       }
 

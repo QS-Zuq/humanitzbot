@@ -760,7 +760,9 @@ class ServerInstance {
           (this._modules.logWatcher as LogWatcher)._dayRolloverCb = async () => {
             try {
               await mod.createDailyThread();
-            } catch (_) {}
+            } catch (err: unknown) {
+              this._log.warn(`[multi-server:chat-relay:create-daily-thread] ${errMsg(err)}`);
+            }
           };
         }
         await mod.start();
@@ -918,7 +920,9 @@ class ServerInstance {
     this._playtimeFlushTimer = setInterval(() => {
       try {
         this.playtime.flushActiveSessions();
-      } catch (_) {}
+      } catch (err: unknown) {
+        this._log.warn(`[multi-server:flush-active-sessions] ${errMsg(err)}`);
+      }
     }, 60000);
 
     this._log.info('Server started with', Object.keys(this._modules).length, 'module(s)');

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseSave, parseClanData } from './save-parser.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { logRejection } from '../utils/log-rejection.js';
 
 import { diffSaveState } from '../db/diff-engine.js';
 import { reconcileItems } from '../db/item-tracker.js';
@@ -198,7 +199,7 @@ class SaveService extends EventEmitter {
     this._log.info(`Starting save service — mode: ${modeLabel}, poll every ${String(this._pollInterval / 1000)}s`);
     await this._poll();
     this._timer = setInterval(() => {
-      void this._poll();
+      logRejection(this._poll(), this._log, 'save-service:poll');
     }, this._pollInterval);
   }
 

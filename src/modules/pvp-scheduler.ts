@@ -5,6 +5,7 @@ import _defaultConfig from '../config/index.js';
 import _defaultRcon from '../rcon/rcon.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import { logRejection } from '../utils/log-rejection.js';
 
 const WARNINGS = [10, 5, 3, 2, 1]; // countdown warnings in minutes
 
@@ -347,7 +348,13 @@ class PvpScheduler {
     const scheduleNext = () => {
       if (stepIndex >= warnings.length) {
         // Countdown complete — execute the toggle
-        void this._executeToggle(targetPvp);
+        logRejection(
+          this._executeToggle(targetPvp).finally(() => {
+            this._transitioning = false;
+          }),
+          this._log,
+          'pvp-scheduler:toggle',
+        );
         return;
       }
 

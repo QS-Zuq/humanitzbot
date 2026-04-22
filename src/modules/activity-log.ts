@@ -26,6 +26,7 @@ import { createLogger, type Logger } from '../utils/log.js';
 import { cleanName, cleanItemName } from '../parsers/ue4-names.js';
 import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { errMsg } from '../utils/error.js';
+import { logRejection } from '../utils/log-rejection.js';
 
 function _activityLocale(): string {
   return getLocale();
@@ -190,7 +191,7 @@ class ActivityLog {
     // Listen for save sync events
     if (this._saveService) {
       this._syncHandler = (result: SyncResult) => {
-        void this._onSync(result);
+        logRejection(this._onSync(result), this._log, 'activity-log:on-sync');
       };
       this._saveService.on('sync', this._syncHandler);
     }
