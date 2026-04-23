@@ -51,6 +51,13 @@ import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from '
 import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
+import {
+  backupCriticalBotStateKeys,
+  backupFirstRunKeys,
+  cleanupBackupKeys,
+  FIRST_RUN_TRANSIENT_KEYS,
+} from './db/bot-state-backup.js';
+import { attachBotStateListeners } from './state/bot-state-listeners.js';
 
 // Convenience wrapper: isAdminView has 2-arg signature (permissions[], member).
 function isAdminView(member: GuildMember | null): boolean {
@@ -418,6 +425,12 @@ client.once(Events.ClientReady, (readyClient) => {
     // db.init() guarantees db.db is non-null, but the type includes null
     seedGameReference(db);
 
+    // Stage 6: attach bot_state event listeners (before any bot_state reads)
+    attachBotStateListeners(createLogger('bot-state'), db);
+
+    // Stage 4: TTL cleanup — remove backup rows older than 7 days
+    cleanupBackupKeys(db);
+
     // ── One-time config migration (.env + servers.json → config_documents) ──
     configRepo = new ConfigRepository(db);
 
@@ -455,6 +468,9 @@ client.once(Events.ClientReady, (readyClient) => {
         // Non-fatal — continue with .env
       }
     }
+
+    // Stage 2b: canary backup — one-shot idempotent, before any schema validation
+    backupCriticalBotStateKeys(db);
 
     config.hydrate(configRepo);
     config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
@@ -567,18 +583,12 @@ client.once(Events.ClientReady, (readyClient) => {
       const dataDir = path.join(__dirname, '..', 'data');
       // Clear bot_state keys that hold transient/session data (db is guaranteed set above)
       {
-        const transientKeys = [
-          'msg_id_server_status',
-          'msg_id_player_stats',
-          'msg_id_panel_bot',
-          'msg_id_panel_server',
-          'msg_id_panel_servers',
-          'log_offsets',
-          'day_counts',
-          'pvp_kills',
-          'welcome_stats',
-          'bot_running',
-        ];
+        // PR2: central contract lives in bot-state-backup.ts so tests can assert
+        // that FIRST_RUN clears kill_tracker / weekly_baseline / recap_service
+        // but does not clear self-seeding github_tracker or backfilled milestones.
+        const transientKeys = FIRST_RUN_TRANSIENT_KEYS;
+        // Stage 4: backup transient keys before deletion (idempotent)
+        backupFirstRunKeys(db, transientKeys);
         for (const key of transientKeys) {
           try {
             db.botState.deleteState(key);

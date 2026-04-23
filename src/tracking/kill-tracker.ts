@@ -23,6 +23,13 @@ import type { PlayerStats } from './player-stats.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
 import type { HumanitZDB } from '../db/database.js';
+import {
+  makeKillTrackerDefault,
+  makeWeeklyBaselineDefault,
+  normalizeKillTracker,
+  normalizeWeeklyBaseline,
+  type KillTrackerShape,
+} from '../state/bot-state-schemas.js';
 
 type ConfigType = typeof config;
 type PlaytimeType = InstanceType<typeof PlaytimeTracker>;
@@ -339,7 +346,19 @@ export class KillTracker {
     try {
       let raw: TrackerData | null = null;
       if (this._db) {
-        raw = this._db.botState.getStateJSON('kill_tracker', null) as TrackerData | null;
+        // dry-run mitigation defensive guard (Stage 2 canary read-side)
+        // getStateJSONValidated may return raw invalid-shape value in dry-run mode;
+        // always guard before accessing .players — see temp/pr2-schema-spike.md §Q11
+        const validated: unknown = this._db.botState.getStateJSONValidated(
+          'kill_tracker',
+          normalizeKillTracker,
+          makeKillTrackerDefault(),
+        );
+        const players =
+          validated && typeof validated === 'object' ? (validated as { players?: unknown }).players : undefined;
+        if (players && typeof players === 'object' && !Array.isArray(players)) {
+          raw = validated as TrackerData;
+        }
         if (raw) {
           this._data = raw;
           const count = Object.keys(this._data.players).length;
@@ -349,7 +368,15 @@ export class KillTracker {
       if (raw) {
         // Migrate old records loaded from JSON: fields may be missing in older saves.
         // We cast to unknown first so TypeScript allows the falsy checks on required fields.
-        for (const r of Object.values(this._data.players)) {
+        for (const [sid, r] of Object.entries(this._data.players as Record<string, unknown>)) {
+          // Guard: drop null / non-object records (corrupted data) rather than crashing.
+          // Keeping them would allow accumulate() to crash on record.lastSnapshot access
+          // and save() to be blocked by normalizer validation.
+          if (!r || typeof r !== 'object' || Array.isArray(r)) {
+            this._log.warn(`Dropping invalid player record during migration: ${sid}`);
+            Reflect.deleteProperty(this._data.players as Record<string, unknown>, sid);
+            continue;
+          }
           const record = r as Partial<PlayerKillRecord> & Record<string, unknown>;
           if (!record.survivalCumulative) {
             record.survivalCumulative = KillTracker._emptySurvival();
@@ -390,7 +417,15 @@ export class KillTracker {
   save(): void {
     if (!this._dirty) return;
     try {
-      if (this._db) this._db.botState.setStateJSON('kill_tracker', this._data);
+      if (this._db) {
+        // Canary write-side: setStateJSONValidated throws if shape is invalid
+        // (Principle 1 fail-loud). Caller catches and logs; backup row is preserved.
+        this._db.botState.setStateJSONValidated(
+          'kill_tracker',
+          normalizeKillTracker,
+          this._data as unknown as KillTrackerShape,
+        );
+      }
       this._dirty = false;
     } catch (err) {
       this._log.error('Failed to save kill tracker:', errMsg(err));
@@ -925,8 +960,20 @@ export class KillTracker {
     let baseline: WeeklyBaseline = { weekStart: null, players: {} };
     try {
       if (this._db) {
-        const saved = this._db.botState.getStateJSON('weekly_baseline', null) as WeeklyBaseline | null;
-        if (saved) baseline = saved;
+        // dry-run defensive guard: getStateJSONValidated may return raw value in dry-run
+        const validated: unknown = this._db.botState.getStateJSONValidated(
+          'weekly_baseline',
+          normalizeWeeklyBaseline,
+          makeWeeklyBaselineDefault(),
+        );
+        if (typeof validated === 'object' && validated !== null) {
+          const rawPlayers = (validated as { players?: unknown }).players;
+          const safePlayers =
+            rawPlayers !== null && typeof rawPlayers === 'object' && !Array.isArray(rawPlayers)
+              ? (rawPlayers as WeeklyBaseline['players'])
+              : {};
+          baseline = { ...(validated as WeeklyBaseline), players: safePlayers };
+        }
       }
     } catch (_) {
       /* non-critical */
