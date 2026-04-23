@@ -291,6 +291,35 @@ describe('BotStateRepository.setStateJSONValidated', () => {
       repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, kt as unknown as KillTrackerShape);
     }, /bot_state\.kill_tracker failed validation/);
   });
+
+  it('P1-3: invalid kill object field recovers only that field and preserves valid counters', () => {
+    const kt = validKillTracker();
+    const playerRecord = kt.players['steam_123'];
+    assert.ok(playerRecord !== undefined);
+    playerRecord.cumulative = {
+      zeeksKilled: 17,
+      headshots: 8,
+      meleeKills: 3,
+      gunKills: 14,
+      blastKills: 1,
+      fistKills: 0,
+      takedownKills: 2,
+      vehicleKills: 1,
+    };
+    (playerRecord.cumulative as unknown as Record<string, unknown>).headshots = 'bad';
+
+    const { shape, issues } = normalizeKillTracker(kt as unknown);
+
+    assert.ok(
+      issues.some((issue) => issue.includes('cumulative.headshots')),
+      `issues must identify the bad field, got: ${JSON.stringify(issues)}`,
+    );
+    const recoveredPlayerRecord = shape.players['steam_123'];
+    if (recoveredPlayerRecord === undefined) assert.fail('expected recovered player record');
+    assert.equal(recoveredPlayerRecord.cumulative.zeeksKilled, 17);
+    assert.equal(recoveredPlayerRecord.cumulative.headshots, 0);
+    assert.equal(recoveredPlayerRecord.cumulative.gunKills, 14);
+  });
 });
 
 // ─── T1: Downstream defensive test (S7 dry-run mitigation) ────────────────

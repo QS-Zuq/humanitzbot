@@ -105,14 +105,6 @@ const KILL_FIELDS = [
   'vehicleKills',
 ] as const;
 
-function validateKillObj(v: unknown, path: string): KillObjShape {
-  if (!isObj(v)) throw new Error(`${path}: expected object`);
-  for (const k of KILL_FIELDS) {
-    if (typeof v[k] !== 'number') throw new Error(`${path}.${k}: expected number`);
-  }
-  return v as unknown as KillObjShape;
-}
-
 function validateSurvival(v: unknown, path: string): SurvivalObjShape {
   if (!isObj(v)) throw new Error(`${path}: expected object`);
   if (typeof v.daysSurvived !== 'number') throw new Error(`${path}.daysSurvived: expected number`);
@@ -120,12 +112,20 @@ function validateSurvival(v: unknown, path: string): SurvivalObjShape {
 }
 
 function softKillObj(v: unknown, issues: string[], path: string): KillObjShape {
-  try {
-    return validateKillObj(v, path);
-  } catch (e) {
-    issues.push((e as Error).message);
+  if (!isObj(v)) {
+    issues.push(`${path}: expected object`);
     return { ...EMPTY_KILL };
   }
+
+  const out: KillObjShape = { ...EMPTY_KILL };
+  for (const k of KILL_FIELDS) {
+    if (typeof v[k] === 'number') {
+      out[k] = v[k];
+    } else {
+      issues.push(`${path}.${k}: expected number (substituted 0)`);
+    }
+  }
+  return out;
 }
 
 function softSurvival(v: unknown, issues: string[], path: string): SurvivalObjShape {

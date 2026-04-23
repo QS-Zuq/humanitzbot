@@ -535,6 +535,30 @@ describe('GitHubTracker', () => {
         'seenCommitShas from _pollPushes must be persisted even when _pollPRs threw',
       );
     });
+
+    it('throws an AggregateError when both PR and push polling fail', async () => {
+      const db = mockDb({ 'owner/repo': { bootstrapped: true, seenPrIds: [], closedPrIds: [], seenCommitShas: [] } });
+      const tracker = new GitHubTracker(mockClient(mockChannel()), { config: mockConfig(), db });
+      tracker._state = tracker._loadState();
+
+      tracker._pollPRs = async () => {
+        throw new Error('simulated PR poll failure');
+      };
+      tracker._pollPushes = async () => {
+        throw new Error('simulated push poll failure');
+      };
+
+      await assert.rejects(
+        () => tracker._pollRepo('owner/repo'),
+        (err: unknown) => {
+          assert.ok(err instanceof AggregateError, 'both failures should be reported as AggregateError');
+          assert.ok(err.message.includes('simulated PR poll failure'));
+          assert.ok(err.message.includes('simulated push poll failure'));
+          assert.equal(err.errors.length, 2);
+          return true;
+        },
+      );
+    });
   });
 
   describe('stop', () => {

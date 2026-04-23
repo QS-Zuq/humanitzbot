@@ -110,14 +110,12 @@ export class BotStateRepository extends BaseRepository {
       parsed = JSON.parse(rawStr);
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : String(err);
-      this._log.warn(`[BOT_STATE] parse-error key=${key}: ${error}`);
       botStateEvents.emit('parse-error', { key, error, rawValue: rawStr });
       return defaultVal;
     }
 
     const { shape, issues } = normalize(parsed);
     if (issues.length > 0) {
-      this._log.warn(`[BOT_STATE] shape-invalid key=${key} issues=${JSON.stringify(issues)}`);
       botStateEvents.emit('shape-invalid', { key, issues });
       // dry-run: return raw parsed value so callers observe real-world shapes
       if (mode === 'dry-run') return parsed as T;

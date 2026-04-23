@@ -241,14 +241,25 @@ class GitHubTracker {
       return;
     }
     // P1-2: use allSettled so partial progress (e.g. seenCommitShas updated) is always persisted
-    // even if one side throws. We rethrow the first error after saving state.
+    // even if one side throws. Re-throw every failure as an AggregateError so no
+    // concurrent poll-side failure is silently swallowed.
     const results = await Promise.allSettled([this._pollPRs(repo), this._pollPushes(repo)]);
     // Stage 3 Option F race fix: single save after both polls complete (avoids double-write race)
     // Always persist partial progress regardless of individual failures.
     this._saveState();
-    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-    if (failed) {
-      throw failed.reason as Error;
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failures.length === 1) {
+      const [failure] = failures;
+      if (failure !== undefined) {
+        const reason = failure.reason as unknown;
+        throw reason instanceof Error ? reason : new Error(errMsg(reason));
+      }
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures.map((f) => f.reason as unknown),
+        `Multiple GitHub poll failures for ${repo}: ${failures.map((f) => errMsg(f.reason)).join('; ')}`,
+      );
     }
   }
 
