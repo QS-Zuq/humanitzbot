@@ -37,6 +37,7 @@ interface ConfigRepo {
 interface HumanitZDBLike {
   botState: {
     getStateJSON(key: string, defaultVal: unknown): unknown;
+    deleteState(key: string): void;
   };
 }
 
@@ -250,6 +251,8 @@ function migrateDisplaySettings(db: HumanitZDBLike, configRepo: ConfigRepo): num
   if (keys.length === 0) return 0;
 
   configRepo.update('app', obj);
+  // PR2: seal — 刪除 legacy bot_state row，fallback 路徑同步加 seal throw
+  db.botState.deleteState('display_settings');
   return keys.length;
 }
 

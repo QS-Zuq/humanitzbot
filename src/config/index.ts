@@ -1033,13 +1033,20 @@ config.saveDisplaySetting = function (db: unknown, cfgKey: string, value: unknow
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
     if (!db) return;
-    try {
-      const dbObj = db as {
-        botState: {
-          getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
-          setStateJSON(key: string, val: Record<string, unknown>): void;
-        };
+    const dbObj = db as {
+      botState: {
+        getState?: (key: string) => string | null;
+        getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
+        setStateJSON(key: string, val: Record<string, unknown>): void;
       };
+    };
+    // Seal check must be outside try/catch so the error propagates to the caller.
+    if (dbObj.botState.getState?.('config_migration_done') === 'true') {
+      throw new Error(
+        '[CONFIG] legacy display_settings write after migration done — programmer error (use configRepo)',
+      );
+    }
+    try {
       const overrides = dbObj.botState.getStateJSON('display_settings', {});
       overrides[cfgKey] = value;
       dbObj.botState.setStateJSON('display_settings', overrides);
@@ -1067,13 +1074,20 @@ config.saveDisplaySettings = function (db: unknown, settings: Record<string, unk
   } else {
     // Fallback to legacy bot_state (safety during transition/tests)
     if (!db) return;
-    try {
-      const dbObj = db as {
-        botState: {
-          getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
-          setStateJSON(key: string, val: Record<string, unknown>): void;
-        };
+    const dbObj = db as {
+      botState: {
+        getState?: (key: string) => string | null;
+        getStateJSON(key: string, def: Record<string, unknown>): Record<string, unknown>;
+        setStateJSON(key: string, val: Record<string, unknown>): void;
       };
+    };
+    // Seal check must be outside try/catch so the error propagates to the caller.
+    if (dbObj.botState.getState?.('config_migration_done') === 'true') {
+      throw new Error(
+        '[CONFIG] legacy display_settings write after migration done — programmer error (use configRepo)',
+      );
+    }
+    try {
       const overrides = dbObj.botState.getStateJSON('display_settings', {});
       Object.assign(overrides, settings);
       dbObj.botState.setStateJSON('display_settings', overrides);

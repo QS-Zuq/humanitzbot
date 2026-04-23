@@ -22,6 +22,11 @@ import { t, getLocale } from '../i18n/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
+import {
+  makeGithubTrackerDefault,
+  normalizeGithubTracker,
+  type GithubTrackerShape,
+} from '../state/bot-state-schemas.js';
 
 // ── Colours ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +48,12 @@ interface GitHubTrackerDB {
   botState: {
     getStateJSON(key: string, defaultVal: unknown): unknown;
     setStateJSON(key: string, value: unknown): void;
+    getStateJSONValidated<T>(
+      key: string,
+      normalize: (raw: unknown) => { shape: T; issues: string[] },
+      defaultVal: T,
+    ): T;
+    setStateJSONValidated<T>(key: string, normalize: (raw: unknown) => { shape: T; issues: string[] }, value: T): void;
   };
 }
 
@@ -229,7 +240,16 @@ class GitHubTracker {
       await this._bootstrapRepo(repo);
       return;
     }
-    await Promise.all([this._pollPRs(repo), this._pollPushes(repo)]);
+    // P1-2: use allSettled so partial progress (e.g. seenCommitShas updated) is always persisted
+    // even if one side throws. We rethrow the first error after saving state.
+    const results = await Promise.allSettled([this._pollPRs(repo), this._pollPushes(repo)]);
+    // Stage 3 Option F race fix: single save after both polls complete (avoids double-write race)
+    // Always persist partial progress regardless of individual failures.
+    this._saveState();
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed) {
+      throw failed.reason as Error;
+    }
   }
 
   // ── Pull-request polling ───────────────────────────────────────────────────
@@ -244,7 +264,7 @@ class GitHubTracker {
     if (!Array.isArray(prs)) return;
 
     const repoState = this._repoState(repo);
-    const seenIds = new Set(repoState.seenPrIds ?? []);
+    const seenIds = new Set(Array.isArray(repoState.seenPrIds) ? repoState.seenPrIds : []);
 
     // Process in ascending ID order so the oldest new PR is posted first
     const newPrs = (prs as GhPullRequest[]).filter((pr) => !seenIds.has(pr.number)).sort((a, b) => a.number - b.number);
@@ -256,19 +276,21 @@ class GitHubTracker {
     }
 
     // Also check for state changes on already-seen PRs that were recently updated
+    // Build closedIds Set BEFORE filter so we use .has() instead of raw .includes() on possibly non-array
+    const closedIds = new Set(Array.isArray(repoState.closedPrIds) ? repoState.closedPrIds : []);
     const recentlyClosed = (prs as GhPullRequest[]).filter(
-      (pr) => seenIds.has(pr.number) && pr.state === 'closed' && !repoState.closedPrIds?.includes(pr.number),
+      (pr) => seenIds.has(pr.number) && pr.state === 'closed' && !closedIds.has(pr.number),
     );
-    const closedIds = new Set(repoState.closedPrIds ?? []);
     for (const pr of recentlyClosed) {
       const embed = this._buildPrEmbed(repo, pr);
       await this._sendToThread(repo, embed);
       closedIds.add(pr.number);
     }
 
-    repoState.seenPrIds = [...seenIds];
-    repoState.closedPrIds = [...closedIds];
-    this._saveState();
+    // trim 200: numeric sort is canonical for PR IDs (spike §seenCommitShas)
+    repoState.seenPrIds = [...seenIds].sort((a, b) => a - b).slice(-200);
+    repoState.closedPrIds = [...closedIds].sort((a, b) => a - b).slice(-200);
+    // Stage 3 Option F: do NOT call _saveState() here; _pollRepo calls it once after both polls complete
   }
 
   // ── Push / commit polling ─────────────────────────────────────────────────
@@ -283,20 +305,23 @@ class GitHubTracker {
     if (!Array.isArray(commits)) return;
 
     const repoState = this._repoState(repo);
-    const seenShas = new Set(repoState.seenCommitShas ?? []);
+
+    // trim 200: use Map to dedup + preserve oldest-first insertion order (spike §seenCommitShas)
+    const merged = new Map<string, true>();
+    for (const sha of Array.isArray(repoState.seenCommitShas) ? repoState.seenCommitShas : []) merged.set(sha, true);
 
     // Process oldest-first
-    const newCommits = (commits as GhCommit[]).filter((c) => !seenShas.has(c.sha)).reverse();
+    const newCommits = (commits as GhCommit[]).filter((c) => !merged.has(c.sha)).reverse();
 
     for (const commit of newCommits) {
       const embed = this._buildCommitEmbed(repo, commit);
       await this._sendToThread(repo, embed);
-      seenShas.add(commit.sha);
+      merged.set(commit.sha, true);
     }
 
-    // Keep only the last 100 SHAs to prevent unbounded growth
-    repoState.seenCommitShas = [...seenShas].slice(-100);
-    this._saveState();
+    // Keep only the last 200 SHAs to prevent unbounded growth
+    repoState.seenCommitShas = [...merged.keys()].slice(-200);
+    // Stage 3 Option F: do NOT call _saveState() here; _pollRepo calls it once after both polls complete
   }
 
   // ── Bootstrap (seed seen-IDs without posting anything) ────────────────────
@@ -533,14 +558,41 @@ class GitHubTracker {
   // ── State helpers ─────────────────────────────────────────────────────────
 
   _repoState(repo: string): RepoState {
-    if (!this._state[repo]) this._state[repo] = {};
-    return this._state[repo];
+    // P1-D defense-in-depth: if an entry was mutated into a non-object after load,
+    // replace it with a fresh empty object so property assignments do not crash.
+    const existing: unknown = this._state[repo];
+    if (existing === null || existing === undefined || typeof existing !== 'object' || Array.isArray(existing)) {
+      if (existing !== undefined) {
+        this._log.warn(`Replacing invalid github_tracker repo entry at runtime: ${repo}`);
+      }
+      this._state[repo] = {};
+    }
+    return this._state[repo] as RepoState;
   }
 
   _loadState(): Record<string, RepoState> {
     if (!this._db) return {};
     try {
-      return this._db.botState.getStateJSON('github_tracker', {}) as Record<string, RepoState>;
+      // dry-run defensive guard: getStateJSONValidated may return raw value in dry-run mode;
+      // always check that result is a non-null object before use — see temp/pr2-schema-spike.md §Q11
+      const validated: unknown = this._db.botState.getStateJSONValidated(
+        'github_tracker',
+        normalizeGithubTracker,
+        makeGithubTrackerDefault(),
+      );
+      if (!validated || typeof validated !== 'object' || Array.isArray(validated)) return {};
+      const state = validated as Record<string, RepoState>;
+      // P1-D: drop non-plain-object repo entries so that stale corrupt entries cannot
+      // (a) crash _bootstrapRepo/_pollRepo via "Cannot create property on string/array"
+      // (b) block _saveState via the normalizer throwing on the still-corrupt entry
+      for (const [repo, entry] of Object.entries(state)) {
+        const e: unknown = entry;
+        if (e === null || e === undefined || typeof e !== 'object' || Array.isArray(e)) {
+          this._log.warn(`Dropping invalid github_tracker repo entry: ${repo}`);
+          Reflect.deleteProperty(state as Record<string, unknown>, repo);
+        }
+      }
+      return state;
     } catch {
       return {};
     }
@@ -549,7 +601,13 @@ class GitHubTracker {
   _saveState() {
     if (!this._db) return;
     try {
-      this._db.botState.setStateJSON('github_tracker', this._state);
+      // Canary write-side: setStateJSONValidated throws if shape is invalid
+      // (Principle 1 fail-loud). Caller catches and logs; backup row is preserved.
+      this._db.botState.setStateJSONValidated(
+        'github_tracker',
+        normalizeGithubTracker,
+        this._state as GithubTrackerShape,
+      );
     } catch (err: unknown) {
       this._log.warn('Could not save state:', errMsg(err));
     }

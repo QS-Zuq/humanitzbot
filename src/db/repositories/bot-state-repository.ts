@@ -1,3 +1,5 @@
+import { botStateEvents } from '../../state/bot-state-events.js';
+import { getSchemaMode } from '../../state/bot-state-mode.js';
 import { BaseRepository } from './base-repository.js';
 
 /**
@@ -74,5 +76,80 @@ export class BotStateRepository extends BaseRepository {
       value: string | null;
       updated_at: string;
     }>;
+  }
+
+  /**
+   * Get a bot_state value parsed as JSON and validated through the provided normalizer.
+   *
+   * Mode behaviour (see src/state/bot-state-mode.ts):
+   *   off      — bypasses validation entirely; behaves like getStateJSON(key, defaultVal).
+   *   dry-run  — runs normalizer, emits shape-invalid if issues found, returns the **raw**
+   *              parsed value (not the partial-recovery shape).  Callers MUST defensively
+   *              guard all field access; see temp/pr2-schema-spike.md §Q11 for rationale.
+   *   enforce  — runs normalizer, emits shape-invalid if issues found, returns the
+   *              partial-recovery shape (always safe to use without guards).
+   *
+   * In all modes, a JSON parse failure emits parse-error and returns defaultVal.
+   * The database row is NEVER overwritten by this method.
+   *
+   * see `temp/pr2-schema-spike.md` for dry-run mitigation decision (Q11)
+   */
+  getStateJSONValidated<T>(key: string, normalize: (raw: unknown) => { shape: T; issues: string[] }, defaultVal: T): T {
+    const mode = getSchemaMode();
+
+    // mode=off: bypass validation entirely
+    if (mode === 'off') {
+      return this.getStateJSON(key, defaultVal) as T;
+    }
+
+    const rawStr = this.getState(key);
+    if (rawStr == null) return defaultVal;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawStr);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      this._log.warn(`[BOT_STATE] parse-error key=${key}: ${error}`);
+      botStateEvents.emit('parse-error', { key, error, rawValue: rawStr });
+      return defaultVal;
+    }
+
+    const { shape, issues } = normalize(parsed);
+    if (issues.length > 0) {
+      this._log.warn(`[BOT_STATE] shape-invalid key=${key} issues=${JSON.stringify(issues)}`);
+      botStateEvents.emit('shape-invalid', { key, issues });
+      // dry-run: return raw parsed value so callers observe real-world shapes
+      if (mode === 'dry-run') return parsed as T;
+      // enforce: return partial-recovery shape
+      return shape;
+    }
+
+    return shape;
+  }
+
+  /**
+   * Set a bot_state value as JSON after running the normalizer.
+   * Throws if the normalizer reports any issues (write-side fail-loud for canary keys).
+   * Use this for canary keys only (kill_tracker, github_tracker).
+   */
+  setStateJSONValidated<T>(key: string, normalize: (raw: unknown) => { shape: T; issues: string[] }, value: T): void {
+    const { issues } = normalize(value);
+    if (issues.length > 0) {
+      throw new Error(`bot_state.${key} failed validation: ${issues.join('; ')}`);
+    }
+    this.setStateJSON(key, value);
+  }
+
+  /**
+   * Delete bot_state rows that match a key prefix and are older than daysOlder days.
+   * Uses SQLite-native datetime arithmetic to avoid JS timezone skew.
+   * Returns the number of rows deleted.
+   */
+  deleteByKeyPrefixAndAge(prefix: string, daysOlder: number): number {
+    const result = this._handle
+      .prepare("DELETE FROM bot_state WHERE key LIKE ? || '%' AND updated_at < datetime('now', ? || ' days')")
+      .run(prefix, `-${daysOlder}`) as { changes: number };
+    return result.changes;
   }
 }

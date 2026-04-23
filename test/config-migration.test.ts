@@ -200,4 +200,53 @@ describe('config-migration', () => {
     assert.equal(_coerce('hello', 'string'), 'hello');
     assert.equal(_coerce('hello', undefined), 'hello'); // default = string
   });
+
+  // ── 9. Stage 5 seal: migrateDisplaySettings deletes bot_state row ──
+
+  it('S6 regression: migrateDisplaySettings deletes display_settings row after migration', () => {
+    db.botState.setStateJSON('display_settings', { showVitals: true });
+    migrateDisplaySettings(db, repo);
+    // Row must be deleted after migration (seal)
+    assert.equal(
+      db.botState.getState('display_settings'),
+      null,
+      'display_settings row must be deleted after migration',
+    );
+  });
+
+  it('S6 regression: saveDisplaySetting fallback does NOT throw when config_migration_done is unset', async () => {
+    // migration not done → fallback is legit usage
+    const { default: config } = await import('../src/config/index.js');
+    // Build a minimal db stub without config_migration_done
+    const stubDb = {
+      botState: {
+        getState: (_key: string) => null,
+        getStateJSON: (_key: string, def: unknown) => def,
+        setStateJSON: () => {},
+      },
+    };
+    assert.doesNotThrow(() => {
+      config.saveDisplaySetting(stubDb, 'showVitals', true);
+    });
+  });
+
+  it('S6 regression: saveDisplaySetting fallback throws when config_migration_done = true', async () => {
+    const { default: config } = await import('../src/config/index.js');
+    // Build a stub where migration is done
+    const stubDb = {
+      botState: {
+        getState: (key: string) => (key === 'config_migration_done' ? 'true' : null),
+        getStateJSON: (_key: string, def: unknown) => def,
+        setStateJSON: () => {},
+      },
+    };
+    // Seal check is now OUTSIDE try/catch — it propagates to the caller (P1-4 fix).
+    assert.throws(
+      () => {
+        config.saveDisplaySetting(stubDb, 'showVitals', true);
+      },
+      /legacy display_settings write/,
+      'saveDisplaySetting must throw seal error when config_migration_done = true',
+    );
+  });
 });

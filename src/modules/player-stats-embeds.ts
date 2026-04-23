@@ -67,9 +67,7 @@ interface PSCThis {
   _serverId: string;
   _cachedRoster?: Map<string, RosterPlayer>;
   _rosterCacheTime?: number;
-  getAllTimeKills(
-    steamId: string,
-  ): {
+  getAllTimeKills(steamId: string): {
     zeeksKilled: number;
     headshots?: number;
     meleeKills?: number;
@@ -79,9 +77,7 @@ interface PSCThis {
     takedownKills?: number;
     vehicleKills?: number;
   } | null;
-  getCurrentLifeKills(
-    steamId: string,
-  ): {
+  getCurrentLifeKills(steamId: string): {
     zeeksKilled: number;
     headshots?: number;
     meleeKills?: number;
