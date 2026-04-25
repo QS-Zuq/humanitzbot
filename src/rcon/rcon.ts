@@ -2,6 +2,7 @@ import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import config from '../config/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { ReconnectBackoff, formatReconnectDelay } from './reconnect-backoff.js';
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
@@ -12,6 +13,7 @@ interface RconOptions {
   password?: string;
   label?: string;
   cacheTtl?: number;
+  Socket?: typeof net.Socket;
 }
 
 interface CacheEntry {
@@ -35,6 +37,9 @@ class RconManager extends EventEmitter {
   _password: string | null;
   _log: Logger;
   _cacheTtl: number | null;
+  _Socket: typeof net.Socket;
+  _reconnectBackoff: ReconnectBackoff;
+  _connectPromise: Promise<void> | null;
   /** True after first successful connect — distinguishes initial connection from reconnects. */
   _everConnected: boolean;
   /** Timestamp of last disconnect (for uptime reporting). */
@@ -58,6 +63,9 @@ class RconManager extends EventEmitter {
     this._password = options.password ?? null;
     this._log = createLogger(options.label, 'RCON');
     this._cacheTtl = options.cacheTtl ?? null;
+    this._Socket = options.Socket ?? net.Socket;
+    this._reconnectBackoff = new ReconnectBackoff();
+    this._connectPromise = null;
     this._everConnected = false;
     this._disconnectedAt = null;
   }
@@ -65,82 +73,105 @@ class RconManager extends EventEmitter {
   async connect(): Promise<void> {
     if (this.connected && this.authenticated) return;
 
+    if (this._connectPromise) return this._connectPromise;
+
+    this._connectPromise = this._doConnect().finally(() => {
+      this._connectPromise = null;
+    });
+    return this._connectPromise;
+  }
+
+  async _doConnect(): Promise<void> {
     this._cleanup();
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let authTimeout: ReturnType<typeof setTimeout> | null = null;
+
+      const clearConnectTimers = () => {
+        clearTimeout(timeout);
+        if (authTimeout) {
+          clearTimeout(authTimeout);
+          authTimeout = null;
+        }
+      };
+
+      const failConnect = (err: Error) => {
+        clearConnectTimers();
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
+      const resolveConnect = () => {
+        clearConnectTimers();
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+
       const timeout = setTimeout(() => {
         this._cleanup();
-        reject(new Error('Connection timeout'));
+        failConnect(new Error('Connection timeout'));
       }, 15000);
 
-      this.socket = new net.Socket();
+      const socket = new this._Socket();
+      this.socket = socket;
 
       const host = this._host ?? config.rconHost ?? 'localhost';
       const port = this._port ?? config.rconPort;
       const password = this._password ?? config.rconPassword ?? '';
 
-      this.socket.connect(port, host, () => {
+      socket.connect(port, host, () => {
         this.connected = true;
         this._log.info(`TCP connected to ${host}:${String(port)}`);
 
         // Send auth packet
         this._sendPacket(1, SERVERDATA_AUTH, password);
 
-        const authTimeout = setTimeout(() => {
-          clearTimeout(timeout);
+        authTimeout = setTimeout(() => {
           this._cleanup();
-          reject(new Error('Authentication timeout'));
+          failConnect(new Error('Authentication timeout'));
         }, 10000);
 
         this._authCallback = (id) => {
           this._authCallback = null;
-          clearTimeout(authTimeout);
-          clearTimeout(timeout);
           if (id === -1) {
             this._cleanup();
-            reject(new Error('Authentication failed — wrong RCON password'));
+            failConnect(new Error('Authentication failed — wrong RCON password'));
           } else {
-            this.authenticated = true;
-            this._log.info('Authenticated successfully');
-            // Emit reconnect event (after first initial connect, subsequent connects are reconnects)
-            if (this._everConnected) {
-              const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
-              this.emit('reconnect', { downtime });
-            }
-            this._everConnected = true;
-            this._disconnectedAt = null;
-            resolve();
+            this._handleAuthSuccess(resolveConnect);
           }
         };
       });
 
-      this.socket.on('data', (data: Buffer) => {
+      socket.on('data', (data: Buffer) => {
         this._onData(data);
       });
 
-      this.socket.on('error', (err: Error) => {
+      socket.on('error', (err: Error) => {
         this._log.error('Socket error:', err.message);
-        clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
           this._disconnectedAt = Date.now();
           this.emit('disconnect', { reason: err.message });
         }
         this._cleanup();
-        // Reject the connect promise so callers don't hang forever
-        if (!this._everConnected) {
-          reject(new Error(err.message));
-        }
+        failConnect(new Error(err.message));
         this._scheduleReconnect();
       });
 
-      this.socket.on('close', () => {
-        if (this.connected) {
+      socket.on('close', () => {
+        const connectingSocketClosed = this.socket === socket && !settled;
+        if (this.connected || connectingSocketClosed) {
           this._log.info('Connection closed');
           if (this._everConnected && !this._disconnectedAt) {
             this._disconnectedAt = Date.now();
             this.emit('disconnect', { reason: 'Connection closed' });
           }
           this._cleanup();
+          failConnect(new Error('Connection closed'));
           this._scheduleReconnect();
         }
       });
@@ -243,6 +274,7 @@ class RconManager extends EventEmitter {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    this._reconnectBackoff.reset();
     this._cleanup();
   }
 
@@ -251,6 +283,20 @@ class RconManager extends EventEmitter {
   _nextId(): number {
     this.requestId = (this.requestId + 1) & 0x7fffffff;
     return this.requestId;
+  }
+
+  _handleAuthSuccess(resolveConnect: () => void): void {
+    this.authenticated = true;
+    this._reconnectBackoff.reset();
+    this._log.info('Authenticated successfully');
+    // Emit reconnect event (after first initial connect, subsequent connects are reconnects)
+    if (this._everConnected) {
+      const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
+      this.emit('reconnect', { downtime });
+    }
+    this._everConnected = true;
+    this._disconnectedAt = null;
+    resolveConnect();
   }
 
   _sendPacket(id: number, type: number, body: string): void {
@@ -336,13 +382,15 @@ class RconManager extends EventEmitter {
 
   _scheduleReconnect(): void {
     if (this.reconnectTimeout) return;
-    this._log.info('Reconnecting in 15 seconds...');
+    const delayMs = this._reconnectBackoff.nextDelayMs();
+    this._log.info(`Reconnecting in ${formatReconnectDelay(delayMs)}...`);
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       this.connect().catch((err: unknown) => {
         this._log.error('Reconnect failed:', err instanceof Error ? err.message : String(err));
+        this._scheduleReconnect();
       });
-    }, 15000);
+    }, delayMs);
   }
 }
 

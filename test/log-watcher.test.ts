@@ -1,9 +1,32 @@
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const cjsRequire = createRequire(__filename);
 
 // Regex patterns extracted from LogWatcher for isolated testing
+
+const logWatchers = new Set<any>();
+
+function trackLogWatcher<T extends { _midnightCheckInterval?: unknown; interval?: unknown }>(watcher: T): T {
+  logWatchers.add(watcher);
+  return watcher;
+}
+
+function cleanupLogWatcher(watcher: any): void {
+  if (watcher._midnightCheckInterval) {
+    clearInterval(watcher._midnightCheckInterval);
+  }
+  if (watcher.interval) {
+    clearInterval(watcher.interval);
+  }
+  logWatchers.delete(watcher);
+}
+
+afterEach(() => {
+  for (const watcher of logWatchers) {
+    cleanupLogWatcher(watcher);
+  }
+});
 
 const LOG_LINE_RE = /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/;
 const CONNECT_RE =
@@ -343,16 +366,13 @@ describe('_nukeActive thread suppression', () => {
   };
 
   it('LogWatcher _getOrCreateDailyThread falls back to logChannel when _nukeActive', async () => {
-    const lw = new LogWatcher(mockClient, { config: fakeConfig });
+    const lw = trackLogWatcher(new LogWatcher(mockClient, { config: fakeConfig }));
     lw.logChannel = mockChannel;
     lw._nukeActive = true;
 
     const result = await lw._getOrCreateDailyThread();
     assert.strictEqual(result, mockChannel, 'should return logChannel directly');
     assert.strictEqual(lw._dailyDate, '2026-01-01');
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('ChatRelay _getOrCreateChatThread falls back to adminChannel when _nukeActive', async () => {
@@ -369,24 +389,21 @@ describe('PvP NPC source detection', () => {
   const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
-    return new LogWatcher(
-      { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
-      {
-        config: {
-          getToday: () => '2026-01-01',
-          getDateLabel: () => '01 Jan 2026',
-          logPollInterval: 999999,
-          sftpHost: '',
-          enablePvpKillFeed: true,
-          pvpKillWindow: 60000,
+    return trackLogWatcher(
+      new LogWatcher(
+        { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
+        {
+          config: {
+            getToday: () => '2026-01-01',
+            getDateLabel: () => '01 Jan 2026',
+            logPollInterval: 999999,
+            sftpHost: '',
+            enablePvpKillFeed: true,
+            pvpKillWindow: 60000,
+          },
         },
-      },
+      ),
     );
-  }
-
-  function cleanup(lw: any): void {
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   }
 
   it('rejects NPC names with underscores (blueprint convention)', () => {
@@ -395,7 +412,6 @@ describe('PvP NPC source detection', () => {
     assert.ok(lw._isNpcDamageSource('Zombie_Normal'));
     assert.ok(lw._isNpcDamageSource('KaiHuman_Melee'));
     assert.ok(lw._isNpcDamageSource('Wolf_Alpha'));
-    cleanup(lw);
   });
 
   it('rejects known NPC type names at start of string', () => {
@@ -417,7 +433,6 @@ describe('PvP NPC source detection', () => {
     assert.ok(lw._isNpcDamageSource('Military'));
     assert.ok(lw._isNpcDamageSource('Hazmat'));
     assert.ok(lw._isNpcDamageSource('BellyToxic'));
-    cleanup(lw);
   });
 
   it('allows normal player names', () => {
@@ -427,7 +442,6 @@ describe('PvP NPC source detection', () => {
     assert.ok(!lw._isNpcDamageSource('fabien'));
     assert.ok(!lw._isNpcDamageSource('xXSlayerXx'));
     assert.ok(!lw._isNpcDamageSource('[PnBy] schlumpipuh05'));
-    cleanup(lw);
   });
 
   it('allows player names containing NPC words mid-name', () => {
@@ -440,7 +454,6 @@ describe('PvP NPC source detection', () => {
     assert.ok(!lw._isNpcDamageSource('SnakeEyes'));
     assert.ok(!lw._isNpcDamageSource('SpiderMan'));
     assert.ok(!lw._isNpcDamageSource('DeerHunter'));
-    cleanup(lw);
   });
 });
 
@@ -448,18 +461,20 @@ describe('PvP damage to death correlation', () => {
   const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
 
   function createWatcher(): any {
-    return new LogWatcher(
-      { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
-      {
-        config: {
-          getToday: () => '2026-01-01',
-          getDateLabel: () => '01 Jan 2026',
-          logPollInterval: 999999,
-          sftpHost: '',
-          enablePvpKillFeed: true,
-          pvpKillWindow: 60000,
+    return trackLogWatcher(
+      new LogWatcher(
+        { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
+        {
+          config: {
+            getToday: () => '2026-01-01',
+            getDateLabel: () => '01 Jan 2026',
+            logPollInterval: 999999,
+            sftpHost: '',
+            enablePvpKillFeed: true,
+            pvpKillWindow: 60000,
+          },
         },
-      },
+      ),
     );
   }
 
@@ -473,9 +488,6 @@ describe('PvP damage to death correlation', () => {
     assert.ok(result, 'should return kill attribution');
     assert.equal(result.attacker, 'Killer');
     assert.equal(result.totalDamage, 50);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('does not attribute kill when death is outside window', () => {
@@ -486,9 +498,6 @@ describe('PvP damage to death correlation', () => {
     lw._recordPvpDamage('Victim', 'Killer', 50, t1);
     const result = lw._checkPvpKill('Victim', t2);
     assert.equal(result, null);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('accumulates damage from same attacker', () => {
@@ -502,9 +511,6 @@ describe('PvP damage to death correlation', () => {
     const result = lw._checkPvpKill('Victim', t3);
     assert.ok(result);
     assert.equal(result.totalDamage, 55);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('replaces attacker on last-hit (different attacker overwrites)', () => {
@@ -519,9 +525,6 @@ describe('PvP damage to death correlation', () => {
     assert.ok(result);
     assert.equal(result.attacker, 'Killer2');
     assert.equal(result.totalDamage, 15);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('is case-insensitive for victim lookup', () => {
@@ -532,18 +535,12 @@ describe('PvP damage to death correlation', () => {
     lw._recordPvpDamage('TestPlayer', 'Killer', 40, t1);
     const result = lw._checkPvpKill('testplayer', t2);
     assert.ok(result);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('returns null when no damage was tracked for victim', () => {
     const lw = createWatcher();
     const result = lw._checkPvpKill('Unknown', new Date());
     assert.equal(result, null);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('cleans up after successful attribution', () => {
@@ -555,9 +552,6 @@ describe('PvP damage to death correlation', () => {
     lw._checkPvpKill('Victim', t2);
     const second = lw._checkPvpKill('Victim', t2);
     assert.equal(second, null);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('prunes old entries beyond 2x window', () => {
@@ -568,9 +562,6 @@ describe('PvP damage to death correlation', () => {
     assert.equal(lw._pvpDamageTracker.size, 1);
     lw._prunePvpTracker();
     assert.equal(lw._pvpDamageTracker.size, 0);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 
   it('handles death before damage (negative elapsed)', () => {
@@ -581,8 +572,5 @@ describe('PvP damage to death correlation', () => {
     lw._recordPvpDamage('Victim', 'Killer', 50, t1);
     const result = lw._checkPvpKill('Victim', t2);
     assert.equal(result, null);
-
-    clearInterval(lw._midnightCheckInterval);
-    clearInterval(lw.interval);
   });
 });

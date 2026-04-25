@@ -35,6 +35,7 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { createLogger, type Logger } from '../utils/log.js';
+import { ReconnectBackoff, formatReconnectDelay } from './reconnect-backoff.js';
 
 interface PanelApi {
   available: boolean;
@@ -82,6 +83,7 @@ class PanelRcon extends EventEmitter {
   // Reconnect
   _reconnectTimeout: ReturnType<typeof setTimeout> | null;
   _connectPromise: Promise<void> | null;
+  _reconnectBackoff: ReconnectBackoff;
   _everConnected: boolean;
   _disconnectedAt: number | null;
 
@@ -116,6 +118,7 @@ class PanelRcon extends EventEmitter {
     // Reconnect
     this._reconnectTimeout = null;
     this._connectPromise = null;
+    this._reconnectBackoff = new ReconnectBackoff();
     this._everConnected = false;
     this._disconnectedAt = null;
 
@@ -170,9 +173,31 @@ class PanelRcon extends EventEmitter {
     const token = auth.token;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const clearConnectTimers = () => {
+        clearTimeout(timeout);
+      };
+
+      const failConnect = (err: Error) => {
+        clearConnectTimers();
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
+      const resolveConnect = () => {
+        clearConnectTimers();
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+
       const timeout = setTimeout(() => {
         this._cleanup();
-        reject(new Error('WebSocket connection timeout'));
+        failConnect(new Error('WebSocket connection timeout'));
       }, 15000);
 
       const ws = new this._WebSocket(wsUrl, {
@@ -192,9 +217,8 @@ class PanelRcon extends EventEmitter {
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           this._log.error('Auth send failed:', error.message);
-          clearTimeout(timeout);
-          reject(error);
           this._cleanup();
+          failConnect(error);
         }
       });
 
@@ -212,32 +236,31 @@ class PanelRcon extends EventEmitter {
           return;
         }
 
-        this._handleMessage(msg, resolve, timeout);
+        this._handleMessage(msg, resolveConnect, timeout);
       });
 
       ws.on('error', (err: Error) => {
         this._log.error('WebSocket error:', err.message);
-        clearTimeout(timeout);
         if (this._everConnected && !this._disconnectedAt) {
           this._disconnectedAt = Date.now();
           this.emit('disconnect', { reason: err.message });
         }
-        if (!this.connected) {
-          reject(err);
-        }
         this._cleanup();
+        failConnect(err);
         this._scheduleReconnect();
       });
 
       ws.on('close', (code: number, reason: Buffer) => {
         const reasonStr = reason.length > 0 ? reason.toString() : `code ${String(code)}`;
-        if (this.connected) {
+        const connectingSocketClosed = this._ws === ws && !settled;
+        if (this.connected || connectingSocketClosed) {
           this._log.info(`WebSocket closed: ${reasonStr}`);
           if (this._everConnected && !this._disconnectedAt) {
             this._disconnectedAt = Date.now();
             this.emit('disconnect', { reason: reasonStr });
           }
           this._cleanup();
+          failConnect(new Error(`WebSocket closed: ${reasonStr}`));
           this._scheduleReconnect();
         }
       });
@@ -254,6 +277,7 @@ class PanelRcon extends EventEmitter {
       case 'auth success':
         this.connected = true;
         this.authenticated = true;
+        this._reconnectBackoff.reset();
         this._log.info('WebSocket authenticated');
         if (this._everConnected) {
           const downtime = this._disconnectedAt ? Date.now() - this._disconnectedAt : null;
@@ -336,18 +360,29 @@ class PanelRcon extends EventEmitter {
       const panelApi = this._panelApi;
       if (!panelApi) return;
       const auth = await panelApi.getWebsocketAuth();
-      if (auth.token && this._ws && this._ws.readyState === this._WebSocket.OPEN) {
-        this._token = auth.token;
-        this._ws.send(
-          JSON.stringify({
-            event: 'auth',
-            args: [this._token],
-          }),
-        );
-        this._log.info('Token refreshed');
+      if (!auth.token) {
+        throw new Error('Missing refreshed WebSocket token');
       }
+      if (!this._ws || this._ws.readyState !== this._WebSocket.OPEN) {
+        throw new Error('WebSocket not open during token refresh');
+      }
+      this._token = auth.token;
+      this._ws.send(
+        JSON.stringify({
+          event: 'auth',
+          args: [this._token],
+        }),
+      );
+      this._log.info('Token refreshed');
     } catch (err: unknown) {
-      this._log.warn('Token refresh failed:', err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      this._log.warn('Token refresh failed:', message);
+      if (this.connected && !this._disconnectedAt) {
+        this._disconnectedAt = Date.now();
+        this.emit('disconnect', { reason: 'Token refresh failed' });
+      }
+      this._cleanup();
+      this._scheduleReconnect();
     }
   }
 
@@ -500,6 +535,7 @@ class PanelRcon extends EventEmitter {
       clearTimeout(this._reconnectTimeout);
       this._reconnectTimeout = null;
     }
+    this._reconnectBackoff.reset();
     this._cleanup();
   }
 
@@ -529,13 +565,15 @@ class PanelRcon extends EventEmitter {
 
   _scheduleReconnect(): void {
     if (this._reconnectTimeout) return;
-    this._log.info('Reconnecting in 15 seconds...');
+    const delayMs = this._reconnectBackoff.nextDelayMs();
+    this._log.info(`Reconnecting in ${formatReconnectDelay(delayMs)}...`);
     this._reconnectTimeout = setTimeout(() => {
       this._reconnectTimeout = null;
       this.connect().catch((err: unknown) => {
         this._log.error('Reconnect failed:', err instanceof Error ? err.message : String(err));
+        this._scheduleReconnect();
       });
-    }, 15000);
+    }, delayMs);
   }
 }
 

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'events';
 
 import * as _panel_rcon from '../src/rcon/panel-rcon.js';
+import { ReconnectBackoff } from '../src/rcon/reconnect-backoff.js';
 const { PanelRcon } = _panel_rcon as any;
 
 // ── Mock WebSocket ──────────────────────────────────────
@@ -70,6 +71,35 @@ async function connectRcon(rcon: InstanceType<typeof PanelRcon>) {
 }
 
 const noop = () => {};
+
+interface FakeTimer {
+  fn: () => void;
+  delay: number;
+  cleared: boolean;
+}
+
+function installFakeTimers() {
+  const timers: FakeTimer[] = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+
+  (globalThis as any).setTimeout = (fn: () => void, delay = 0) => {
+    const timer = { fn, delay, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  (globalThis as any).clearTimeout = (timer: FakeTimer | undefined) => {
+    if (timer) timer.cleared = true;
+  };
+
+  return {
+    timers,
+    restore() {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    },
+  };
+}
 
 // ══════════════════════════════════════════════════════════
 // _handleMessage
@@ -186,6 +216,53 @@ describe('_handleMessage', () => {
     assert.ok(rcon._reconnectTimeout !== null, 'should schedule reconnect');
   });
 
+  it('token refresh failure cleans up state and schedules one reconnect', async () => {
+    const panelApi = createMockPanelApi({
+      getWebsocketAuth: async () => {
+        throw new Error('refresh failed');
+      },
+    });
+    rcon = createTestRcon({ panelApi });
+    rcon.connected = true;
+    rcon.authenticated = true;
+    rcon._ws = new MockWebSocket('wss://test', undefined);
+    const warns: unknown[][] = [];
+    rcon._log.warn = (...args: unknown[]) => warns.push(args);
+
+    rcon._handleMessage({ event: 'token expiring' }, noop, noop);
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(rcon.connected, false);
+    assert.equal(rcon.authenticated, false);
+    assert.equal(warns.length, 1);
+    assert.match(String(warns[0]?.[0]), /Token refresh failed/);
+    assert.ok(rcon._reconnectTimeout !== null, 'should schedule reconnect');
+
+    const scheduled = rcon._reconnectTimeout;
+    rcon._scheduleReconnect();
+    assert.strictEqual(rcon._reconnectTimeout, scheduled, 'pending reconnect should be deduped');
+  });
+
+  it('token refresh treats missing token as a recoverable reconnect failure', async () => {
+    const panelApi = createMockPanelApi({
+      getWebsocketAuth: async () => ({}),
+    });
+    rcon = createTestRcon({ panelApi });
+    rcon.connected = true;
+    rcon.authenticated = true;
+    rcon._ws = new MockWebSocket('wss://test', undefined);
+    const warns: unknown[][] = [];
+    rcon._log.warn = (...args: unknown[]) => warns.push(args);
+
+    await rcon._refreshToken();
+
+    assert.equal(rcon.connected, false);
+    assert.equal(rcon.authenticated, false);
+    assert.equal(warns.length, 1);
+    assert.match(String(warns[0]?.[1]), /Missing refreshed WebSocket token/);
+    assert.ok(rcon._reconnectTimeout !== null, 'should schedule reconnect');
+  });
+
   it('stats emits parsed JSON object', () => {
     const received: unknown[] = [];
     rcon.on('stats', (data: unknown) => received.push(data));
@@ -223,6 +300,76 @@ describe('_handleMessage', () => {
       rcon._handleMessage({ event: 'backup completed', args: [] }, noop, noop);
       rcon._handleMessage({ event: 'unknown_custom_event', args: [] }, noop, noop);
     });
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// reconnect backoff
+// ══════════════════════════════════════════════════════════
+
+describe('reconnect backoff', () => {
+  it('uses the same capped exponential delay helper as TCP RCON', () => {
+    const backoff = new ReconnectBackoff();
+    assert.equal(backoff.nextDelayMs(), 15000);
+    assert.equal(backoff.nextDelayMs(), 30000);
+    assert.equal(backoff.nextDelayMs(), 60000);
+    assert.equal(backoff.nextDelayMs(), 120000);
+    assert.equal(backoff.nextDelayMs(), 300000);
+    assert.equal(backoff.nextDelayMs(), 300000);
+  });
+
+  it('schedules one reconnect timer with the current backoff delay', () => {
+    const fakeTimers = installFakeTimers();
+    try {
+      const rcon = createTestRcon();
+      rcon.connect = async () => {};
+
+      rcon._scheduleReconnect();
+      rcon._scheduleReconnect();
+
+      assert.equal(fakeTimers.timers.length, 1, 'pending reconnect timer should be deduped');
+      assert.equal(fakeTimers.timers[0]?.delay, 15000);
+      assert.ok(rcon._reconnectTimeout);
+    } finally {
+      fakeTimers.restore();
+    }
+  });
+
+  it('reschedules after a failed reconnect attempt and resets on auth success', async () => {
+    const fakeTimers = installFakeTimers();
+    try {
+      const rcon = createTestRcon();
+      rcon.connect = async () => {
+        throw new Error('boom');
+      };
+
+      rcon._scheduleReconnect();
+      assert.equal(fakeTimers.timers[0]?.delay, 15000);
+      fakeTimers.timers[0].fn();
+      await Promise.resolve();
+      assert.equal(fakeTimers.timers[1]?.delay, 30000);
+
+      const timeout = setTimeout(noop, 15000);
+      rcon._handleMessage({ event: 'auth success' }, noop, timeout);
+      assert.equal(rcon._reconnectBackoff.nextDelayMs(), 15000);
+    } finally {
+      fakeTimers.restore();
+    }
+  });
+
+  it('manual disconnect clears the timer and resets backoff', () => {
+    const fakeTimers = installFakeTimers();
+    try {
+      const rcon = createTestRcon();
+      rcon._scheduleReconnect();
+      rcon.disconnect();
+
+      assert.equal(fakeTimers.timers[0]?.cleared, true);
+      assert.equal(rcon._reconnectTimeout, null);
+      assert.equal(rcon._reconnectBackoff.nextDelayMs(), 15000);
+    } finally {
+      fakeTimers.restore();
+    }
   });
 });
 
@@ -292,6 +439,49 @@ describe('connect lifecycle', () => {
     });
 
     await assert.rejects(rcon.connect(), { message: /Failed to get WebSocket credentials/ });
+  });
+
+  it('rejects and reschedules when WebSocket closes before auth success', async () => {
+    class ClosingWS extends MockWebSocket {
+      constructor(url: string, opts: unknown) {
+        super(url, opts);
+        setImmediate(() => this.emit('close', 1006, Buffer.alloc(0)));
+      }
+    }
+
+    const rcon = createTestRcon({ WebSocket: ClosingWS });
+    rcon._everConnected = true;
+
+    try {
+      await assert.rejects(rcon.connect(), { message: /WebSocket closed: code 1006/ });
+      assert.ok(rcon._reconnectTimeout !== null, 'should schedule reconnect after pre-auth close');
+    } finally {
+      rcon.disconnect();
+    }
+  });
+
+  it('settles once when WebSocket error and close both fire while connecting', async () => {
+    class ErrorThenCloseWS extends MockWebSocket {
+      constructor(url: string, opts: unknown) {
+        super(url, opts);
+        setImmediate(() => {
+          this.emit('error', new Error('ws failed'));
+          this.emit('close', 1006, Buffer.alloc(0));
+        });
+      }
+    }
+
+    const rcon = createTestRcon({ WebSocket: ErrorThenCloseWS });
+    rcon._everConnected = true;
+    let reconnectSchedules = 0;
+    rcon._scheduleReconnect = () => {
+      reconnectSchedules++;
+    };
+
+    await assert.rejects(rcon.connect(), { message: /ws failed/ });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(reconnectSchedules, 1, 'should schedule reconnect once for paired error/close events');
   });
 
   it('returns immediately when already connected and authenticated', async () => {
