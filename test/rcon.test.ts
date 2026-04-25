@@ -2,10 +2,12 @@
  * Tests for rcon.js — Source Engine RCON binary packet parsing & building.
  * Run: node --test test/rcon.test.js
  */
+import { EventEmitter } from 'node:events';
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _rcon from '../src/rcon/rcon.js';
+import { ReconnectBackoff } from '../src/rcon/reconnect-backoff.js';
 const { RconManager } = _rcon as any;
 
 // ── Helpers ─────────────────────────────────────────────
@@ -39,6 +41,35 @@ function collector() {
   const fn = (val: unknown) => calls.push(val);
   (fn as typeof fn & { calls: unknown[] }).calls = calls;
   return fn as typeof fn & { calls: unknown[] };
+}
+
+interface FakeTimer {
+  fn: () => void;
+  delay: number;
+  cleared: boolean;
+}
+
+function installFakeTimers() {
+  const timers: FakeTimer[] = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+
+  (globalThis as any).setTimeout = (fn: () => void, delay = 0) => {
+    const timer = { fn, delay, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  (globalThis as any).clearTimeout = (timer: FakeTimer | undefined) => {
+    if (timer) timer.cleared = true;
+  };
+
+  return {
+    timers,
+    restore() {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    },
+  };
 }
 
 // ══════════════════════════════════════════════════════════
@@ -439,5 +470,155 @@ describe('buildRconPacket helper', () => {
     const fromHelper = buildRconPacket(42, 3, 'match');
 
     assert.ok(fromSend.equals(fromHelper), '_sendPacket and buildRconPacket should produce identical buffers');
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// reconnect backoff
+// ══════════════════════════════════════════════════════════
+
+describe('ReconnectBackoff', () => {
+  it('progresses exponentially and caps at 5 minutes', () => {
+    const backoff = new ReconnectBackoff();
+    assert.equal(backoff.nextDelayMs(), 15000);
+    assert.equal(backoff.nextDelayMs(), 30000);
+    assert.equal(backoff.nextDelayMs(), 60000);
+    assert.equal(backoff.nextDelayMs(), 120000);
+    assert.equal(backoff.nextDelayMs(), 300000);
+    assert.equal(backoff.nextDelayMs(), 300000);
+  });
+
+  it('resets to the initial delay', () => {
+    const backoff = new ReconnectBackoff();
+    backoff.nextDelayMs();
+    backoff.nextDelayMs();
+    backoff.reset();
+    assert.equal(backoff.nextDelayMs(), 15000);
+  });
+});
+
+describe('_scheduleReconnect', () => {
+  it('schedules one reconnect timer with the current backoff delay', () => {
+    const fakeTimers = installFakeTimers();
+    try {
+      const rcon = createTestRcon();
+      rcon.connect = async () => {};
+
+      rcon._scheduleReconnect();
+      rcon._scheduleReconnect();
+
+      assert.equal(fakeTimers.timers.length, 1, 'pending reconnect timer should be deduped');
+      assert.equal(fakeTimers.timers[0]?.delay, 15000);
+      assert.ok(rcon.reconnectTimeout);
+    } finally {
+      fakeTimers.restore();
+    }
+  });
+
+  it('reschedules and advances delay after a failed reconnect attempt', async () => {
+    const fakeTimers = installFakeTimers();
+    try {
+      const rcon = createTestRcon();
+      rcon.connect = async () => {
+        throw new Error('boom');
+      };
+
+      rcon._scheduleReconnect();
+      assert.equal(fakeTimers.timers[0]?.delay, 15000);
+      fakeTimers.timers[0].fn();
+      await Promise.resolve();
+      assert.equal(fakeTimers.timers[1]?.delay, 30000);
+    } finally {
+      fakeTimers.restore();
+    }
+  });
+
+  it('resets backoff on successful auth and manual disconnect', () => {
+    const rcon = createTestRcon();
+
+    rcon._reconnectBackoff.nextDelayMs();
+    rcon._reconnectBackoff.nextDelayMs();
+    rcon._handleAuthSuccess(() => {});
+    assert.equal(rcon._reconnectBackoff.nextDelayMs(), 15000, 'auth success resets reconnect backoff');
+
+    rcon._reconnectBackoff.nextDelayMs();
+    rcon.disconnect();
+    assert.equal(rcon._reconnectBackoff.nextDelayMs(), 15000, 'manual disconnect resets reconnect backoff');
+  });
+
+  it('rejects a failed reconnect attempt after the first successful connection', async () => {
+    class FailingSocket extends EventEmitter {
+      connect() {
+        setImmediate(() => this.emit('error', new Error('reconnect failed')));
+        return this;
+      }
+      write() {}
+      destroy() {}
+    }
+
+    const rcon = new RconManager({
+      host: '127.0.0.1',
+      port: 27015,
+      password: 'test',
+      Socket: FailingSocket,
+    });
+    rcon._everConnected = true;
+
+    await assert.rejects(rcon.connect(), { message: /reconnect failed/ });
+    rcon.disconnect();
+  });
+
+  it('rejects when a reconnect attempt closes before auth completes', async () => {
+    class ClosingSocket extends EventEmitter {
+      connect(_port: number, _host: string, cb: () => void) {
+        setImmediate(() => {
+          cb();
+          this.emit('close');
+        });
+        return this;
+      }
+      write() {}
+      destroy() {}
+    }
+
+    const rcon = new RconManager({
+      host: '127.0.0.1',
+      port: 27015,
+      password: 'test',
+      Socket: ClosingSocket,
+    });
+    rcon._everConnected = true;
+
+    try {
+      await assert.rejects(rcon.connect(), { message: /Connection closed/ });
+    } finally {
+      rcon.disconnect();
+    }
+  });
+
+  it('rejects when a reconnect socket closes before TCP connect completes', async () => {
+    class EarlyClosingSocket extends EventEmitter {
+      connect() {
+        setImmediate(() => this.emit('close'));
+        return this;
+      }
+      write() {}
+      destroy() {}
+    }
+
+    const rcon = new RconManager({
+      host: '127.0.0.1',
+      port: 27015,
+      password: 'test',
+      Socket: EarlyClosingSocket,
+    });
+    rcon._everConnected = true;
+
+    try {
+      await assert.rejects(rcon.connect(), { message: /Connection closed/ });
+      assert.ok(rcon.reconnectTimeout, 'should schedule reconnect after pre-connect close');
+    } finally {
+      rcon.disconnect();
+    }
   });
 });
