@@ -22,6 +22,7 @@ import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
+import { makeMilestoneStateDefault, normalizeMilestoneState } from '../state/bot-state-schemas.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,11 @@ interface MilestoneDB {
   botState: {
     getState(key: string): string | null;
     getStateJSON(key: string, defaultVal: unknown): unknown;
+    getStateJSONValidated<T>(
+      key: string,
+      normalize: (raw: unknown) => { shape: T; issues: string[] },
+      defaultVal: T,
+    ): T;
     setStateJSON(key: string, value: unknown): void;
   };
   player: {
@@ -108,13 +114,15 @@ const STATE_KEY = 'milestones';
  * Load announced milestones from DB. Returns a structured object.
  */
 function _loadState(db: MilestoneDB | null): MilestoneState {
-  const defaults: MilestoneState = { kills: {}, playtime: {}, survival: {}, challenges: {}, firsts: {}, clans: {} };
+  const defaults: MilestoneState = makeMilestoneStateDefault();
   if (!db) return defaults;
   try {
-    const raw = db.botState.getStateJSON(STATE_KEY, null) as Partial<MilestoneState> | null;
-    if (!raw) return defaults;
-    // Merge with defaults so new categories are covered
-    return { ...defaults, ...raw };
+    const validated: unknown = db.botState.getStateJSONValidated(
+      STATE_KEY,
+      normalizeMilestoneState,
+      makeMilestoneStateDefault(),
+    );
+    return normalizeMilestoneState(validated).shape;
   } catch {
     return defaults;
   }

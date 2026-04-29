@@ -26,6 +26,7 @@ import { t, getLocale, fmtNumber } from '../i18n/index.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
+import { makeRecapServiceDefault, normalizeRecapService } from '../state/bot-state-schemas.js';
 
 const STATE_KEY = 'recap_service';
 
@@ -56,6 +57,11 @@ interface RecapDB {
   };
   botState: {
     getStateJSON(key: string, defaultVal: unknown): unknown;
+    getStateJSONValidated<T>(
+      key: string,
+      normalize: (raw: unknown) => { shape: T; issues: string[] },
+      defaultVal: T,
+    ): T;
     setStateJSON(key: string, value: unknown): void;
   };
 }
@@ -633,7 +639,12 @@ class RecapService {
   _loadState(): RecapState {
     if (!this._db) return {};
     try {
-      return this._db.botState.getStateJSON(STATE_KEY, {}) as RecapState;
+      const validated: unknown = this._db.botState.getStateJSONValidated(
+        STATE_KEY,
+        normalizeRecapService,
+        makeRecapServiceDefault(),
+      );
+      return normalizeRecapService(validated).shape;
     } catch {
       return {};
     }

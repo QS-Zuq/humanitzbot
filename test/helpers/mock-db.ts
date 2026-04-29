@@ -30,7 +30,26 @@ export function mockDb({ players = [], clans = [], state = null, extras = {} }: 
         return defaultVal;
       }
     },
+    getStateJSONValidated<T>(
+      key: string,
+      normalize: (raw: unknown) => { shape: T; issues: string[] },
+      defaultVal: T,
+    ): T {
+      const raw = store.get(key);
+      if (raw == null) return defaultVal;
+      try {
+        const parsed = JSON.parse(raw);
+        return normalize(parsed).shape;
+      } catch {
+        return defaultVal;
+      }
+    },
     setStateJSON(key: string, value: any) {
+      store.set(key, JSON.stringify(value));
+    },
+    setStateJSONValidated<T>(key: string, normalize: (raw: unknown) => { shape: T; issues: string[] }, value: T) {
+      const { issues } = normalize(value);
+      if (issues.length > 0) throw new Error(`bot_state.${key} failed validation: ${issues.join('; ')}`);
       store.set(key, JSON.stringify(value));
     },
   };

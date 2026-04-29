@@ -282,6 +282,72 @@ describe('RecapService', () => {
       assert.ok(state.lastDaily);
       assert.ok(state.lastWeekly);
     });
+
+    it('loads a non-object recap_service row as empty state', () => {
+      const db = mockDb();
+      db.botState.setStateJSON(RecapService.STATE_KEY, 'bad');
+      const rs = new RecapService(mockClient(), { db, config: mockConfig() });
+
+      assert.deepEqual(rs._loadState(), {});
+    });
+
+    it('saving weekly stats preserves an existing valid daily snapshot', () => {
+      const db = mockDb();
+      const rs = new RecapService(mockClient(), { db, config: mockConfig() });
+      db.botState.setStateJSON(RecapService.STATE_KEY, {
+        lastDaily: { date: '2026-02-26', totalEvents: 42 },
+      });
+
+      rs._saveWeeklyStats({ uniquePlayers: 12, deaths: 30 });
+
+      const state = db.botState.getStateJSON(RecapService.STATE_KEY);
+      assert.deepEqual(state.lastDaily, { date: '2026-02-26', totalEvents: 42 });
+      assert.deepEqual(state.lastWeekly, { uniquePlayers: 12, deaths: 30 });
+    });
+
+    it('saving daily stats preserves an existing valid weekly snapshot', () => {
+      const db = mockDb();
+      const rs = new RecapService(mockClient(), { db, config: mockConfig() });
+      db.botState.setStateJSON(RecapService.STATE_KEY, {
+        lastWeekly: { uniquePlayers: 12, deaths: 30 },
+      });
+
+      rs._saveLastDaily('2026-02-26', { totalEvents: 42 });
+
+      const state = db.botState.getStateJSON(RecapService.STATE_KEY);
+      assert.equal(state.lastDaily.date, '2026-02-26');
+      assert.deepEqual(state.lastWeekly, { uniquePlayers: 12, deaths: 30 });
+    });
+
+    it('drops corrupt lastDaily before saving weekly stats', () => {
+      const db = mockDb();
+      const rs = new RecapService(mockClient(), { db, config: mockConfig() });
+      db.botState.setStateJSON(RecapService.STATE_KEY, {
+        lastDaily: { date: 123, totalEvents: 42 },
+        lastWeekly: { uniquePlayers: 1 },
+      });
+
+      rs._saveWeeklyStats({ uniquePlayers: 12 });
+
+      const state = db.botState.getStateJSON(RecapService.STATE_KEY);
+      assert.equal(state.lastDaily, undefined);
+      assert.deepEqual(state.lastWeekly, { uniquePlayers: 12 });
+    });
+
+    it('normalizes raw mode=off/dry-run recap state before use', () => {
+      const db = mockDb();
+      const rawState = {
+        lastDaily: { date: 123, totalEvents: 42 },
+        lastWeekly: { uniquePlayers: 12 },
+      };
+      db.botState.getStateJSONValidated = () => rawState;
+      const rs = new RecapService(mockClient(), { db, config: mockConfig() });
+
+      const state = rs._loadState();
+
+      assert.equal(state.lastDaily, undefined);
+      assert.deepEqual(state.lastWeekly, { uniquePlayers: 12 });
+    });
   });
 
   describe('onDayRollover', () => {
