@@ -13,6 +13,11 @@ import {
 } from '../rcon/server-info.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import type { HumanitZDB } from '../db/database.js';
+import {
+  isServerStatusCacheFresh,
+  makeServerStatusCacheDefault,
+  normalizeServerStatusCache,
+} from '../state/bot-state-schemas.js';
 
 // Embed builders — presentation layer (mixed into prototype below)
 import * as statusEmbeds from './server-status-embeds.js';
@@ -256,13 +261,18 @@ class ServerStatus {
   _loadState() {
     try {
       if (!this._db) return;
-      const data = this._db.botState.getStateJSON('server_status_cache', null) as Record<string, unknown> | null;
-      if (!data) return;
-      if (data.onlineSince) this._onlineSince = new Date(data.onlineSince as string);
-      if (data.offlineSince) this._offlineSince = new Date(data.offlineSince as string);
-      if (data.lastOnline !== undefined) this._lastOnline = data.lastOnline as boolean;
-      if (data.lastInfo) this._lastInfo = data.lastInfo as ServerInfo;
-      if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList as PlayerList;
+      const validated: unknown = this._db.botState.getStateJSONValidated(
+        'server_status_cache',
+        normalizeServerStatusCache,
+        makeServerStatusCacheDefault(),
+      );
+      const { shape: data } = normalizeServerStatusCache(validated);
+      if (!isServerStatusCacheFresh(data, Date.now(), this._config.statusCacheTtl)) return;
+      if (data.onlineSince) this._onlineSince = new Date(data.onlineSince);
+      if (data.offlineSince) this._offlineSince = new Date(data.offlineSince);
+      if (data.lastOnline !== undefined && data.lastOnline !== null) this._lastOnline = data.lastOnline;
+      if (data.lastInfo) this._lastInfo = data.lastInfo as unknown as ServerInfo;
+      if (data.lastPlayerList) this._lastPlayerList = data.lastPlayerList as unknown as PlayerList;
       this._log.info(`Loaded cached state (online since: ${String(data.onlineSince) || 'unknown'})`);
     } catch (err: unknown) {
       this._log.info('Could not load cached state:', err instanceof Error ? err.message : String(err));

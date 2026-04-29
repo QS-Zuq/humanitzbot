@@ -20,6 +20,10 @@ import {
   KILL_TRACKER_DEFAULT,
   normalizeKillTracker,
   normalizeGithubTracker,
+  isServerStatusCacheFresh,
+  normalizeMilestoneState,
+  normalizeRecapService,
+  normalizeServerStatusCache,
   type KillTrackerShape,
   type GithubTrackerShape,
 } from '../src/state/bot-state-schemas.js';
@@ -444,6 +448,133 @@ describe('P1-B weekly_baseline players null/bad guard (dry-run defensive)', () =
       Object.keys(safePlayers);
     }, 'defensive guard must produce safe iterable object when players is a string');
     assert.deepEqual(Object.keys(safePlayers), [], 'fallback must be empty object');
+  });
+});
+
+// ─── Legacy read-side normalizers ──────────────────────────────────────────
+
+describe('legacy bot_state read-side normalizers', () => {
+  it('server_status_cache valid value is preserved and considered fresh', () => {
+    const nowMs = Date.parse('2026-04-29T00:00:00.000Z');
+    const { shape, issues } = normalizeServerStatusCache({
+      onlineSince: '2026-04-28T23:59:00.000Z',
+      offlineSince: null,
+      lastOnline: true,
+      lastInfo: { name: 'Server' },
+      lastPlayerList: { players: [] },
+      savedAt: '2026-04-28T23:59:55.000Z',
+    });
+
+    assert.deepEqual(issues, []);
+    assert.equal(shape.lastOnline, true);
+    assert.ok(isServerStatusCacheFresh(shape, nowMs, 30_000));
+  });
+
+  it('server_status_cache invalid root returns default and reports issues', () => {
+    const { shape, issues } = normalizeServerStatusCache('bad');
+
+    assert.deepEqual(shape, {});
+    assert.ok(issues.some((issue) => issue.includes('root')));
+  });
+
+  it('server_status_cache stale, future, and invalid savedAt are not fresh', () => {
+    const nowMs = Date.parse('2026-04-29T00:00:00.000Z');
+
+    assert.equal(
+      isServerStatusCacheFresh({ savedAt: '2026-04-28T23:59:00.000Z' }, nowMs, 30_000),
+      false,
+      'old cache must be stale',
+    );
+    assert.equal(
+      isServerStatusCacheFresh({ savedAt: '2026-04-29T00:00:01.000Z' }, nowMs, 30_000),
+      false,
+      'future cache must be rejected',
+    );
+    assert.equal(isServerStatusCacheFresh({ savedAt: 'not-a-date' }, nowMs, 30_000), false);
+  });
+
+  it('server_status_cache invalid fields are dropped without losing healthy fields', () => {
+    const { shape, issues } = normalizeServerStatusCache({
+      savedAt: '2026-04-28T23:59:55.000Z',
+      lastOnline: 'yes',
+      lastInfo: 'bad',
+      lastPlayerList: { players: [] },
+    });
+
+    assert.equal(shape.savedAt, '2026-04-28T23:59:55.000Z');
+    assert.deepEqual(shape.lastPlayerList, { count: 0, players: [], raw: '' });
+    assert.equal(shape.lastOnline, undefined);
+    assert.ok(issues.some((issue) => issue.includes('lastOnline')));
+    assert.ok(issues.some((issue) => issue.includes('lastInfo')));
+  });
+
+  it('server_status_cache drops empty cache objects and normalizes legacy player names', () => {
+    const { shape, issues } = normalizeServerStatusCache({
+      savedAt: '2026-04-28T23:59:55.000Z',
+      lastInfo: {},
+      lastPlayerList: { players: ['Alice'] },
+    });
+
+    assert.equal(shape.lastInfo, undefined);
+    assert.deepEqual(shape.lastPlayerList, {
+      count: 1,
+      players: [{ name: 'Alice', steamId: 'N/A' }],
+      raw: '',
+    });
+    assert.ok(issues.some((issue) => issue.includes('lastInfo')));
+  });
+
+  it('milestones preserves healthy sibling categories when one category is invalid', () => {
+    const { shape, issues } = normalizeMilestoneState({
+      kills: { steam_123: [100, 500] },
+      playtime: {},
+      survival: {},
+      challenges: { steam_123: ['Bear Hunter'] },
+      firsts: { profession: ['Mechanic'] },
+      clans: { WolfPack: ['bad'] },
+    });
+
+    assert.deepEqual(shape.kills.steam_123, [100, 500]);
+    assert.deepEqual(shape.challenges.steam_123, ['Bear Hunter']);
+    assert.deepEqual(shape.clans, {});
+    assert.ok(issues.some((issue) => issue.includes('root.clans[WolfPack]')));
+  });
+
+  it('milestones drops invalid per-entry arrays without wiping the whole category', () => {
+    const { shape, issues } = normalizeMilestoneState({
+      kills: { good: [100], bad: ['100'] },
+      playtime: {},
+      survival: {},
+      challenges: {},
+      firsts: {},
+      clans: {},
+    });
+
+    assert.deepEqual(shape.kills.good, [100]);
+    assert.equal(shape.kills.bad, undefined);
+    assert.ok(issues.some((issue) => issue.includes('root.kills[bad]')));
+  });
+
+  it('recap_service preserves lastWeekly when lastDaily is invalid', () => {
+    const { shape, issues } = normalizeRecapService({
+      lastDaily: { date: 123, totalEvents: 10 },
+      lastWeekly: { uniquePlayers: 12, deaths: 3 },
+    });
+
+    assert.equal(shape.lastDaily, undefined);
+    assert.deepEqual(shape.lastWeekly, { uniquePlayers: 12, deaths: 3 });
+    assert.ok(issues.some((issue) => issue.includes('lastDaily.date')));
+  });
+
+  it('recap_service preserves lastDaily and drops invalid weekly fields', () => {
+    const { shape, issues } = normalizeRecapService({
+      lastDaily: { date: '2026-04-28', totalEvents: 10 },
+      lastWeekly: { uniquePlayers: 12, deaths: 'bad', totalEvents: 40 },
+    });
+
+    assert.deepEqual(shape.lastDaily, { date: '2026-04-28', totalEvents: 10 });
+    assert.deepEqual(shape.lastWeekly, { uniquePlayers: 12, totalEvents: 40 });
+    assert.ok(issues.some((issue) => issue.includes('lastWeekly.deaths')));
   });
 });
 

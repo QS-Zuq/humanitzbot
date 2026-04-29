@@ -43,6 +43,37 @@ export function isStringArray(v: unknown): v is string[] {
   return true;
 }
 
+function optionalDateString(v: unknown, issues: string[], path: string): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === 'string' && Number.isFinite(Date.parse(v))) return v;
+  issues.push(`${path}: expected date string | null (dropped)`);
+  return undefined;
+}
+
+function normalizeArrayRecord<T>(
+  raw: unknown,
+  issues: string[],
+  path: string,
+  guard: (v: unknown) => v is T[],
+  typeLabel: string,
+): Record<string, T[]> {
+  if (raw === undefined) return {};
+  if (!isObj(raw)) {
+    issues.push(`${path}: expected object (substituted empty)`);
+    return {};
+  }
+  const out: Record<string, T[]> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (guard(value)) {
+      out[key] = value;
+    } else {
+      issues.push(`${path}[${key}]: expected ${typeLabel} (dropped)`);
+    }
+  }
+  return out;
+}
+
 // ─── kill_tracker ─────────────────────────────────────────────────────────────
 
 interface KillObjShape {
@@ -347,4 +378,277 @@ export function normalizeWeeklyBaseline(raw: unknown): { shape: WeeklyBaselineSh
     issues.push('root.players: expected object (substituted empty)');
   }
   return { shape: { weekStart, players }, issues };
+}
+
+// ─── server_status_cache (read-side) ─────────────────────────────────────────
+
+export interface ServerStatusCacheShape {
+  onlineSince?: string | null;
+  offlineSince?: string | null;
+  lastOnline?: boolean | null;
+  lastInfo?: Record<string, unknown> | null;
+  lastPlayerList?: Record<string, unknown> | null;
+  savedAt?: string | null;
+}
+
+export function makeServerStatusCacheDefault(): ServerStatusCacheShape {
+  return {};
+}
+
+const SERVER_STATUS_INFO_STRING_FIELDS = ['name', 'day', 'time', 'season', 'weather', 'fps', 'ai', 'version'] as const;
+const SERVER_STATUS_INFO_NUMBER_FIELDS = ['players', 'maxPlayers'] as const;
+
+function normalizeServerStatusInfo(
+  raw: unknown,
+  issues: string[],
+  path: string,
+): Record<string, unknown> | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!isObj(raw)) {
+    issues.push(`${path}: expected server info object | null (dropped)`);
+    return undefined;
+  }
+
+  const out: Record<string, unknown> = {};
+  if (raw.raw !== undefined) {
+    if (typeof raw.raw === 'string') out.raw = raw.raw;
+    else issues.push(`${path}.raw: expected string (dropped)`);
+  }
+  if (raw.fields !== undefined) {
+    if (isObj(raw.fields) && Object.values(raw.fields).every((value) => typeof value === 'string')) {
+      out.fields = raw.fields;
+    } else {
+      issues.push(`${path}.fields: expected Record<string,string> (dropped)`);
+    }
+  }
+  for (const field of SERVER_STATUS_INFO_STRING_FIELDS) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    if (typeof value === 'string') out[field] = value;
+    else issues.push(`${path}.${field}: expected string (dropped)`);
+  }
+  for (const field of SERVER_STATUS_INFO_NUMBER_FIELDS) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    if (typeof value === 'number' && Number.isFinite(value)) out[field] = value;
+    else issues.push(`${path}.${field}: expected finite number (dropped)`);
+  }
+
+  if (Object.keys(out).length === 0) {
+    issues.push(`${path}: expected server info-like object (dropped)`);
+    return undefined;
+  }
+  if (out.raw === undefined) out.raw = '';
+  if (out.fields === undefined) out.fields = {};
+  return out;
+}
+
+function normalizeServerStatusPlayerEntry(
+  raw: unknown,
+  issues: string[],
+  path: string,
+): { name: string; steamId: string } | null {
+  if (typeof raw === 'string') {
+    const name = raw.trim();
+    if (name) return { name, steamId: 'N/A' };
+    issues.push(`${path}: expected non-empty player name (dropped)`);
+    return null;
+  }
+  if (!isObj(raw) || typeof raw.name !== 'string' || !raw.name.trim()) {
+    issues.push(`${path}: expected player entry with name (dropped)`);
+    return null;
+  }
+  if (raw.steamId !== undefined && typeof raw.steamId !== 'string') {
+    issues.push(`${path}.steamId: expected string (substituted N/A)`);
+  }
+  return {
+    name: raw.name.trim(),
+    steamId: typeof raw.steamId === 'string' ? raw.steamId : 'N/A',
+  };
+}
+
+function normalizeServerStatusPlayerList(
+  raw: unknown,
+  issues: string[],
+  path: string,
+): Record<string, unknown> | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!isObj(raw)) {
+    issues.push(`${path}: expected player list object | null (dropped)`);
+    return undefined;
+  }
+  if (!Array.isArray(raw.players)) {
+    issues.push(`${path}.players: expected array (dropped)`);
+    return undefined;
+  }
+
+  const players = raw.players.flatMap((entry, index) => {
+    const normalized = normalizeServerStatusPlayerEntry(entry, issues, `${path}.players[${index}]`);
+    return normalized ? [normalized] : [];
+  });
+
+  const out: Record<string, unknown> = {
+    count: players.length,
+    players,
+    raw: '',
+  };
+  if (raw.count !== undefined) {
+    if (typeof raw.count === 'number' && Number.isFinite(raw.count)) out.count = raw.count;
+    else issues.push(`${path}.count: expected finite number (substituted players.length)`);
+  }
+  if (raw.raw !== undefined) {
+    if (typeof raw.raw === 'string') out.raw = raw.raw;
+    else issues.push(`${path}.raw: expected string (substituted empty)`);
+  }
+  return out;
+}
+
+export function normalizeServerStatusCache(raw: unknown): { shape: ServerStatusCacheShape; issues: string[] } {
+  const issues: string[] = [];
+  if (!isObj(raw)) {
+    issues.push('root: expected object');
+    return { shape: {}, issues };
+  }
+
+  const shape: ServerStatusCacheShape = {};
+  const onlineSince = optionalDateString(raw.onlineSince, issues, 'root.onlineSince');
+  const offlineSince = optionalDateString(raw.offlineSince, issues, 'root.offlineSince');
+  const savedAt = optionalDateString(raw.savedAt, issues, 'root.savedAt');
+  const lastInfo = normalizeServerStatusInfo(raw.lastInfo, issues, 'root.lastInfo');
+  const lastPlayerList = normalizeServerStatusPlayerList(raw.lastPlayerList, issues, 'root.lastPlayerList');
+
+  if (onlineSince !== undefined) shape.onlineSince = onlineSince;
+  if (offlineSince !== undefined) shape.offlineSince = offlineSince;
+  if (savedAt !== undefined) shape.savedAt = savedAt;
+  if (lastInfo !== undefined) shape.lastInfo = lastInfo;
+  if (lastPlayerList !== undefined) shape.lastPlayerList = lastPlayerList;
+
+  if (raw.lastOnline === undefined) {
+    // optional
+  } else if (raw.lastOnline === null || typeof raw.lastOnline === 'boolean') {
+    shape.lastOnline = raw.lastOnline;
+  } else {
+    issues.push('root.lastOnline: expected boolean | null (dropped)');
+  }
+
+  return { shape, issues };
+}
+
+export function isServerStatusCacheFresh(
+  cache: ServerStatusCacheShape,
+  nowMs: number = Date.now(),
+  maxAgeMs: number = 30_000,
+): boolean {
+  if (!cache.savedAt || typeof cache.savedAt !== 'string') return false;
+  const savedAtMs = Date.parse(cache.savedAt);
+  if (!Number.isFinite(savedAtMs)) return false;
+  if (savedAtMs > nowMs) return false;
+  return nowMs - savedAtMs <= maxAgeMs;
+}
+
+// ─── milestones (read-side) ─────────────────────────────────────────────────
+
+export interface MilestoneStateShape {
+  kills: Record<string, number[]>;
+  playtime: Record<string, number[]>;
+  survival: Record<string, number[]>;
+  challenges: Record<string, string[]>;
+  firsts: Record<string, string[]>;
+  clans: Record<string, number[]>;
+}
+
+export function makeMilestoneStateDefault(): MilestoneStateShape {
+  return { kills: {}, playtime: {}, survival: {}, challenges: {}, firsts: {}, clans: {} };
+}
+
+export function normalizeMilestoneState(raw: unknown): { shape: MilestoneStateShape; issues: string[] } {
+  const issues: string[] = [];
+  const defaults = makeMilestoneStateDefault();
+  if (!isObj(raw)) {
+    issues.push('root: expected object');
+    return { shape: defaults, issues };
+  }
+
+  return {
+    shape: {
+      kills: normalizeArrayRecord(raw.kills, issues, 'root.kills', isNumberArray, 'number[]'),
+      playtime: normalizeArrayRecord(raw.playtime, issues, 'root.playtime', isNumberArray, 'number[]'),
+      survival: normalizeArrayRecord(raw.survival, issues, 'root.survival', isNumberArray, 'number[]'),
+      challenges: normalizeArrayRecord(raw.challenges, issues, 'root.challenges', isStringArray, 'string[]'),
+      firsts: normalizeArrayRecord(raw.firsts, issues, 'root.firsts', isStringArray, 'string[]'),
+      clans: normalizeArrayRecord(raw.clans, issues, 'root.clans', isNumberArray, 'number[]'),
+    },
+    issues,
+  };
+}
+
+// ─── recap_service (read-side) ──────────────────────────────────────────────
+
+export interface RecapWeeklyStatsShape {
+  uniquePlayers?: number;
+  deaths?: number;
+  pvpKills?: number;
+  builds?: number;
+  loots?: number;
+  totalEvents?: number;
+}
+
+export interface RecapServiceShape {
+  lastDaily?: Record<string, unknown>;
+  lastWeekly?: RecapWeeklyStatsShape | null;
+}
+
+const RECAP_WEEKLY_NUMBER_FIELDS = ['uniquePlayers', 'deaths', 'pvpKills', 'builds', 'loots', 'totalEvents'] as const;
+
+export function makeRecapServiceDefault(): RecapServiceShape {
+  return {};
+}
+
+function normalizeRecapWeeklyStats(raw: unknown, issues: string[]): RecapWeeklyStatsShape | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!isObj(raw)) {
+    issues.push('root.lastWeekly: expected object | null (dropped)');
+    return undefined;
+  }
+
+  const out: RecapWeeklyStatsShape = {};
+  for (const field of RECAP_WEEKLY_NUMBER_FIELDS) {
+    const val = raw[field];
+    if (val === undefined) continue;
+    if (typeof val === 'number') {
+      out[field] = val;
+    } else {
+      issues.push(`root.lastWeekly.${field}: expected number (dropped)`);
+    }
+  }
+  return out;
+}
+
+export function normalizeRecapService(raw: unknown): { shape: RecapServiceShape; issues: string[] } {
+  const issues: string[] = [];
+  if (!isObj(raw)) {
+    issues.push('root: expected object');
+    return { shape: {}, issues };
+  }
+
+  const shape: RecapServiceShape = {};
+  if (raw.lastDaily !== undefined) {
+    if (isObj(raw.lastDaily)) {
+      if (raw.lastDaily.date !== undefined && typeof raw.lastDaily.date !== 'string') {
+        issues.push('root.lastDaily.date: expected string (dropped lastDaily)');
+      } else {
+        shape.lastDaily = raw.lastDaily;
+      }
+    } else if (raw.lastDaily !== null) {
+      issues.push('root.lastDaily: expected object (dropped)');
+    }
+  }
+
+  const lastWeekly = normalizeRecapWeeklyStats(raw.lastWeekly, issues);
+  if (lastWeekly !== undefined) shape.lastWeekly = lastWeekly;
+
+  return { shape, issues };
 }

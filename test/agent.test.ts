@@ -13,7 +13,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
-import { execSync, execFileSync } from 'child_process';
+import vm from 'node:vm';
+import { execFileSync } from 'child_process';
 
 // ─── Modules under test ─────────────────────────────────────────────────────
 
@@ -90,10 +91,9 @@ describe('agent-builder', () => {
   });
 
   it('has valid JavaScript syntax', () => {
-    // Write to temp file and run node --check
+    // Compile the generated script without executing it.
     fs.writeFileSync(TEMP_AGENT, script);
-    execSync(`node --check "${TEMP_AGENT}"`, { encoding: 'utf-8', timeout: 10000 });
-    // node --check returns nothing on success
+    new vm.Script(script.replace(/^#!.*\n/, ''), { filename: TEMP_AGENT });
     assert.ok(true, 'Syntax check passed');
   });
 

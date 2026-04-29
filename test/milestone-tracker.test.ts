@@ -51,6 +51,17 @@ describe('MilestoneTracker', () => {
 
       assert.equal(mt.getLastCheckCount(), 1, 'Should queue 100-kill milestone embed');
     });
+
+    it('does not treat a malformed existing row as first-run backfill', async () => {
+      const db = mockDb([makePlayer({ lifetime_kills: 200 })], [], 'not-json');
+      const mt = new MilestoneTracker(mockClient(), { db });
+
+      assert.ok(!mt._needsBackfill, 'Existing row must preserve non-first-run semantics even when malformed');
+
+      await mt.check();
+
+      assert.equal(mt.getLastCheckCount(), 1, 'Should announce normally instead of silently backfilling');
+    });
   });
 
   describe('kill milestones', () => {
@@ -79,6 +90,40 @@ describe('MilestoneTracker', () => {
       await mt.check();
 
       assert.equal(mt.getLastCheckCount(), 0, 'Should not re-announce');
+    });
+
+    it('preserves recorded kills when another milestone category is corrupt', async () => {
+      const existing = {
+        kills: { '76561198000000001': [100, 500] },
+        playtime: {},
+        survival: {},
+        challenges: {},
+        firsts: {},
+        clans: { WolfPack: ['bad'] },
+      };
+      const db = mockDb([makePlayer({ lifetime_kills: 550 })], [], existing);
+      const mt = new MilestoneTracker(mockClient(), { db });
+
+      await mt.check();
+
+      assert.equal(mt.getLastCheckCount(), 0, 'Corrupt clan state must not cause kill milestone re-announcement');
+      assert.deepEqual(mt.getState().kills['76561198000000001'], [100, 500]);
+      assert.deepEqual(mt.getState().clans, {});
+    });
+
+    it('normalizes raw mode=off/dry-run milestone state before use', async () => {
+      const existing = {
+        kills: { '76561198000000001': [100, 500] },
+      };
+      const db = mockDb([makePlayer({ lifetime_kills: 550 })], [], existing);
+      db.botState.getStateJSONValidated = () => existing;
+      const mt = new MilestoneTracker(mockClient(), { db });
+
+      await mt.check();
+
+      assert.equal(mt.getLastCheckCount(), 0, 'Raw partial state must still preserve recorded kill milestones');
+      assert.deepEqual(mt.getState().playtime, {});
+      assert.deepEqual(mt.getState().clans, {});
     });
 
     it('announces next threshold when kills increase', async () => {
