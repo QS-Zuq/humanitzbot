@@ -238,6 +238,7 @@ class ServerResources {
   private _backend: ResourceBackend | null;
   private _now: () => number;
   private _fetchResource: (backend: ResourceBackend) => Promise<ResourceResult>;
+  private _inFlight: Promise<ResourceResult | null> | null;
 
   constructor(deps: ServerResourcesDeps = {}) {
     this._cache = null;
@@ -248,6 +249,7 @@ class ServerResources {
     this._fetchResource =
       deps.fetchResource ??
       ((backend: 'pterodactyl' | 'ssh') => (backend === 'pterodactyl' ? _fetchPterodactyl() : _fetchSsh()));
+    this._inFlight = null;
   }
 
   private _detectBackend(): ResourceBackend | null {
@@ -264,6 +266,18 @@ class ServerResources {
     if (!this._backend) return null;
     const now = this._now();
     if (this._cache && now - this._cacheTime < this._ttl) return this._cache;
+    if (this._inFlight) return this._inFlight;
+
+    this._inFlight = this._refreshResources(now);
+    try {
+      return await this._inFlight;
+    } finally {
+      this._inFlight = null;
+    }
+  }
+
+  private async _refreshResources(now: number): Promise<ResourceResult | null> {
+    if (!this._backend) return null;
     try {
       this._cache = await this._fetchResource(this._backend);
       this._cacheTime = now;
