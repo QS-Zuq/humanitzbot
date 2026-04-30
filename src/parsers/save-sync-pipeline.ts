@@ -4,6 +4,8 @@ import type { HumanitZDB } from '../db/database.js';
 import type { Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
 
+const MAINTENANCE_PURGE_INTERVAL_SYNCS = 100;
+
 export type SaveActivityEvent = ReturnType<typeof diffSaveState>[number];
 export type SaveItemStats = ReturnType<typeof reconcileItems>;
 export type SaveSyncPipelineDb = Pick<HumanitZDB, 'syncAllFromSave' | 'activityLog' | 'meta' | 'item'>;
@@ -131,7 +133,9 @@ export class SaveSyncPipeline {
 
     const itemStats = this._reconcileItems(parsed, players, idMap);
     this._writeActivityEvents(diffEvents);
-    this._purgeOldActivity();
+    if (this._isMaintenancePurgeDue()) {
+      this._purgeOldActivity();
+    }
 
     this._deps.db.meta.setMeta('last_save_sync', new Date().toISOString());
     this._deps.db.meta.setMeta('last_save_players', String(players.size));
@@ -260,7 +264,7 @@ export class SaveSyncPipeline {
         },
         nameResolver,
       );
-      if (this._deps.getSyncCount() % 100 === 0) {
+      if (this._isMaintenancePurgeDue()) {
         this._deps.db.item.purgeOldLostItems('-7 days');
         this._deps.db.item.purgeOldLostGroups('-7 days');
         this._deps.db.item.purgeOldMovements('-30 days');
@@ -279,6 +283,10 @@ export class SaveSyncPipeline {
     } catch (err: unknown) {
       this._deps.log.warn('Failed to write activity log:', errMsg(err));
     }
+  }
+
+  private _isMaintenancePurgeDue(): boolean {
+    return this._deps.getSyncCount() % MAINTENANCE_PURGE_INTERVAL_SYNCS === 0;
   }
 
   private _purgeOldActivity(): void {

@@ -280,6 +280,24 @@ describe('SaveSyncPipeline syncFromCache', () => {
     assert.equal(fetchCalled, false);
     assert.deepEqual(db.syncPayloads[0].clans, []);
   });
+
+  it('runs activity cleanup only on maintenance sync intervals', () => {
+    const db = makeDb();
+    const pipelineHarness = makePipeline(db);
+    const activityPurgeCount = () => db.calls.filter((call: string) => call === 'purgeOldActivity:-30 days').length;
+
+    pipelineHarness.setSyncCount(1);
+    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    assert.equal(activityPurgeCount(), 0);
+
+    pipelineHarness.setSyncCount(100);
+    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    assert.equal(activityPurgeCount(), 1);
+
+    pipelineHarness.setSyncCount(0);
+    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    assert.equal(activityPurgeCount(), 2);
+  });
 });
 
 describe('SaveService _syncFromCache', () => {
@@ -529,7 +547,7 @@ describe('SaveService _syncParsedData', () => {
       },
     });
     const svc = makeService(db);
-    svc._syncCount = 1;
+    svc._syncCount = 100;
     svc._readOldStateForDiff = () => ({
       containers: [{ actorName: 'crate', items: [] }],
       horses: [],
