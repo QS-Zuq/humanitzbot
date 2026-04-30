@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import SaveService from '../src/parsers/save-service.js';
+import { SaveSyncPipeline, type SaveSyncPipelineDeps } from '../src/parsers/save-sync-pipeline.js';
 
 type AnyRecord = Record<string, any>;
 
@@ -143,6 +144,42 @@ function makeService(db = makeDb(), options: AnyRecord = {}) {
   return svc;
 }
 
+function makePipeline(db = makeDb(), overrides: Partial<SaveSyncPipelineDeps> = {}) {
+  const emitted: AnyRecord[] = [];
+  const cacheWrites: AnyRecord[] = [];
+  let syncCount = 0;
+  const deps: SaveSyncPipelineDeps = {
+    db: db as any,
+    log: {
+      label: 'SaveSyncPipelineTest',
+      info() {},
+      warn() {},
+      error() {},
+    },
+    getIdMap: () => ({}),
+    getMode: () => 'auto',
+    getSyncCount: () => syncCount,
+    readOldStateForDiff: () => null,
+    writeSaveCache(parsed) {
+      cacheWrites.push(parsed);
+    },
+    emitSync(result) {
+      emitted.push(result);
+    },
+    shouldFetchClanData: () => false,
+    fetchClanData: async () => [],
+    ...overrides,
+  };
+  return {
+    pipeline: new SaveSyncPipeline(deps),
+    emitted,
+    cacheWrites,
+    setSyncCount(next: number) {
+      syncCount = next;
+    },
+  };
+}
+
 function captureSync(svc: any) {
   let result: AnyRecord | null = null;
   svc.once('sync', (payload: AnyRecord) => {
@@ -185,21 +222,14 @@ describe('SaveService _parseCache', () => {
   });
 });
 
-describe('SaveService _syncFromCache', () => {
+describe('SaveSyncPipeline syncFromCache', () => {
   it('normalizes cache players into a Map and supplies default arrays', async () => {
-    const svc = makeService();
-    let parsedArg: AnyRecord | null = null;
-    let clansArg: unknown[] | null = null;
-    svc._syncParsedData = (parsed: AnyRecord, clans: unknown[]) => {
-      parsedArg = parsed;
-      clansArg = clans;
-      return { ok: true };
-    };
+    const db = makeDb();
+    const { pipeline, emitted, cacheWrites } = makePipeline(db);
 
-    await svc._syncFromCache({ v: 1, players: { steam1: { name: 'Alice' } }, worldState: { day: 7 } });
+    await pipeline.syncFromCache({ v: 1, players: { steam1: { name: 'Alice' } }, worldState: { day: 7 } });
 
-    assert.ok(parsedArg);
-    const parsed = parsedArg as AnyRecord;
+    const parsed = db.syncPayloads[0] as AnyRecord;
     assert.ok(parsed.players instanceof Map);
     assert.deepEqual(parsed.players.get('steam1'), { name: 'Alice' });
     assert.deepEqual(parsed.worldState, { day: 7 });
@@ -211,48 +241,48 @@ describe('SaveService _syncFromCache', () => {
     assert.deepEqual(parsed.lootActors, []);
     assert.deepEqual(parsed.quests, []);
     assert.deepEqual(parsed.horses, []);
-    assert.deepEqual(clansArg, []);
+    assert.deepEqual(parsed.clans, []);
+    assert.equal(cacheWrites.length, 1);
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0]?.playerCount, 1);
   });
 
   it('fetches clan data only when a clan save path is configured', async () => {
-    const svc = makeService(undefined, { clanSavePath: '/Save_ClanData.sav' });
+    const db = makeDb();
     const clans = [{ name: 'WolfPack' }];
-    let clansArg: unknown[] | null = null;
     let fetchCalled = false;
-    svc._fetchClanData = async () => {
-      fetchCalled = true;
-      return clans;
-    };
-    svc._syncParsedData = (_parsed: AnyRecord, nextClans: unknown[]) => {
-      clansArg = nextClans;
-      return { ok: true };
-    };
+    const { pipeline } = makePipeline(db, {
+      shouldFetchClanData: () => true,
+      fetchClanData: async () => {
+        fetchCalled = true;
+        return clans;
+      },
+    });
 
-    await svc._syncFromCache(makeCache());
+    await pipeline.syncFromCache(makeCache());
 
     assert.equal(fetchCalled, true);
-    assert.deepEqual(clansArg, clans);
+    assert.deepEqual(db.syncPayloads[0].clans, clans);
   });
 
   it('does not fetch clan data when no clan save path is configured', async () => {
-    const svc = makeService();
+    const db = makeDb();
     let fetchCalled = false;
-    let clansArg: unknown[] | null = null;
-    svc._fetchClanData = async () => {
-      fetchCalled = true;
-      return [{ name: 'ShouldNotLoad' }];
-    };
-    svc._syncParsedData = (_parsed: AnyRecord, nextClans: unknown[]) => {
-      clansArg = nextClans;
-      return { ok: true };
-    };
+    const { pipeline } = makePipeline(db, {
+      fetchClanData: async () => {
+        fetchCalled = true;
+        return [{ name: 'ShouldNotLoad' }];
+      },
+    });
 
-    await svc._syncFromCache(makeCache());
+    await pipeline.syncFromCache(makeCache());
 
     assert.equal(fetchCalled, false);
-    assert.deepEqual(clansArg, []);
+    assert.deepEqual(db.syncPayloads[0].clans, []);
   });
+});
 
+describe('SaveService _syncFromCache', () => {
   it('emits sync result through the normal parsed-data path', async () => {
     const db = makeDb();
     const svc = makeService(db);
@@ -376,6 +406,27 @@ describe('SaveService _syncParsedData', () => {
     assert.deepEqual(result.steamIds, ['steam1', 'steam2']);
     assert.equal(result.mode, 'agent');
     assert.deepEqual(result.worldState, { day: 42 });
+    assert.deepEqual(
+      [
+        'playerCount',
+        'structureCount',
+        'vehicleCount',
+        'companionCount',
+        'clanCount',
+        'horseCount',
+        'containerCount',
+        'activityEvents',
+        'itemTracking',
+        'worldState',
+        'elapsed',
+        'steamIds',
+        'mode',
+        'diffEvents',
+        'syncTime',
+        'parsed',
+      ].filter((key) => !(key in result)),
+      [],
+    );
     assert.equal(
       db.metaWrites.some((entry: AnyRecord) => entry.key === 'last_save_sync'),
       true,
@@ -416,6 +467,52 @@ describe('SaveService _syncParsedData', () => {
     assert.equal(db.syncPayloads.length, 1);
     assert.equal(result.itemTracking, null);
     assert.equal(db.metaWrites.find((entry: AnyRecord) => entry.key === 'last_save_players')?.value, '0');
+  });
+
+  it('does not build diff events on the first sync', () => {
+    const db = makeDb();
+    const svc = makeService(db);
+    svc._syncCount = 0;
+    svc._readOldStateForDiff = () => ({
+      containers: [{ actorName: 'crate', items: [] }],
+      horses: [],
+      players: [],
+      worldState: {},
+      vehicles: [],
+      structures: [],
+    });
+    const parsed = makeParsedSave({
+      containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 1 }] }],
+    });
+
+    const result = svc._syncParsedData(parsed, []);
+
+    assert.equal(result.activityEvents, 0);
+    assert.deepEqual(result.diffEvents, []);
+    assert.deepEqual(db.insertedActivities, []);
+  });
+
+  it('builds diff events after the first sync when old and new state differ', () => {
+    const db = makeDb();
+    const svc = makeService(db);
+    svc._syncCount = 1;
+    svc._readOldStateForDiff = () => ({
+      containers: [{ actorName: 'crate', items: [] }],
+      horses: [],
+      players: [],
+      worldState: {},
+      vehicles: [],
+      structures: [],
+    });
+    const parsed = makeParsedSave({
+      containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 1 }] }],
+    });
+
+    const result = svc._syncParsedData(parsed, []);
+
+    assert.ok(result.activityEvents > 0);
+    assert.ok(result.diffEvents.length > 0);
+    assert.equal(db.insertedActivities.length, 1);
   });
 
   it('continues when guarded activity log insert and purge fail', () => {

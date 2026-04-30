@@ -15,13 +15,18 @@ import { parseSave, parseClanData } from './save-parser.js';
 import { createLogger, type Logger } from '../utils/log.js';
 import { logRejection } from '../utils/log-rejection.js';
 
-import { diffSaveState } from '../db/diff-engine.js';
-import { reconcileItems } from '../db/item-tracker.js';
 import { errMsg } from '../utils/error.js';
 import _rconDefault from '../rcon/rcon.js';
 import _panelApiDefault from '../server/panel-api.js';
 import { importSftpClient, importSsh2Client, importBuildAgentScript } from '../utils/dynamic-imports.js';
 import type { HumanitZDB } from '../db/database.js';
+import {
+  SaveSyncPipeline,
+  type SaveCacheData,
+  type SaveParsedDataInput,
+  type SaveSyncResult,
+} from './save-sync-pipeline.js';
+import type { SaveReadResult } from './save-reader-types.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
 function shQuote(v: unknown): string {
@@ -135,6 +140,7 @@ class SaveService extends EventEmitter {
   private _cachePath: string;
   private _runScriptPath: string;
   private _checkNodeScriptPath: string;
+  private _syncPipeline: SaveSyncPipeline;
 
   constructor(db: HumanitZDB, options: SaveServiceOptions = {}) {
     super();
@@ -182,6 +188,22 @@ class SaveService extends EventEmitter {
     this._cachePath = '';
     this._runScriptPath = '';
     this._checkNodeScriptPath = '';
+    this._syncPipeline = new SaveSyncPipeline({
+      db: this._db,
+      log: this._log,
+      getIdMap: () => this._idMap,
+      getMode: () => this._mode ?? this._agentMode,
+      getSyncCount: () => this._syncCount,
+      readOldStateForDiff: () => this._readOldStateForDiff(),
+      writeSaveCache: (parsed) => {
+        this._writeSaveCache(parsed);
+      },
+      emitSync: (result) => {
+        this.emit('sync', result);
+      },
+      shouldFetchClanData: () => !!this._clanSavePath,
+      fetchClanData: () => this._fetchClanData(),
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -501,7 +523,7 @@ class SaveService extends EventEmitter {
 
     if (!buf) return;
 
-    const parsed = parseSave(buf) as unknown as Record<string, unknown>; // SAFETY: parseSave returns untyped game data structure
+    const parsed = parseSave(buf) as unknown as SaveParsedDataInput; // SAFETY: parseSave returns untyped game data structure
     let clans: unknown[] = [];
     if (clanBuf) {
       try {
@@ -660,7 +682,7 @@ class SaveService extends EventEmitter {
     return fs.readFileSync(resolvedPath);
   }
 
-  async _readSftp(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
+  async _readSftp(force: boolean): Promise<SaveReadResult> {
     let SFTPClient: Awaited<ReturnType<typeof importSftpClient>>;
     try {
       SFTPClient = await importSftpClient();
@@ -705,7 +727,7 @@ class SaveService extends EventEmitter {
     return !!this._panelApi.available;
   }
 
-  async _readPanelApi(force: boolean): Promise<{ saveBuf: Buffer | null; clanBuf: Buffer | null }> {
+  async _readPanelApi(force: boolean): Promise<SaveReadResult> {
     const api = this._panelApi;
     if (!api?.available) throw new Error('Panel API not available');
 
@@ -892,225 +914,11 @@ class SaveService extends EventEmitter {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async _syncFromCache(cache: Record<string, unknown>): Promise<void> {
-    const players = new Map<string, unknown>();
-    for (const [steamId, data] of Object.entries((cache['players'] as Record<string, unknown> | undefined) ?? {})) {
-      players.set(steamId, data);
-    }
-    const parsed = {
-      players,
-      worldState: (cache['worldState'] as Record<string, unknown> | undefined) ?? {},
-      structures: (cache['structures'] as unknown[] | undefined) ?? [],
-      vehicles: (cache['vehicles'] as unknown[] | undefined) ?? [],
-      companions: (cache['companions'] as unknown[] | undefined) ?? [],
-      deadBodies: (cache['deadBodies'] as unknown[] | undefined) ?? [],
-      containers: (cache['containers'] as unknown[] | undefined) ?? [],
-      lootActors: (cache['lootActors'] as unknown[] | undefined) ?? [],
-      quests: (cache['quests'] as unknown[] | undefined) ?? [],
-      horses: (cache['horses'] as unknown[] | undefined) ?? [],
-    };
-    let clans: unknown[] = [];
-    if (this._clanSavePath) clans = await this._fetchClanData();
-    this._syncParsedData(parsed, clans);
+    await this._syncPipeline.syncFromCache(cache as SaveCacheData);
   }
 
-  _syncParsedData(parsed: Record<string, unknown>, clans: unknown[]): Record<string, unknown> {
-    const startTime = Date.now();
-    const players = parsed['players'] as Map<string, Record<string, unknown>>;
-
-    for (const [steamId, data] of players) {
-      if (this._idMap[steamId]) data['name'] = this._idMap[steamId];
-    }
-
-    let diffEvents: unknown[] = [];
-    const isFirstSync = this._syncCount === 0;
-    try {
-      const oldState = this._readOldStateForDiff();
-      if (oldState && !isFirstSync) {
-        const newState = {
-          containers: (parsed['containers'] as unknown[] | undefined) ?? [],
-          horses: (parsed['horses'] as unknown[] | undefined) ?? [],
-          players,
-          worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
-          vehicles: (parsed['vehicles'] as unknown[] | undefined) ?? [],
-          structures: (parsed['structures'] as unknown[] | undefined) ?? [],
-        };
-        const nameResolver = (steamId: string): string => {
-          const p = players.get(steamId);
-          return (p?.['name'] as string) || this._idMap[steamId] || steamId;
-        };
-        diffEvents = diffSaveState(oldState, newState, nameResolver);
-      }
-    } catch (err: unknown) {
-      this._log.warn('Diff engine error (non-fatal):', errMsg(err));
-    }
-
-    const worldDrops: unknown[] = [];
-    try {
-      const ws = (parsed['worldState'] as Record<string, unknown> | undefined) ?? {};
-      if (ws['lodPickups']) {
-        for (const p of ws['lodPickups'] as Array<Record<string, unknown>>) {
-          worldDrops.push({
-            type: 'pickup',
-            actorName: '',
-            item: p['item'],
-            amount: p['amount'] ?? 1,
-            durability: p['durability'] ?? 0,
-            items: [],
-            worldLoot: p['worldLoot'],
-            placed: p['placed'],
-            spawned: p['spawned'],
-            x: p['x'],
-            y: p['y'],
-            z: p['z'],
-          });
-        }
-      }
-      if (ws['droppedBackpacks']) {
-        for (let i = 0; i < (ws['droppedBackpacks'] as unknown[]).length; i++) {
-          const bp = (ws['droppedBackpacks'] as Array<Record<string, unknown>>)[i];
-          if (!bp) continue;
-          worldDrops.push({
-            type: 'backpack',
-            actorName: `backpack_${String(i)}`,
-            item: '',
-            amount: 0,
-            durability: 0,
-            items: bp['items'] ?? [],
-            x: bp['x'],
-            y: bp['y'],
-            z: bp['z'],
-          });
-        }
-      }
-      if (ws['globalContainers']) {
-        for (const gc of ws['globalContainers'] as Array<Record<string, unknown>>) {
-          worldDrops.push({
-            type: 'global_container',
-            actorName: gc['actorName'] ?? '',
-            item: '',
-            amount: 0,
-            durability: 0,
-            items: gc['items'] ?? [],
-            locked: gc['locked'],
-            doesSpawnLoot: gc['doesSpawnLoot'],
-            x: gc['x'] ?? null,
-            y: gc['y'] ?? null,
-            z: gc['z'] ?? null,
-          });
-        }
-      }
-    } catch (err: unknown) {
-      this._log.warn('World drops build error (non-fatal):', errMsg(err));
-    }
-
-    this._db.syncAllFromSave({
-      players,
-      worldState: parsed['worldState'],
-      structures: parsed['structures'],
-      vehicles: parsed['vehicles'],
-      companions: parsed['companions'],
-      clans,
-      deadBodies: parsed['deadBodies'],
-      containers: parsed['containers'],
-      lootActors: parsed['lootActors'],
-      quests: parsed['quests'],
-      horses: parsed['horses'],
-      worldDrops: worldDrops.length > 0 ? worldDrops : null,
-    });
-
-    let itemStats: Record<string, unknown> | null = null;
-    try {
-      const nameResolver = (steamId: string): string => {
-        const p = players.get(steamId);
-        return (p?.['name'] as string) || this._idMap[steamId] || steamId;
-      };
-      itemStats = reconcileItems(
-        // SAFETY: HumanitZDBLike requires index signature not present on class
-        this._db as unknown as Parameters<typeof reconcileItems>[0],
-        {
-          players,
-          containers: (parsed['containers'] as Record<string, unknown>[] | undefined) ?? [],
-          vehicles: (parsed['vehicles'] as Record<string, unknown>[] | undefined) ?? [],
-          horses: (parsed['horses'] as Record<string, unknown>[] | undefined) ?? [],
-          structures: (parsed['structures'] as Record<string, unknown>[] | undefined) ?? [],
-          worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
-        },
-        nameResolver,
-      ) as unknown as Record<string, unknown>; // SAFETY: reconcileItems returns untyped diff data
-      if (this._syncCount % 100 === 0) {
-        this._db.item.purgeOldLostItems('-7 days');
-        this._db.item.purgeOldLostGroups('-7 days');
-        this._db.item.purgeOldMovements('-30 days');
-      }
-    } catch (err: unknown) {
-      this._log.warn('Item tracker error (non-fatal):', errMsg(err));
-    }
-
-    if (diffEvents.length > 0) {
-      try {
-        this._db.activityLog.insertActivities(diffEvents as Array<Record<string, unknown>>);
-        this._log.info(`Activity log: ${String(diffEvents.length)} events recorded`);
-      } catch (err: unknown) {
-        this._log.warn('Failed to write activity log:', errMsg(err));
-      }
-    }
-
-    try {
-      this._db.activityLog.purgeOldActivity('-30 days');
-    } catch {
-      /* ignore */
-    }
-
-    this._db.meta.setMeta('last_save_sync', new Date().toISOString());
-    this._db.meta.setMeta('last_save_players', String(players.size));
-
-    const elapsed = Date.now() - startTime;
-    const mode = this._mode ?? this._agentMode;
-    const horsesArr = (parsed['horses'] as unknown[] | undefined) ?? [];
-    const containersArr = (parsed['containers'] as unknown[] | undefined) ?? [];
-    const horsesLabel = horsesArr.length ? `, ${String(horsesArr.length)} horses` : '';
-    const containersLabel = containersArr.length ? `, ${String(containersArr.length)} containers` : '';
-    const activityLabel = diffEvents.length ? `, ${String(diffEvents.length)} activity events` : '';
-    const itemLabel = itemStats
-      ? `, items: ${String(itemStats['matched'])}m/${String(itemStats['created'])}c/${String(itemStats['moved'])}v/${String(itemStats['lost'])}l` +
-        (itemStats['groups']
-          ? ` grp: ${String((itemStats['groups'] as Record<string, unknown>)['matched'])}m/${String((itemStats['groups'] as Record<string, unknown>)['created'])}c/${String((itemStats['groups'] as Record<string, unknown>)['adjusted'])}a/${String((itemStats['groups'] as Record<string, unknown>)['transferred'])}t/${String((itemStats['groups'] as Record<string, unknown>)['lost'])}l`
-          : '')
-      : '';
-    this._log.info(
-      `Sync complete (${mode}): ${String(players.size)} players, ${String((parsed['structures'] as unknown[]).length)} structures, ${String((parsed['vehicles'] as unknown[]).length)} vehicles, ${String(clans.length)} clans${horsesLabel}${containersLabel}${activityLabel}${itemLabel} (${String(elapsed)}ms)`,
-    );
-
-    this._writeSaveCache(parsed);
-
-    const result = {
-      playerCount: players.size,
-      structureCount: (parsed['structures'] as unknown[]).length,
-      vehicleCount: (parsed['vehicles'] as unknown[]).length,
-      companionCount: (parsed['companions'] as unknown[]).length,
-      clanCount: clans.length,
-      horseCount: horsesArr.length,
-      containerCount: containersArr.length,
-      activityEvents: diffEvents.length,
-      itemTracking: itemStats,
-      worldState: parsed['worldState'],
-      elapsed,
-      steamIds: [...players.keys()],
-      mode,
-      diffEvents,
-      syncTime: new Date(),
-      parsed: {
-        players,
-        structures: parsed['structures'],
-        vehicles: parsed['vehicles'],
-        companions: parsed['companions'],
-        horses: horsesArr,
-        containers: containersArr,
-      },
-    };
-
-    this.emit('sync', result);
-    return result;
+  _syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): SaveSyncResult {
+    return this._syncPipeline.syncParsedData(parsed, clans);
   }
 
   _readOldStateForDiff(): Record<string, unknown> | null {
