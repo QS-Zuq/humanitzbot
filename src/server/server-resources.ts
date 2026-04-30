@@ -7,11 +7,14 @@
  */
 
 import _defaultConfig from '../config/index.js';
+import { errMsg } from '../utils/error.js';
 import panelApi from './panel-api.js';
 
 // SSH/Panel API responses typed via interfaces; ssh2 Client typed locally
 
 // ── Result shape ────────────────────────────────────────────
+
+type ResourceBackend = 'pterodactyl' | 'ssh';
 
 interface ResourceResult {
   cpu: number | null;
@@ -22,7 +25,17 @@ interface ResourceResult {
   diskTotal: number | null;
   diskPercent: number | null;
   uptime: number | null;
-  source: 'pterodactyl' | 'ssh' | null;
+  source: ResourceBackend | null;
+  stale?: true;
+  cacheAgeMs?: number;
+  cachedAt?: string;
+}
+
+interface ServerResourcesDeps {
+  backend?: ResourceBackend | null;
+  ttl?: number;
+  now?: () => number;
+  fetchResource?: (backend: ResourceBackend) => Promise<ResourceResult>;
 }
 
 function _emptyResult(): ResourceResult {
@@ -222,16 +235,24 @@ class ServerResources {
   private _cache: ResourceResult | null;
   private _cacheTime: number;
   private _ttl: number;
-  private _backend: 'pterodactyl' | 'ssh' | null;
+  private _backend: ResourceBackend | null;
+  private _now: () => number;
+  private _fetchResource: (backend: ResourceBackend) => Promise<ResourceResult>;
+  private _inFlight: Promise<ResourceResult | null> | null;
 
-  constructor() {
+  constructor(deps: ServerResourcesDeps = {}) {
     this._cache = null;
     this._cacheTime = 0;
-    this._ttl = parseInt(String(_defaultConfig.resourceCacheTtl), 10) || 30000;
-    this._backend = this._detectBackend();
+    this._ttl = (deps.ttl ?? parseInt(String(_defaultConfig.resourceCacheTtl), 10)) || 30000;
+    this._backend = deps.backend !== undefined ? deps.backend : this._detectBackend();
+    this._now = deps.now ?? Date.now;
+    this._fetchResource =
+      deps.fetchResource ??
+      ((backend: 'pterodactyl' | 'ssh') => (backend === 'pterodactyl' ? _fetchPterodactyl() : _fetchSsh()));
+    this._inFlight = null;
   }
 
-  private _detectBackend(): 'pterodactyl' | 'ssh' | null {
+  private _detectBackend(): ResourceBackend | null {
     if (panelApi.available) return 'pterodactyl';
     if (_defaultConfig.enableSshResources && _defaultConfig.sftpHost && _defaultConfig.sftpUser) return 'ssh';
     return null;
@@ -243,16 +264,33 @@ class ServerResources {
 
   async getResources(): Promise<ResourceResult | null> {
     if (!this._backend) return null;
-    const now = Date.now();
+    const now = this._now();
     if (this._cache && now - this._cacheTime < this._ttl) return this._cache;
+    if (this._inFlight) return this._inFlight;
+
+    this._inFlight = this._refreshResources(now);
     try {
-      this._cache = this._backend === 'pterodactyl' ? await _fetchPterodactyl() : await _fetchSsh();
+      return await this._inFlight;
+    } finally {
+      this._inFlight = null;
+    }
+  }
+
+  private async _refreshResources(now: number): Promise<ResourceResult | null> {
+    if (!this._backend) return null;
+    try {
+      this._cache = await this._fetchResource(this._backend);
       this._cacheTime = now;
       return this._cache;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[RESOURCES] ${this._backend} fetch failed:`, msg);
-      return this._cache || null;
+      console.error(`[RESOURCES] ${this._backend} fetch failed:`, errMsg(err));
+      if (!this._cache) return null;
+      return {
+        ...this._cache,
+        stale: true,
+        cacheAgeMs: now - this._cacheTime,
+        cachedAt: new Date(this._cacheTime).toISOString(),
+      };
     }
   }
 }
@@ -261,3 +299,4 @@ const instance = new ServerResources();
 
 export default instance;
 export { ServerResources, parseSshOutput, formatBytes, formatUptime, _fetchPterodactyl, _emptyResult };
+export type { ResourceResult };

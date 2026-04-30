@@ -8,7 +8,8 @@ import { createRequire } from 'node:module';
 const cjsRequire = createRequire(__filename);
 
 import * as _player_stats_channel from '../src/modules/player-stats-channel.js';
-const { _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } = _player_stats_channel as any;
+const { PlayerStatsChannel, _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } =
+  _player_stats_channel as any;
 
 // Clean up singleton references after tests.
 // Requiring player-stats-channel pulls in both player-stats and playtime-tracker
@@ -257,6 +258,76 @@ describe('_resolveUdsWeather', () => {
   it('returns null for null/empty input', () => {
     assert.equal(_resolveUdsWeather(null), null);
     assert.equal(_resolveUdsWeather(''), null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// server_settings DB cache fallback
+// ══════════════════════════════════════════════════════════
+
+describe('server_settings cache fallback', () => {
+  function makeChannel(db: unknown, panelApi?: unknown) {
+    const channel = new PlayerStatsChannel({} as any, null, {
+      config: { sftpSettingsPath: '/GameServerSettings.ini' },
+      db,
+      panelApi: panelApi ?? null,
+      playtime: { getPlaytime: () => null },
+      playerStats: { getStats: () => null, getAllPlayers: () => [], getNameForId: () => null },
+    });
+    const warnings: unknown[][] = [];
+    channel._log = {
+      label: 'TEST',
+      info() {},
+      error() {},
+      warn(...args: unknown[]) {
+        warnings.push(args);
+      },
+    };
+    return { channel, warnings };
+  }
+
+  it('warns but keeps parsed settings when DB cache write fails', async () => {
+    const db = {
+      botState: {
+        setStateJSON() {
+          throw new Error('write unavailable');
+        },
+      },
+    };
+    const panelApi = {
+      available: true,
+      async downloadFile() {
+        return Buffer.from('ServerName=Test Server\nMaxPlayers=8\n', 'utf8');
+      },
+    };
+    const { channel, warnings } = makeChannel(db, panelApi);
+
+    await channel._fetchServerSettings(null);
+
+    assert.equal(channel.getServerSettings().ServerName, 'Test Server');
+    assert.equal(channel.getServerSettings().MaxPlayers, '8');
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0]?.[0]), /server_settings cache write failed/i);
+    assert.match(String(warnings[0]?.[1]), /write unavailable/i);
+  });
+
+  it('warns and preserves current settings when DB cache read fails', () => {
+    const db = {
+      botState: {
+        getStateJSON() {
+          throw new Error('read unavailable');
+        },
+      },
+    };
+    const { channel, warnings } = makeChannel(db);
+    channel._serverSettings = { ServerName: 'Existing' };
+
+    assert.doesNotThrow(() => channel._loadCachedServerSettings());
+
+    assert.deepEqual(channel.getServerSettings(), { ServerName: 'Existing' });
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0]?.[0]), /server_settings cache read failed/i);
+    assert.match(String(warnings[0]?.[1]), /read unavailable/i);
   });
 });
 

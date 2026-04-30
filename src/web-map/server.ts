@@ -5416,6 +5416,8 @@ class WebMapServer {
               resources.diskUsed != null && resources.diskTotal != null
                 ? `${formatBytes(resources.diskUsed)} / ${formatBytes(resources.diskTotal)}`
                 : null,
+            stale: resources.stale === true,
+            cacheAgeMs: typeof resources.cacheAgeMs === 'number' ? resources.cacheAgeMs : null,
           };
           if (resources.uptime != null) result.uptime = formatUptime(resources.uptime);
         }
