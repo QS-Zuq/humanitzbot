@@ -4,6 +4,7 @@ import SftpClient from 'ssh2-sftp-client';
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
 import _defaultConfig from '../config/index.js';
 import { cleanOwnMessages, embedContentKey } from './discord-utils.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
@@ -630,7 +631,9 @@ class PlayerStatsChannel {
       // Cache to DB
       try {
         if (this._db) this._db.botState.setStateJSON('server_settings', this._serverSettings);
-      } catch (_: unknown) {}
+      } catch (err: unknown) {
+        this._log.warn('server_settings cache write failed:', errMsg(err));
+      }
       this._log.info(`Parsed server settings: ${Object.keys(this._serverSettings).length} keys`);
     } catch (err: unknown) {
       this._loadCachedServerSettings();
@@ -681,7 +684,9 @@ class PlayerStatsChannel {
         const cached = this._db.botState.getStateJSON('server_settings', null);
         if (cached && typeof cached === 'object') this._serverSettings = cached as Record<string, unknown>;
       }
-    } catch (_: unknown) {}
+    } catch (err: unknown) {
+      this._log.warn('server_settings cache read failed:', errMsg(err));
+    }
   }
 
   /**
@@ -743,7 +748,9 @@ class PlayerStatsChannel {
     } catch (err: unknown) {
       this._log.error('Legacy save poll error:', (err as Error).message);
     } finally {
-      await sftp.end().catch(() => {});
+      await sftp.end().catch(() => {
+        // expected: SFTP close may fail after a connection/download error.
+      });
     }
   }
 
@@ -769,21 +776,27 @@ class PlayerStatsChannel {
         const buf = (await sftp.get(remotePath)) as Buffer;
         try {
           fs.unlinkSync(tmpFile);
-        } catch (_: unknown) {}
+        } catch (_: unknown) {
+          // expected: temp file may already be absent after failed fastGet cleanup.
+        }
         return buf;
       }
 
       const buf = fs.readFileSync(tmpFile);
       try {
         fs.unlinkSync(tmpFile);
-      } catch (_: unknown) {}
+      } catch (_: unknown) {
+        // expected: temp file cleanup is best-effort after a successful read.
+      }
       return buf;
     } catch (err: unknown) {
       // fastGet can fail on some SFTP servers — fall back to buffered get
       this._log.warn(`fastGet failed (${(err as Error).message}), using buffered get`);
       try {
         fs.unlinkSync(tmpFile);
-      } catch (_: unknown) {}
+      } catch (_: unknown) {
+        // expected: temp file may not exist when fastGet fails before writing.
+      }
       return sftp.get(remotePath) as Promise<Buffer>;
     }
   }
@@ -948,7 +961,9 @@ class PlayerStatsChannel {
         const val = this._db.botState.getState('msg_id_player_stats');
         return val != null && typeof val === 'string' ? val : null;
       }
-    } catch {}
+    } catch {
+      // expected: missing/corrupt message-id cache should fall back to creating a fresh status message.
+    }
     return null;
   }
 
@@ -956,7 +971,9 @@ class PlayerStatsChannel {
     if (!this.statusMessage) return;
     try {
       if (this._db) this._db.botState.setState('msg_id_player_stats', this.statusMessage.id);
-    } catch {}
+    } catch {
+      // expected: message-id persistence is best-effort and should not block Discord updates.
+    }
   }
 
   /**

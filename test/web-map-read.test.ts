@@ -1,10 +1,11 @@
 'use strict';
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
+import serverResources from '../src/server/server-resources.js';
 
 import * as _route_helpers from './helpers/route-helpers.js';
 const { extractHandler } = _route_helpers as any;
@@ -182,12 +183,17 @@ const client = { channels: { cache: new Map() } };
 const server = new WebMapServer(client, {});
 const app = server._app;
 const GET = (routePath: string) => extractHandler(app, 'get', routePath);
+const originalGetResources = serverResources.getResources.bind(serverResources);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Tests
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('Web Map Read Endpoints', () => {
+  afterEach(() => {
+    serverResources.getResources = originalGetResources;
+  });
+
   beforeEach(() => {
     server._responseCache.clear();
     server._playerCache = new Map();
@@ -349,6 +355,44 @@ describe('Web Map Read Endpoints', () => {
 
       assert.equal((res.body as Record<string, unknown>).serverState, 'unknown');
       assert.equal((res.body as Record<string, unknown>).onlineCount, 0);
+    });
+
+    it('includes stale resource metadata when building status on cache miss', async () => {
+      serverResources.getResources = async () => ({
+        cpu: 55,
+        memUsed: 1024,
+        memTotal: 2048,
+        memPercent: 50,
+        diskUsed: null,
+        diskTotal: null,
+        diskPercent: null,
+        uptime: 120,
+        source: 'pterodactyl',
+        stale: true,
+        cacheAgeMs: 45_000,
+      });
+
+      const handler = GET('/api/panel/status');
+      const res = mockRes();
+      await handler(
+        {
+          srv: makeSrv({
+            getServerInfo: async () => ({ fps: 60, day: 3, maxPlayers: 8 }),
+            getPlayerList: async () => ({ players: [] }),
+          }),
+          query: {},
+        },
+        res,
+      );
+
+      const body = res.body as Record<string, unknown>;
+      const resources = body.resources as Record<string, unknown>;
+      assert.equal(resources.cpu, 55);
+      assert.equal(resources.memPercent, 50);
+      assert.equal(resources.memFormatted, '1.0 KB / 2.0 KB');
+      assert.equal(resources.stale, true);
+      assert.equal(resources.cacheAgeMs, 45_000);
+      assert.equal(body.uptime, '2m');
     });
   });
 
