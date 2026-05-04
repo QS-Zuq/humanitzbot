@@ -61,7 +61,7 @@ interface ServerContext {
   getServerInfo: typeof _getServerInfo;
   sendAdminMessage: typeof _sendAdminMessage;
   panelApi: PanelApi | null;
-  scheduler: ServerScheduler | Record<string, unknown> | null;
+  scheduler: ServerScheduler | null;
   dataDir: string;
   idMap: Record<string, string>;
   isPrimary: boolean;
@@ -710,10 +710,7 @@ class WebMapServer {
       getServerInfo: instance.getServerInfo,
       sendAdminMessage: instance.sendAdminMessage,
       panelApi: instance.panelApi || null,
-      scheduler: ((instance._modules as Record<string, unknown> | undefined)?.serverScheduler ?? null) as Record<
-        string,
-        unknown
-      > | null,
+      scheduler: instance.getServerScheduler(),
       dataDir: instance.dataDir,
       idMap: this._loadIdMapFrom(instance.dataDir, instance.db),
       isPrimary: false,
@@ -1636,9 +1633,7 @@ class WebMapServer {
       const caps: Record<string, unknown> = {
         db: !!srv.db,
         rcon: !!srv.rcon,
-        scheduler: !!(
-          srv.scheduler && (srv.scheduler as Record<string, unknown> & { isActive?: () => boolean }).isActive?.()
-        ),
+        scheduler: !!srv.scheduler?.isActive(),
         saveService: srv.isPrimary ? !!this._saveService : !!srv.db,
         resources: srv.isPrimary && !!serverResources,
         hasPlugin: this._plugins.some((p: Record<string, unknown>) => {
@@ -2926,7 +2921,7 @@ class WebMapServer {
     app.get('/api/panel/scheduler', requireTier('survivor'), (req, res) => {
       // This will be populated by the bot when it passes the scheduler instance
       if (req.srv.scheduler) {
-        res.json((req.srv.scheduler as Record<string, unknown> & { getStatus(): unknown }).getStatus());
+        res.json(req.srv.scheduler.getStatus());
       } else {
         res.json({ active: false });
       }
@@ -4164,21 +4159,9 @@ class WebMapServer {
           if (inst?.rcon && inst.rcon.connected) mods.push('rcon');
           if (inst?.db) mods.push('db');
           if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
-          if (
-            (() => {
-              try {
-                const sc = (
-                  inst as unknown as Record<string, Record<string, Record<string, (() => boolean) | undefined>>>
-                )._modules?.serverScheduler; // SAFETY: inst._modules.serverScheduler not on public type
-                return sc?.isActive?.();
-              } catch {
-                return false;
-              }
-            })()
-          )
-            mods.push('schedule');
-          if (inst?._modules && inst._modules.logWatcher) mods.push('logs');
-          if (inst?._modules && inst._modules.chatRelay) mods.push('chat');
+          if (inst?.isModuleActive('serverScheduler')) mods.push('schedule');
+          if (inst?.hasModule('logWatcher')) mods.push('logs');
+          if (inst?.hasModule('chatRelay')) mods.push('chat');
           info.modules = mods;
           servers.push(info);
         }
@@ -5188,9 +5171,9 @@ class WebMapServer {
           /* non-critical */
         }
       }
-      if (srv?.scheduler && (srv.scheduler.isActive as (() => boolean) | undefined)?.() === true) {
+      if (srv?.scheduler?.isActive()) {
         try {
-          serverInfo.schedule = (srv.scheduler.getStatus as () => Record<string, unknown>)();
+          serverInfo.schedule = srv.scheduler.getStatus();
         } catch {
           /* scheduler unavailable */
         }
@@ -5223,13 +5206,10 @@ class WebMapServer {
         if (srv.db) mods.push('db');
         const inst = this._multiServerManager?.getInstance(s.id as string);
         if (inst?.saveService || inst?.hasSftp) mods.push('sftp');
-        if (srv.scheduler && srv.scheduler.isActive && (srv.scheduler.isActive as () => boolean)())
-          mods.push('schedule');
-        if (inst?._modules.logWatcher) mods.push('logs');
-        if (inst?._modules.chatRelay) mods.push('chat');
-        const instRec = inst as unknown as Record<string, Record<string, Record<string, unknown>>> | undefined; // SAFETY: inst anticheat module not on public type
-        if (instRec?._modules && (instRec._modules.anticheat as Record<string, unknown> | undefined)?.available)
-          mods.push('anticheat');
+        if (inst?.isModuleActive('serverScheduler') || srv.scheduler?.isActive()) mods.push('schedule');
+        if (inst?.hasModule('logWatcher')) mods.push('logs');
+        if (inst?.hasModule('chatRelay')) mods.push('chat');
+        if (inst?.hasAvailableModule('anticheat')) mods.push('anticheat');
         if (
           this._plugins.some(
             (p: Record<string, unknown>) =>

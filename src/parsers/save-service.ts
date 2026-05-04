@@ -18,6 +18,7 @@ import { logRejection } from '../utils/log-rejection.js';
 import { errMsg } from '../utils/error.js';
 import _rconDefault from '../rcon/rcon.js';
 import _panelApiDefault from '../server/panel-api.js';
+import type { PanelFileApi } from '../server/panel-api.js';
 import { importSftpClient, importSsh2Client, importBuildAgentScript } from '../utils/dynamic-imports.js';
 import type { HumanitZDB } from '../db/database.js';
 import {
@@ -61,14 +62,6 @@ interface SshExecResult {
   stderr: string;
 }
 
-interface PanelApi {
-  available?: boolean;
-  sendCommand: (cmd: string) => Promise<void>;
-  listFiles: (dir: string) => Promise<Array<{ name: string; modified_at?: string }>>;
-  downloadFile: (path: string) => Promise<Buffer>;
-  readFile: (path: string) => Promise<string>;
-}
-
 interface RconModule {
   connected: boolean;
   send: (cmd: string) => Promise<void>;
@@ -91,13 +84,13 @@ interface SaveServiceOptions {
   agentTrigger?: 'auto' | 'rcon' | 'ssh' | 'panel' | 'none';
   agentPanelCommand?: string;
   agentPanelDelay?: number;
-  panelApi?: PanelApi;
+  panelApi?: PanelFileApi;
   dataDir?: string;
 }
 
 // Module-scope references to singletons (always available as internal modules)
 const _rconModule: RconModule | null = _rconDefault as unknown as RconModule; // SAFETY: module default import shape
-const _panelApiModule: PanelApi | null = _panelApiDefault as unknown as PanelApi; // SAFETY: module default import shape
+const _panelApiModule: PanelFileApi | null = _panelApiDefault;
 
 class SaveService extends EventEmitter {
   private _db: HumanitZDB;
@@ -120,7 +113,7 @@ class SaveService extends EventEmitter {
   private _agentTrigger: string;
   private _agentPanelCommand: string;
   private _agentPanelDelay: number;
-  private _panelApi: PanelApi | null;
+  private _panelApi: PanelFileApi | null;
   private _rcon: RconModule | null;
 
   private _timer: ReturnType<typeof setInterval> | null;
@@ -629,7 +622,7 @@ class SaveService extends EventEmitter {
       this._panelCapable = false;
       return false;
     }
-    this._panelCapable = !!this._panelApi.available;
+    this._panelCapable = this._panelApi.available;
     return this._panelCapable;
   }
 
@@ -721,10 +714,10 @@ class SaveService extends EventEmitter {
   }
 
   _hasPanelApi(): boolean {
-    if (this._panelApi) return this._panelApi.available !== false;
+    if (this._panelApi) return this._panelApi.available;
     if (!_panelApiModule) return false;
     this._panelApi = _panelApiModule;
-    return !!this._panelApi.available;
+    return this._panelApi.available;
   }
 
   async _readPanelApi(force: boolean): Promise<SaveReadResult> {

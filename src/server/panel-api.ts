@@ -109,6 +109,22 @@ export interface PanelServerDetails {
   [key: string]: unknown;
 }
 
+export interface PanelFileEntry {
+  [key: string]: unknown;
+  name: string;
+  modified_at?: string;
+}
+
+export interface PanelWebsocketAuth {
+  [key: string]: unknown;
+  token?: string;
+  socket?: string;
+}
+
+export type PanelFileApi = Pick<PanelApi, 'available' | 'sendCommand' | 'listFiles' | 'downloadFile' | 'readFile'>;
+export type PanelWebsocketApi = Pick<PanelApi, 'available' | 'getWebsocketAuth'>;
+export type PanelDownloadApi = Pick<PanelApi, 'available' | 'downloadFile'>;
+
 // ── PanelApi class ──────────────────────────────────────────
 
 class PanelApi {
@@ -128,12 +144,12 @@ class PanelApi {
   declare createBackup: (name?: string) => Promise<ApiRecord>;
   declare deleteBackup: (uuid: string) => Promise<void>;
   declare getBackupDownloadUrl: (uuid: string) => Promise<string | null>;
-  declare listFiles: (dir?: string) => Promise<ApiRecord[]>;
+  declare listFiles: (dir?: string) => Promise<PanelFileEntry[]>;
   declare readFile: (filePath: string) => Promise<string>;
   declare writeFile: (filePath: string, content: string) => Promise<void>;
   declare getFileDownloadUrl: (filePath: string) => Promise<string | null>;
   declare downloadFile: (filePath: string) => Promise<Buffer>;
-  declare getWebsocketAuth: () => Promise<ApiRecord>;
+  declare getWebsocketAuth: () => Promise<PanelWebsocketAuth>;
   declare listSchedules: () => Promise<PanelSchedule[]>;
   declare createSchedule: (params: Record<string, unknown>) => Promise<ApiRecord>;
   declare deleteSchedule: (scheduleId: number) => Promise<void>;
@@ -319,18 +335,19 @@ Object.assign(PanelApi.prototype, {
     return _str(attrs['url']) || null;
   },
 
-  async listFiles(this: PanelApi, dir = '/') {
+  async listFiles(this: PanelApi, dir = '/'): Promise<PanelFileEntry[]> {
     const data = _rec(await this._request(`files/list?directory=${encodeURIComponent(dir)}`));
     const items = (data['data'] as unknown[] | undefined) ?? [];
     return items.map((f: unknown) => {
       const obj = _rec(f);
       const a = _rec(obj['attributes'] ?? f);
+      const modifiedAt = _str(a['modified_at']) || undefined;
       return {
-        name: a['name'],
+        name: _str(a['name']),
         mode: a['mode'],
         size: _num(a['size']),
         is_file: (a['is_file'] as boolean | undefined) ?? true,
-        modified_at: a['modified_at'],
+        modified_at: modifiedAt,
       };
     });
   },
@@ -399,7 +416,7 @@ Object.assign(PanelApi.prototype, {
     return Buffer.from(arrayBuf);
   },
 
-  async getWebsocketAuth(this: PanelApi) {
+  async getWebsocketAuth(this: PanelApi): Promise<PanelWebsocketAuth> {
     const data = _rec(await this._request('websocket'));
     return _rec(data['data']);
   },

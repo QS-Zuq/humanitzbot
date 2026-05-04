@@ -36,11 +36,7 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { createLogger, type Logger } from '../utils/log.js';
 import { ReconnectBackoff, formatReconnectDelay } from './reconnect-backoff.js';
-
-interface PanelApi {
-  available: boolean;
-  getWebsocketAuth(): Promise<{ token?: string; socket?: string }>;
-}
+import type { PanelWebsocketApi } from '../server/panel-api.js';
 
 interface CacheEntry {
   data: string;
@@ -48,7 +44,7 @@ interface CacheEntry {
 }
 
 interface PanelRconOptions {
-  panelApi?: PanelApi;
+  panelApi?: PanelWebsocketApi;
   label?: string;
   cacheTtl?: number;
   WebSocket?: typeof WebSocket;
@@ -61,7 +57,7 @@ interface WsMessage {
 }
 
 class PanelRcon extends EventEmitter {
-  _panelApi: PanelApi | null;
+  _panelApi: PanelWebsocketApi | null;
   _log: Logger;
   _cacheTtl: number | null;
   _WebSocket: typeof WebSocket;
@@ -149,7 +145,7 @@ class PanelRcon extends EventEmitter {
 
     if (!this._panelApi) {
       try {
-        this._panelApi = (await import('../server/panel-api.js')).default as PanelApi;
+        this._panelApi = (await import('../server/panel-api.js')).default;
       } catch {
         throw new Error('Panel API module not available');
       }

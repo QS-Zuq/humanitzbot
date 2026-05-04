@@ -307,6 +307,89 @@ describe('connect line parsing', () => {
   });
 });
 
+describe('LogWatcher event seams', () => {
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
+
+  function createWatcher(): { lw: any; logged: Array<Record<string, unknown>> } {
+    const logged: Array<Record<string, unknown>> = [];
+    const lw = trackLogWatcher(
+      new LogWatcher(
+        { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
+        {
+          config: {
+            getToday: () => '2026-01-01',
+            getDateLabel: () => '01 Jan 2026',
+            parseLogTimestamp: (year: string, month: string, day: string, hour: string, min: string) =>
+              new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(min))),
+            formatTime: (date: Date) => date.toISOString(),
+            logPollInterval: 999999,
+            sftpHost: '',
+          },
+          db: {
+            activityLog: {
+              insertActivitiesAt(entries: Array<Record<string, unknown>>) {
+                logged.push(...entries);
+              },
+              insertActivity(entry: Record<string, unknown>) {
+                logged.push(entry);
+              },
+            },
+          },
+          playerStats: {
+            recordConnect: () => {},
+            recordDisconnect: () => {},
+          },
+          playtime: {
+            playerJoin: () => {},
+            playerLeave: () => {},
+            recordPlayerCount: () => {},
+            recordUniqueToday: () => {},
+          },
+        },
+      ),
+    );
+    lw._sendToThread = async () => null;
+    return { lw, logged };
+  }
+
+  it('wrapLogEvent preserves DB logging before optional listeners', () => {
+    const { lw, logged } = createWatcher();
+    const forwarded: Array<Record<string, unknown>> = [];
+
+    lw.wrapLogEvent((orig: (entry: Record<string, unknown>) => void) => (entry: Record<string, unknown>) => {
+      orig(entry);
+      forwarded.push(entry);
+    });
+
+    const handled = lw._processConnectLine('Player Connected TestPlayer NetID(76561100000000001) (13/2/2026 12:35)');
+    const loggedEvent = logged[0];
+    const forwardedEvent = forwarded[0];
+
+    assert.equal(handled, true);
+    assert.equal(logged.length, 1);
+    assert.ok(loggedEvent);
+    assert.equal(loggedEvent.type, 'player_connect');
+    assert.equal(forwarded.length, 1);
+    assert.ok(forwardedEvent);
+    assert.equal(forwardedEvent.type, 'player_connect');
+    assert.equal(forwardedEvent.steamId, '76561100000000001');
+  });
+
+  it('setIdMapRefreshCallback stores and clears the callback', () => {
+    const { lw } = createWatcher();
+    let captured: Record<string, string> | null = null;
+
+    lw.setIdMapRefreshCallback((idMap: Record<string, string>) => {
+      captured = idMap;
+    });
+    lw._onIdMapRefresh({ '76561100000000001': 'TestPlayer' });
+    assert.deepStrictEqual(captured, { '76561100000000001': 'TestPlayer' });
+
+    lw.setIdMapRefreshCallback(null);
+    assert.equal(lw._onIdMapRefresh, null);
+  });
+});
+
 describe('simplifyBlueprintName', () => {
   it('strips BP_ prefix', () => {
     assert.equal(simplifyBlueprintName('BP_WallWood'), 'WallWood');

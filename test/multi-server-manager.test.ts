@@ -8,7 +8,7 @@ import _config_repository from '../src/db/config-repository.js';
 const ConfigRepository = _config_repository as any;
 
 import * as _multi_server from '../src/server/multi-server.js';
-const { createServerConfig, _extractSaveName, SAVE_FILE_PATTERN } = _multi_server as any;
+const { ServerInstance, createServerConfig, _extractSaveName, SAVE_FILE_PATTERN } = _multi_server as any;
 
 function makeServerDef(overrides: Record<string, any> = {}) {
   return {
@@ -160,6 +160,37 @@ describe('MultiServerManager', () => {
       noRepoManager._configRepo = null;
       const defs = noRepoManager._loadServerDefs();
       assert.ok(Array.isArray(defs));
+    });
+  });
+
+  describe('ServerInstance module accessors', () => {
+    it('exposes module presence and active/available state without direct _modules reads', () => {
+      const scheduler = { isActive: () => true };
+      const logWatcher = {};
+      const chatRelay = {};
+      const playerStatsChannel = {};
+      const anticheat = { available: true };
+      const instance = Object.create(ServerInstance.prototype);
+      instance._modules = {
+        logWatcher,
+        chatRelay,
+        playerStatsChannel,
+        serverScheduler: scheduler,
+        anticheat,
+        inactive: { isActive: () => false },
+      };
+
+      assert.equal(instance.hasModule('logWatcher'), true);
+      assert.equal(instance.hasModule('missingModule'), false);
+      assert.strictEqual(instance.getServerScheduler(), scheduler);
+      assert.strictEqual(instance.getLogWatcher(), logWatcher);
+      assert.strictEqual(instance.getChatRelay(), chatRelay);
+      assert.strictEqual(instance.getPlayerStatsChannel(), playerStatsChannel);
+      assert.equal(instance.isModuleActive('serverScheduler'), true);
+      assert.equal(instance.isModuleActive('inactive'), false);
+      assert.equal(instance.isModuleActive('logWatcher'), false);
+      assert.equal(instance.hasAvailableModule('anticheat'), true);
+      assert.equal(instance.hasAvailableModule('logWatcher'), false);
     });
   });
 
