@@ -738,10 +738,10 @@ client.once(Events.ClientReady, (readyClient) => {
       } else {
         chatRelay = new ChatRelay(readyClient, { db });
         const _chatRelay = chatRelay;
-        if (config.nukeBot) _chatRelay._nukeActive = true;
+        if (config.nukeBot) _chatRelay.setNukeActive(true);
         // If LogWatcher handles activity threads, coordinate day-rollover ordering
         if (logWatcher) {
-          _chatRelay._awaitActivityThread = true;
+          _chatRelay.setAwaitActivityThread(true);
           logWatcher.setDayRolloverCallback(async () => {
             try {
               await _chatRelay.createDailyThread();

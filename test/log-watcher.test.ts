@@ -451,7 +451,7 @@ describe('_nukeActive thread suppression', () => {
   it('LogWatcher _getOrCreateDailyThread falls back to logChannel when _nukeActive', async () => {
     const lw = trackLogWatcher(new LogWatcher(mockClient, { config: fakeConfig }));
     lw.logChannel = mockChannel;
-    lw._nukeActive = true;
+    lw.setNukeActive(true);
 
     const result = await lw._getOrCreateDailyThread();
     assert.strictEqual(result, mockChannel, 'should return logChannel directly');
@@ -461,10 +461,18 @@ describe('_nukeActive thread suppression', () => {
   it('ChatRelay _getOrCreateChatThread falls back to adminChannel when _nukeActive', async () => {
     const cr = new ChatRelay(mockClient, { config: fakeConfig });
     cr.adminChannel = mockChannel;
-    cr._nukeActive = true;
+    cr.setNukeActive(true);
 
     const result = await cr._getOrCreateChatThread();
     assert.strictEqual(result, mockChannel, 'should return adminChannel directly');
+  });
+
+  it('ChatRelay can be configured to wait for activity thread rollover', () => {
+    const cr = new ChatRelay(mockClient, { config: fakeConfig });
+
+    cr.setAwaitActivityThread(true);
+
+    assert.strictEqual(cr._awaitActivityThread, true);
   });
 });
 

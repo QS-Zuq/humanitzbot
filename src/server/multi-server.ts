@@ -761,7 +761,7 @@ class ServerInstance {
     if (this.hasSftp) {
       try {
         const mod = new LogWatcher(this.client, deps as ConstructorParameters<typeof LogWatcher>[1]);
-        if (_defaultConfig.nukeBot) mod._nukeActive = true;
+        if (_defaultConfig.nukeBot) mod.setNukeActive(true);
         await mod.start();
         this._modules.logWatcher = mod;
         this._log.info('LogWatcher active');
@@ -784,18 +784,18 @@ class ServerInstance {
     if (this.config.rconHost) {
       try {
         const mod = new ChatRelay(this.client, deps as ConstructorParameters<typeof ChatRelay>[1]);
-        if (_defaultConfig.nukeBot) mod._nukeActive = true;
+        if (_defaultConfig.nukeBot) mod.setNukeActive(true);
         // Coordinate thread ordering with LogWatcher if both are active
         const logWatcher = this._modules.logWatcher;
         if (logWatcher) {
-          mod._awaitActivityThread = true;
-          logWatcher._dayRolloverCb = async () => {
+          mod.setAwaitActivityThread(true);
+          logWatcher.setDayRolloverCallback(async () => {
             try {
               await mod.createDailyThread();
             } catch (err: unknown) {
               this._log.warn(`[multi-server:chat-relay:create-daily-thread] ${errMsg(err)}`);
             }
-          };
+          });
         }
         await mod.start();
         this._modules.chatRelay = mod;

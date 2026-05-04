@@ -219,6 +219,11 @@ class ChatRelay {
     this._nukeActive = active;
   }
 
+  /** @internal Configure whether rollover waits for LogWatcher activity thread creation. */
+  setAwaitActivityThread(active: boolean): void {
+    this._awaitActivityThread = active;
+  }
+
   /** @internal Re-create the chat thread (used after nuke reset). */
   async getOrCreateChatThread(): Promise<unknown> {
     return this._getOrCreateChatThread();
