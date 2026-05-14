@@ -121,7 +121,7 @@ interface SavedOffsets {
   useRotatedLogs: boolean;
 }
 
-interface LogEventEntry {
+export interface LogEventEntry {
   type: string;
   category?: string;
   actorName?: string;
@@ -134,6 +134,8 @@ interface LogEventEntry {
   targetSteamId?: string;
   timestamp?: Date | string;
 }
+
+type LogEventHandler = (entry: LogEventEntry) => void;
 
 /** Safe regex group accessor — returns '' for undefined groups. */
 function _s(match: RegExpMatchArray, idx: number): string {
@@ -1552,6 +1554,15 @@ class LogWatcher {
       // DB errors should never disrupt event processing
       this._log.warn(`Failed to log event ${entry.type}:`, errMsg(err));
     }
+  }
+
+  wrapLogEvent(wrapper: (handler: LogEventHandler) => LogEventHandler): void {
+    const original = this._logEvent.bind(this);
+    this._logEvent = wrapper(original);
+  }
+
+  setIdMapRefreshCallback(callback: ((idMap: Record<string, string>) => void) | null): void {
+    this._onIdMapRefresh = callback;
   }
 
   // ─── ID MAP ───────────────────────────────────────────────

@@ -24,7 +24,7 @@ import StatusChannels from './modules/status-channels.js';
 import ServerStatus from './modules/server-status.js';
 import PlayerPresenceTracker from './modules/player-presence.js';
 import AutoMessages from './modules/auto-messages.js';
-import LogWatcher from './modules/log-watcher.js';
+import LogWatcher, { type LogEventEntry } from './modules/log-watcher.js';
 import playtime from './tracking/playtime-tracker.js';
 import playerStats from './tracking/player-stats.js';
 import PlayerStatsChannel from './modules/player-stats-channel.js';
@@ -255,7 +255,7 @@ client.on(Events.InteractionCreate, (interaction) => {
       }
 
       const serverId = interaction.customId.split(':')[1] ?? '';
-      const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
+      const psc = serverId ? _findMultiServerPlayerStatsChannelById(serverId) : playerStatsChannel;
       if (!psc) {
         await interaction.editReply({ content: 'Player stats module is currently disabled.' });
         return;
@@ -283,7 +283,7 @@ client.on(Events.InteractionCreate, (interaction) => {
       }
 
       const serverId = interaction.customId.split(':')[1] ?? '';
-      const psc = serverId ? _findMultiServerModuleById(serverId, 'playerStatsChannel') : playerStatsChannel;
+      const psc = serverId ? _findMultiServerPlayerStatsChannelById(serverId) : playerStatsChannel;
       if (!psc) {
         await interaction.editReply({ content: 'Player stats module is currently disabled.' });
         return;
@@ -369,17 +369,12 @@ function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
-/** Find a multi-server module by server ID (used for select menu routing). */
-
-function _findMultiServerModuleById(
-  serverId: string,
-  moduleName: string,
-): InstanceType<typeof PlayerStatsChannel> | null {
+/** Find a multi-server PlayerStatsChannel by server ID (used for select menu routing). */
+function _findMultiServerPlayerStatsChannelById(serverId: string): InstanceType<typeof PlayerStatsChannel> | null {
   if (!multiServerManager) return null;
   const instance = multiServerManager.getInstance(serverId);
   if (!instance) return null;
-  const mod = instance._modules[moduleName];
-  return (mod as InstanceType<typeof PlayerStatsChannel> | undefined) ?? null;
+  return instance.getPlayerStatsChannel();
 }
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -743,10 +738,10 @@ client.once(Events.ClientReady, (readyClient) => {
       } else {
         chatRelay = new ChatRelay(readyClient, { db });
         const _chatRelay = chatRelay;
-        if (config.nukeBot) _chatRelay._nukeActive = true;
+        if (config.nukeBot) _chatRelay.setNukeActive(true);
         // If LogWatcher handles activity threads, coordinate day-rollover ordering
         if (logWatcher) {
-          _chatRelay._awaitActivityThread = true;
+          _chatRelay.setAwaitActivityThread(true);
           logWatcher.setDayRolloverCallback(async () => {
             try {
               await _chatRelay.createDailyThread();
@@ -835,8 +830,7 @@ client.once(Events.ClientReady, (readyClient) => {
         agentPanelCommand: config.agentPanelCommand,
         agentPanelDelay: config.agentPanelDelay,
 
-        // panelApi module type differs from SaveService's local PanelApi interface
-        panelApi: panelApi.available ? (panelApi as never) : undefined,
+        panelApi: panelApi.available ? panelApi : undefined,
       });
       saveService.on('sync', (result: SaveSyncResult) => {
         console.log(
@@ -855,12 +849,11 @@ client.once(Events.ClientReady, (readyClient) => {
 
       // Wire LogWatcher → SaveService ID map sharing
       if (logWatcher) {
-        // _onIdMapRefresh is a monkey-patched internal hook on LogWatcher (any-typed index signature)
         const _svc = saveService;
 
-        logWatcher._onIdMapRefresh = (idMap: unknown) => {
-          _svc.setIdMap(idMap as Parameters<InstanceType<typeof SaveService>['setIdMap']>[0]);
-        };
+        logWatcher.setIdMapRefreshCallback((idMap) => {
+          _svc.setIdMap(idMap);
+        });
       }
 
       // ── Snapshot Service — timeline recording on every save sync ──
@@ -1064,35 +1057,25 @@ client.once(Events.ClientReady, (readyClient) => {
 
           // Wire log events (PvP deaths, builds, looting)
           if (logWatcher) {
-            // _logEvent and _onPlayerConnect are monkey-patched internal hooks (LogWatcher has [key:string]:any)
-            type LwHooks = {
-              _logEvent?: (type: string, data: unknown) => void;
-              _onPlayerConnect?: (playerName: string, steamId: string) => void;
-            };
-            const lwHooks = logWatcher as unknown as LwHooks; // SAFETY: accessing private hooks for anticheat integration
-            const origLogEvent = lwHooks._logEvent?.bind(logWatcher);
-            if (origLogEvent) {
-              lwHooks._logEvent = function (type: string, data: unknown) {
-                origLogEvent(type, data);
+            logWatcher.wrapLogEvent((orig) => (entry: LogEventEntry) => {
+              orig(entry);
+              try {
+                _howyagarn.onLogEvent(entry.type, entry);
+              } catch (err: unknown) {
+                console.error('[BOT] howyagarnManager.onLogEvent error:', errMsg(err));
+              }
+              if (
+                entry.type === 'player_connect' &&
+                typeof entry.steamId === 'string' &&
+                typeof entry.actorName === 'string'
+              ) {
                 try {
-                  _howyagarn.onLogEvent(type, data);
-                } catch (err: unknown) {
-                  console.error('[BOT] howyagarnManager.onLogEvent error:', errMsg(err));
-                }
-              };
-            }
-            // Wire connect events
-            const origOnConnect = lwHooks._onPlayerConnect?.bind(logWatcher);
-            if (origOnConnect) {
-              lwHooks._onPlayerConnect = function (playerName: string, steamId: string) {
-                origOnConnect(playerName, steamId);
-                try {
-                  _howyagarn.onPlayerConnect(steamId, playerName);
+                  _howyagarn.onPlayerConnect(entry.steamId, entry.actorName);
                 } catch (err: unknown) {
                   console.error('[BOT] howyagarnManager.onPlayerConnect error:', errMsg(err));
                 }
-              };
-            }
+              }
+            });
           }
 
           setStatus('HOWYAGARN', '🟢 Active');
@@ -1339,14 +1322,14 @@ client.once(Events.ClientReady, (readyClient) => {
         console.log('[NUKE] ChatRelay thread cache reset + recreated');
       }
       for (const [, instance] of multiServerManager.getInstances()) {
-        const lw = instance._modules['logWatcher'];
-        if (lw instanceof LogWatcher) {
+        const lw = instance.getLogWatcher();
+        if (lw) {
           lw.setNukeActive(false);
           lw.resetThreadCache();
           console.log(`[NUKE] ${instance.name || instance.id} LogWatcher thread cache reset`);
         }
-        const cr = instance._modules['chatRelay'];
-        if (cr instanceof ChatRelay) {
+        const cr = instance.getChatRelay();
+        if (cr) {
           cr.setNukeActive(false);
           cr.resetThreadCache();
           await cr.getOrCreateChatThread().catch(() => {});

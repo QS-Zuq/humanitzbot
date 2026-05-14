@@ -126,6 +126,37 @@ type AnticheatModule =
       stop?(): void;
     })
   | null;
+
+interface AnticheatRuntimeModule {
+  start(): Promise<void>;
+  available?: boolean;
+  onSaveSync?(result: Record<string, unknown>): Promise<void>;
+  stop?(): void;
+}
+
+interface ServerModuleRegistry {
+  [key: string]: unknown;
+  serverStatus?: ServerStatus;
+  logWatcher?: LogWatcher;
+  chatRelay?: ChatRelay;
+  playerStatsChannel?: PlayerStatsChannel;
+  statusChannels?: StatusChannels;
+  presenceTracker?: PlayerPresenceTracker;
+  autoMessages?: AutoMessages;
+  pvpScheduler?: PvpScheduler;
+  serverScheduler?: ServerScheduler;
+  activityLog?: ActivityLog;
+  anticheat?: AnticheatRuntimeModule;
+}
+
+function hasIsActive(module: unknown): module is { isActive: () => boolean } {
+  return module != null && typeof (module as { isActive?: unknown }).isActive === 'function';
+}
+
+function hasAvailable(module: unknown): module is { available: boolean } {
+  return module != null && typeof (module as { available?: unknown }).available === 'boolean';
+}
+
 let AnticheatIntegration: AnticheatModule = null;
 try {
   const _require = createRequire(import.meta.url);
@@ -502,7 +533,7 @@ class ServerInstance {
   getServerInfo: () => ReturnType<typeof getServerInfo>;
   getPlayerList: () => ReturnType<typeof getPlayerList>;
   sendAdminMessage: (msg: string) => ReturnType<typeof sendAdminMessage>;
-  _modules: Record<string, unknown>;
+  _modules: ServerModuleRegistry;
   saveService: SaveService | null;
   _playtimeFlushTimer: ReturnType<typeof setInterval> | null;
 
@@ -730,7 +761,7 @@ class ServerInstance {
     if (this.hasSftp) {
       try {
         const mod = new LogWatcher(this.client, deps as ConstructorParameters<typeof LogWatcher>[1]);
-        if (_defaultConfig.nukeBot) mod._nukeActive = true;
+        if (_defaultConfig.nukeBot) mod.setNukeActive(true);
         await mod.start();
         this._modules.logWatcher = mod;
         this._log.info('LogWatcher active');
@@ -742,28 +773,29 @@ class ServerInstance {
     // ── Wire LogWatcher → SaveService ID map sharing ──
     // Without this, SaveService has no player names and the DB players table stays empty.
     if (this._modules.logWatcher && this.saveService) {
-      const lw = this._modules.logWatcher as LogWatcher;
+      const lw = this._modules.logWatcher;
       const ss = this.saveService;
-      lw._onIdMapRefresh = (idMap: Record<string, string>) => {
+      lw.setIdMapRefreshCallback((idMap) => {
         ss.setIdMap(idMap);
-      };
+      });
     }
 
     // Chat Relay (needs RCON — can run headless without Discord channel for DB-only data collection)
     if (this.config.rconHost) {
       try {
         const mod = new ChatRelay(this.client, deps as ConstructorParameters<typeof ChatRelay>[1]);
-        if (_defaultConfig.nukeBot) mod._nukeActive = true;
+        if (_defaultConfig.nukeBot) mod.setNukeActive(true);
         // Coordinate thread ordering with LogWatcher if both are active
-        if (this._modules.logWatcher) {
-          mod._awaitActivityThread = true;
-          (this._modules.logWatcher as LogWatcher)._dayRolloverCb = async () => {
+        const logWatcher = this._modules.logWatcher;
+        if (logWatcher) {
+          mod.setAwaitActivityThread(true);
+          logWatcher.setDayRolloverCallback(async () => {
             try {
               await mod.createDailyThread();
             } catch (err: unknown) {
               this._log.warn(`[multi-server:chat-relay:create-daily-thread] ${errMsg(err)}`);
             }
-          };
+          });
         }
         await mod.start();
         this._modules.chatRelay = mod;
@@ -778,7 +810,7 @@ class ServerInstance {
       try {
         const mod = new PlayerStatsChannel(
           this.client,
-          (this._modules.logWatcher as LogWatcher | null) ?? null,
+          this._modules.logWatcher ?? null,
           deps as ConstructorParameters<typeof PlayerStatsChannel>[2],
         );
         await mod.start();
@@ -827,7 +859,7 @@ class ServerInstance {
       try {
         const mod = new AutoMessages({
           ...deps,
-          presenceTracker: (this._modules.presenceTracker as PlayerPresenceTracker | undefined) ?? null,
+          presenceTracker: this._modules.presenceTracker ?? null,
         } as ConstructorParameters<typeof AutoMessages>[0]);
         // Note: start() is synchronous; if it ever returns Promise, callers must await
         mod.start();
@@ -845,7 +877,7 @@ class ServerInstance {
       try {
         const mod = new PvpScheduler(
           this.client,
-          (this._modules.logWatcher as LogWatcher | null) ?? null,
+          this._modules.logWatcher ?? null,
           deps as ConstructorParameters<typeof PvpScheduler>[2],
         );
         await mod.start();
@@ -861,7 +893,7 @@ class ServerInstance {
       try {
         const mod = new ServerScheduler(
           this.client,
-          (this._modules.logWatcher as LogWatcher | null) ?? null,
+          this._modules.logWatcher ?? null,
           deps as ConstructorParameters<typeof ServerScheduler>[2],
         );
         await mod.start();
@@ -966,6 +998,36 @@ class ServerInstance {
     } catch {}
 
     this.running = false;
+  }
+
+  hasModule(name: string): boolean {
+    return this._modules[name] != null;
+  }
+
+  getServerScheduler(): ServerScheduler | null {
+    return this._modules.serverScheduler ?? null;
+  }
+
+  getLogWatcher(): LogWatcher | null {
+    return this._modules.logWatcher ?? null;
+  }
+
+  getChatRelay(): ChatRelay | null {
+    return this._modules.chatRelay ?? null;
+  }
+
+  getPlayerStatsChannel(): PlayerStatsChannel | null {
+    return this._modules.playerStatsChannel ?? null;
+  }
+
+  isModuleActive(name: string): boolean {
+    const module = this._modules[name];
+    return hasIsActive(module) ? module.isActive() : false;
+  }
+
+  hasAvailableModule(name: string): boolean {
+    const module = this._modules[name];
+    return hasAvailable(module) ? module.available : false;
   }
 
   /** Get status summary for display. */

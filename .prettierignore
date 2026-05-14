@@ -13,6 +13,7 @@ package-lock.json
 # Private / dev-only
 qs-anticheat/
 .dev/
+AGENTS.md
 _*.js
 *.bak
 *.7z

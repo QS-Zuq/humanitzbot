@@ -16,6 +16,7 @@ import { cleanItemName as _sharedCleanItemName } from '../parsers/ue4-names.js';
 import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 import type { HumanitZDB } from '../db/database.js';
+import type { PanelDownloadApi } from '../server/panel-api.js';
 
 interface DbPlayerRow {
   steam_id: string;
@@ -148,13 +149,8 @@ interface PSCDeps {
   label?: string;
   serverId?: string;
   dataDir?: string | null;
-  panelApi?: PanelApi | null;
+  panelApi?: PanelDownloadApi | null;
   [key: string]: unknown;
-}
-
-interface PanelApi {
-  available: boolean;
-  downloadFile(path: string): Promise<Buffer>;
 }
 
 interface LogWatcher {
@@ -286,7 +282,7 @@ class PlayerStatsChannel {
   _label: string;
   _serverId: string;
   _dataDir: string | null;
-  _panelApi: PanelApi | null;
+  _panelApi: PanelDownloadApi | null;
   client: Client;
   _logWatcher: LogWatcher | null;
   channel: TextChannel | null;
