@@ -390,6 +390,80 @@ describe('LogWatcher event seams', () => {
   });
 });
 
+describe('LogWatcher death cause logging', () => {
+  const LogWatcher = cjsRequire('../src/modules/log-watcher').default;
+
+  function createDeathWatcher(): {
+    lw: any;
+    warnings: string[];
+    deathCauseRows: Array<Record<string, unknown>>;
+  } {
+    const warnings: string[] = [];
+    const deathCauseRows: Array<Record<string, unknown>> = [];
+    const lw = trackLogWatcher(
+      new LogWatcher(
+        { on: () => {}, channels: { fetch: async () => null }, user: { id: '1' } },
+        {
+          config: {
+            getToday: () => '2026-01-01',
+            getDateLabel: () => '01 Jan 2026',
+            formatTime: (date: Date) => date.toISOString(),
+            logPollInterval: 999999,
+            sftpHost: '',
+            enablePvpKillFeed: false,
+            enableDeathLoopDetection: false,
+            pvpKillWindow: 60000,
+          },
+          db: {
+            botState: {
+              getStateJSON: () => null,
+              setStateJSON: () => {},
+            },
+            activityLog: {
+              insertActivitiesAt: () => {},
+              insertActivity: () => {},
+            },
+            deathCause: {
+              insertDeathCause(row: Record<string, unknown>) {
+                deathCauseRows.push(row);
+                throw new Error('death cause DB down');
+              },
+            },
+          },
+          playerStats: {
+            recordDeath: () => {},
+            getSteamId: (name: string) => (name === 'Alice' ? '76561198000000001' : null),
+          },
+        },
+      ),
+    );
+    lw._log.warn = (msg: string, ...args: unknown[]) => warnings.push([msg, ...args].join(' '));
+    lw._sendToThread = () => {};
+    return { lw, warnings, deathCauseRows };
+  }
+
+  it('warns once when unknown death-cause fallback insert fails', () => {
+    const { lw, warnings, deathCauseRows } = createDeathWatcher();
+
+    lw._onDeath('Alice', new Date('2026-01-01T12:00:00Z'));
+    lw._onDeath('Bob', new Date('2026-01-01T12:01:00Z'));
+
+    assert.equal(deathCauseRows.length, 2);
+    assert.deepEqual(deathCauseRows[0], {
+      victimName: 'Alice',
+      victimSteamId: '76561198000000001',
+      causeType: 'unknown',
+      causeName: '',
+      causeRaw: '',
+      damageTotal: 0,
+    });
+    assert.equal(warnings.length, 1);
+    const warning = warnings[0] ?? '';
+    assert.match(warning, /Failed to log death cause:/);
+    assert.match(warning, /death cause DB down/);
+  });
+});
+
 describe('simplifyBlueprintName', () => {
   it('strips BP_ prefix', () => {
     assert.equal(simplifyBlueprintName('BP_WallWood'), 'WallWood');

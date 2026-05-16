@@ -81,6 +81,15 @@ interface DeathCause {
   totalDamage: number;
 }
 
+interface DeathCauseRecord extends Record<string, unknown> {
+  victimName: string;
+  victimSteamId: string;
+  causeType: string;
+  causeName: string;
+  causeRaw: string;
+  damageTotal: number;
+}
+
 interface PvpKillEntry {
   killer: string;
   victim: string;
@@ -122,6 +131,18 @@ interface DeathLoopEntry {
 
 function _te(locale: string, key: string, vars: Record<string, unknown> = {}): string {
   return t(`discord:events.${key}`, locale, vars);
+}
+
+function _insertDeathCause(this: LogWatcherThis, data: DeathCauseRecord) {
+  if (!this._db) return;
+  try {
+    this._db.deathCause.insertDeathCause(data);
+  } catch (err: unknown) {
+    if (!this._deathCauseWarnShown) {
+      this._log.warn('Failed to log death cause:', errMsg(err));
+      this._deathCauseWarnShown = true;
+    }
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -179,36 +200,16 @@ function _onDeath(this: LogWatcherThis, playerName: string, timestamp: Date) {
   const pvpKill = this._config.enablePvpKillFeed ? this._checkPvpKill(playerName, timestamp) : null;
 
   // Record death cause to DB (regardless of PvP or PvE)
-  if (deathCause && this._db) {
-    try {
-      this._db.deathCause.insertDeathCause({
-        victimName: playerName,
-        victimSteamId: this._playerStats.getSteamId?.(playerName) ?? '',
-        causeType: pvpKill ? 'player' : deathCause.type,
-        causeName: pvpKill ? pvpKill.attacker : deathCause.name,
-        causeRaw: deathCause.raw,
-        damageTotal: deathCause.totalDamage,
-      });
-    } catch (err: unknown) {
-      if (!this._deathCauseWarnShown) {
-        this._log.warn('Failed to log death cause:', errMsg(err));
-        this._deathCauseWarnShown = true;
-      }
-    }
-  } else if (!deathCause && this._db) {
-    // No damage tracked — log as unknown cause
-    try {
-      this._db.deathCause.insertDeathCause({
-        victimName: playerName,
-        victimSteamId: this._playerStats.getSteamId?.(playerName) ?? '',
-        causeType: pvpKill ? 'player' : 'unknown',
-        causeName: pvpKill ? pvpKill.attacker : '',
-        causeRaw: '',
-        damageTotal: pvpKill ? pvpKill.totalDamage : 0,
-      });
-    } catch {
-      /* swallow */
-    }
+  if (this._db) {
+    const victimSteamId = this._playerStats.getSteamId?.(playerName) ?? '';
+    _insertDeathCause.call(this, {
+      victimName: playerName,
+      victimSteamId,
+      causeType: pvpKill ? 'player' : (deathCause?.type ?? 'unknown'),
+      causeName: pvpKill ? pvpKill.attacker : (deathCause?.name ?? ''),
+      causeRaw: deathCause?.raw ?? '',
+      damageTotal: pvpKill ? pvpKill.totalDamage : (deathCause?.totalDamage ?? 0),
+    });
   }
 
   if (pvpKill) {
