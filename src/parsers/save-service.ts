@@ -3,9 +3,9 @@
  *
  * Orchestrates the save-file → database pipeline with three operating modes:
  *
- *   **Direct** (default): SFTP download of the full .sav file (~60MB), parsed locally.
+ *   **Direct**:           Explicit diagnostic mode that downloads the full .sav file, parsed locally.
  *   **Agent**:            Bot deploys a lightweight parser agent onto the game server.
- *   **Auto**:             Tries agent mode first, falls back to direct.
+ *   **Auto** (default):   Uses the host-side agent/cache path only; it does not download the full .sav as fallback.
  */
 
 import EventEmitter from 'events';
@@ -79,6 +79,7 @@ interface SaveServiceOptions {
   agentNodePath?: string;
   agentRemoteDir?: string;
   agentCachePath?: string;
+  agentIdMapPath?: string;
   sshConfig?: SshConfig;
   agentTimeout?: number;
   agentTrigger?: 'auto' | 'rcon' | 'ssh' | 'panel' | 'none';
@@ -101,12 +102,12 @@ class SaveService extends EventEmitter {
   private _pollInterval: number;
   private _idMap: Record<string, string>;
   private _log: Logger;
-  private _dataDir: string;
 
   private _agentMode: string;
   private _agentNodePath: string;
   private _agentRemoteDir: string;
   private _agentCachePath: string;
+  private _agentIdMapPath: string;
   private _sshConfig: SshConfig | null;
   private _agentTimeout: number;
 
@@ -132,7 +133,6 @@ class SaveService extends EventEmitter {
   private _agentPath: string;
   private _cachePath: string;
   private _runScriptPath: string;
-  private _checkNodeScriptPath: string;
   private _syncPipeline: SaveSyncPipeline;
 
   constructor(db: HumanitZDB, options: SaveServiceOptions = {}) {
@@ -143,18 +143,14 @@ class SaveService extends EventEmitter {
     this._clanSavePath = options.clanSavePath ?? '';
     this._localPath = options.localPath ?? '';
     this._pollInterval = options.pollInterval ?? 60_000;
-    this._idMap = options.idMap ?? {};
+    this._idMap = this._normalizeIdMap(options.idMap ?? {});
     this._log = createLogger(options.label, 'SaveService');
-    this._dataDir = options.dataDir ?? path.join(__dirname, '..', '..');
-
-    if (!options.idMap || Object.keys(this._idMap).length === 0) {
-      this._loadLocalIdMap();
-    }
 
     this._agentMode = options.agentMode ?? 'auto';
     this._agentNodePath = options.agentNodePath ?? 'node';
     this._agentRemoteDir = options.agentRemoteDir ?? '';
     this._agentCachePath = options.agentCachePath ?? '';
+    this._agentIdMapPath = options.agentIdMapPath ?? '';
     this._sshConfig = options.sshConfig ?? null;
     this._agentTimeout = options.agentTimeout ?? 120_000;
 
@@ -180,7 +176,6 @@ class SaveService extends EventEmitter {
     this._agentPath = '';
     this._cachePath = '';
     this._runScriptPath = '';
-    this._checkNodeScriptPath = '';
     this._syncPipeline = new SaveSyncPipeline({
       db: this._db,
       log: this._log,
@@ -207,10 +202,7 @@ class SaveService extends EventEmitter {
     this._resolvePaths();
     this._repairSteamIdNames();
 
-    const modeLabel =
-      this._agentMode === 'direct'
-        ? 'direct'
-        : `${this._agentMode} (agent-capable: ${String(this._agentCapable ?? 'unknown')})`;
+    const modeLabel = this._getStartupModeLabel();
     this._log.info(`Starting save service — mode: ${modeLabel}, poll every ${String(this._pollInterval / 1000)}s`);
     await this._poll();
     this._timer = setInterval(() => {
@@ -231,32 +223,18 @@ class SaveService extends EventEmitter {
   }
 
   setIdMap(idMap: Record<string, string>): void {
-    this._idMap = idMap;
+    this._idMap = this._normalizeIdMap(idMap);
   }
 
-  _loadLocalIdMap(): void {
-    try {
-      const filePath = path.join(this._dataDir, 'data', 'logs', 'PlayerIDMapped.txt');
-      const altPath = path.join(this._dataDir, 'logs', 'PlayerIDMapped.txt');
-      const actualPath = fs.existsSync(filePath) ? filePath : fs.existsSync(altPath) ? altPath : null;
-      if (!actualPath) return;
-      const raw = fs.readFileSync(actualPath, 'utf8');
-      const map: Record<string, string> = {};
-      let count = 0;
-      for (const line of raw.split(/\r?\n/)) {
-        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m?.[1] && m[2]) {
-          map[m[1]] = m[2].trim();
-          count++;
-        }
-      }
-      if (count > 0) {
-        this._idMap = map;
-        this._log.info(`Loaded ${String(count)} name(s) from cached PlayerIDMapped.txt`);
-      }
-    } catch (err: unknown) {
-      this._log.warn('Could not load cached ID map:', errMsg(err));
+  _normalizeIdMap(value: unknown): Record<string, string> {
+    const map: Record<string, string> = {};
+    if (!value || typeof value !== 'object') return map;
+    for (const [steamId, rawName] of Object.entries(value as Record<string, unknown>)) {
+      const id = steamId.trim();
+      const name = typeof rawName === 'string' ? rawName.trim() : '';
+      if (/^\d{17}$/.test(id) && name) map[id] = name;
     }
+    return map;
   }
 
   _repairSteamIdNames(): void {
@@ -269,6 +247,31 @@ class SaveService extends EventEmitter {
     } catch (err: unknown) {
       this._log.warn('DB name repair failed (non-fatal):', errMsg(err));
     }
+  }
+
+  _applyCacheIdMap(cache: Record<string, unknown>): void {
+    const idMap = this._normalizeIdMap(cache['idMap']);
+    const count = Object.keys(idMap).length;
+    if (count === 0) return;
+
+    this._idMap = idMap;
+
+    try {
+      this._db.player.importIdMap(Object.entries(idMap).map(([steamId, name]) => ({ steamId, name })));
+    } catch (err: unknown) {
+      this._log.warn('DB ID map import failed (non-fatal):', errMsg(err));
+    }
+
+    this._repairSteamIdNames();
+    this._log.info(`Imported ${String(count)} player name(s) from agent cache idMap into SQLite`);
+  }
+
+  _cacheIdMapCount(cache: Record<string, unknown>): number {
+    return Object.keys(this._normalizeIdMap(cache['idMap'])).length;
+  }
+
+  _cacheHasIdMap(cache: Record<string, unknown>): boolean {
+    return this._cacheIdMapCount(cache) > 0;
   }
 
   get stats(): Record<string, unknown> {
@@ -289,6 +292,14 @@ class SaveService extends EventEmitter {
   /** Return the resolved sync mode string (e.g. 'direct', 'sftp', 'panel'). */
   getSyncMode(): string {
     return this._mode ?? this._agentMode;
+  }
+
+  _getStartupModeLabel(): string {
+    if (this._localPath || this._agentMode === 'direct') return 'direct';
+
+    const cacheStatus = this._cachePath ? 'pending' : 'unresolved';
+    const idMapStatus = this._agentIdMapPath ? 'configured' : 'auto-discover';
+    return `${this._agentMode} (cache: ${cacheStatus}, trigger: ${this._resolvedTrigger ?? this._agentTrigger}, idMap: ${idMapStatus})`;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -341,7 +352,6 @@ class SaveService extends EventEmitter {
       const checkScript = this._generateCheckNodeScript();
       const checkScriptPath = path.dirname(this._agentPath) + '/check-node.sh';
       await sftp.put(Buffer.from(checkScript, 'utf-8'), checkScriptPath);
-      this._checkNodeScriptPath = checkScriptPath;
       this._log.info(`Check-node script deployed → ${checkScriptPath}`);
     } finally {
       await sftp.end();
@@ -349,6 +359,7 @@ class SaveService extends EventEmitter {
   }
 
   _generateRunScript(): string {
+    const idMapArg = this._agentIdMapPath ? ' --id-map ' + shQuote(this._agentIdMapPath) : '';
     return (
       '#!/bin/bash\nexec ' +
       shQuote(this._agentNodePath) +
@@ -356,6 +367,7 @@ class SaveService extends EventEmitter {
       shQuote(this._agentPath) +
       ' --save ' +
       shQuote(this._savePath) +
+      idMapArg +
       '\n'
     );
   }
@@ -379,17 +391,22 @@ class SaveService extends EventEmitter {
   }
 
   async checkNodeAvailable(): Promise<boolean> {
+    const command = `${shQuote(this._agentNodePath)} --version`;
     try {
-      const scriptPath = this._checkNodeScriptPath || path.dirname(this._agentPath) + '/check-node.sh';
-      const result = await this._sshExec('bash ' + shQuote(scriptPath));
+      const result = await this._sshExec(command);
       const version = (result.stdout || '').trim();
       if (result.code === 0 && version.startsWith('v')) {
         this._agentCapable = true;
+        if (this._lastError?.startsWith('node-check-failed:')) this._lastError = null;
         this._log.info(`Node.js available on game server: ${version}`);
         return true;
       }
+      const detail = (result.stderr || result.stdout || `exit code ${String(result.code)}`).trim();
+      this._lastError = `node-check-failed: ${detail}`;
+      this._log.info(`Node.js check failed on game server: ${detail}`);
     } catch (err: unknown) {
-      this._log.info(`SSH check failed: ${errMsg(err)}`);
+      this._lastError = `node-check-failed: ${errMsg(err)}`;
+      this._log.info(`SSH node check failed: ${errMsg(err)}`);
     }
     this._agentCapable = false;
     return false;
@@ -459,6 +476,11 @@ class SaveService extends EventEmitter {
     };
   }
 
+  _setAgentFailure(code: string, detail: unknown): void {
+    const message = errMsg(detail);
+    this._lastError = `${code}: ${message}`;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  Polling
   // ═══════════════════════════════════════════════════════════════════════════
@@ -476,14 +498,15 @@ class SaveService extends EventEmitter {
         await this._pollDirect(force);
       } else {
         const agentOk = await this._pollAgent(force);
-        if (!agentOk && this._agentMode === 'auto') {
-          if (!this._mode || this._mode === 'direct') {
-            this._log.info('Agent unavailable — falling back to direct .sav download');
-          }
-          this._mode = 'direct';
-          await this._pollDirect(force);
-        } else if (agentOk) {
+        if (agentOk) {
           this._mode = 'agent';
+        } else {
+          if (!this._lastError) {
+            this._lastError = 'agent-unavailable: agent/cache sync did not complete';
+          }
+          this._log.warn(
+            `Agent/cache sync unavailable in ${this._agentMode} mode; direct .sav fallback is disabled: ${this._lastError}`,
+          );
         }
       }
     } catch (err: unknown) {
@@ -532,40 +555,90 @@ class SaveService extends EventEmitter {
   }
 
   async _pollAgent(force: boolean): Promise<boolean> {
+    let cachedBeforeTrigger: Record<string, unknown> | null = null;
     try {
       const cache = await this._readCacheFromSftp(force);
       if (cache) {
-        await this._syncFromCache(cache as Record<string, unknown>);
-        this._syncCount++;
-        this._lastError = null;
-        return true;
+        const cacheData = cache as Record<string, unknown>;
+        if (this._cacheHasIdMap(cacheData)) {
+          await this._syncFromCache(cacheData);
+          this._syncCount++;
+          this._lastError = null;
+          return true;
+        }
+
+        cachedBeforeTrigger = cacheData;
+        this._log.warn('Agent cache is missing idMap — refreshing agent cache before sync');
       }
 
       const trigger = await this._resolveTrigger();
 
-      if (trigger === 'rcon') {
-        await this._triggerViaRcon();
-      } else if (trigger === 'panel') {
-        await this._triggerViaPanel();
+      if (trigger === 'rcon' || trigger === 'panel') {
+        try {
+          if (trigger === 'rcon') await this._triggerViaRcon();
+          else await this._triggerViaPanel();
+        } catch (err: unknown) {
+          this._setAgentFailure('agent-trigger-failed', err);
+          this._log.warn(`Agent trigger failed (${trigger}): ${errMsg(err)}`);
+          return false;
+        }
       } else if (trigger === 'ssh') {
-        if (!this._agentDeployed) await this.deployAgent();
-        await this.executeAgent();
+        if (!this._agentDeployed) {
+          try {
+            await this.deployAgent();
+          } catch (err: unknown) {
+            this._setAgentFailure('agent-deploy-failed', err);
+            this._log.warn(`Agent deploy failed: ${errMsg(err)}`);
+            return false;
+          }
+        }
+        try {
+          await this.executeAgent();
+        } catch (err: unknown) {
+          this._setAgentFailure('agent-execute-failed', err);
+          this._log.warn(`Agent execute failed: ${errMsg(err)}`);
+          return false;
+        }
       } else {
+        if (cachedBeforeTrigger) {
+          this._lastError = 'agent-cache-missing-idmap: no usable trigger to refresh cache';
+          this._log.warn('No usable agent trigger; refusing cache sync without idMap');
+          return false;
+        }
+        if (!this._lastError || !this._lastError.startsWith('node-check-failed:')) {
+          this._lastError = 'agent-unavailable: no usable agent trigger';
+        }
         return false;
       }
 
       const freshCache = await this._readCacheFromSftp(true);
       if (freshCache) {
-        await this._syncFromCache(freshCache as Record<string, unknown>);
+        const freshCacheData = freshCache as Record<string, unknown>;
+        if (!this._cacheHasIdMap(freshCacheData)) {
+          this._lastError = 'agent-cache-missing-idmap: refreshed cache still has no idMap';
+          this._log.warn('Refreshed agent cache still has no idMap; refusing sync');
+          return false;
+        }
+        await this._syncFromCache(freshCacheData);
         this._syncCount++;
         this._lastError = null;
         return true;
       }
 
+      if (cachedBeforeTrigger) {
+        this._lastError = 'agent-cache-missing-idmap: refresh did not produce a usable cache';
+        this._log.warn('Agent refresh did not produce a usable idMap cache; refusing previous cache sync');
+        return false;
+      }
+
+      this._lastError = `agent-cache-missing: ${this._cachePath}`;
       this._log.warn(`Agent triggered (${trigger}) but cache not found at ${this._cachePath}`);
       return false;
     } catch (err: unknown) {
-      this._log.warn(`Agent mode failed: ${errMsg(err)}`);
+      if (!this._lastError) {
+        this._setAgentFailure('agent-unavailable', err);
+      }
+      this._log.warn(`Agent mode failed: ${this._lastError}`);
       return false;
     }
   }
@@ -855,9 +928,11 @@ class SaveService extends EventEmitter {
     }
     if (mtime) this._lastCacheMtime = mtime;
     const sizeMB = (json.length / 1024 / 1024).toFixed(2);
-    this._log.info(
-      `Downloaded cache: ${sizeMB}MB (${String(Object.keys((cache['players'] as Record<string, unknown> | undefined) ?? {}).length)} players)`,
-    );
+    const playerCount = Object.keys((cache['players'] as Record<string, unknown> | undefined) ?? {}).length;
+    const idMapCount = this._cacheIdMapCount(cache);
+    if (idMapCount > 0) this._agentCapable = true;
+    const idMapInfo = idMapCount > 0 ? `, ${String(idMapCount)} names` : ', no idMap';
+    this._log.info(`Downloaded cache: ${sizeMB}MB (${String(playerCount)} players${idMapInfo})`);
     return cache;
   }
 
@@ -907,6 +982,7 @@ class SaveService extends EventEmitter {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async _syncFromCache(cache: Record<string, unknown>): Promise<void> {
+    this._applyCacheIdMap(cache);
     await this._syncPipeline.syncFromCache(cache as SaveCacheData);
   }
 
@@ -948,6 +1024,7 @@ class SaveService extends EventEmitter {
       const cacheData: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
         playerCount: players.size,
+        idMap: this._idMap,
         worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
         players: {} as Record<string, unknown>,
         structures: Array.isArray(parsed['structures']) ? parsed['structures'] : [],

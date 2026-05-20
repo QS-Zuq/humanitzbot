@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 // The module exports a singleton instance — we use it directly.
 // We just need to test the pure methods without triggering file I/O.
 
-import _player_stats from '../src/tracking/player-stats.js';
+import _player_stats, { PlayerStats } from '../src/tracking/player-stats.js';
 const playerStats = _player_stats as any;
 
 // ══════════════════════════════════════════════════════════
@@ -137,5 +137,29 @@ describe('_newRecord', () => {
     assert.deepEqual(r.nameHistory, []);
     assert.deepEqual(r.cheatFlags, []);
     assert.equal(r.lastEvent, null);
+  });
+});
+
+describe('PlayerStats DB-backed identity resolution', () => {
+  it('resolves player names through SQLite aliases without a local ID map', () => {
+    const steamId = '76561198000000001';
+    const db = {
+      player: {
+        resolveSteamIdToName: (id: string) => (id === steamId ? 'Db Alice' : id),
+        resolveNameToSteamId: (name: string) =>
+          name.toLowerCase() === 'db alice' ? { steamId, name: 'Db Alice', source: 'idmap' } : null,
+      },
+    };
+    const stats = new PlayerStats({
+      db: db as any,
+      playtime: {
+        getPlaytime: () => null,
+        getLeaderboard: () => [],
+      } as any,
+    });
+
+    assert.equal(stats.getNameForId(steamId), 'Db Alice');
+    assert.equal(stats.getSteamId('Db Alice'), steamId);
+    assert.equal(stats.getIdMap(), null);
   });
 });

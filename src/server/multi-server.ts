@@ -504,9 +504,10 @@ function createServerConfig(serverDef: ServerDef): ConfigType {
   if (serverDef.agentTrigger) merged.agentTrigger = serverDef.agentTrigger;
   if (serverDef.agentNodePath) merged.agentNodePath = serverDef.agentNodePath;
   if (serverDef.agentCachePath) merged.agentCachePath = serverDef.agentCachePath;
-  // If no agent config specified, default to direct (don't inherit primary's
-  // agent settings — a VPS server with SSH doesn't match Bisect's RCON trigger)
-  if (!serverDef.agentMode) merged.agentMode = 'direct';
+  // If no agent mode is specified, keep the normal SaveService contract:
+  // agent/cache first and no implicit full .sav fallback. Explicit
+  // agentMode=direct remains available as a diagnostic override.
+  if (!serverDef.agentMode) merged.agentMode = 'auto';
 
   return merged;
 }
@@ -713,10 +714,11 @@ class ServerInstance {
             return idx !== -1 ? sp.slice(0, idx) + 'Save_ClanData.sav' : undefined;
           })(),
           pollInterval: this.config.getEffectiveSavePollInterval(),
-          agentMode: (this.config.agentMode || 'direct') as 'auto' | 'agent' | 'direct',
+          agentMode: (this.config.agentMode || 'auto') as 'auto' | 'agent' | 'direct',
           agentTrigger: this.config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
           agentNodePath: this.config.agentNodePath,
           agentCachePath: this.config.agentCachePath,
+          agentIdMapPath: this.config.sftpIdMapPath,
           panelApi: this.panelApi ?? undefined,
           dataDir: this.dataDir,
           label: 'SAVE:' + this._log.label,
@@ -768,16 +770,6 @@ class ServerInstance {
       } catch (err: unknown) {
         this._log.error('LogWatcher failed:', errMsg(err));
       }
-    }
-
-    // ── Wire LogWatcher → SaveService ID map sharing ──
-    // Without this, SaveService has no player names and the DB players table stays empty.
-    if (this._modules.logWatcher && this.saveService) {
-      const lw = this._modules.logWatcher;
-      const ss = this.saveService;
-      lw.setIdMapRefreshCallback((idMap) => {
-        ss.setIdMap(idMap);
-      });
     }
 
     // Chat Relay (needs RCON — can run headless without Discord channel for DB-only data collection)

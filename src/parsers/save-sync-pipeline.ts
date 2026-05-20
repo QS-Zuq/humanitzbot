@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { diffSaveState } from '../db/diff-engine.js';
 import { reconcileItems } from '../db/item-tracker.js';
 import type { HumanitZDB } from '../db/database.js';
@@ -10,8 +11,29 @@ export type SaveActivityEvent = ReturnType<typeof diffSaveState>[number];
 export type SaveItemStats = ReturnType<typeof reconcileItems>;
 export type SaveSyncPipelineDb = Pick<HumanitZDB, 'syncAllFromSave' | 'activityLog' | 'meta' | 'item'>;
 
+interface SyncPhaseTimings {
+  prep: number;
+  db: number;
+  items: number;
+  itemPurge: number;
+  activity: number;
+  meta: number;
+  cacheWrite: number;
+  total: number;
+}
+
+interface ItemTrackingRunResult {
+  stats: SaveItemStats | null;
+  reconcileMs: number;
+  purgeMs: number;
+}
+
 export interface SaveCacheData extends Record<string, unknown> {
   v?: number;
+  idMap?: Record<string, string>;
+  idMapCount?: number;
+  idMapPath?: string;
+  idMapMtime?: number | null;
   players?: Record<string, Record<string, unknown>>;
   worldState?: Record<string, unknown>;
   structures?: unknown[];
@@ -106,6 +128,8 @@ export class SaveSyncPipeline {
 
   syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): SaveSyncResult {
     const startTime = Date.now();
+    const phaseStart = performance.now();
+    let phaseMark = phaseStart;
     const players = parsed.players;
     const idMap = this._deps.getIdMap();
 
@@ -115,7 +139,18 @@ export class SaveSyncPipeline {
 
     const diffEvents = this._buildDiffEvents(parsed, players, idMap);
     const worldDrops = this._buildWorldDrops(parsed);
+    const timings: SyncPhaseTimings = {
+      prep: this._elapsedSince(phaseMark),
+      db: 0,
+      items: 0,
+      itemPurge: 0,
+      activity: 0,
+      meta: 0,
+      cacheWrite: 0,
+      total: 0,
+    };
 
+    phaseMark = performance.now();
     this._deps.db.syncAllFromSave({
       players,
       worldState: parsed.worldState,
@@ -130,18 +165,31 @@ export class SaveSyncPipeline {
       horses: parsed.horses,
       worldDrops: worldDrops.length > 0 ? worldDrops : null,
     });
+    timings.db = this._elapsedSince(phaseMark);
 
-    const itemStats = this._reconcileItems(parsed, players, idMap);
+    const itemTracking = this._reconcileItems(parsed, players, idMap);
+    timings.items = itemTracking.reconcileMs;
+    timings.itemPurge = itemTracking.purgeMs;
+
+    phaseMark = performance.now();
     this._writeActivityEvents(diffEvents);
     if (this._isMaintenancePurgeDue()) {
       this._purgeOldActivity();
     }
+    timings.activity = this._elapsedSince(phaseMark);
 
+    phaseMark = performance.now();
     this._deps.db.meta.setMeta('last_save_sync', new Date().toISOString());
     this._deps.db.meta.setMeta('last_save_players', String(players.size));
+    timings.meta = this._elapsedSince(phaseMark);
 
-    const result = this._buildResult(parsed, clans, diffEvents, itemStats, startTime);
+    phaseMark = performance.now();
     this._deps.writeSaveCache(parsed);
+    timings.cacheWrite = this._elapsedSince(phaseMark);
+    timings.total = this._elapsedSince(phaseStart);
+    this._logSyncPhases(timings);
+
+    const result = this._buildResult(parsed, clans, diffEvents, itemTracking.stats, startTime);
     this._deps.emitSync(result);
     return result;
   }
@@ -244,8 +292,10 @@ export class SaveSyncPipeline {
     parsed: SaveParsedDataInput,
     players: Map<string, Record<string, unknown>>,
     idMap: Record<string, string>,
-  ): SaveItemStats | null {
-    let itemStats: SaveItemStats | null = null;
+  ): ItemTrackingRunResult {
+    let itemStats: SaveItemStats;
+    let purgeMs = 0;
+    const reconcileStart = performance.now();
     try {
       const nameResolver = (steamId: string): string => {
         const p = players.get(steamId);
@@ -264,15 +314,32 @@ export class SaveSyncPipeline {
         },
         nameResolver,
       );
-      if (this._isMaintenancePurgeDue()) {
-        this._deps.db.item.purgeOldLostItems('-7 days');
-        this._deps.db.item.purgeOldLostGroups('-7 days');
-        this._deps.db.item.purgeOldMovements('-30 days');
-      }
     } catch (err: unknown) {
-      this._deps.log.warn('Item tracker error (non-fatal):', errMsg(err));
+      this._deps.log.warn('Item tracker reconcile error (non-fatal):', errMsg(err));
+      return { stats: null, reconcileMs: this._elapsedSince(reconcileStart), purgeMs };
     }
-    return itemStats;
+
+    const reconcileMs = this._elapsedSince(reconcileStart);
+
+    if (this._isMaintenancePurgeDue()) {
+      const purgeStart = performance.now();
+      try {
+        const purgeResult = this._deps.db.item.purgeOldItemTrackerData({
+          lostItemsAge: '-7 days',
+          lostGroupsAge: '-7 days',
+          movementsAge: '-30 days',
+        });
+        purgeMs = this._elapsedSince(purgeStart);
+        this._deps.log.info(
+          `Item tracker purge: ${String(purgeResult.movementsDeleted)} movement(s), ${String(purgeResult.itemsDeleted)} item(s), ${String(purgeResult.groupsDeleted)} group(s) removed`,
+        );
+      } catch (err: unknown) {
+        purgeMs = this._elapsedSince(purgeStart);
+        this._deps.log.warn('Item tracker purge error (non-fatal):', errMsg(err));
+      }
+    }
+
+    return { stats: itemStats, reconcileMs, purgeMs };
   }
 
   private _writeActivityEvents(diffEvents: SaveActivityEvent[]): void {
@@ -348,5 +415,15 @@ export class SaveSyncPipeline {
         containers,
       },
     };
+  }
+
+  private _elapsedSince(start: number): number {
+    return Math.max(0, Math.round(performance.now() - start));
+  }
+
+  private _logSyncPhases(timings: SyncPhaseTimings): void {
+    this._deps.log.info(
+      `Sync phases: prep=${String(timings.prep)}ms db=${String(timings.db)}ms items=${String(timings.items)}ms itemPurge=${String(timings.itemPurge)}ms activity=${String(timings.activity)}ms meta=${String(timings.meta)}ms cacheWrite=${String(timings.cacheWrite)}ms total=${String(timings.total)}ms`,
+    );
   }
 }

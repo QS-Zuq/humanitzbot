@@ -63,7 +63,7 @@ interface ServerContext {
   panelApi: PanelApi | null;
   scheduler: ServerScheduler | null;
   dataDir: string;
-  idMap: Record<string, string>;
+  playerNameMap: Record<string, string>;
   isPrimary: boolean;
   serverId: string;
 }
@@ -433,7 +433,6 @@ class WebMapServer {
   _responseCache: Map<string, { data: unknown; ts: number }>;
   _playerCache: Map<string, unknown>;
   _lastParse: number;
-  _idMap: Record<string, string>;
   _botControl: BotControlService | null = null;
   _moduleStatus: Record<string, string> | null = null;
   _pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -500,7 +499,6 @@ class WebMapServer {
     // Cache: last parsed save data
     this._playerCache = new Map();
     this._lastParse = 0;
-    this._idMap = {} as Record<string, string>;
 
     // Security headers
     this._app.use((_req, res, next) => {
@@ -616,19 +614,69 @@ class WebMapServer {
     console.log(`[WEB MAP] Plugin registered: ${plugin.name as string}`);
   }
 
-  /** Load player ID map from file. */
-  _loadIdMap(): void {
+  /** Load player names already known by the local database. */
+  _loadDbPlayerNameMap(db: HumanitZDB | null): Record<string, string> {
+    const map: Record<string, string> = {};
+    if (!db) return map;
+
     try {
-      const raw = fs.readFileSync(path.join(DATA_DIR, 'logs', 'PlayerIDMapped.txt'), 'utf8');
-      const map: Record<string, string> = {};
-      for (const line of raw.split('\n')) {
-        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m?.[1] && m[2]) map[m[1]] = m[2].trim();
+      const rows = db.player.listAllPlayerDisplayNames() as Array<{
+        steam_id?: unknown;
+        name?: unknown;
+        display_name?: unknown;
+      }>;
+      for (const row of rows) {
+        const steamId = typeof row.steam_id === 'string' ? row.steam_id.trim() : '';
+        if (!/^\d{17}$/.test(steamId)) continue;
+        const name = this._cleanPlayerDisplayName(row.display_name) || this._cleanPlayerDisplayName(row.name);
+        if (/^\d{17}$/.test(steamId) && name) map[steamId] = name;
       }
-      this._idMap = map;
-    } catch (err: unknown) {
-      console.error('[WEB MAP] Failed to load ID map:', errMsg(err));
+    } catch {
+      /* DB may not have players yet */
     }
+
+    return map;
+  }
+
+  /** Resolve a single SteamID through the server-specific SQLite aliases. */
+  _resolveDbPlayerName(db: HumanitZDB | null, steamId: string): string | null {
+    if (!db || !/^\d{17}$/.test(steamId)) return null;
+    try {
+      const name = db.player.resolveSteamIdToName(steamId);
+      return name && name !== steamId ? name : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Resolve a player name from the request's server-specific DB context. */
+  _resolveServerPlayerName(srv: ServerContext, steamId: string): string | null {
+    return this._cleanPlayerDisplayName(srv.playerNameMap[steamId]) || this._resolveDbPlayerName(srv.db, steamId);
+  }
+
+  /** Normalize candidate display names from SQLite, save data, or RCON. */
+  _cleanPlayerDisplayName(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const name = value.trim();
+    if (!name || name === '-') return null;
+    return name;
+  }
+
+  /** Resolve a player display name with live/current sources first and SteamID as final fallback. */
+  _resolvePlayerDisplayName(
+    steamId: string,
+    data: Record<string, unknown>,
+    db: HumanitZDB | null,
+    dbNameMap: Record<string, string>,
+    onlineNameMap?: Map<string, string>,
+  ): string {
+    return (
+      this._cleanPlayerDisplayName(onlineNameMap?.get(steamId)) ||
+      this._cleanPlayerDisplayName(dbNameMap[steamId]) ||
+      this._cleanPlayerDisplayName(this._resolveDbPlayerName(db, steamId)) ||
+      this._cleanPlayerDisplayName(data.name) ||
+      steamId
+    );
   }
 
   // ── Multi-server helpers ──────────────────────────────────
@@ -691,7 +739,7 @@ class WebMapServer {
         panelApi: _panelApiInstance,
         scheduler: this._scheduler,
         dataDir: DATA_DIR,
-        idMap: this._idMap,
+        playerNameMap: this._loadDbPlayerNameMap(this._db),
         isPrimary: true,
         serverId: 'primary',
       };
@@ -712,37 +760,10 @@ class WebMapServer {
       panelApi: instance.panelApi || null,
       scheduler: instance.getServerScheduler(),
       dataDir: instance.dataDir,
-      idMap: this._loadIdMapFrom(instance.dataDir, instance.db),
+      playerNameMap: this._loadDbPlayerNameMap(instance.db),
       isPrimary: false,
       serverId,
     };
-  }
-
-  /** Load player ID map from a specific data directory, falling back to DB names. */
-  _loadIdMapFrom(dataDir: string, db: HumanitZDB | null): Record<string, string> {
-    const map: Record<string, string> = {};
-    try {
-      const raw = fs.readFileSync(path.join(dataDir, 'logs', 'PlayerIDMapped.txt'), 'utf8');
-      for (const line of raw.split('\n')) {
-        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m?.[1] && m[2]) map[m[1]] = m[2].trim();
-      }
-    } catch {
-      /* file may not exist for this server */
-    }
-
-    // Fall back to DB player names if file was empty/missing
-    if (Object.keys(map).length === 0 && db) {
-      try {
-        const rows = db.player.listNamedPlayers();
-        for (const row of rows) {
-          if (row.steam_id && row.name) map[row.steam_id] = row.name;
-        }
-      } catch {
-        /* DB may not have players yet */
-      }
-    }
-    return map;
   }
 
   /**
@@ -874,7 +895,6 @@ class WebMapServer {
     if (cached.size > 0) {
       this._playerCache = cached;
       this._lastParse = now;
-      this._loadIdMap();
       return this._playerCache;
     }
 
@@ -891,7 +911,6 @@ class WebMapServer {
         const buf = fs.readFileSync(savePath);
         this._playerCache = parseSave(buf).players;
         this._lastParse = now;
-        this._loadIdMap();
         return this._playerCache;
       } catch (err: unknown) {
         console.error(`[WEB MAP] Failed to parse ${path.basename(savePath)}:`, errMsg(err));
@@ -1087,17 +1106,20 @@ class WebMapServer {
 
       // Resolve data sources based on server
       const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
-      const idMap = srv.idMap;
+      const dbNameMap = srv.playerNameMap;
       const logStatsProvider = srv.playerStats;
       const playtimeProvider = srv.playtime;
 
       // Query RCON for online players (non-blocking — if it fails, all show offline)
       const onlineSteamIds = new Set();
+      const onlineNameMap = new Map<string, string>();
       try {
         const list = await srv.getPlayerList();
         const playerArr = list.players;
         for (const p of playerArr) {
           onlineSteamIds.add(p.steamId);
+          const onlineName = this._cleanPlayerDisplayName(p.name);
+          if (onlineName) onlineNameMap.set(p.steamId, onlineName);
         }
       } catch {
         /* RCON unavailable — all players show offline */
@@ -1131,7 +1153,7 @@ class WebMapServer {
         const dz = data.z as number | null;
         const hasPosition = dx !== null && !(dx === 0 && dy === 0 && dz === 0);
 
-        const name = idMap[steamId] || steamId;
+        const name = this._resolvePlayerDisplayName(steamId, data, srv.db, dbNameMap, onlineNameMap);
         let lat = null,
           lng = null;
         if (hasPosition) {
@@ -1288,7 +1310,8 @@ class WebMapServer {
       }
       const data = rawPlayerData as Record<string, unknown>;
 
-      const name = srv.idMap[steamId] || steamId;
+      const dbNameMap = srv.playerNameMap;
+      const name = this._resolvePlayerDisplayName(steamId, data, srv.db, dbNameMap);
       const pdx = data.x as number | null;
       const pdy = data.y as number | null;
       const pdz = data.z as number | null;
@@ -1684,18 +1707,20 @@ class WebMapServer {
           events = srv.db.activityLog.getRecentActivity(limit, offset);
         }
 
-        // Resolve steam IDs to player names + clean UE4 blueprint names
-        const idMap = srv.idMap;
+        // Resolve steam IDs through this server's SQLite aliases + clean UE4 blueprint names
         const resolved = (events as unknown as ActivityRow[]).map((e) => {
           // SAFETY: getRecentActivity returns DbRow[] with ActivityRow shape
           const out: ActivityRow & { actor_name?: string; target_name?: string; item?: string } = { ...e };
-          if (!out.actor_name && out.steam_id && idMap[out.steam_id]) {
-            out.actor_name = idMap[out.steam_id] as string;
-          } else if (!out.actor_name && out.actor && idMap[out.actor]) {
-            out.actor_name = idMap[out.actor] as string;
+          if (!out.actor_name && out.steam_id) {
+            const actorName = this._resolveServerPlayerName(srv, out.steam_id);
+            if (actorName) out.actor_name = actorName;
+          } else if (!out.actor_name && out.actor) {
+            const actorName = this._resolveServerPlayerName(srv, out.actor);
+            if (actorName) out.actor_name = actorName;
           }
-          if (!out.target_name && out.target_steam_id && idMap[out.target_steam_id]) {
-            out.target_name = idMap[out.target_steam_id] as string;
+          if (!out.target_name && out.target_steam_id) {
+            const targetName = this._resolveServerPlayerName(srv, out.target_steam_id);
+            if (targetName) out.target_name = targetName;
           }
           if (out.item) out.item = cleanActorName(out.item);
           if (out.actor && !out.actor_name) out.actor_name = cleanActorName(out.actor);
@@ -1765,9 +1790,8 @@ class WebMapServer {
         const topActors = srv.db.activityLog.topActors(7, 10) as { actor: string; count: number }[];
 
         // Resolve actor names
-        const idMap = srv.idMap;
         for (const a of topActors) {
-          a.actor = idMap[a.actor] ?? cleanActorName(a.actor);
+          a.actor = this._resolveServerPlayerName(srv, a.actor) ?? cleanActorName(a.actor);
         }
 
         // Date range
@@ -2318,7 +2342,7 @@ class WebMapServer {
         const resolveName = (sid: string) => {
           if (!sid) return null;
           if (nameCache[sid]) return nameCache[sid];
-          const name = srv.idMap[sid] || sid;
+          const name = this._resolveServerPlayerName(srv, sid) || sid;
           nameCache[sid] = name;
           return name;
         };
@@ -2560,8 +2584,9 @@ class WebMapServer {
         if (columns.includes('steam_id') || columns.includes('owner_steam_id')) {
           for (const row of rows) {
             const sid = (row.steam_id || row.owner_steam_id) as string;
-            if (sid && srv.idMap[sid] && !row.name && !row.actor_name && !row.player_name) {
-              row._resolved_name = srv.idMap[sid];
+            const resolvedName = this._resolveServerPlayerName(srv, sid);
+            if (sid && resolvedName && !row.name && !row.actor_name && !row.player_name) {
+              row._resolved_name = resolvedName;
             }
           }
         }

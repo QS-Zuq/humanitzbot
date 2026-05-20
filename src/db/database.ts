@@ -1275,6 +1275,17 @@ class HumanitZDB {
         this._log.info('Migration v14→v15: config_documents table');
       }
 
+      // v15 → v16: item tracker purge indexes for FK-safe retention cleanup
+      if (fromVersion < 16) {
+        this._handle.exec(`
+          CREATE INDEX IF NOT EXISTS idx_item_inst_lost_at ON item_instances(lost, lost_at);
+          CREATE INDEX IF NOT EXISTS idx_item_grp_lost_at ON item_groups(lost, lost_at);
+          CREATE INDEX IF NOT EXISTS idx_item_mov_instance ON item_movements(instance_id);
+          CREATE INDEX IF NOT EXISTS idx_item_mov_group ON item_movements(group_id);
+        `);
+        this._log.info('Migration v15→v16: item tracker purge indexes');
+      }
+
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._handle.exec('COMMIT');
       this._log.info(`Schema migrated to v${SCHEMA_VERSION}`);

@@ -503,9 +503,9 @@ const config = {
   savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL ?? '', 10) || 300000, 60000), // min 1 min
 
   // Agent mode — offloads save parsing to the game server for faster updates.
-  // 'auto' = try agent first, fall back to direct .sav download
-  // 'agent' = agent only (fail if unavailable)
-  // 'direct' = always download full .sav (no agent)
+  // 'auto' = agent/cache path only; fail loudly if the cache/idMap is unavailable
+  // 'agent' = agent/cache path only (same no-direct-fallback contract, explicit mode)
+  // 'direct' = diagnostic override: download full .sav and parse locally
   agentMode: (process.env.AGENT_MODE || 'auto').toLowerCase(),
   agentNodePath: process.env.AGENT_NODE_PATH || 'node', // path to Node.js on game server
   agentRemoteDir: process.env.AGENT_REMOTE_DIR || '', // where to upload agent (default: same dir as save)
@@ -522,8 +522,8 @@ const config = {
   agentPanelCommand: process.env.AGENT_PANEL_COMMAND || 'createHZSocket', // RCON/console command to trigger cache generation
   agentPanelDelay: Math.max(parseInt(process.env.AGENT_PANEL_DELAY ?? '', 10) || 3000, 500), // ms to wait after sending command before checking for cache
 
-  // Agent poll interval — used instead of SAVE_POLL_INTERVAL when agent mode is active.
-  // Agent downloads a ~200-500KB cache vs the full ~60MB .sav, so faster polling is safe.
+  // Agent poll interval — used instead of SAVE_POLL_INTERVAL when agent/cache mode is active.
+  // The agent cache avoids transferring the full .sav, but can still be several MB on live servers.
   // Default 90s, min 30s.  Set to 0 to use SAVE_POLL_INTERVAL for both modes.
   agentPollInterval: parseInt(process.env.AGENT_POLL_INTERVAL ?? '', 10) || 90000,
 

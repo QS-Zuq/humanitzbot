@@ -2,6 +2,18 @@ import type Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository.js';
 import { type DbRow, _json } from './db-utils.js';
 
+interface ItemTrackerPurgeOptions {
+  lostItemsAge?: string;
+  lostGroupsAge?: string;
+  movementsAge?: string;
+}
+
+interface ItemTrackerPurgeResult {
+  movementsDeleted: number;
+  itemsDeleted: number;
+  groupsDeleted: number;
+}
+
 export class ItemRepository extends BaseRepository {
   declare private _stmts: {
     // Item instances
@@ -85,9 +97,15 @@ export class ItemRepository extends BaseRepository {
       searchItemInstances: this._handle.prepare(
         'SELECT * FROM item_instances WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
       ),
-      purgeOldLostItems: this._handle.prepare(
-        "DELETE FROM item_instances WHERE lost = 1 AND lost_at < datetime('now', ?)",
-      ),
+      purgeOldLostItems: this._handle.prepare(`
+      DELETE FROM item_instances
+      WHERE lost = 1
+        AND lost_at < datetime('now', ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM item_movements
+          WHERE item_movements.instance_id = item_instances.id
+        )
+    `),
       getItemInstancesByGroup: this._handle.prepare('SELECT * FROM item_instances WHERE group_id = ? AND lost = 0'),
 
       // Item groups (fungible item tracking)
@@ -130,9 +148,15 @@ export class ItemRepository extends BaseRepository {
       searchItemGroups: this._handle.prepare(
         'SELECT * FROM item_groups WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
       ),
-      purgeOldLostGroups: this._handle.prepare(
-        "DELETE FROM item_groups WHERE lost = 1 AND lost_at < datetime('now', ?)",
-      ),
+      purgeOldLostGroups: this._handle.prepare(`
+      DELETE FROM item_groups
+      WHERE lost = 1
+        AND lost_at < datetime('now', ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM item_movements
+          WHERE item_movements.group_id = item_groups.id
+        )
+    `),
 
       // Item movements (chain-of-custody)
       insertItemMovement: this._handle.prepare(`
@@ -477,5 +501,27 @@ export class ItemRepository extends BaseRepository {
 
   purgeOldMovements(age = '-30 days') {
     return this._stmts.purgeOldMovements.run(age);
+  }
+
+  /**
+   * Purge item-tracker history in FK-safe order.
+   *
+   * Movement rows are the child audit records. Lost item/group parent rows are
+   * removed only after old movements are purged and only when no remaining
+   * movement still references them. This preserves SQLite FK integrity without
+   * rebuilding the large item_movements table.
+   */
+  purgeOldItemTrackerData(options: ItemTrackerPurgeOptions = {}): ItemTrackerPurgeResult {
+    const tx = this._handle.transaction(() => {
+      const movements = this.purgeOldMovements(options.movementsAge ?? '-30 days');
+      const items = this.purgeOldLostItems(options.lostItemsAge ?? '-7 days');
+      const groups = this.purgeOldLostGroups(options.lostGroupsAge ?? '-7 days');
+      return {
+        movementsDeleted: movements.changes,
+        itemsDeleted: items.changes,
+        groupsDeleted: groups.changes,
+      };
+    });
+    return tx();
   }
 }

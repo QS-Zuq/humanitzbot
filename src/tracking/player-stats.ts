@@ -1,17 +1,11 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import playtimeSingleton from './playtime-tracker.js';
 import type { PlaytimeTracker } from './playtime-tracker.js';
 import { classifyDamageLabel } from './damage-classifier.js';
 import type { HumanitZDB } from '../db/database.js';
 import { createLogger, type Logger } from '../utils/log.js';
-import { getDirname } from '../utils/paths.js';
 import { errMsg } from '../utils/error.js';
 
 type PlaytimeTrackerType = InstanceType<typeof PlaytimeTracker>;
-
-const __dirname = getDirname(import.meta.url);
-const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
 export interface NameHistoryEntry {
   name: string;
@@ -90,10 +84,8 @@ export interface PlayerStatsOptions {
 
 export class PlayerStats {
   private _data: TrackerData | null = null;
-  private _idMap: Map<string, string> | null = null; // Map<lowerName, steamId> from PlayerIDMapped.txt
   private _nameIndex: Map<string, string> = new Map(); // lowerName → id for O(1) lookups
   private _db: HumanitZDB | null;
-  private _dataDir: string;
   private _playtime: PlaytimeTrackerType;
   private _log: Logger;
   private _persistWarnLogged: boolean = false;
@@ -106,7 +98,6 @@ export class PlayerStats {
    */
   constructor(options: PlayerStatsOptions = {}) {
     this._db = options.db ?? null;
-    this._dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
     this._playtime = options.playtime ?? playtimeSingleton;
     this._log = createLogger(options.label, 'PLAYER STATS');
   }
@@ -116,7 +107,6 @@ export class PlayerStats {
     this._loadFromDb(); // load from DB
     if (!(this._data as TrackerData | null)) this._data = { players: {} }; // empty if DB has nothing yet
     this._buildNameIndex();
-    this._loadLocalIdMap(); // seed name→SteamID from cached PlayerIDMapped.txt
     const count = Object.keys(this._players()).length;
     this._log.info(`Loaded ${String(count)} player(s) from database`);
   }
@@ -146,10 +136,7 @@ export class PlayerStats {
   }
 
   loadIdMap(entries: IdMapEntry[]): void {
-    this._idMap = new Map();
     for (const { steamId, name } of entries) {
-      this._idMap.set(name.toLowerCase(), steamId);
-
       // Detect and log name changes for known players
       const record = this._data?.players[steamId];
       if (record) {
@@ -157,39 +144,20 @@ export class PlayerStats {
           const alreadyLogged = record.nameHistory.some((h) => h.name.toLowerCase() === record.name.toLowerCase());
           if (!alreadyLogged) {
             record.nameHistory.push({ name: record.name, until: new Date().toISOString() });
-            this._log.info(`Name change detected via ID map: "${record.name}" → "${name}" (${steamId})`);
+            this._log.info(`Name change detected via SQLite identity map: "${record.name}" → "${name}" (${steamId})`);
           }
           record.name = name;
         }
       }
     }
 
-    // Bulk-register in unified identity DB
+    // Bulk-register in unified identity DB. Runtime lookups read SQLite, not a local TXT/cache map.
     if (this._db) {
       try {
         this._db.player.importIdMap(entries);
       } catch (_) {
         /* non-critical */
       }
-    }
-  }
-
-  private _loadLocalIdMap(): void {
-    try {
-      const filePath = path.join(this._dataDir, 'PlayerIDMapped.txt');
-      if (!fs.existsSync(filePath)) return;
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const entries: IdMapEntry[] = [];
-      for (const line of raw.split(/\r?\n/)) {
-        const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (m) entries.push({ steamId: m[1] as string, name: m[2] as string });
-      }
-      if (entries.length) {
-        this.loadIdMap(entries);
-        this._log.info(`Loaded ${String(entries.length)} name(s) from cached PlayerIDMapped.txt`);
-      }
-    } catch (err) {
-      this._log.error('Failed to load cached ID map:', errMsg(err));
     }
   }
 
@@ -444,25 +412,7 @@ export class PlayerStats {
   }
 
   getNameForId(steamId: string): string {
-    // 1. Known player in stats DB
-    const record = this._data?.players[steamId];
-    if (record?.name && !record.name.startsWith('name:') && !/^\d{17}$/.test(record.name)) {
-      return record.name;
-    }
-    // 2. Reverse lookup from ID map
-    if (this._idMap) {
-      for (const [nameLower, id] of this._idMap) {
-        if (id === steamId) return nameLower.charAt(0).toUpperCase() + nameLower.slice(1); // rough title-case
-      }
-    }
-    // 3. Playtime tracker
-    try {
-      const pt = this._playtime.getPlaytime(steamId);
-      if (pt?.name && !/^\d{17}$/.test(pt.name)) return pt.name;
-    } catch (_) {
-      /* non-critical */
-    }
-    // 4. Unified identity DB
+    // 1. Unified identity DB
     if (this._db) {
       try {
         const name = this._db.player.resolveSteamIdToName(steamId);
@@ -471,17 +421,34 @@ export class PlayerStats {
         /* non-critical */
       }
     }
+    // 2. Known player in stats DB
+    const record = this._data?.players[steamId];
+    if (record?.name && !record.name.startsWith('name:') && !/^\d{17}$/.test(record.name)) {
+      return record.name;
+    }
+    // 3. Playtime tracker
+    try {
+      const pt = this._playtime.getPlaytime(steamId);
+      if (pt?.name && !/^\d{17}$/.test(pt.name)) return pt.name;
+    } catch (_) {
+      /* non-critical */
+    }
     return steamId;
   }
 
   getIdMap(): Map<string, string> | null {
-    return this._idMap;
+    return null;
   }
 
   /** Look up a SteamID64 by player name (case-insensitive). */
   getSteamId(name: string): string | null {
-    if (!this._idMap || !name) return null;
-    return this._idMap.get(name.toLowerCase()) ?? null;
+    if (!name || !this._db) return null;
+    try {
+      const resolved = this._db.player.resolveNameToSteamId(name);
+      return resolved && /^\d{17}$/.test(String(resolved.steamId)) ? String(resolved.steamId) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   getAllPlayers(): PlayerStatEntry[] {
@@ -554,15 +521,19 @@ export class PlayerStats {
     const nameLower = name.toLowerCase();
     const players = this._players();
 
-    // 0. Check the authoritative ID map (from PlayerIDMapped.txt)
-    if (this._idMap) {
-      const steamId = this._idMap.get(nameLower);
-      if (steamId) {
-        return this._getOrCreate(steamId, name);
+    // 1. Cross-reference unified identity DB before local name-only records.
+    if (this._db) {
+      try {
+        const resolved = this._db.player.resolveNameToSteamId(name);
+        if (resolved && /^\d{17}$/.test(String(resolved.steamId))) {
+          return this._getOrCreate(String(resolved.steamId), name);
+        }
+      } catch (_) {
+        /* non-critical */
       }
     }
 
-    // 1. O(1) lookup via name index
+    // 2. O(1) lookup via name index
     const indexedId = this._nameIndex.get(nameLower);
     const indexedRecord = indexedId ? players[indexedId] : undefined;
     if (indexedId && indexedRecord) {
@@ -577,7 +548,7 @@ export class PlayerStats {
       return indexedRecord;
     }
 
-    // 2. Search name history (old names) across all records
+    // 3. Search name history (old names) across all records
     for (const [id, record] of Object.entries(players)) {
       if (id.startsWith('name:')) continue;
       if (record.nameHistory.some((h) => h.name.toLowerCase() === nameLower)) {
@@ -585,22 +556,10 @@ export class PlayerStats {
       }
     }
 
-    // 3. Cross-reference playtime tracker to resolve name → SteamID
+    // 4. Cross-reference playtime tracker to resolve name → SteamID
     const steamId = this._resolveNameToSteamId(nameLower);
     if (steamId) {
       return this._getOrCreate(steamId, name);
-    }
-
-    // 4. Cross-reference unified identity DB
-    if (this._db) {
-      try {
-        const resolved = this._db.player.resolveNameToSteamId(name);
-        if (resolved && /^\d{17}$/.test(String(resolved.steamId))) {
-          return this._getOrCreate(String(resolved.steamId), name);
-        }
-      } catch (_) {
-        /* non-critical */
-      }
     }
 
     // 5. Fallback: create with name as key
@@ -613,6 +572,15 @@ export class PlayerStats {
   }
 
   private _resolveNameToSteamId(nameLower: string): string | null {
+    if (this._db) {
+      try {
+        const resolved = this._db.player.resolveNameToSteamId(nameLower);
+        if (resolved && /^\d{17}$/.test(String(resolved.steamId))) return String(resolved.steamId);
+      } catch (_) {
+        /* non-critical */
+      }
+    }
+
     try {
       const leaderboard = this._playtime.getLeaderboard();
       for (const entry of leaderboard) {

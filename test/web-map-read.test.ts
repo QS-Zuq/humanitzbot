@@ -53,7 +53,7 @@ function makeSrv(overrides: Record<string, unknown> = {}) {
     config: { botTimezone: 'UTC', serverName: 'Test' },
     playerStats: { getStats: () => null, getStatsByName: () => null },
     playtime: { getPlaytime: () => null },
-    idMap: {},
+    playerNameMap: {},
     dataDir: '/tmp/hmztest',
     getPlayerList: async () => ({ players: [] }),
     getServerInfo: async () => null,
@@ -94,9 +94,18 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
   merged.player = {
     countAllPlayers: () => 0,
     listAllPlayerNames: () => [],
+    listAllPlayerDisplayNames: () => [],
     listNamedPlayers: () => [],
+    resolveSteamIdToName: (steamId: string) => steamId,
+    resolveNameToSteamId: () => null,
     ...((overrides.player || {}) as Record<string, unknown>),
   };
+  if (!('listAllPlayerDisplayNames' in ((overrides.player || {}) as Record<string, unknown>))) {
+    merged.player.listAllPlayerDisplayNames = () =>
+      merged.player
+        .listAllPlayerNames()
+        .map((row: { steam_id: string; name: string }) => ({ ...row, display_name: row.name }));
+  }
   merged.activityLog = {
     getRecentActivity: merged.getRecentActivity,
     getActivityByCategory: merged.getActivityByCategory,
@@ -198,7 +207,6 @@ describe('Web Map Read Endpoints', () => {
     server._responseCache.clear();
     server._playerCache = new Map();
     server._lastParse = 0;
-    server._idMap = {};
     // Restore any instance-level overrides back to prototype
     delete server._parseSaveData;
     delete server._buildLandingData;
@@ -215,7 +223,7 @@ describe('Web Map Read Endpoints', () => {
 
       const handler = GET('/api/players');
       const res = mockRes();
-      await handler({ srv: makeSrv({ idMap: { '76561198000000001': 'Alice' } }), query: {} }, res);
+      await handler({ srv: makeSrv({ playerNameMap: { '76561198000000001': 'Alice' } }), query: {} }, res);
 
       assert.ok(res.body);
       assert.ok(Array.isArray((res.body as Record<string, unknown>).players));
@@ -241,6 +249,77 @@ describe('Web Map Read Endpoints', () => {
       assert.ok(res.body);
       assert.deepEqual((res.body as Record<string, unknown>).players, []);
     });
+
+    it('uses SQLite player names when save data has no player name', async () => {
+      const steamId = '76561198000000002';
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Db Alice' }],
+        },
+      });
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler({ srv: makeSrv({ db, playerNameMap: { [steamId]: 'Db Alice' } }), query: {} }, res);
+
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      assert.equal(players[0]?.name, 'Db Alice');
+    });
+
+    it('loads SQLite display names without per-player alias lookups', async () => {
+      const steamId = '76561198000000005';
+      let displayListCalls = 0;
+      let resolveCalls = 0;
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerDisplayNames: () => {
+            displayListCalls++;
+            return [{ steam_id: steamId, name: 'Old Db Name', display_name: 'Alias Alice' }];
+          },
+          resolveSteamIdToName: () => {
+            resolveCalls++;
+            return 'Alias Alice';
+          },
+        },
+      });
+
+      const map = server._loadDbPlayerNameMap(db);
+
+      assert.equal(map[steamId], 'Alias Alice');
+      assert.equal(displayListCalls, 1);
+      assert.equal(resolveCalls, 0);
+    });
+
+    it('uses live RCON names for online players before SQLite names', async () => {
+      const steamId = '76561198000000003';
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Old Db Alice' }],
+        },
+      });
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler(
+        {
+          srv: makeSrv({
+            db,
+            getPlayerList: async () => ({ players: [{ steamId, name: 'Live Alice' }] }),
+          }),
+          query: {},
+        },
+        res,
+      );
+
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      const p0 = players[0];
+      assert.ok(p0, 'should have first player');
+      assert.equal(p0.name, 'Live Alice');
+      assert.equal(p0.isOnline, true);
+    });
   });
 
   // ── GET /api/players/:steamId ────────────────────────────
@@ -254,7 +333,7 @@ describe('Web Map Read Endpoints', () => {
       const res = mockRes();
       handler(
         {
-          srv: makeSrv({ idMap: { '76561198000000001': 'Bob' } }),
+          srv: makeSrv({ playerNameMap: { '76561198000000001': 'Bob' } }),
           params: { steamId: '76561198000000001' },
           query: {},
         },
@@ -277,6 +356,24 @@ describe('Web Map Read Endpoints', () => {
 
       assert.equal(res.statusCode, 404);
       assert.equal((res.body as Record<string, unknown>).code, 'PLAYER_NOT_FOUND');
+    });
+
+    it('uses SQLite player names for player detail when save data has no name', () => {
+      const steamId = '76561198000000004';
+      server._playerCache = new Map([[steamId, { x: 500, y: -1000, z: 10, male: false }]]);
+      server._lastParse = Date.now();
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Db Bob' }],
+        },
+      });
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db, playerNameMap: { [steamId]: 'Db Bob' } }), params: { steamId }, query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).steamId, steamId);
+      assert.equal((res.body as Record<string, unknown>).name, 'Db Bob');
     });
   });
 

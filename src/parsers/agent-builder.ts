@@ -68,12 +68,13 @@ const AGENT_CLI = `
 const CACHE_FILENAME = 'humanitz-cache.json';
 const SAVE_FILENAME = 'Save_DedicatedSaveMP.sav';
 const CLAN_FILENAME = 'Save_ClanData.sav';
+const ID_MAP_FILENAME = 'PlayerIDMapped.txt';
 
 // ── Argument parsing ──
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { save: '', output: '', watch: false, interval: 30, help: false, discover: false, pretty: false };
+  const opts = { save: '', output: '', idMap: '', watch: false, interval: 30, help: false, discover: false, pretty: false };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -83,6 +84,7 @@ function parseArgs() {
     else if (arg === '--discover') opts.discover = true;
     else if ((arg === '--save' || arg === '-s') && args[i + 1]) opts.save = args[++i];
     else if ((arg === '--output' || arg === '-o') && args[i + 1]) opts.output = args[++i];
+    else if (arg === '--id-map' && args[i + 1]) opts.idMap = args[++i];
     else if ((arg === '--interval' || arg === '-i') && args[i + 1]) opts.interval = parseInt(args[++i], 10) || 30;
     else if (!arg.startsWith('-')) opts.save = arg;  // positional = save path
   }
@@ -99,6 +101,7 @@ Usage: node humanitz-agent.js [options] [save-path]
 Options:
   --save, -s <path>      Path to Save_DedicatedSaveMP.sav
   --output, -o <path>    Output path for cache JSON
+  --id-map <path>        Path to PlayerIDMapped.txt
   --watch, -w            Watch mode: re-parse when save changes
   --interval, -i <sec>   Poll interval in seconds (default: 30)
   --pretty, -p           Pretty-print JSON output (human-readable)
@@ -108,6 +111,76 @@ Options:
 If no save path is given, searches current directory and common locations.
 Output defaults to humanitz-cache.json next to the save file.
 \`);
+}
+
+function parseIdMapText(text) {
+  const idMap = {};
+  let count = 0;
+  for (const line of text.split(/\\r?\\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(\\d{17})_\\+_\\|[^@]+@(.+)$/);
+    if (!match) continue;
+    const steamId = match[1];
+    const name = match[2].trim();
+    if (!name) continue;
+    idMap[steamId] = name;
+    count++;
+  }
+  return { idMap, count };
+}
+
+function findIdMapPath(savePath, explicitPath) {
+  if (explicitPath) {
+    try {
+      if (_fs.existsSync(explicitPath)) return explicitPath;
+    } catch { /* skip */ }
+    return '';
+  }
+
+  const candidates = [];
+  const seen = new Set();
+  function addCandidate(p) {
+    if (!p || seen.has(p)) return;
+    seen.add(p);
+    candidates.push(p);
+  }
+
+  let dir = _path.dirname(savePath);
+  for (let depth = 0; depth < 8; depth++) {
+    addCandidate(_path.join(dir, ID_MAP_FILENAME));
+    const parent = _path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  addCandidate(_path.join(process.cwd(), ID_MAP_FILENAME));
+
+  for (const p of candidates) {
+    try {
+      if (_fs.existsSync(p)) return p;
+    } catch { /* skip */ }
+  }
+  return '';
+}
+
+function readIdMap(savePath, explicitPath) {
+  const idMapPath = findIdMapPath(savePath, explicitPath);
+  if (!idMapPath) return { path: '', mtime: null, idMap: {}, count: 0 };
+
+  try {
+    const text = _fs.readFileSync(idMapPath, 'utf8');
+    const parsed = parseIdMapText(text);
+    const stat = _fs.statSync(idMapPath);
+    return {
+      path: idMapPath,
+      mtime: stat.mtimeMs,
+      idMap: parsed.idMap,
+      count: parsed.count,
+    };
+  } catch (err) {
+    console.error('[Agent] PlayerIDMapped parse warning:', err.message);
+    return { path: idMapPath, mtime: null, idMap: {}, count: 0 };
+  }
 }
 
 // ── Auto-discovery ──
@@ -153,11 +226,12 @@ function _deepSearch(dir, target, depth, maxDepth) {
 
 // ── Parse and write cache ──
 
-function parseAndWrite(savePath, outputPath, pretty) {
+function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
   const startTime = Date.now();
 
   const buf = _fs.readFileSync(savePath);
   const result = parseSave(buf);
+  const idMapInfo = readIdMap(savePath, idMapPath);
 
   // Convert players Map to plain object for JSON serialisation
   const playersObj = {};
@@ -181,6 +255,10 @@ function parseAndWrite(savePath, outputPath, pretty) {
     v: ${String(AGENT_VERSION)},
     ts: new Date().toISOString(),
     mtime: _fs.statSync(savePath).mtimeMs,
+    idMap: idMapInfo.idMap,
+    idMapCount: idMapInfo.count,
+    idMapPath: idMapInfo.path,
+    idMapMtime: idMapInfo.mtime,
     players: playersObj,
     worldState: result.worldState,
     structures: result.structures,
@@ -206,9 +284,11 @@ function parseAndWrite(savePath, outputPath, pretty) {
   const sizeMB = (json.length / 1024 / 1024).toFixed(2);
   const playerCount = Object.keys(playersObj).length;
   const clanInfo = clans.length ? ', ' + clans.length + ' clans' : '';
+  const idMapInfoText = idMapInfo.count ? ', ' + idMapInfo.count + ' names' : '';
   console.log('[Agent] Parsed ' + playerCount + ' players, '
     + result.structures.length + ' structures, '
     + result.vehicles.length + ' vehicles'
+    + idMapInfoText
     + clanInfo + ' → '
     + sizeMB + 'MB cache (' + elapsed + 'ms)');
 
@@ -217,7 +297,7 @@ function parseAndWrite(savePath, outputPath, pretty) {
 
 // ── Watch mode ──
 
-function watchMode(savePath, outputPath, intervalSec, pretty) {
+function watchMode(savePath, outputPath, intervalSec, pretty, idMapPath) {
   let lastMtime = 0;
 
   function check() {
@@ -225,7 +305,7 @@ function watchMode(savePath, outputPath, intervalSec, pretty) {
       const stat = _fs.statSync(savePath);
       if (stat.mtimeMs !== lastMtime) {
         lastMtime = stat.mtimeMs;
-        parseAndWrite(savePath, outputPath, pretty);
+        parseAndWrite(savePath, outputPath, pretty, idMapPath);
       }
     } catch (err) {
       console.error('[Agent] Error:', err.message);
@@ -268,9 +348,9 @@ function main() {
   const outputPath = opts.output || _path.join(_path.dirname(savePath), CACHE_FILENAME);
 
   if (opts.watch) {
-    watchMode(savePath, outputPath, opts.interval, opts.pretty);
+    watchMode(savePath, outputPath, opts.interval, opts.pretty, opts.idMap);
   } else {
-    parseAndWrite(savePath, outputPath, opts.pretty);
+    parseAndWrite(savePath, outputPath, opts.pretty, opts.idMap);
   }
 }
 

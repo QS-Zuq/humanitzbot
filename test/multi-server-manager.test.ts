@@ -543,9 +543,14 @@ describe('createServerConfig()', () => {
     assert.equal(cfg.panelApiKey, 'test-api-key-not-real');
   });
 
-  it('defaults agentMode to direct when not specified', () => {
+  it('defaults agentMode to auto when not specified', () => {
     const cfg = createServerConfig({});
-    assert.equal(cfg.agentMode, 'direct');
+    assert.equal(cfg.agentMode, 'auto');
+  });
+
+  it('keeps explicit agentMode overrides, including direct diagnostics', () => {
+    assert.equal(createServerConfig({ agentMode: 'direct' }).agentMode, 'direct');
+    assert.equal(createServerConfig({ agentMode: 'agent' }).agentMode, 'agent');
   });
 
   it('breaks prototype chain for restart settings', () => {

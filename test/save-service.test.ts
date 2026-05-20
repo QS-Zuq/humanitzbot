@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import SaveService from '../src/parsers/save-service.js';
 import { SaveSyncPipeline, type SaveSyncPipelineDeps } from '../src/parsers/save-sync-pipeline.js';
@@ -43,6 +46,7 @@ function makeDb(overrides: AnyRecord = {}) {
   const syncPayloads: AnyRecord[] = [];
   const metaWrites: AnyRecord[] = [];
   const insertedActivities: AnyRecord[][] = [];
+  const importedIdMap: AnyRecord[] = [];
   const calls: string[] = [];
   let nextItemId = 1;
   let nextGroupId = 1;
@@ -51,6 +55,7 @@ function makeDb(overrides: AnyRecord = {}) {
     syncPayloads,
     metaWrites,
     insertedActivities,
+    importedIdMap,
     calls,
     syncAllFromSave(payload: AnyRecord) {
       syncPayloads.push(payload);
@@ -103,6 +108,12 @@ function makeDb(overrides: AnyRecord = {}) {
       purgeOldMovements(age: string) {
         calls.push(`purgeOldMovements:${age}`);
       },
+      purgeOldItemTrackerData(opts: AnyRecord = {}) {
+        calls.push(
+          `purgeOldItemTrackerData:${opts.lostItemsAge ?? ''}:${opts.lostGroupsAge ?? ''}:${opts.movementsAge ?? ''}`,
+        );
+        return { movementsDeleted: 0, itemsDeleted: 0, groupsDeleted: 0 };
+      },
     },
     worldObject: {
       getAllContainers() {
@@ -126,6 +137,9 @@ function makeDb(overrides: AnyRecord = {}) {
     player: {
       getOnlinePlayersForDiff() {
         return [];
+      },
+      importIdMap(entries: AnyRecord[]) {
+        importedIdMap.push(...entries);
       },
     },
     ...overrides,
@@ -220,6 +234,55 @@ describe('SaveService _parseCache', () => {
     assert.equal(second.players.steam2.name, 'B');
     assert.equal(svc._lastCacheMtime, 456);
   });
+
+  it('marks the agent/cache path capable after reading cache with idMap', () => {
+    const svc = makeService();
+
+    const result = svc._parseCache(
+      JSON.stringify(
+        makeCache({
+          idMap: { '76561198000000001': 'Mapped Alice' },
+          players: { '76561198000000001': { name: '' } },
+        }),
+      ),
+      456,
+    );
+
+    assert.equal(result.idMap['76561198000000001'], 'Mapped Alice');
+    assert.equal(svc.stats.agentCapable, true);
+  });
+});
+
+describe('SaveService agent availability', () => {
+  it('checks Node.js directly instead of requiring a pre-deployed check-node script', async () => {
+    const svc = makeService(undefined, {
+      agentNodePath: '/opt/node/bin/node',
+      savePath: '/srv/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
+    });
+    const commands: string[] = [];
+    svc._resolvePaths();
+    svc._sshExec = async (command: string) => {
+      commands.push(command);
+      return { code: 0, stdout: 'v22.12.0\n', stderr: '' };
+    };
+
+    const result = await svc.checkNodeAvailable();
+
+    assert.equal(result, true);
+    assert.equal(svc._agentCapable, true);
+    assert.deepEqual(commands, ["'/opt/node/bin/node' --version"]);
+  });
+
+  it('records a node-check failure when the direct Node.js probe fails', async () => {
+    const svc = makeService(undefined, { agentNodePath: 'node' });
+    svc._sshExec = async () => ({ code: 127, stdout: '', stderr: 'node: command not found' });
+
+    const result = await svc.checkNodeAvailable();
+
+    assert.equal(result, false);
+    assert.equal(svc._agentCapable, false);
+    assert.match(svc._lastError, /^node-check-failed:/);
+  });
 });
 
 describe('SaveSyncPipeline syncFromCache', () => {
@@ -298,6 +361,133 @@ describe('SaveSyncPipeline syncFromCache', () => {
     pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(activityPurgeCount(), 2);
   });
+
+  it('uses the consolidated FK-safe item tracker purge only on maintenance sync intervals', () => {
+    const db = makeDb();
+    const pipelineHarness = makePipeline(db);
+    const itemPurgeCount = () =>
+      db.calls.filter((call: string) => call === 'purgeOldItemTrackerData:-7 days:-7 days:-30 days').length;
+
+    pipelineHarness.setSyncCount(1);
+    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    assert.equal(itemPurgeCount(), 0);
+
+    pipelineHarness.setSyncCount(100);
+    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    assert.equal(itemPurgeCount(), 1);
+    assert.equal(
+      db.calls.some((call: string) => call.startsWith('purgeOldLostItems:')),
+      false,
+    );
+    assert.equal(
+      db.calls.some((call: string) => call.startsWith('purgeOldLostGroups:')),
+      false,
+    );
+    assert.equal(
+      db.calls.some((call: string) => call.startsWith('purgeOldMovements:')),
+      false,
+    );
+  });
+
+  it('logs sync phase timings', () => {
+    const db = makeDb();
+    const logs: string[] = [];
+    const { pipeline } = makePipeline(db, {
+      log: {
+        label: 'SaveSyncPipelineTest',
+        info(...args: unknown[]) {
+          logs.push(args.map(String).join(' '));
+        },
+        warn() {},
+        error() {},
+      },
+    });
+
+    pipeline.syncParsedData(makeParsedSave(), []);
+
+    const phaseLog = logs.find((line) => line.includes('Sync phases:'));
+    assert.ok(phaseLog);
+    for (const key of ['prep=', 'db=', 'items=', 'itemPurge=', 'activity=', 'meta=', 'cacheWrite=', 'total=']) {
+      assert.match(phaseLog, new RegExp(key));
+    }
+  });
+
+  it('does not purge item tracker data when item reconciliation fails', () => {
+    const baseDb = makeDb();
+    const db = makeDb({
+      item: {
+        ...baseDb.item,
+        getActiveItemInstances() {
+          throw new Error('item tracker failed');
+        },
+        purgeOldItemTrackerData() {
+          throw new Error('purge should not run');
+        },
+      },
+    });
+    const logs: string[] = [];
+    const pipelineHarness = makePipeline(db, {
+      log: {
+        label: 'SaveSyncPipelineTest',
+        info() {},
+        warn(...args: unknown[]) {
+          logs.push(args.map(String).join(' '));
+        },
+        error() {},
+      },
+    });
+
+    pipelineHarness.setSyncCount(100);
+    const result = pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+
+    assert.equal(result.itemTracking, null);
+    assert.equal(
+      logs.some((line) => line.includes('Item tracker reconcile error (non-fatal):')),
+      true,
+    );
+    assert.equal(
+      logs.some((line) => line.includes('Item tracker purge error (non-fatal):')),
+      false,
+    );
+  });
+
+  it('keeps item stats when maintenance purge fails', () => {
+    const baseDb = makeDb();
+    const db = makeDb({
+      item: {
+        ...baseDb.item,
+        purgeOldItemTrackerData() {
+          throw new Error('FOREIGN KEY constraint failed');
+        },
+      },
+    });
+    const logs: string[] = [];
+    const pipelineHarness = makePipeline(db, {
+      log: {
+        label: 'SaveSyncPipelineTest',
+        info() {},
+        warn(...args: unknown[]) {
+          logs.push(args.map(String).join(' '));
+        },
+        error() {},
+      },
+    });
+    pipelineHarness.setSyncCount(100);
+
+    const result = pipelineHarness.pipeline.syncParsedData(
+      makeParsedSave({
+        players: new Map([['steam1', { inventory: [{ item: 'Rifle', amount: 1 }], equipment: [] }]]),
+      }),
+      [],
+    );
+
+    assert.ok(result.itemTracking);
+    assert.equal(result.itemTracking.created, 1);
+    assert.equal(
+      logs.some((line) => line.includes('Item tracker purge error (non-fatal):')),
+      true,
+    );
+  });
 });
 
 describe('SaveService _syncFromCache', () => {
@@ -317,19 +507,43 @@ describe('SaveService _syncFromCache', () => {
     assert.deepEqual(result.steamIds, ['steam1']);
     assert.equal(db.metaWrites.find((entry: AnyRecord) => entry.key === 'last_save_players')?.value, '1');
   });
+
+  it('applies agent cache idMap before syncing player names', async () => {
+    const steamId = '76561198000000001';
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'humanitzbot-idmap-'));
+    const db = makeDb();
+    const svc = makeService(db, { dataDir });
+
+    try {
+      await svc._syncFromCache(
+        makeCache({
+          idMap: { [steamId]: 'Mapped Alice' },
+          players: { [steamId]: { name: '', inventory: [] } },
+        }),
+      );
+
+      assert.equal(db.syncPayloads[0].players.get(steamId).name, 'Mapped Alice');
+      assert.deepEqual(db.importedIdMap, [{ steamId, name: 'Mapped Alice' }]);
+      assert.equal(svc._idMap[steamId], 'Mapped Alice');
+      assert.equal(fs.existsSync(path.join(dataDir, 'data', 'logs', 'PlayerIDMapped.txt')), false);
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('SaveService _syncParsedData', () => {
   it('applies idMap names before syncing and emitting the result', () => {
+    const steamId = '76561198000000001';
     const db = makeDb();
-    const svc = makeService(db, { idMap: { steam1: 'Mapped Alice' } });
+    const svc = makeService(db, { idMap: { [steamId]: 'Mapped Alice' } });
     const getSync = captureSync(svc);
-    const players = new Map([['steam1', { name: 'Old Alice', inventory: [] }]]);
+    const players = new Map([[steamId, { name: 'Old Alice', inventory: [] }]]);
 
     const result = svc._syncParsedData(makeParsedSave({ players }), [{ name: 'Clan' }]);
 
-    assert.equal(db.syncPayloads[0].players.get('steam1').name, 'Mapped Alice');
-    assert.equal(result.parsed.players.get('steam1').name, 'Mapped Alice');
+    assert.equal(db.syncPayloads[0].players.get(steamId).name, 'Mapped Alice');
+    assert.equal(result.parsed.players.get(steamId).name, 'Mapped Alice');
     assert.equal(getSync()?.clanCount, 1);
   });
 
@@ -589,7 +803,7 @@ describe('SaveService _poll', () => {
     assert.equal(svc._syncing, true);
   });
 
-  it('falls back to direct mode when auto agent polling is unavailable', async () => {
+  it('does not fall back to direct mode when auto agent polling is unavailable', async () => {
     const svc = makeService(undefined, { agentMode: 'auto' });
     let directForce: boolean | null = null;
     svc._pollAgent = async () => false;
@@ -599,8 +813,159 @@ describe('SaveService _poll', () => {
 
     await svc._poll(true);
 
-    assert.equal(directForce, true);
-    assert.equal(svc._mode, 'direct');
+    assert.equal(directForce, null);
+    assert.notEqual(svc._mode, 'direct');
     assert.equal(svc._syncing, false);
+    assert.match(svc.stats.lastError as string, /^agent-unavailable:/);
+  });
+
+  it('still allows explicit direct mode as a diagnostic path', async () => {
+    const svc = makeService(undefined, { agentMode: 'direct' });
+    let directForce: boolean | null = null;
+    svc._pollAgent = async () => {
+      throw new Error('agent should not run');
+    };
+    svc._pollDirect = async (force: boolean) => {
+      directForce = force;
+    };
+
+    await svc._poll(true);
+
+    assert.equal(directForce, true);
+    assert.equal(svc._syncing, false);
+  });
+});
+
+describe('SaveService _pollAgent', () => {
+  it('refreshes startup cache that lacks idMap before syncing', async () => {
+    const svc = makeService();
+    const oldCache = makeCache({ players: { steam1: { name: 'Steam Only' } } });
+    const freshCache = makeCache({
+      idMap: { '76561198000000001': 'Mapped Alice' },
+      players: { '76561198000000001': { name: '' } },
+    });
+    const reads: boolean[] = [];
+    const synced: AnyRecord[] = [];
+    let triggered = false;
+    svc._readCacheFromSftp = async (force: boolean) => {
+      reads.push(force);
+      return reads.length === 1 ? oldCache : freshCache;
+    };
+    svc._resolveTrigger = async () => 'rcon';
+    svc._triggerViaRcon = async () => {
+      triggered = true;
+    };
+    svc._syncFromCache = async (cache: AnyRecord) => {
+      synced.push(cache);
+    };
+
+    const result = await svc._pollAgent(false);
+
+    assert.equal(result, true);
+    assert.equal(triggered, true);
+    assert.deepEqual(reads, [false, true]);
+    assert.deepEqual(synced, [freshCache]);
+  });
+
+  it('fails when an existing cache lacks idMap and no trigger can refresh it', async () => {
+    const svc = makeService();
+    const oldCache = makeCache({ players: { steam1: { name: 'Steam Only' } } });
+    const synced: AnyRecord[] = [];
+    svc._readCacheFromSftp = async () => oldCache;
+    svc._resolveTrigger = async () => 'none';
+    svc._syncFromCache = async (cache: AnyRecord) => {
+      synced.push(cache);
+    };
+
+    const result = await svc._pollAgent(true);
+
+    assert.equal(result, false);
+    assert.deepEqual(synced, []);
+    assert.match(svc.stats.lastError as string, /^agent-cache-missing-idmap:/);
+  });
+
+  it('fails when a refreshed cache still lacks idMap', async () => {
+    const svc = makeService();
+    const oldCache = makeCache({ players: { steam1: { name: 'Steam Only' } } });
+    const freshCache = makeCache({ players: { steam1: { name: 'Steam Only' } } });
+    const synced: AnyRecord[] = [];
+    let triggered = false;
+    svc._readCacheFromSftp = async (force: boolean) => (force ? freshCache : oldCache);
+    svc._resolveTrigger = async () => 'rcon';
+    svc._triggerViaRcon = async () => {
+      triggered = true;
+    };
+    svc._syncFromCache = async (cache: AnyRecord) => {
+      synced.push(cache);
+    };
+
+    const result = await svc._pollAgent(false);
+
+    assert.equal(result, false);
+    assert.equal(triggered, true);
+    assert.deepEqual(synced, []);
+    assert.match(svc.stats.lastError as string, /^agent-cache-missing-idmap:/);
+  });
+
+  it('fails loudly when no agent trigger is usable', async () => {
+    const svc = makeService();
+    svc._readCacheFromSftp = async () => null;
+    svc._resolveTrigger = async () => 'none';
+
+    const result = await svc._pollAgent(true);
+
+    assert.equal(result, false);
+    assert.match(svc.stats.lastError as string, /^agent-unavailable:/);
+  });
+
+  it('records deployment failures separately from execute failures', async () => {
+    const svc = makeService();
+    svc._readCacheFromSftp = async () => null;
+    svc._resolveTrigger = async () => 'ssh';
+    svc.deployAgent = async () => {
+      throw new Error('disk full');
+    };
+
+    const result = await svc._pollAgent(true);
+
+    assert.equal(result, false);
+    assert.match(svc.stats.lastError as string, /^agent-deploy-failed:/);
+  });
+
+  it('records execute failures after an agent has been deployed', async () => {
+    const svc = makeService();
+    svc._agentDeployed = true;
+    svc._readCacheFromSftp = async () => null;
+    svc._resolveTrigger = async () => 'ssh';
+    svc.executeAgent = async () => {
+      throw new Error('permission denied');
+    };
+
+    const result = await svc._pollAgent(true);
+
+    assert.equal(result, false);
+    assert.match(svc.stats.lastError as string, /^agent-execute-failed:/);
+  });
+
+  it('records cache-missing when a trigger runs but does not produce cache', async () => {
+    const svc = makeService();
+    const reads: boolean[] = [];
+    let triggered = false;
+    svc._cachePath = '/srv/save/humanitz-cache.json';
+    svc._readCacheFromSftp = async (force: boolean) => {
+      reads.push(force);
+      return null;
+    };
+    svc._resolveTrigger = async () => 'rcon';
+    svc._triggerViaRcon = async () => {
+      triggered = true;
+    };
+
+    const result = await svc._pollAgent(false);
+
+    assert.equal(result, false);
+    assert.equal(triggered, true);
+    assert.deepEqual(reads, [false, true]);
+    assert.match(svc.stats.lastError as string, /^agent-cache-missing:/);
   });
 });

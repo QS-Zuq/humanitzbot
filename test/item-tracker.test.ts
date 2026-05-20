@@ -9,6 +9,23 @@ const { reconcileItems } = _item_tracker as any;
 
 let db: any;
 
+function countRows(table: string, where = '1=1', params: unknown[] = []) {
+  return (db.db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where}`).get(...params) as { count: number })
+    .count;
+}
+
+function markInstanceLostAt(instanceId: number, age = '-8 days') {
+  db.db.prepare("UPDATE item_instances SET lost = 1, lost_at = datetime('now', ?) WHERE id = ?").run(age, instanceId);
+}
+
+function markGroupLostAt(groupId: number, age = '-8 days') {
+  db.db.prepare("UPDATE item_groups SET lost = 1, lost_at = datetime('now', ?) WHERE id = ?").run(age, groupId);
+}
+
+function ageAllMovements(age: string) {
+  db.db.prepare("UPDATE item_movements SET created_at = datetime('now', ?)").run(age);
+}
+
 describe('Item Tracker', () => {
   beforeEach(() => {
     if (db) {
@@ -1084,6 +1101,162 @@ describe('Item Tracker', () => {
 
       const groups = db.item.getItemGroupsByLocation('container', 'Chest_1');
       assert.equal(groups.length, 2);
+    });
+  });
+
+  describe('maintenance purge', () => {
+    it('preserves old lost item instances while recent movements still reference them', () => {
+      const itemId = Number(
+        db.item.createItemInstance({
+          fingerprint: 'fp-recent-item',
+          item: 'Rifle',
+          locationType: 'player',
+          locationId: 'steam1',
+          locationSlot: 'inventory',
+          amount: 1,
+        }),
+      );
+      db.item.moveItemInstance(
+        itemId,
+        { locationType: 'container', locationId: 'crate1', locationSlot: 'items', amount: 1 },
+        null,
+      );
+      markInstanceLostAt(itemId);
+
+      const result = db.item.purgeOldItemTrackerData({
+        lostItemsAge: '-7 days',
+        lostGroupsAge: '-7 days',
+        movementsAge: '-30 days',
+      });
+
+      assert.equal(result.movementsDeleted, 0);
+      assert.equal(result.itemsDeleted, 0);
+      assert.equal(countRows('item_instances', 'id = ?', [itemId]), 1);
+      assert.equal(countRows('item_movements', 'instance_id = ?', [itemId]), 1);
+    });
+
+    it('purges old movements before old lost item instances', () => {
+      const itemId = Number(
+        db.item.createItemInstance({
+          fingerprint: 'fp-old-item',
+          item: 'Pistol',
+          locationType: 'player',
+          locationId: 'steam1',
+          locationSlot: 'inventory',
+          amount: 1,
+        }),
+      );
+      db.item.moveItemInstance(
+        itemId,
+        { locationType: 'container', locationId: 'crate1', locationSlot: 'items', amount: 1 },
+        null,
+      );
+      ageAllMovements('-31 days');
+      markInstanceLostAt(itemId);
+
+      const result = db.item.purgeOldItemTrackerData({
+        lostItemsAge: '-7 days',
+        lostGroupsAge: '-7 days',
+        movementsAge: '-30 days',
+      });
+
+      assert.equal(result.movementsDeleted, 1);
+      assert.equal(result.itemsDeleted, 1);
+      assert.equal(countRows('item_instances', 'id = ?', [itemId]), 0);
+      assert.equal(countRows('item_movements', 'instance_id = ?', [itemId]), 0);
+    });
+
+    it('preserves old lost item groups while recent group movements still reference them', () => {
+      const group = db.item.upsertItemGroup({
+        fingerprint: 'fp-recent-group',
+        item: 'Nails',
+        locationType: 'player',
+        locationId: 'steam1',
+        locationSlot: 'inventory',
+        quantity: 10,
+        stackSize: 1,
+      });
+      db.item.recordGroupMovement({
+        groupId: group.id,
+        moveType: 'group_transfer',
+        item: 'Nails',
+        from: { type: 'player', id: 'steam1', slot: 'inventory' },
+        to: { type: 'container', id: 'crate1', slot: 'items' },
+        amount: 3,
+      });
+      markGroupLostAt(group.id);
+
+      const result = db.item.purgeOldItemTrackerData({
+        lostItemsAge: '-7 days',
+        lostGroupsAge: '-7 days',
+        movementsAge: '-30 days',
+      });
+
+      assert.equal(result.movementsDeleted, 0);
+      assert.equal(result.groupsDeleted, 0);
+      assert.equal(countRows('item_groups', 'id = ?', [group.id]), 1);
+      assert.equal(countRows('item_movements', 'group_id = ?', [group.id]), 1);
+    });
+
+    it('purges old movements before old lost item groups', () => {
+      const group = db.item.upsertItemGroup({
+        fingerprint: 'fp-old-group',
+        item: 'Nails',
+        locationType: 'player',
+        locationId: 'steam1',
+        locationSlot: 'inventory',
+        quantity: 10,
+        stackSize: 1,
+      });
+      db.item.recordGroupMovement({
+        groupId: group.id,
+        moveType: 'group_transfer',
+        item: 'Nails',
+        from: { type: 'player', id: 'steam1', slot: 'inventory' },
+        to: { type: 'container', id: 'crate1', slot: 'items' },
+        amount: 3,
+      });
+      ageAllMovements('-31 days');
+      markGroupLostAt(group.id);
+
+      const result = db.item.purgeOldItemTrackerData({
+        lostItemsAge: '-7 days',
+        lostGroupsAge: '-7 days',
+        movementsAge: '-30 days',
+      });
+
+      assert.equal(result.movementsDeleted, 1);
+      assert.equal(result.groupsDeleted, 1);
+      assert.equal(countRows('item_groups', 'id = ?', [group.id]), 0);
+      assert.equal(countRows('item_movements', 'group_id = ?', [group.id]), 0);
+    });
+
+    it('creates purge indexes on fresh schema and migration', () => {
+      const indexNames = (table: string) =>
+        db.db
+          .prepare(`PRAGMA index_list(${table})`)
+          .all()
+          .map((row: { name: string }) => row.name);
+
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_lost_at'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_lost_at'));
+      assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
+      assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
+
+      db.db.exec(`
+        DROP INDEX IF EXISTS idx_item_inst_lost_at;
+        DROP INDEX IF EXISTS idx_item_grp_lost_at;
+        DROP INDEX IF EXISTS idx_item_mov_instance;
+        DROP INDEX IF EXISTS idx_item_mov_group;
+      `);
+      db._setMeta('schema_version', '15');
+      db._applySchema();
+
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_lost_at'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_lost_at'));
+      assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
+      assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
+      assert.equal(db._getMeta('schema_version'), '16');
     });
   });
 });

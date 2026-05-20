@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 
@@ -417,6 +417,7 @@ CREATE INDEX IF NOT EXISTS idx_item_grp_fingerprint ON item_groups(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_item_grp_item ON item_groups(item);
 CREATE INDEX IF NOT EXISTS idx_item_grp_location ON item_groups(location_type, location_id);
 CREATE INDEX IF NOT EXISTS idx_item_grp_active ON item_groups(lost);
+CREATE INDEX IF NOT EXISTS idx_item_grp_lost_at ON item_groups(lost, lost_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_item_grp_unique ON item_groups(fingerprint, location_type, location_id, location_slot) WHERE lost = 0;
 `;
 
@@ -449,6 +450,7 @@ CREATE INDEX IF NOT EXISTS idx_item_inst_fingerprint ON item_instances(fingerpri
 CREATE INDEX IF NOT EXISTS idx_item_inst_item ON item_instances(item);
 CREATE INDEX IF NOT EXISTS idx_item_inst_location ON item_instances(location_type, location_id);
 CREATE INDEX IF NOT EXISTS idx_item_inst_active ON item_instances(lost);
+CREATE INDEX IF NOT EXISTS idx_item_inst_lost_at ON item_instances(lost, lost_at);
 CREATE INDEX IF NOT EXISTS idx_item_inst_group ON item_instances(group_id);
 `;
 

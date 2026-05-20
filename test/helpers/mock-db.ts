@@ -66,6 +66,9 @@ export function mockDb({ players = [], clans = [], state = null, extras = {} }: 
       listAllPlayerNames() {
         return players.map((p) => ({ steam_id: p.steam_id, name: p.name }));
       },
+      listAllPlayerDisplayNames() {
+        return players.map((p) => ({ steam_id: p.steam_id, name: p.name, display_name: p.name }));
+      },
       listNamedPlayers() {
         return players.filter((p) => p.name).map((p) => ({ steam_id: p.steam_id, name: p.name }));
       },

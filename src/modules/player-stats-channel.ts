@@ -492,9 +492,6 @@ class PlayerStatsChannel {
       try {
         if (sftp) await sftp.connect(this._config.sftpConnectConfig());
 
-        // Refresh PlayerIDMapped.txt → PlayerStats name resolution
-        await this._refreshIdMap(sftp);
-
         // Fetch + cache server settings INI
         await this._fetchServerSettings(sftp);
 
@@ -694,7 +691,6 @@ class PlayerStatsChannel {
     const sftp = new SftpClient();
     try {
       await sftp.connect(this._config.sftpConnectConfig());
-      await this._refreshIdMap(sftp);
 
       const buf = await this._downloadSave(sftp);
       const { players, worldState, structures, vehicles, horses, containers, companions } = parseSave(buf);
@@ -969,38 +965,6 @@ class PlayerStatsChannel {
       if (this._db) this._db.botState.setState('msg_id_player_stats', this.statusMessage.id);
     } catch {
       // expected: message-id persistence is best-effort and should not block Discord updates.
-    }
-  }
-
-  /**
-   * Download PlayerIDMapped.txt and feed it to PlayerStats so names resolve
-   * before the overview embed is built. Reuses the already-open SFTP connection.
-   */
-  async _refreshIdMap(sftp: SftpClient | null) {
-    try {
-      const idMapPath = this._config.sftpIdMapPath;
-      if (!idMapPath) return;
-      const buf: Buffer = this._panelApi?.available
-        ? await this._panelApi.downloadFile(idMapPath)
-        : ((await (sftp as SftpClient).get(idMapPath)) as Buffer);
-      const text = buf.toString('utf8');
-      const entries = [];
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const match = trimmed.match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (match?.[1] && match[2]) entries.push({ steamId: match[1], name: match[2].trim() });
-      }
-      if (entries.length > 0) {
-        this._playerStats.loadIdMap(entries);
-        this._log.info(`Loaded ${entries.length} name(s) from PlayerIDMapped.txt`);
-      }
-    } catch (err: unknown) {
-      // Not critical — file may not exist on this server
-      const msg = (err as Error).message;
-      if (!msg.includes('No such file')) {
-        this._log.info('Could not read PlayerIDMapped.txt:', msg);
-      }
     }
   }
 

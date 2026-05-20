@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - agent-builder.js — script generation, syntax validity, source bundling
- *   - save-service.js — agent mode flow, cache reading, fallback logic
+ *   - save-service.js — agent mode flow, cache reading, agent-only failure handling
  *   - humanitz-agent.js — end-to-end agent parsing (generated script)
  *
  * Run:  npm test test/agent.test.ts
@@ -28,6 +28,7 @@ const SAV_FILE = path.join(DATA_DIR, 'Save_DedicatedSaveMP_LIVE.sav');
 const SAV_EXISTS = fs.existsSync(SAV_FILE);
 const TEMP_AGENT = path.join(DATA_DIR, '_test-agent.js');
 const TEMP_CACHE = path.join(DATA_DIR, '_test-cache.json');
+const TEMP_ID_MAP = path.join(DATA_DIR, '_test-PlayerIDMapped.txt');
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Agent Builder
@@ -84,10 +85,12 @@ describe('agent-builder', () => {
 
   it('includes agent CLI code', () => {
     assert.ok(script.includes('function parseAndWrite('), 'Missing parseAndWrite');
+    assert.ok(script.includes('function parseIdMapText('), 'Missing parseIdMapText');
     assert.ok(script.includes('function main('), 'Missing main');
     assert.ok(script.includes('function discoverSave('), 'Missing discoverSave');
     assert.ok(script.includes('function watchMode('), 'Missing watchMode');
     assert.ok(script.includes('humanitz-cache.json'), 'Missing cache filename');
+    assert.ok(script.includes('PlayerIDMapped.txt'), 'Missing id map filename');
   });
 
   it('has valid JavaScript syntax', () => {
@@ -127,6 +130,9 @@ describe('agent execution', () => {
     } catch {}
     try {
       fs.unlinkSync(TEMP_CACHE);
+    } catch {}
+    try {
+      fs.unlinkSync(TEMP_ID_MAP);
     } catch {}
   });
 
@@ -169,6 +175,25 @@ describe('agent execution', () => {
     assert.ok('zeeksKilled' in player || 'health' in player, 'Player should have stats');
   });
 
+  it('cache includes PlayerIDMapped.txt names when provided', () => {
+    const baseCache = JSON.parse(fs.readFileSync(TEMP_CACHE, 'utf-8'));
+    const steamId = Object.keys(baseCache.players)[0];
+    assert.ok(steamId, 'Expected at least one steam ID');
+
+    const idMapText = `${steamId}_+_|00025b68ba6543f69d754e96177205c6@Agent Mapped Alice\n`;
+    fs.writeFileSync(TEMP_ID_MAP, idMapText, 'utf8');
+
+    execFileSync('node', [TEMP_AGENT, '--save', SAV_FILE, '--output', TEMP_CACHE, '--id-map', TEMP_ID_MAP], {
+      encoding: 'utf-8',
+      timeout: 30000,
+    });
+
+    const cache = JSON.parse(fs.readFileSync(TEMP_CACHE, 'utf-8'));
+    assert.equal(cache.idMap[steamId], 'Agent Mapped Alice');
+    assert.equal(cache.idMapCount, 1);
+    assert.equal(cache.idMapPath, TEMP_ID_MAP);
+  });
+
   it('cache worldState has expected fields', () => {
     const cache = JSON.parse(fs.readFileSync(TEMP_CACHE, 'utf-8'));
     assert.ok(cache.worldState.currentSeason, 'Should have currentSeason');
@@ -189,6 +214,7 @@ describe('agent execution', () => {
     });
     assert.ok(stdout.includes('Usage:'));
     assert.ok(stdout.includes('--save'));
+    assert.ok(stdout.includes('--id-map'));
     assert.ok(stdout.includes('--watch'));
   });
 });
@@ -220,11 +246,13 @@ describe('SaveService agent mode', () => {
       agentMode: 'auto',
       agentNodePath: '/usr/bin/node',
       agentRemoteDir: '/home/container',
+      agentIdMapPath: '/HumanitZServer/PlayerIDMapped.txt',
       agentTimeout: 60000,
     });
     assert.equal(svc._agentMode, 'auto');
     assert.equal(svc._agentNodePath, '/usr/bin/node');
     assert.equal(svc._agentRemoteDir, '/home/container');
+    assert.equal(svc._agentIdMapPath, '/HumanitZServer/PlayerIDMapped.txt');
     assert.equal(svc._agentTimeout, 60000);
   });
 
@@ -262,6 +290,19 @@ describe('SaveService agent mode', () => {
     assert.equal(svc._agentPath, '/custom/dir/humanitz-agent.js');
   });
 
+  it('_generateRunScript passes the configured PlayerIDMapped.txt path', () => {
+    const svc = new SaveService(db, {
+      savePath: '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
+      agentNodePath: '/usr/bin/node',
+      agentIdMapPath: '/HumanitZServer/PlayerIDMapped.txt',
+    });
+    svc._resolvePaths();
+
+    const script = svc._generateRunScript();
+
+    assert.ok(script.includes("--id-map '/HumanitZServer/PlayerIDMapped.txt'"));
+  });
+
   it('_buildSshConfig derives from SFTP config', () => {
     const svc = new SaveService(db, {
       sftpConfig: { host: '10.0.0.1', port: 8821, username: 'user', password: 'pass' },
@@ -294,6 +335,22 @@ describe('SaveService agent mode', () => {
     assert.equal(stats.agentCapable, null);
     assert.equal(stats.panelCapable, null);
     assert.equal(stats.trigger, 'panel');
+  });
+
+  it('startup mode label avoids ambiguous agent-capable unknown wording', () => {
+    const svc = new SaveService(db, {
+      agentMode: 'auto',
+      agentTrigger: 'rcon',
+      savePath: '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav',
+      agentIdMapPath: '/HumanitZServer/PlayerIDMapped.txt',
+    });
+    svc._resolvePaths();
+
+    const label = svc._getStartupModeLabel();
+
+    assert.equal(label, 'auto (cache: pending, trigger: rcon, idMap: configured)');
+    assert.equal(label.includes('unknown'), false);
+    assert.equal(label.includes('agent-capable'), false);
   });
 
   it('_syncFromCache works with valid cache data', async () => {

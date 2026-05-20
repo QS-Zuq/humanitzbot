@@ -100,6 +100,7 @@ export class PlayerRepository extends BaseRepository {
     countAllPlayers: Database.Statement;
     listNamedPlayers: Database.Statement;
     listAllPlayerNames: Database.Statement;
+    listAllPlayerDisplayNames: Database.Statement;
     setServerPeak: Database.Statement;
     getServerPeak: Database.Statement;
     getAllServerPeaks: Database.Statement;
@@ -178,7 +179,7 @@ export class PlayerRepository extends BaseRepository {
         @custom_data, datetime('now'), datetime('now'), datetime('now')
       )
       ON CONFLICT(steam_id) DO UPDATE SET
-        name = excluded.name,
+        name = CASE WHEN excluded.name != '' THEN excluded.name ELSE players.name END,
         male = excluded.male,
         starting_perk = excluded.starting_perk,
         affliction = excluded.affliction,
@@ -383,6 +384,37 @@ export class PlayerRepository extends BaseRepository {
       countAllPlayers: this._handle.prepare('SELECT COUNT(*) as count FROM players'),
       listNamedPlayers: this._handle.prepare("SELECT steam_id, name FROM players WHERE name != ''"),
       listAllPlayerNames: this._handle.prepare('SELECT steam_id, name FROM players'),
+      listAllPlayerDisplayNames: this._handle.prepare(`
+      WITH ranked_aliases AS (
+        SELECT
+          steam_id,
+          name,
+          ROW_NUMBER() OVER (
+            PARTITION BY steam_id
+            ORDER BY
+              is_current DESC,
+              CASE
+                WHEN is_current = 1 THEN CASE source
+                  WHEN 'idmap' THEN 5
+                  WHEN 'connect_log' THEN 4
+                  WHEN 'save' THEN 3
+                  WHEN 'playtime' THEN 2
+                  WHEN 'log' THEN 1
+                  ELSE 0
+                END
+                ELSE 0
+              END DESC,
+              last_seen DESC
+          ) AS rn
+        FROM player_aliases
+      )
+      SELECT
+        p.steam_id,
+        p.name,
+        COALESCE(ra.name, p.name) AS display_name
+      FROM players p
+      LEFT JOIN ranked_aliases ra ON ra.steam_id = p.steam_id AND ra.rn = 1
+    `),
 
       // Server peaks
       setServerPeak: this._handle.prepare(
@@ -571,6 +603,14 @@ export class PlayerRepository extends BaseRepository {
 
   listAllPlayerNames(): Array<{ steam_id: string; name: string }> {
     return this._stmts.listAllPlayerNames.all() as Array<{ steam_id: string; name: string }>;
+  }
+
+  listAllPlayerDisplayNames(): Array<{ steam_id: string; name: string; display_name: string }> {
+    return this._stmts.listAllPlayerDisplayNames.all() as Array<{
+      steam_id: string;
+      name: string;
+      display_name: string;
+    }>;
   }
 
   getOnlinePlayers(): DbRow[] {

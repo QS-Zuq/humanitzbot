@@ -123,7 +123,6 @@ const SFTP_CONFIG = {
   password: process.env.SFTP_PASSWORD || process.env.FTP_PASSWORD,
 };
 const REMOTE_SAVE = '/HumanitZServer/Saved/SaveGames/SaveList/Default/Save_DedicatedSaveMP.sav';
-const REMOTE_IDMAP = '/HumanitZServer/PlayerIDMapped.txt';
 const REMOTE_CONNLOG = '/HumanitZServer/PlayerConnectedLog.txt';
 
 const app = express();
@@ -132,26 +131,6 @@ app.use(express.json());
 
 let bounds: MapBounds = JSON.parse(fs.readFileSync(CAL_FILE, 'utf8')) as MapBounds;
 console.log('Calibration:', bounds);
-
-function loadIdMap(): Record<string, string> {
-  const idMap: Record<string, string> = {};
-  try {
-    const raw = fs.readFileSync(path.join(DATA_DIR, 'logs', 'PlayerIDMapped.txt'), 'utf8');
-    for (const line of raw.split('\n')) {
-      const m = line.trim().match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-      if (m?.[1] && m[2]) idMap[m[1]] = m[2].trim();
-    }
-  } catch {
-    /* ignore */
-  }
-  return idMap;
-}
-
-let idMap = loadIdMap();
-console.log('ID map:', Object.keys(idMap).length, 'entries');
-for (const [id, name] of Object.entries(idMap).slice(0, 3)) {
-  console.log('  ', id, '->', name);
-}
 
 function parseLastSeen(): Record<string, Date> {
   const lastSeen: Record<string, Date> = {};
@@ -239,12 +218,12 @@ function buildPlayerList(): PlayerEntry[] {
   } catch {
     /* keep current */
   }
-  idMap = loadIdMap();
   lastSeenMap = parseLastSeen();
 
   const result: PlayerEntry[] = [];
   for (const [steamId, data] of players) {
-    const name = idMap[steamId] || steamId;
+    const parsedName = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : '';
+    const name = parsedName || steamId;
     const hasPosition = data.x !== null && !(data.x === 0 && data.y === 0 && data.z === 0);
     const lat = hasPosition ? (((data.x as number) - bounds.xMin) / (bounds.xMax - bounds.xMin)) * 4096 : null;
     const lng = hasPosition ? (((data.y as number) - bounds.yMin) / (bounds.yMax - bounds.yMin)) * 4096 : null;
@@ -339,10 +318,6 @@ app.get('/api/refresh', async (_req, res) => {
     const size = fs.statSync(localSave).size;
     sendEvent('progress', `Save downloaded (${(size / 1024 / 1024).toFixed(1)} MB)`);
 
-    sendEvent('progress', 'Downloading player ID map...');
-    await sftp.get(REMOTE_IDMAP, path.join(DATA_DIR, 'logs', 'PlayerIDMapped.txt'));
-    idMap = loadIdMap();
-
     await sftp.end();
 
     sendEvent('progress', 'Processing player data...');
@@ -380,11 +355,9 @@ app.get('/api/fetch-position/:steamId', async (req, res) => {
   try {
     await sftp.connect(SFTP_CONFIG);
     await sftp.get(REMOTE_SAVE, localSave);
-    await sftp.get(REMOTE_IDMAP, path.join(DATA_DIR, 'logs', 'PlayerIDMapped.txt'));
     await sftp.end();
 
     console.log('[SFTP] Downloaded', fs.statSync(localSave).size, 'bytes');
-    idMap = loadIdMap();
 
     const players = parseSave(fs.readFileSync(localSave));
     const p = players.get(steamId);
@@ -392,7 +365,8 @@ app.get('/api/fetch-position/:steamId', async (req, res) => {
       return res.json({ error: 'Player not found in save or has no position' });
     }
 
-    const name = idMap[steamId] || steamId;
+    const parsedName = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : '';
+    const name = parsedName || steamId;
     console.log('[SFTP]', name, ': X=' + p.x.toFixed(2), 'Y=' + (p.y as number).toFixed(2));
     res.json({
       steamId,

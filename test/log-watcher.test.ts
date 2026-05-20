@@ -374,20 +374,6 @@ describe('LogWatcher event seams', () => {
     assert.equal(forwardedEvent.type, 'player_connect');
     assert.equal(forwardedEvent.steamId, '76561100000000001');
   });
-
-  it('setIdMapRefreshCallback stores and clears the callback', () => {
-    const { lw } = createWatcher();
-    let captured: Record<string, string> | null = null;
-
-    lw.setIdMapRefreshCallback((idMap: Record<string, string>) => {
-      captured = idMap;
-    });
-    lw._onIdMapRefresh({ '76561100000000001': 'TestPlayer' });
-    assert.deepStrictEqual(captured, { '76561100000000001': 'TestPlayer' });
-
-    lw.setIdMapRefreshCallback(null);
-    assert.equal(lw._onIdMapRefresh, null);
-  });
 });
 
 describe('LogWatcher death cause logging', () => {

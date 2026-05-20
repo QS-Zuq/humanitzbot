@@ -1,7 +1,5 @@
 import { EmbedBuilder, type Client, type TextChannel, type ThreadChannel } from 'discord.js';
 import SftpClient from 'ssh2-sftp-client';
-import path from 'path';
-import fs from 'fs';
 import _defaultConfig from '../config/index.js';
 import { cleanName } from '../parsers/ue4-names.js';
 import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
@@ -216,8 +214,6 @@ class LogWatcher {
   _dayCounts: DayCounts;
   _dayCountsDirty: boolean;
   _onlinePlayers: Set<string>;
-  _idMapWarned: boolean;
-  _idMapLastSize: number;
   _pvpDamageTracker: Map<string, PvpDamageEntry>;
   _pvpKills: PvpKillEntry[];
   _pvpKillsDirty: boolean;
@@ -225,7 +221,6 @@ class LogWatcher {
   _recentContainerAccess: Map<string, ContainerAccessEntry>;
   _deathCauseTracker: Map<string, DeathCauseEntry>;
   _midnightCheckInterval?: ReturnType<typeof setInterval> | null;
-  _onIdMapRefresh?: ((idMap: Record<string, string>) => void) | null;
   _polling: boolean;
 
   constructor(client: Client, deps: LogWatcherDeps = {}) {
@@ -294,10 +289,6 @@ class LogWatcher {
 
     // Online player tracking (for peak stats)
     this._onlinePlayers = new Set();
-
-    // PlayerIDMapped.txt warning flag
-    this._idMapWarned = false;
-    this._idMapLastSize = 0;
 
     // PvP damage tracker: Map<victimNameLower, { attacker, attackerLower, timestamp, totalDamage }>
     // Used to correlate damage → death for PvP kill attribution
@@ -992,9 +983,6 @@ class LogWatcher {
         });
       }
 
-      // ── PlayerIDMapped.txt (name→SteamID resolver) ─────
-      await this._refreshIdMap(sftp);
-
       // Persist offsets so next restart catches up from here
       this._saveOffsets();
 
@@ -1559,71 +1547,6 @@ class LogWatcher {
   wrapLogEvent(wrapper: (handler: LogEventHandler) => LogEventHandler): void {
     const original = this._logEvent.bind(this);
     this._logEvent = wrapper(original);
-  }
-
-  setIdMapRefreshCallback(callback: ((idMap: Record<string, string>) => void) | null): void {
-    this._onIdMapRefresh = callback;
-  }
-
-  // ─── ID MAP ───────────────────────────────────────────────
-
-  async _refreshIdMap(sftp: SftpClient) {
-    try {
-      let text;
-      // Prefer Panel API (Pterodactyl file download) when available
-      if (this._panelApi && this._panelApi.available) {
-        const buf = await this._panelApi.downloadFile(this._config.sftpIdMapPath);
-        if (buf.length === this._idMapLastSize) return;
-        this._idMapLastSize = buf.length;
-        text = buf.toString('utf8');
-      } else {
-        // Stat first to skip full download if file hasn't changed
-        const stat = await sftp.stat(this._config.sftpIdMapPath);
-        if (stat.size === this._idMapLastSize) return;
-        const buf = (await sftp.get(this._config.sftpIdMapPath)) as Buffer;
-        this._idMapLastSize = stat.size;
-        text = buf.toString('utf8');
-      }
-      const entries = [];
-      for (const line of text.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        // Extract SteamID (before _+_|) and name (after @)
-        const match = trimmed.match(/^(\d{17})_\+_\|[^@]+@(.+)$/);
-        if (match) {
-          entries.push({ steamId: _s(match, 1), name: _s(match, 2).trim() });
-        }
-      }
-      if (entries.length > 0) {
-        this._playerStats.loadIdMap(entries);
-
-        // Cache locally so the web panel can resolve names without SFTP
-        if (this._dataDir) {
-          try {
-            const logsDir = path.join(this._dataDir, 'logs');
-            if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
-            fs.writeFileSync(path.join(logsDir, 'PlayerIDMapped.txt'), text, 'utf8');
-          } catch (_: unknown) {
-            /* non-critical — web panel will fall back to DB names */
-          }
-        }
-
-        // Notify external listeners (SaveService, WebMap, etc.) with steamId→name map
-        if (this._onIdMapRefresh) {
-          const idMap: Record<string, string> = {};
-          for (const { steamId, name } of entries) idMap[steamId] = name;
-          try {
-            this._onIdMapRefresh(idMap);
-          } catch (_: unknown) {}
-        }
-      }
-    } catch (err: unknown) {
-      // Not critical — file may not exist yet
-      if (!this._idMapWarned) {
-        this._log.warn('Could not read PlayerIDMapped.txt:', errMsg(err));
-        this._idMapWarned = true;
-      }
-    }
   }
 
   _simplifyContainerName(rawName: string) {

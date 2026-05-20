@@ -825,6 +825,7 @@ client.once(Events.ClientReady, (readyClient) => {
         agentNodePath: config.agentNodePath,
         agentRemoteDir: config.agentRemoteDir,
         agentCachePath: config.agentCachePath,
+        agentIdMapPath: config.sftpIdMapPath,
         agentTimeout: config.agentTimeout,
         agentTrigger: config.agentTrigger as 'auto' | 'ssh' | 'rcon' | 'panel' | 'none' | undefined,
         agentPanelCommand: config.agentPanelCommand,
@@ -846,15 +847,6 @@ client.once(Events.ClientReady, (readyClient) => {
       const saveSource = hasSftp() ? '' : ' via Panel API';
 
       setStatus('Save Service', `🟢 Active (${saveService.getSyncMode()} mode${saveSource})`);
-
-      // Wire LogWatcher → SaveService ID map sharing
-      if (logWatcher) {
-        const _svc = saveService;
-
-        logWatcher.setIdMapRefreshCallback((idMap) => {
-          _svc.setIdMap(idMap);
-        });
-      }
 
       // ── Snapshot Service — timeline recording on every save sync ──
       snapshotService = new SnapshotService(db, {

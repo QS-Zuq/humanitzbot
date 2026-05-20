@@ -535,7 +535,7 @@ describe('HumanitZDB', () => {
 
     it('sets schema version', () => {
       const version = db._getMeta('schema_version');
-      assert.equal(version, '15');
+      assert.equal(version, '16');
     });
 
     it('creates player_aliases table', () => {
@@ -853,6 +853,18 @@ describe('HumanitZDB', () => {
       db.player.registerAlias('76561198000000052', 'ConnLogName', 'connect_log');
       const name = db.player.resolveSteamIdToName('76561198000000052');
       assert.equal(name, 'IdmapName');
+    });
+
+    it('lists player display names with aliases resolved in one query', () => {
+      db.player.upsertPlayer('76561198000000053', { name: 'SteamOnlyName' });
+      db.player.upsertPlayer('76561198000000054', { name: 'OldPlayerName' });
+      db.player.registerAlias('76561198000000054', 'DisplayNameFromIdMap', 'idmap');
+
+      const rows = db.player.listAllPlayerDisplayNames();
+      const bySteam = new Map<string, any>(rows.map((row: any) => [row.steam_id, row]));
+
+      assert.equal(bySteam.get('76561198000000053')?.display_name, 'SteamOnlyName');
+      assert.equal(bySteam.get('76561198000000054')?.display_name, 'DisplayNameFromIdMap');
     });
   });
 
