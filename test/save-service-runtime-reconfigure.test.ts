@@ -222,6 +222,32 @@ describe('SaveService runtime handler registration', () => {
     assert.equal(applier.hasModuleReconfigure('AGENT_PANEL_DELAY'), true);
   });
 
+  it('unregisters SaveService runtime timing handlers during cleanup', () => {
+    const applier = new RuntimeConfigApplier();
+    const config = {
+      agentMode: 'auto',
+      savePollInterval: 300_000,
+      agentPollInterval: 90_000,
+      agentTimeout: 120_000,
+      agentPanelDelay: 3_000,
+    };
+
+    const unregister = registerSaveServiceRuntimeHandlers({
+      runtimeConfigApplier: applier,
+      saveService: {
+        reconfigure() {},
+      },
+      getConfig: () => config,
+    });
+
+    unregister();
+
+    assert.equal(applier.hasModuleReconfigure('SAVE_POLL_INTERVAL'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_POLL_INTERVAL'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_TIMEOUT'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_PANEL_DELAY'), false);
+  });
+
   it('applies SAVE_POLL_INTERVAL in normal mode without changing the agent/cache cadence', () => {
     const applier = new RuntimeConfigApplier();
     const config = {

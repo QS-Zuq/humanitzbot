@@ -345,6 +345,7 @@ let hzmodPlugin: { ipcClient?: { destroy: () => void } } | undefined; // Howyaga
 let db: InstanceType<typeof HumanitZDB> | undefined;
 let configRepo: InstanceType<typeof ConfigRepository> | undefined;
 let saveService: InstanceType<typeof SaveService> | undefined;
+let unregisterSaveServiceRuntimeHandlers: (() => void) | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
 let snapshotService: InstanceType<typeof SnapshotService> | undefined;
 let activityLog: InstanceType<typeof ActivityLog> | undefined;
@@ -884,7 +885,7 @@ client.once(Events.ClientReady, (readyClient) => {
         console.error('[BOT] Save service error:', errMsg(err));
       });
       await saveService.start();
-      registerSaveServiceRuntimeHandlers({
+      unregisterSaveServiceRuntimeHandlers = registerSaveServiceRuntimeHandlers({
         runtimeConfigApplier,
         saveService,
         getConfig: () => config,
@@ -1427,6 +1428,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (activityLog) activityLog.stop();
   if (anticheatIntegration) await anticheatIntegration.stop();
   if (howyagarnManager) howyagarnManager.shutdown();
+  if (unregisterSaveServiceRuntimeHandlers) {
+    unregisterSaveServiceRuntimeHandlers();
+    unregisterSaveServiceRuntimeHandlers = undefined;
+  }
   if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
   if (stdinConsole) stdinConsole.stop();
