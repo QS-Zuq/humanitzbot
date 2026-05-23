@@ -147,4 +147,145 @@ describe('RuntimeConfigApplier', () => {
       /panel refused/,
     );
   });
+
+  it('unregisters owner-scoped module-reconfigure handlers as a group', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+
+    applier.registerModuleReconfigure(
+      'SERVER_STATUS_INTERVAL',
+      () => {
+        calls += 1;
+      },
+      { ownerId: 'server-status' },
+    );
+    applier.registerModuleReconfigure(
+      'STATUS_CHANNEL_INTERVAL',
+      () => {
+        calls += 10;
+      },
+      { ownerId: 'server-status' },
+    );
+
+    assert.equal(
+      applier.applyModuleReconfigure({
+        envKey: 'SERVER_STATUS_INTERVAL',
+        cfgKey: 'serverStatusInterval',
+        value: 60_000,
+      }),
+      true,
+    );
+    await applier.cleanupOwner('server-status');
+
+    assert.equal(
+      applier.applyModuleReconfigure({
+        envKey: 'SERVER_STATUS_INTERVAL',
+        cfgKey: 'serverStatusInterval',
+        value: 60_000,
+      }),
+      false,
+    );
+    assert.equal(
+      applier.applyModuleReconfigure({
+        envKey: 'STATUS_CHANNEL_INTERVAL',
+        cfgKey: 'statusChannelInterval',
+        value: 60_000,
+      }),
+      false,
+    );
+    assert.equal(calls, 1);
+  });
+
+  it('unregisters owner-scoped connection-reconnect handlers as a group', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+
+    applier.registerConnectionReconnect(
+      'PANEL_SERVER_URL',
+      () => {
+        calls += 1;
+      },
+      { ownerId: 'panel-api' },
+    );
+    applier.registerConnectionReconnect(
+      'PANEL_API_KEY',
+      () => {
+        calls += 10;
+      },
+      { ownerId: 'panel-api' },
+    );
+
+    await applier.cleanupOwner('panel-api');
+
+    assert.equal(
+      applier.applyConnectionReconnect({
+        envKey: 'PANEL_SERVER_URL',
+        cfgKey: 'panelServerUrl',
+        value: 'https://panel.example.test/server/abc123',
+      }),
+      false,
+    );
+    assert.equal(
+      applier.applyConnectionReconnect({
+        envKey: 'PANEL_API_KEY',
+        cfgKey: 'panelApiKey',
+        value: 'secret',
+      }),
+      false,
+    );
+    assert.equal(calls, 0);
+  });
+
+  it('does not let one owner cleanup remove another owner replacement handler', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+
+    applier.registerModuleReconfigure(
+      'SERVER_STATUS_INTERVAL',
+      () => {
+        calls += 1;
+      },
+      { ownerId: 'old-server-status' },
+    );
+    applier.registerModuleReconfigure(
+      'SERVER_STATUS_INTERVAL',
+      () => {
+        calls += 10;
+      },
+      { ownerId: 'new-server-status' },
+    );
+
+    await applier.cleanupOwner('old-server-status');
+
+    assert.equal(
+      applier.applyModuleReconfigure({
+        envKey: 'SERVER_STATUS_INTERVAL',
+        cfgKey: 'serverStatusInterval',
+        value: 60_000,
+      }),
+      true,
+    );
+    assert.equal(calls, 10);
+  });
+
+  it('preserves existing non-owner registration APIs during owner cleanup', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+
+    applier.registerModuleReconfigure('SERVER_STATUS_INTERVAL', () => {
+      calls += 1;
+    });
+
+    await applier.cleanupOwner('unrelated-owner');
+
+    assert.equal(
+      applier.applyModuleReconfigure({
+        envKey: 'SERVER_STATUS_INTERVAL',
+        cfgKey: 'serverStatusInterval',
+        value: 60_000,
+      }),
+      true,
+    );
+    assert.equal(calls, 1);
+  });
 });

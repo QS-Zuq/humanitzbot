@@ -1,3 +1,5 @@
+import RuntimeModuleRegistry from './runtime-module-registry.js';
+
 export interface RuntimeConfigApplyContext {
   envKey: string;
   cfgKey: string;
@@ -6,18 +8,35 @@ export interface RuntimeConfigApplyContext {
 
 export type RuntimeConfigApplyHandler = (context: RuntimeConfigApplyContext) => void;
 
+interface RuntimeConfigRegisterOptions {
+  ownerId?: string;
+}
+
 class RuntimeConfigApplier {
   private readonly _moduleReconfigureHandlers = new Map<string, RuntimeConfigApplyHandler>();
   private readonly _connectionReconnectHandlers = new Map<string, RuntimeConfigApplyHandler>();
+  private readonly _lifecycle = new RuntimeModuleRegistry();
 
-  registerModuleReconfigure(envKey: string, handler: RuntimeConfigApplyHandler): () => void {
+  registerModuleReconfigure(
+    envKey: string,
+    handler: RuntimeConfigApplyHandler,
+    options: RuntimeConfigRegisterOptions = {},
+  ): () => void {
     if (!envKey) throw new Error('envKey is required');
     this._moduleReconfigureHandlers.set(envKey, handler);
 
-    return () => {
+    const unregisterHandler = () => {
       if (this._moduleReconfigureHandlers.get(envKey) === handler) {
         this._moduleReconfigureHandlers.delete(envKey);
       }
+    };
+
+    if (!options.ownerId) return unregisterHandler;
+
+    const unregisterOwnerCleanup = this._lifecycle.trackCleanup(options.ownerId, unregisterHandler);
+    return () => {
+      unregisterOwnerCleanup();
+      unregisterHandler();
     };
   }
 
@@ -32,14 +51,26 @@ class RuntimeConfigApplier {
     return true;
   }
 
-  registerConnectionReconnect(envKey: string, handler: RuntimeConfigApplyHandler): () => void {
+  registerConnectionReconnect(
+    envKey: string,
+    handler: RuntimeConfigApplyHandler,
+    options: RuntimeConfigRegisterOptions = {},
+  ): () => void {
     if (!envKey) throw new Error('envKey is required');
     this._connectionReconnectHandlers.set(envKey, handler);
 
-    return () => {
+    const unregisterHandler = () => {
       if (this._connectionReconnectHandlers.get(envKey) === handler) {
         this._connectionReconnectHandlers.delete(envKey);
       }
+    };
+
+    if (!options.ownerId) return unregisterHandler;
+
+    const unregisterOwnerCleanup = this._lifecycle.trackCleanup(options.ownerId, unregisterHandler);
+    return () => {
+      unregisterOwnerCleanup();
+      unregisterHandler();
     };
   }
 
@@ -52,6 +83,10 @@ class RuntimeConfigApplier {
     if (!handler) return false;
     handler(context);
     return true;
+  }
+
+  cleanupOwner(ownerId: string): Promise<void> {
+    return this._lifecycle.cleanupOwner(ownerId);
   }
 }
 
