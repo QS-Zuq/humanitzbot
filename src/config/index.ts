@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { createLogger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
 import { envBool, envTime, tzOffsetMs } from './helpers.js';
+import { resolveSaveServicePollInterval } from './save-service-runtime.js';
 import {
   canShow as _canShow,
   isAdminView as _isAdminView,
@@ -357,7 +358,7 @@ interface ConfigMethods {
   formatTime(date: Date): string;
   parseLogTimestamp(year: string, month: string, day: string, hour: string, min: string): Date;
   sftpConnectConfig(this: Partial<Config> & { sftpHost?: string }): SftpConnectConfig;
-  getEffectiveSavePollInterval(): number;
+  getEffectiveSavePollInterval(this: Config, localPath?: string): number;
 
   hydrate(configRepo: ReturnType<typeof require>): void;
   loadDisplayOverrides(_db: unknown): void;
@@ -522,9 +523,10 @@ const config = {
   agentPanelCommand: process.env.AGENT_PANEL_COMMAND || 'createHZSocket', // RCON/console command to trigger cache generation
   agentPanelDelay: Math.max(parseInt(process.env.AGENT_PANEL_DELAY ?? '', 10) || 3000, 500), // ms to wait after sending command before checking for cache
 
-  // Agent poll interval — used instead of SAVE_POLL_INTERVAL when agent/cache mode is active.
+  // Agent poll interval — used for normal agent/cache save sync.
+  // SAVE_POLL_INTERVAL is reserved for direct/local diagnostic polling only.
   // The agent cache avoids transferring the full .sav, but can still be several MB on live servers.
-  // Default 90s, min 30s.  Set to 0 to use SAVE_POLL_INTERVAL for both modes.
+  // Default 90s; runtime resolution clamps finite values below 30s.
   agentPollInterval: parseInt(process.env.AGENT_POLL_INTERVAL ?? '', 10) || 90000,
 
   // Player-stats channel
@@ -960,15 +962,17 @@ config.sftpConnectConfig = function (this: Partial<Config> & { sftpHost?: string
 };
 
 /**
- * Get the effective save poll interval based on whether agent mode is active.
- * When agent mode is not 'direct' and AGENT_POLL_INTERVAL is set (non-zero),
- * use the faster agent interval since it only downloads a ~200-500KB cache.
+ * Get the effective save poll interval for the active save-sync path.
+ * Normal auto/agent cache mode uses AGENT_POLL_INTERVAL; SAVE_POLL_INTERVAL
+ * is reserved for direct/local diagnostic polling only.
  */
-config.getEffectiveSavePollInterval = function (): number {
-  if (config.agentMode !== 'direct' && config.agentPollInterval > 0) {
-    return Math.max(config.agentPollInterval, 30000); // min 30s
-  }
-  return config.savePollInterval;
+config.getEffectiveSavePollInterval = function (this: Config, localPath?: string): number {
+  return resolveSaveServicePollInterval({
+    agentMode: this.agentMode,
+    localPath,
+    savePollInterval: this.savePollInterval,
+    agentPollInterval: this.agentPollInterval,
+  });
 };
 
 // ── DB hydration ─────────────────────────────────────────

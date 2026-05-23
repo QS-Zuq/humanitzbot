@@ -89,6 +89,12 @@ interface SaveServiceOptions {
   dataDir?: string;
 }
 
+interface SaveServiceReconfigureOptions {
+  pollInterval?: unknown;
+  agentTimeout?: unknown;
+  agentPanelDelay?: unknown;
+}
+
 // Module-scope references to singletons (always available as internal modules)
 const _rconModule: RconModule | null = _rconDefault as unknown as RconModule; // SAFETY: module default import shape
 const _panelApiModule: PanelFileApi | null = _panelApiDefault;
@@ -205,9 +211,7 @@ class SaveService extends EventEmitter {
     const modeLabel = this._getStartupModeLabel();
     this._log.info(`Starting save service — mode: ${modeLabel}, poll every ${String(this._pollInterval / 1000)}s`);
     await this._poll();
-    this._timer = setInterval(() => {
-      logRejection(this._poll(), this._log, `${this._log.label}:poll`);
-    }, this._pollInterval);
+    this._schedulePollTimer();
   }
 
   stop(): void {
@@ -220,6 +224,45 @@ class SaveService extends EventEmitter {
 
   async forceSync(): Promise<unknown> {
     return this._poll(true);
+  }
+
+  reconfigure(options: SaveServiceReconfigureOptions): void {
+    const nextPollInterval =
+      options.pollInterval !== undefined
+        ? this._normalizeRuntimeTiming(options.pollInterval, 'pollInterval')
+        : this._pollInterval;
+    const nextAgentTimeout =
+      options.agentTimeout !== undefined
+        ? this._normalizeRuntimeTiming(options.agentTimeout, 'agentTimeout')
+        : this._agentTimeout;
+    const nextAgentPanelDelay =
+      options.agentPanelDelay !== undefined
+        ? this._normalizeRuntimeTiming(options.agentPanelDelay, 'agentPanelDelay')
+        : this._agentPanelDelay;
+
+    const pollIntervalChanged = nextPollInterval !== this._pollInterval;
+    this._pollInterval = nextPollInterval;
+    this._agentTimeout = nextAgentTimeout;
+    this._agentPanelDelay = nextAgentPanelDelay;
+
+    if (pollIntervalChanged && this._timer) {
+      clearInterval(this._timer);
+      this._schedulePollTimer();
+      this._log.info(`Reconfigured poll interval → ${String(this._pollInterval / 1000)}s`);
+    }
+  }
+
+  _schedulePollTimer(): void {
+    this._timer = setInterval(() => {
+      logRejection(this._poll(), this._log, `${this._log.label}:poll`);
+    }, this._pollInterval);
+  }
+
+  _normalizeRuntimeTiming(value: unknown, name: string): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      throw new Error(`${name} must be a positive finite number`);
+    }
+    return Math.trunc(value);
   }
 
   setIdMap(idMap: Record<string, string>): void {

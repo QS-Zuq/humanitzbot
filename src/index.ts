@@ -49,6 +49,7 @@ import { needsSync, syncEnv, getVersion, getExampleVersion } from './env-sync.js
 import ConfigRepository from './db/config-repository.js';
 import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from './db/config-migration.js';
 import RuntimeConfigApplier from './config/runtime-config-applier.js';
+import { registerSaveServiceRuntimeHandlers } from './config/save-service-runtime.js';
 import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
@@ -344,6 +345,7 @@ let hzmodPlugin: { ipcClient?: { destroy: () => void } } | undefined; // Howyaga
 let db: InstanceType<typeof HumanitZDB> | undefined;
 let configRepo: InstanceType<typeof ConfigRepository> | undefined;
 let saveService: InstanceType<typeof SaveService> | undefined;
+let unregisterSaveServiceRuntimeHandlers: (() => void) | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
 let snapshotService: InstanceType<typeof SnapshotService> | undefined;
 let activityLog: InstanceType<typeof ActivityLog> | undefined;
@@ -860,7 +862,7 @@ client.once(Events.ClientReady, (readyClient) => {
         sftpConfig: hasSftp() ? config.sftpConnectConfig() : undefined,
         savePath: config.sftpSavePath,
         clanSavePath: config.sftpSavePath.replace(/SaveList\/.*$/, 'Save_ClanData.sav'),
-        pollInterval: config.savePollInterval,
+        pollInterval: config.getEffectiveSavePollInterval(),
         agentMode: config.agentMode as 'agent' | 'auto' | 'direct' | undefined,
         agentNodePath: config.agentNodePath,
         agentRemoteDir: config.agentRemoteDir,
@@ -883,6 +885,11 @@ client.once(Events.ClientReady, (readyClient) => {
         console.error('[BOT] Save service error:', errMsg(err));
       });
       await saveService.start();
+      unregisterSaveServiceRuntimeHandlers = registerSaveServiceRuntimeHandlers({
+        runtimeConfigApplier,
+        saveService,
+        getConfig: () => config,
+      });
       if (webMapServer) webMapServer.setSaveService(saveService);
       const saveSource = hasSftp() ? '' : ' via Panel API';
 
@@ -1421,6 +1428,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (activityLog) activityLog.stop();
   if (anticheatIntegration) await anticheatIntegration.stop();
   if (howyagarnManager) howyagarnManager.shutdown();
+  if (unregisterSaveServiceRuntimeHandlers) {
+    unregisterSaveServiceRuntimeHandlers();
+    unregisterSaveServiceRuntimeHandlers = undefined;
+  }
   if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
   if (stdinConsole) stdinConsole.stop();
