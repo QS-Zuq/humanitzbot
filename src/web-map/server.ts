@@ -3696,6 +3696,23 @@ class WebMapServer {
                 }) === true
               );
             },
+            applyConnectionReconnect: (envKey) => {
+              const runtimeConfigValue = runtimeConfigValues.get(envKey);
+              if (!runtimeConfigValue) {
+                if (this._runtimeConfigApplier?.hasConnectionReconnect(envKey)) {
+                  throw new Error('No runtime config mapping for connection reconnect setting');
+                }
+                return false;
+              }
+
+              return (
+                this._runtimeConfigApplier?.applyConnectionReconnect({
+                  envKey,
+                  cfgKey: runtimeConfigValue.cfgKey,
+                  value: runtimeConfigValue.value,
+                }) === true
+              );
+            },
           });
 
           sendOk(res, {

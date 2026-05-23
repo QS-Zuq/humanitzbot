@@ -16,7 +16,11 @@ const TEST_CATEGORIES: EnvConfigCategoryWithReloadStrategy[] = [
   { restart: false, fields: [{ env: 'LEGACY_RESTART_FALSE' }] },
   { restart: false, reloadStrategy: 'live', fields: [{ env: 'SHOW_VITALS' }] },
   { restart: true, reloadStrategy: 'module-reconfigure', fields: [{ env: 'SERVER_STATUS_INTERVAL' }] },
-  { restart: true, reloadStrategy: 'connection-reconnect', fields: [{ env: 'RCON_HOST' }] },
+  {
+    restart: true,
+    reloadStrategy: 'connection-reconnect',
+    fields: [{ env: 'RCON_HOST' }, { env: 'PANEL_SERVER_URL' }, { env: 'PANEL_API_KEY' }],
+  },
   { restart: true, reloadStrategy: 'bot-restart', fields: [{ env: 'SESSION_STORE' }] },
   { restart: true, reloadStrategy: 'game-restart', fields: [{ env: 'GAME_DIFFICULTY' }] },
   {
@@ -50,6 +54,55 @@ describe('config reload strategy helpers', () => {
   it('classifies connection keys as pending reconnect', () => {
     const result = summarizeConfigReloadApply(['RCON_HOST'], { categories: TEST_CATEGORIES });
     assert.deepEqual(result.pendingReconnect, ['RCON_HOST']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('applies connection-reconnect keys when a handler accepts them', () => {
+    const applied: string[] = [];
+    const result = summarizeConfigReloadApply(['PANEL_SERVER_URL'], {
+      categories: TEST_CATEGORIES,
+      applyConnectionReconnect(envKey) {
+        applied.push(envKey);
+        return true;
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, ['PANEL_SERVER_URL']);
+    assert.deepEqual(result.pendingReconnect, []);
+    assert.deepEqual(applied, ['PANEL_SERVER_URL']);
+    assert.equal(result.restartRequired, false);
+    assert.match(result.message, /1 applied reconnect/);
+  });
+
+  it('keeps connection-reconnect keys pending when no handler exists', () => {
+    const result = summarizeConfigReloadApply(['PANEL_SERVER_URL'], {
+      categories: TEST_CATEGORIES,
+      applyConnectionReconnect() {
+        return false;
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, []);
+    assert.deepEqual(result.pendingReconnect, ['PANEL_SERVER_URL']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('records connection-reconnect handler failures without counting the key as applied', () => {
+    const result = summarizeConfigReloadApply(['PANEL_SERVER_URL'], {
+      categories: TEST_CATEGORIES,
+      applyConnectionReconnect() {
+        throw new Error('panel refused');
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, []);
+    assert.deepEqual(result.pendingReconnect, []);
+    assert.equal(result.errors.length, 1);
+    const [error] = result.errors;
+    assert.ok(error);
+    assert.equal(error.key, 'PANEL_SERVER_URL');
+    assert.equal(error.strategy, 'connection-reconnect');
+    assert.equal(error.message, 'panel refused');
     assert.equal(result.restartRequired, true);
   });
 
@@ -122,6 +175,21 @@ describe('config reload strategy helpers', () => {
     assert.deepEqual(result.pendingReconnect, ['RCON_HOST']);
     assert.equal(result.restartRequired, true);
     assert.match(result.message, /1 applied live/);
+    assert.match(result.message, /1 pending reconnect/);
+  });
+
+  it('keeps mixed applied reconnect and pending reconnect classes separate', () => {
+    const result = summarizeConfigReloadApply(['PANEL_SERVER_URL', 'RCON_HOST'], {
+      categories: TEST_CATEGORIES,
+      applyConnectionReconnect(envKey) {
+        return envKey === 'PANEL_SERVER_URL';
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, ['PANEL_SERVER_URL']);
+    assert.deepEqual(result.pendingReconnect, ['RCON_HOST']);
+    assert.equal(result.restartRequired, true);
+    assert.match(result.message, /1 applied reconnect/);
     assert.match(result.message, /1 pending reconnect/);
   });
 
