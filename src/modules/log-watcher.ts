@@ -15,6 +15,12 @@ import * as logWatcherEvents from './log-watcher-events.js';
 
 type ConfigType = typeof _defaultConfig;
 
+function runtimeStringValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '';
+}
+
 interface LogWatcherDeps {
   config?: ConfigType;
   playtime?: PlaytimeTracker;
@@ -201,6 +207,7 @@ class LogWatcher {
   _useRotatedLogs: boolean;
   _hmzLogFile: string | null;
   _connectLogFile: string | null;
+  _ignoreSavedOffsetsOnce: boolean;
   _dailyThread: ThreadChannel | null;
   _dailyDate: string | null;
   _dayRolloverCb: (() => Promise<void>) | null;
@@ -255,6 +262,7 @@ class LogWatcher {
     this._useRotatedLogs = false;
     this._hmzLogFile = null; // current HMZLog file path being tailed
     this._connectLogFile = null; // current ConnectLog file path being tailed
+    this._ignoreSavedOffsetsOnce = false;
 
     // Daily thread
     this._dailyThread = null;
@@ -636,6 +644,37 @@ class LogWatcher {
     this._log.info(`Polling logs every ${nextInterval / 1000}s`);
   }
 
+  async reconfigureSftpLogSource(options: { sftpLogPath?: unknown; sftpConnectLogPath?: unknown }): Promise<void> {
+    if (!Object.hasOwn(options, 'sftpLogPath') && !Object.hasOwn(options, 'sftpConnectLogPath')) return;
+
+    const previous = this._snapshotLogSourceState();
+    const nextLogPath = Object.hasOwn(options, 'sftpLogPath')
+      ? runtimeStringValue(options.sftpLogPath)
+      : previous.sftpLogPath;
+    const nextConnectLogPath = Object.hasOwn(options, 'sftpConnectLogPath')
+      ? runtimeStringValue(options.sftpConnectLogPath)
+      : previous.sftpConnectLogPath;
+
+    this._config.sftpLogPath = nextLogPath;
+    this._config.sftpConnectLogPath = nextConnectLogPath;
+    this._resetLogSourceState();
+
+    if (!this.interval) return;
+
+    this._ignoreSavedOffsetsOnce = true;
+    try {
+      await this._initSize();
+      if (!this.initialised && !this._connectInitialised) {
+        throw new Error('Log source reinitialization failed');
+      }
+    } catch (err) {
+      this._restoreLogSourceState(previous);
+      throw err;
+    } finally {
+      this._ignoreSavedOffsetsOnce = false;
+    }
+  }
+
   // ─── INTERNAL ─────────────────────────────────────────────
 
   _loadOffsets(): SavedOffsets | null {
@@ -739,8 +778,53 @@ class LogWatcher {
     };
   }
 
+  _snapshotLogSourceState() {
+    return {
+      sftpLogPath: this._config.sftpLogPath,
+      sftpConnectLogPath: this._config.sftpConnectLogPath,
+      lastSize: this.lastSize,
+      partialLine: this.partialLine,
+      initialised: this.initialised,
+      connectLastSize: this._connectLastSize,
+      connectPartialLine: this._connectPartialLine,
+      connectInitialised: this._connectInitialised,
+      useRotatedLogs: this._useRotatedLogs,
+      hmzLogFile: this._hmzLogFile,
+      connectLogFile: this._connectLogFile,
+      ignoreSavedOffsetsOnce: this._ignoreSavedOffsetsOnce,
+    };
+  }
+
+  _restoreLogSourceState(state: ReturnType<LogWatcher['_snapshotLogSourceState']>): void {
+    this._config.sftpLogPath = state.sftpLogPath;
+    this._config.sftpConnectLogPath = state.sftpConnectLogPath;
+    this.lastSize = state.lastSize;
+    this.partialLine = state.partialLine;
+    this.initialised = state.initialised;
+    this._connectLastSize = state.connectLastSize;
+    this._connectPartialLine = state.connectPartialLine;
+    this._connectInitialised = state.connectInitialised;
+    this._useRotatedLogs = state.useRotatedLogs;
+    this._hmzLogFile = state.hmzLogFile;
+    this._connectLogFile = state.connectLogFile;
+    this._ignoreSavedOffsetsOnce = state.ignoreSavedOffsetsOnce;
+  }
+
+  _resetLogSourceState(): void {
+    this.lastSize = 0;
+    this.partialLine = '';
+    this.initialised = false;
+    this._connectLastSize = 0;
+    this._connectPartialLine = '';
+    this._connectInitialised = false;
+    this._useRotatedLogs = false;
+    this._hmzLogFile = null;
+    this._connectLogFile = null;
+  }
+
   async _initSize() {
-    const saved = this._loadOffsets();
+    const saved = this._ignoreSavedOffsetsOnce ? null : this._loadOffsets();
+    this._ignoreSavedOffsetsOnce = false;
     const sftp = new SftpClient();
     try {
       await sftp.connect(this._config.sftpConnectConfig());

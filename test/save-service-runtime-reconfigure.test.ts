@@ -117,6 +117,58 @@ describe('SaveService runtime reconfigure', () => {
     });
   });
 
+  it('updates SFTP source fields and resets source-derived runtime state', async () => {
+    await withIntervalSpy((spy) => {
+      const service = makeSaveService(60_000);
+      const oldCredentialFixture = 'fixture-old';
+      const nextCredentialFixture = 'fixture-next';
+
+      Object.assign(service as any, {
+        _sftpConfig: { host: 'old', port: 2022, username: 'old-user', password: oldCredentialFixture },
+        _savePath: '/old/SaveList/Default/Save_DedicatedSaveMP.sav',
+        _clanSavePath: '/old/Save_ClanData.sav',
+        _agentIdMapPath: '/old/PlayerIDMapped.txt',
+        _lastMtime: 123,
+        _lastClanMtime: 456,
+        _lastCacheMtime: 789,
+        _agentCapable: true,
+        _panelCapable: true,
+        _resolvedTrigger: 'ssh',
+        _agentDeployed: true,
+        _mode: 'agent',
+      });
+
+      service.reconfigure({
+        sftpConfig: { host: 'new', port: 2222, username: 'new-user', password: nextCredentialFixture },
+        savePath: '/new/SaveList/Default/Save_DedicatedSaveMP.sav',
+        clanSavePath: '/new/Save_ClanData.sav',
+        agentIdMapPath: '/new/PlayerIDMapped.txt',
+      });
+
+      assert.deepEqual((service as any)._sftpConfig, {
+        host: 'new',
+        port: 2222,
+        username: 'new-user',
+        password: nextCredentialFixture,
+      });
+      assert.equal((service as any)._savePath, '/new/SaveList/Default/Save_DedicatedSaveMP.sav');
+      assert.equal((service as any)._clanSavePath, '/new/Save_ClanData.sav');
+      assert.equal((service as any)._agentIdMapPath, '/new/PlayerIDMapped.txt');
+      assert.equal((service as any)._lastMtime, null);
+      assert.equal((service as any)._lastClanMtime, null);
+      assert.equal((service as any)._lastCacheMtime, null);
+      assert.equal((service as any)._agentCapable, null);
+      assert.equal((service as any)._panelCapable, null);
+      assert.equal((service as any)._resolvedTrigger, null);
+      assert.equal((service as any)._agentDeployed, false);
+      assert.equal((service as any)._mode, null);
+      assert.equal((service as any)._agentPath, '/new/SaveList/Default/humanitz-agent.js');
+      assert.equal((service as any)._cachePath, '/new/SaveList/Default/humanitz-cache.json');
+      assert.equal((service as any)._runScriptPath, '');
+      assert.deepEqual(spy.scheduled, []);
+    });
+  });
+
   it('surfaces invalid runtime timing values without mutating the timer', async () => {
     await withIntervalSpy(async (spy) => {
       const service = makeSaveService(60_000);

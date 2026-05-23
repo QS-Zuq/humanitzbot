@@ -16,6 +16,12 @@ interface RconOptions {
   Socket?: typeof net.Socket;
 }
 
+interface RconReconnectOptions {
+  host?: string | null;
+  port?: number | null;
+  password?: string | null;
+}
+
 interface CacheEntry {
   data: string;
   timestamp: number;
@@ -40,6 +46,8 @@ class RconManager extends EventEmitter {
   _Socket: typeof net.Socket;
   _reconnectBackoff: ReconnectBackoff;
   _connectPromise: Promise<void> | null;
+  _manualReconnectQueue: Promise<void>;
+  _suppressAutoReconnect: boolean;
   /** True after first successful connect — distinguishes initial connection from reconnects. */
   _everConnected: boolean;
   /** Timestamp of last disconnect (for uptime reporting). */
@@ -66,6 +74,8 @@ class RconManager extends EventEmitter {
     this._Socket = options.Socket ?? net.Socket;
     this._reconnectBackoff = new ReconnectBackoff();
     this._connectPromise = null;
+    this._manualReconnectQueue = Promise.resolve();
+    this._suppressAutoReconnect = false;
     this._everConnected = false;
     this._disconnectedAt = null;
   }
@@ -278,7 +288,65 @@ class RconManager extends EventEmitter {
     this._cleanup();
   }
 
+  reconnect(options: RconReconnectOptions): Promise<void> {
+    const task = this._manualReconnectQueue.then(() => this._reconnectNow(options));
+    this._manualReconnectQueue = task.catch(() => {});
+    return task;
+  }
+
   // ── Private ──────────────────────────────────────────────
+
+  async _reconnectNow(options: RconReconnectOptions): Promise<void> {
+    const previous = {
+      host: this._host,
+      port: this._port,
+      password: this._password,
+    };
+    const previousConnected = this.connected || this.authenticated || this._everConnected;
+    const next = {
+      host: options.host ?? null,
+      port: options.port ?? null,
+      password: options.password ?? null,
+    };
+
+    this._suppressAutoReconnect = true;
+    try {
+      if (this.reconnectTimeout) {
+        clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = null;
+      }
+      this._host = next.host;
+      this._port = next.port;
+      this._password = next.password;
+      this.cache.clear();
+      this._cleanup();
+
+      try {
+        await this.connect();
+      } catch (err) {
+        const candidateError = err instanceof Error ? err : new Error(String(err));
+        this._host = previous.host;
+        this._port = previous.port;
+        this._password = previous.password;
+        this._cleanup();
+
+        if (previousConnected) {
+          try {
+            await this.connect();
+          } catch {
+            // Keep the original candidate failure as the runtime-apply error.
+            this._suppressAutoReconnect = false;
+            this._scheduleReconnect();
+            this._suppressAutoReconnect = true;
+          }
+        }
+
+        throw candidateError;
+      }
+    } finally {
+      this._suppressAutoReconnect = false;
+    }
+  }
 
   _nextId(): number {
     this.requestId = (this.requestId + 1) & 0x7fffffff;
@@ -381,6 +449,7 @@ class RconManager extends EventEmitter {
   }
 
   _scheduleReconnect(): void {
+    if (this._suppressAutoReconnect) return;
     if (this.reconnectTimeout) return;
     const delayMs = this._reconnectBackoff.nextDelayMs();
     this._log.info(`Reconnecting in ${formatReconnectDelay(delayMs)}...`);

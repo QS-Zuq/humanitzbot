@@ -236,6 +236,72 @@ describe('RuntimeConfigApplier', () => {
     assert.equal(calls, 0);
   });
 
+  it('applies grouped connection-reconnect handlers as one batch', async () => {
+    const applier = new RuntimeConfigApplier();
+    const seen: unknown[] = [];
+
+    applier.registerConnectionReconnectGroup(['RCON_HOST', 'RCON_PORT'], (contexts) => {
+      seen.push(contexts);
+    });
+
+    const result = await applier.applyConnectionReconnectBatch([
+      { envKey: 'RCON_HOST', cfgKey: 'rconHost', value: '10.0.0.99' },
+      { envKey: 'RCON_PORT', cfgKey: 'rconPort', value: 14542 },
+    ]);
+
+    assert.deepEqual(result, { applied: ['RCON_HOST', 'RCON_PORT'], errors: [] });
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0], [
+      { envKey: 'RCON_HOST', cfgKey: 'rconHost', value: '10.0.0.99' },
+      { envKey: 'RCON_PORT', cfgKey: 'rconPort', value: 14542 },
+    ]);
+  });
+
+  it('keeps unhandled connection-reconnect contexts unapplied in batch mode', async () => {
+    const applier = new RuntimeConfigApplier();
+    applier.registerConnectionReconnectGroup(['RCON_HOST'], () => {});
+
+    const result = await applier.applyConnectionReconnectBatch([
+      { envKey: 'RCON_HOST', cfgKey: 'rconHost', value: '10.0.0.99' },
+      { envKey: 'AGENT_MODE', cfgKey: 'agentMode', value: 'agent' },
+    ]);
+
+    assert.deepEqual(result, { applied: ['RCON_HOST'], errors: [] });
+  });
+
+  it('reports grouped connection-reconnect failures for every changed key in the group', async () => {
+    const applier = new RuntimeConfigApplier();
+    applier.registerConnectionReconnectGroup(['RCON_HOST', 'RCON_PASSWORD'], () => {
+      throw new Error('rcon refused');
+    });
+
+    const result = await applier.applyConnectionReconnectBatch([
+      { envKey: 'RCON_HOST', cfgKey: 'rconHost', value: '10.0.0.99' },
+      { envKey: 'RCON_PASSWORD', cfgKey: 'rconPassword', value: 'secret' },
+    ]);
+
+    assert.deepEqual(result, {
+      applied: [],
+      errors: [
+        { key: 'RCON_HOST', message: 'rcon refused' },
+        { key: 'RCON_PASSWORD', message: 'rcon refused' },
+      ],
+    });
+  });
+
+  it('unregisters owner-scoped grouped connection-reconnect handlers', async () => {
+    const applier = new RuntimeConfigApplier();
+    applier.registerConnectionReconnectGroup(['SFTP_HOST', 'SFTP_PORT'], () => {}, { ownerId: 'sftp-runtime' });
+
+    assert.equal(applier.hasConnectionReconnect('SFTP_HOST'), true);
+    await applier.cleanupOwner('sftp-runtime');
+    assert.equal(applier.hasConnectionReconnect('SFTP_HOST'), false);
+    assert.deepEqual(
+      await applier.applyConnectionReconnectBatch([{ envKey: 'SFTP_HOST', cfgKey: 'sftpHost', value: 'host' }]),
+      { applied: [], errors: [] },
+    );
+  });
+
   it('does not let one owner cleanup remove another owner replacement handler', async () => {
     const applier = new RuntimeConfigApplier();
     let calls = 0;

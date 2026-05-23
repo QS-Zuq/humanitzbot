@@ -778,26 +778,53 @@ describe('Web Map Admin — POST endpoints', () => {
       savedConfig = {
         showVitals: config.showVitals,
         rconHost: config.rconHost,
+        rconPort: config.rconPort,
+        rconPassword: config.rconPassword,
         serverStatusInterval: config.serverStatusInterval,
         botLocale: config.botLocale,
         panelServerUrl: config.panelServerUrl,
         panelApiKey: config.panelApiKey,
+        sftpHost: config.sftpHost,
+        sftpPort: config.sftpPort,
+        sftpUser: config.sftpUser,
+        sftpPassword: config.sftpPassword,
+        sftpPrivateKeyPath: config.sftpPrivateKeyPath,
+        sftpLogPath: config.sftpLogPath,
+        sftpConnectLogPath: config.sftpConnectLogPath,
       };
       config.showVitals = true;
       config.rconHost = '127.0.0.1';
+      config.rconPort = 14541;
+      config.rconPassword = 'before-rcon-secret';
       config.serverStatusInterval = 30_000;
       config.botLocale = 'en';
       config.panelServerUrl = 'https://panel.before.test/server/before';
       config.panelApiKey = 'before-secret';
+      config.sftpHost = 'old-sftp.example.test';
+      config.sftpPort = 2022;
+      config.sftpUser = 'old-user';
+      config.sftpPassword = 'old-sftp-secret';
+      config.sftpPrivateKeyPath = '';
+      config.sftpLogPath = '/old/HMZLog.log';
+      config.sftpConnectLogPath = '/old/PlayerConnectedLog.txt';
     });
 
     afterEach(() => {
       config.showVitals = savedConfig.showVitals as boolean;
       config.rconHost = savedConfig.rconHost as string | undefined;
+      config.rconPort = savedConfig.rconPort as number;
+      config.rconPassword = savedConfig.rconPassword as string;
       config.serverStatusInterval = savedConfig.serverStatusInterval as number;
       config.botLocale = savedConfig.botLocale as string;
       config.panelServerUrl = savedConfig.panelServerUrl as string;
       config.panelApiKey = savedConfig.panelApiKey as string;
+      config.sftpHost = savedConfig.sftpHost as string;
+      config.sftpPort = savedConfig.sftpPort as number;
+      config.sftpUser = savedConfig.sftpUser as string;
+      config.sftpPassword = savedConfig.sftpPassword as string;
+      config.sftpPrivateKeyPath = savedConfig.sftpPrivateKeyPath as string;
+      config.sftpLogPath = savedConfig.sftpLogPath as string;
+      config.sftpConnectLogPath = savedConfig.sftpConnectLogPath as string;
     });
 
     function makePanelCredentialApplier(onInvalidate: () => void): RuntimeConfigApplier {
@@ -809,6 +836,14 @@ describe('Web Map Admin — POST endpoints', () => {
       applier.registerConnectionReconnect('PANEL_API_KEY', (context) => {
         config.panelApiKey = context.value as string;
         onInvalidate();
+      });
+      return applier;
+    }
+
+    function makeBatchApplier(envKeys: string[], onApply: (contexts: Array<Record<string, unknown>>) => void) {
+      const applier = new RuntimeConfigApplier();
+      applier.registerConnectionReconnectGroup(envKeys, (contexts) => {
+        onApply(contexts as unknown as Array<Record<string, unknown>>);
       });
       return applier;
     }
@@ -872,14 +907,14 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.VALUE_TOO_LONG);
     });
 
-    it('applies explicit live settings to config memory and DB without restartRequired', () => {
+    it('applies explicit live settings to config memory and DB without restartRequired', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const liveHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
       const req = mockReq({ body: { changes: { SHOW_VITALS: 'false' } } });
       const res = mockRes();
 
-      liveHandler(req, res);
+      await liveHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, false);
@@ -890,14 +925,14 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.showVitals, false);
     });
 
-    it('keeps connection settings pending and does not mutate active config memory', () => {
+    it('keeps connection settings pending and does not mutate active config memory', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const pendingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
       const req = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99' } } });
       const res = mockRes();
 
-      pendingHandler(req, res);
+      await pendingHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -907,7 +942,152 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs['server:primary']?.rconHost, '10.0.0.99');
     });
 
-    it('applies registered Panel API URL reconnect settings without restartRequired', () => {
+    it('applies registered RCON reconnect settings as appliedReconnect without leaking secrets', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeBatchApplier(['RCON_HOST', 'RCON_PORT', 'RCON_PASSWORD'], (contexts) => {
+        for (const context of contexts) {
+          (config as unknown as Record<string, unknown>)[String(context.cfgKey)] = context.value;
+        }
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const rconHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextSecret = 'new-rcon-secret';
+      const req = mockReq({
+        body: { changes: { RCON_HOST: '10.0.0.99', RCON_PORT: '14542', RCON_PASSWORD: nextSecret } },
+      });
+      const res = mockRes();
+
+      await rconHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, [
+        'RCON_HOST',
+        'RCON_PORT',
+        'RCON_PASSWORD',
+      ]);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.rconHost, '10.0.0.99');
+      assert.equal(config.rconPort, 14542);
+      assert.equal(config.rconPassword, nextSecret);
+      assert.equal(JSON.stringify(res._json).includes(nextSecret), false);
+    });
+
+    it('rejects invalid RCON port values before DB save or runtime reconnect', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeBatchApplier(['RCON_HOST', 'RCON_PORT'], () => {
+        throw new Error('runtime reconnect should not run');
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const rconHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99', RCON_PORT: 'not-a-port' } } });
+      const res = mockRes();
+
+      await rconHandler(req, res);
+
+      assert.equal(res._status, 400);
+      assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_BOT_CONFIG_VALUE);
+      assert.deepEqual((res._json as Record<string, unknown>).details, {
+        key: 'RCON_PORT',
+        reason: 'Port must be an integer between 1 and 65535',
+      });
+      assert.equal(repo.docs['server:primary']?.rconPort, undefined);
+      assert.equal(config.rconPort, 14541);
+    });
+
+    it('reports RCON reconnect failures as errors without leaking the raw password', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeBatchApplier(['RCON_HOST', 'RCON_PASSWORD'], () => {
+        throw new Error('rcon refused');
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const rconHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const rawSecret = 'bad-rcon-secret';
+      const req = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99', RCON_PASSWORD: rawSecret } } });
+      const res = mockRes();
+
+      await rconHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.rconHost, '127.0.0.1');
+      assert.equal(config.rconPassword, 'before-rcon-secret');
+      assert.equal(JSON.stringify(res._json).includes(rawSecret), false);
+      assert.deepEqual(
+        (res._json as { errors: Array<{ key: string; message: string }> }).errors.map((error) => error.key),
+        ['RCON_HOST', 'RCON_PASSWORD'],
+      );
+    });
+
+    it('applies registered SFTP reconnect settings without leaking secrets', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeBatchApplier(['SFTP_HOST', 'SFTP_PASSWORD', 'SFTP_LOG_PATH'], (contexts) => {
+        for (const context of contexts) {
+          (config as unknown as Record<string, unknown>)[String(context.cfgKey)] = context.value;
+        }
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const sftpHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const rawSecret = 'new-sftp-secret';
+      const req = mockReq({
+        body: {
+          changes: { SFTP_HOST: 'new-sftp.example.test', SFTP_PASSWORD: rawSecret, SFTP_LOG_PATH: '/new/HMZLog.log' },
+        },
+      });
+      const res = mockRes();
+
+      await sftpHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, [
+        'SFTP_HOST',
+        'SFTP_PASSWORD',
+        'SFTP_LOG_PATH',
+      ]);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.sftpHost, 'new-sftp.example.test');
+      assert.equal(config.sftpPassword, rawSecret);
+      assert.equal(config.sftpLogPath, '/new/HMZLog.log');
+      assert.equal(JSON.stringify(res._json).includes(rawSecret), false);
+    });
+
+    it('keeps PR8-owned connection keys pending when PR7 handlers are absent', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, {
+        db: mockDb(),
+        configRepo: repo,
+        runtimeConfigApplier: new RuntimeConfigApplier(),
+      });
+      const pendingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            AGENT_MODE: 'agent',
+            AGENT_TRIGGER: 'ssh',
+            HZMOD_SOCKET_PATH: '/tmp/hzmod.sock',
+            PUBLIC_HOST: 'public.example.test',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await pendingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, [
+        'AGENT_MODE',
+        'AGENT_TRIGGER',
+        'HZMOD_SOCKET_PATH',
+        'PUBLIC_HOST',
+      ]);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+    });
+
+    it('applies registered Panel API URL reconnect settings without restartRequired', async () => {
       const repo = mockConfigRepo();
       let invalidations = 0;
       const applier = makePanelCredentialApplier(() => {
@@ -919,7 +1099,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl } } });
       const res = mockRes();
 
-      panelHandler(req, res);
+      await panelHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, false);
@@ -930,7 +1110,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(invalidations >= 1, true);
     });
 
-    it('applies registered Panel API key reconnect settings without leaking the raw secret', () => {
+    it('applies registered Panel API key reconnect settings without leaking the raw secret', async () => {
       const repo = mockConfigRepo();
       let invalidations = 0;
       const applier = makePanelCredentialApplier(() => {
@@ -942,7 +1122,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { PANEL_API_KEY: nextSecret } } });
       const res = mockRes();
 
-      panelHandler(req, res);
+      await panelHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, false);
@@ -954,7 +1134,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(JSON.stringify(res._json).includes(nextSecret), false);
     });
 
-    it('applies both Panel API credentials and keeps their secret response safe', () => {
+    it('applies both Panel API credentials and keeps their secret response safe', async () => {
       const repo = mockConfigRepo();
       let invalidations = 0;
       const applier = makePanelCredentialApplier(() => {
@@ -967,7 +1147,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl, PANEL_API_KEY: nextSecret } } });
       const res = mockRes();
 
-      panelHandler(req, res);
+      await panelHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, false);
@@ -979,7 +1159,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(JSON.stringify(res._json).includes(nextSecret), false);
     });
 
-    it('reports mixed Panel API reconnect and pending RCON reconnect truthfully', () => {
+    it('reports mixed Panel API reconnect and pending RCON reconnect truthfully', async () => {
       const repo = mockConfigRepo();
       const applier = makePanelCredentialApplier(() => {});
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
@@ -988,7 +1168,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl, RCON_HOST: '10.0.0.99' } } });
       const res = mockRes();
 
-      mixedHandler(req, res);
+      await mixedHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1000,7 +1180,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.match(String((res._json as Record<string, unknown>).message), /pending reconnect/);
     });
 
-    it('reports Panel API reconnect handler failures as errors without marking the key applied', () => {
+    it('reports Panel API reconnect handler failures as errors without marking the key applied', async () => {
       const repo = mockConfigRepo();
       const applier = new RuntimeConfigApplier();
       applier.registerConnectionReconnect('PANEL_SERVER_URL', () => {
@@ -1012,7 +1192,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl } } });
       const res = mockRes();
 
-      failingHandler(req, res);
+      await failingHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1026,14 +1206,14 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs['server:primary']?.panelServerUrl, nextUrl);
     });
 
-    it('reports mixed live and pending changes truthfully', () => {
+    it('reports mixed live and pending changes truthfully', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const mixedHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
       const req = mockReq({ body: { changes: { SHOW_VITALS: 'false', RCON_HOST: '10.0.0.99' } } });
       const res = mockRes();
 
-      mixedHandler(req, res);
+      await mixedHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1044,7 +1224,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.match(String((res._json as Record<string, unknown>).message), /pending reconnect/);
     });
 
-    it('applies registered module-reconfigure settings without restartRequired', () => {
+    it('applies registered module-reconfigure settings without restartRequired', async () => {
       const repo = mockConfigRepo();
       const applier = new RuntimeConfigApplier();
       const applied: unknown[] = [];
@@ -1057,7 +1237,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { SERVER_STATUS_INTERVAL: '45000' } } });
       const res = mockRes();
 
-      reconfigureHandler(req, res);
+      await reconfigureHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, false);
@@ -1068,7 +1248,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
     });
 
-    it('keeps module-reconfigure settings pending when no runtime handler is registered', () => {
+    it('keeps module-reconfigure settings pending when no runtime handler is registered', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, {
         db: mockDb(),
@@ -1079,7 +1259,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { BOT_LOCALE: 'zh-TW' } } });
       const res = mockRes();
 
-      pendingReconfigureHandler(req, res);
+      await pendingReconfigureHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1089,7 +1269,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.botLocale, 'zh-TW');
     });
 
-    it('reports module-reconfigure handler failures as errors without marking pending as applied', () => {
+    it('reports module-reconfigure handler failures as errors without marking pending as applied', async () => {
       const repo = mockConfigRepo();
       const applier = new RuntimeConfigApplier();
       applier.registerModuleReconfigure('SERVER_STATUS_INTERVAL', () => {
@@ -1100,7 +1280,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const req = mockReq({ body: { changes: { SERVER_STATUS_INTERVAL: '45000' } } });
       const res = mockRes();
 
-      failingHandler(req, res);
+      await failingHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1114,14 +1294,14 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
     });
 
-    it('falls unknown primary settings back to pending bot restart without live apply', () => {
+    it('falls unknown primary settings back to pending bot restart without live apply', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const unknownHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
       const req = mockReq({ body: { changes: { FUTURE_SETTING: 'enabled' } } });
       const res = mockRes();
 
-      unknownHandler(req, res);
+      await unknownHandler(req, res);
 
       assert.equal(res._status, 200);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
@@ -1130,7 +1310,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.FUTURE_SETTING, 'enabled');
     });
 
-    it('shows pending DB value on primary bot-config GET before active config memory changes', () => {
+    it('shows pending DB value on primary bot-config GET before active config memory changes', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
@@ -1138,7 +1318,7 @@ describe('Web Map Admin — POST endpoints', () => {
       const postReq = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99' } } });
       const postRes = mockRes();
 
-      postHandler(postReq, postRes);
+      await postHandler(postReq, postRes);
 
       const getReq = mockReq();
       const getRes = mockRes();
@@ -1156,37 +1336,37 @@ describe('Web Map Admin — POST endpoints', () => {
   describe('POST /api/panel/scheduler', () => {
     const handler = getHandler('POST', '/api/panel/scheduler');
 
-    it('requires admin tier', () => {
+    it('requires admin tier', async () => {
       const mw = getTierMiddleware('POST', '/api/panel/scheduler');
       const req = mockReq({ tier: 'mod', tierLevel: 2, path: '/api/panel/scheduler' });
       const res = mockRes();
       let nextCalled = false;
-      mw(req, res, () => {
+      mw(req, res, async () => {
         nextCalled = true;
       });
       assert.equal(nextCalled, false);
     });
 
-    it('returns 400 when restartTimes is missing', () => {
+    it('returns 400 when restartTimes is missing', async () => {
       const req = mockReq({ body: {} });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.RESTART_TIMES_INVALID);
     });
 
-    it('returns 400 when restartTimes is not an array', () => {
+    it('returns 400 when restartTimes is not an array', async () => {
       const req = mockReq({ body: { restartTimes: '08:00' } });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.RESTART_TIMES_INVALID);
     });
 
-    it('returns 400 for invalid time format', () => {
+    it('returns 400 for invalid time format', async () => {
       const req = mockReq({ body: { restartTimes: ['08:00', 'invalid'] } });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_TIME_FORMAT);
     });
@@ -1197,51 +1377,51 @@ describe('Web Map Admin — POST endpoints', () => {
   describe('POST /api/panel/anticheat/flags/:id/review', () => {
     const handler = getHandler('POST', '/api/panel/anticheat/flags/:id/review');
 
-    it('requires admin tier', () => {
+    it('requires admin tier', async () => {
       const mw = getTierMiddleware('POST', '/api/panel/anticheat/flags/:id/review');
       const req = mockReq({ tier: 'mod', tierLevel: 2, path: '/api/panel/anticheat/flags/1/review' });
       const res = mockRes();
       let nextCalled = false;
-      mw(req, res, () => {
+      mw(req, res, async () => {
         nextCalled = true;
       });
       assert.equal(nextCalled, false);
     });
 
-    it('returns 500 when database is not available', () => {
+    it('returns 500 when database is not available', async () => {
       const srv = mockSrv({ db: null });
       const req = mockReq({ params: { id: '1' }, body: { status: 'confirmed' }, srv });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 500);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.DATABASE_NOT_AVAILABLE);
     });
 
-    it('returns 400 for invalid (non-numeric) flag ID', () => {
+    it('returns 400 for invalid (non-numeric) flag ID', async () => {
       const req = mockReq({ params: { id: 'abc' }, body: { status: 'confirmed' } });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_FLAG_ID);
     });
 
-    it('returns 400 for missing status', () => {
+    it('returns 400 for missing status', async () => {
       const req = mockReq({ params: { id: '1' }, body: {} });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_STATUS);
     });
 
-    it('returns 400 for invalid status value', () => {
+    it('returns 400 for invalid status value', async () => {
       const req = mockReq({ params: { id: '1' }, body: { status: 'approved' } });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_STATUS);
     });
 
-    it('accepts "confirmed" status and calls db.updateAcFlagStatus', () => {
+    it('accepts "confirmed" status and calls db.updateAcFlagStatus', async () => {
       let updateArgs: unknown[] | null = null;
       const srv = mockSrv();
       srv.db.antiCheat = {
@@ -1251,29 +1431,29 @@ describe('Web Map Admin — POST endpoints', () => {
       };
       const req = mockReq({ params: { id: '42' }, body: { status: 'confirmed', notes: 'Cheater' }, srv });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal((res._json as Record<string, unknown>).ok, true);
       assert.equal((res._json as Record<string, unknown>).flagId, 42);
       assert.equal((res._json as Record<string, unknown>).status, 'confirmed');
       assert.deepEqual(updateArgs, [42, 'confirmed', 'TestAdmin', 'Cheater']);
     });
 
-    it('accepts "dismissed" status', () => {
+    it('accepts "dismissed" status', async () => {
       const srv = mockSrv();
-      srv.db.antiCheat = { updateAcFlagStatus: () => {} };
+      srv.db.antiCheat = { updateAcFlagStatus: async () => {} };
       const req = mockReq({ params: { id: '1' }, body: { status: 'dismissed' }, srv });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal((res._json as Record<string, unknown>).ok, true);
       assert.equal((res._json as Record<string, unknown>).status, 'dismissed');
     });
 
-    it('accepts "whitelisted" status', () => {
+    it('accepts "whitelisted" status', async () => {
       const srv = mockSrv();
-      srv.db.antiCheat = { updateAcFlagStatus: () => {} };
+      srv.db.antiCheat = { updateAcFlagStatus: async () => {} };
       const req = mockReq({ params: { id: '1' }, body: { status: 'whitelisted' }, srv });
       const res = mockRes();
-      handler(req, res);
+      await handler(req, res);
       assert.equal((res._json as Record<string, unknown>).ok, true);
       assert.equal((res._json as Record<string, unknown>).status, 'whitelisted');
     });
