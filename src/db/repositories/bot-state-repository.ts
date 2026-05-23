@@ -129,7 +129,7 @@ export class BotStateRepository extends BaseRepository {
   /**
    * Set a bot_state value as JSON after running the normalizer.
    * Throws if the normalizer reports any issues (write-side fail-loud for canary keys).
-   * Use this for canary keys only (kill_tracker, github_tracker).
+   * Use this for canary keys only (kill_tracker).
    */
   setStateJSONValidated<T>(key: string, normalize: (raw: unknown) => { shape: T; issues: string[] }, value: T): void {
     const { issues } = normalize(value);

@@ -122,7 +122,7 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, false);
   });
 
-  it('applies PR5 timer handlers while keeping GitHub polling pending', () => {
+  it('applies PR5 timer handlers without retaining removed GitHub polling metadata', () => {
     const pr4Keys = [
       'LOG_POLL_INTERVAL',
       'CHAT_POLL_INTERVAL',
@@ -133,7 +133,7 @@ describe('config reload strategy helpers', () => {
       'ANTICHEAT_BASELINE_INTERVAL',
     ];
     const pr5Keys = [...pr4Keys, 'SAVE_POLL_INTERVAL', 'AGENT_POLL_INTERVAL', 'AGENT_TIMEOUT', 'AGENT_PANEL_DELAY'];
-    const result = summarizeConfigReloadApply([...pr5Keys, 'GITHUB_POLL_INTERVAL'], {
+    const result = summarizeConfigReloadApply(pr5Keys, {
       categories: ENV_CATEGORIES,
       applyModuleReconfigure(envKey) {
         return pr5Keys.includes(envKey);
@@ -141,8 +141,26 @@ describe('config reload strategy helpers', () => {
     });
 
     assert.deepEqual(result.appliedModuleReconfigure, pr5Keys);
-    assert.deepEqual(result.pendingModuleReconfigure, ['GITHUB_POLL_INTERVAL']);
-    assert.equal(result.restartRequired, true);
+    assert.deepEqual(result.pendingModuleReconfigure, []);
+    assert.equal(result.restartRequired, false);
+  });
+
+  it('real panel metadata no longer exposes GitHub Tracker settings', () => {
+    const removedKeys = new Set([
+      'ENABLE_GITHUB_TRACKER',
+      'GITHUB_TOKEN',
+      'GITHUB_REPOS',
+      'GITHUB_CHANNEL_ID',
+      'GITHUB_POLL_INTERVAL',
+    ]);
+
+    for (const category of ENV_CATEGORIES) {
+      const categoryId = (category as { id?: string }).id;
+      assert.notEqual(categoryId, 'github_tracker', 'GitHub Tracker category must be removed');
+      for (const field of category.fields) {
+        assert.equal(removedKeys.has(field.env), false, `${field.env} must not be exposed in panel metadata`);
+      }
+    }
   });
 
   it('keeps agent lifecycle settings out of PR5 runtime timing handlers', () => {

@@ -60,9 +60,8 @@ function countByPrefix(prefix: string): number {
 // ─── backupCriticalBotStateKeys ────────────────────────────────────────────────
 
 describe('backupCriticalBotStateKeys', () => {
-  it('writes canary_backup__ rows for kill_tracker and github_tracker when they exist', () => {
+  it('writes canary_backup__ rows for kill_tracker when it exists', () => {
     repo.setState('kill_tracker', JSON.stringify({ players: {} }));
-    repo.setState('github_tracker', JSON.stringify({ 'owner/repo': {} }));
 
     backupCriticalBotStateKeys(makeDb());
 
@@ -70,10 +69,6 @@ describe('backupCriticalBotStateKeys', () => {
     assert.ok(
       repo.getState(CANARY_BACKUP_PREFIX + 'kill_tracker__' + today) !== null,
       'kill_tracker backup row must exist',
-    );
-    assert.ok(
-      repo.getState(CANARY_BACKUP_PREFIX + 'github_tracker__' + today) !== null,
-      'github_tracker backup row must exist',
     );
   });
 
@@ -84,12 +79,11 @@ describe('backupCriticalBotStateKeys', () => {
 
   it('is idempotent — calling twice does not double-backup', () => {
     repo.setState('kill_tracker', JSON.stringify({ players: {} }));
-    repo.setState('github_tracker', JSON.stringify({}));
 
     backupCriticalBotStateKeys(makeDb());
     backupCriticalBotStateKeys(makeDb());
 
-    assert.equal(countByPrefix(CANARY_BACKUP_PREFIX), 2, 'exactly 2 backup rows (not 4)');
+    assert.equal(countByPrefix(CANARY_BACKUP_PREFIX), 1, 'exactly 1 backup row (not 2)');
   });
 
   it('backup value matches original row value', () => {
@@ -107,15 +101,11 @@ describe('backupCriticalBotStateKeys', () => {
 // ─── backupFirstRunKeys ────────────────────────────────────────────────────────
 
 describe('backupFirstRunKeys', () => {
-  it('FIRST_RUN_TRANSIENT_KEYS encodes PR2 reset scope (3 added keys, no self-seeding keys)', () => {
+  it('FIRST_RUN_TRANSIENT_KEYS encodes PR2 reset scope (3 added keys, no backfilled keys)', () => {
     const transientKeys: readonly string[] = FIRST_RUN_TRANSIENT_KEYS;
     assert.ok(transientKeys.includes('kill_tracker'), 'kill_tracker must be cleared on FIRST_RUN');
     assert.ok(transientKeys.includes('weekly_baseline'), 'weekly_baseline must be cleared on FIRST_RUN');
     assert.ok(transientKeys.includes('recap_service'), 'recap_service must be cleared on FIRST_RUN');
-    assert.ok(
-      !transientKeys.includes('github_tracker'),
-      'github_tracker must not be cleared because it bootstraps itself',
-    );
     assert.ok(!transientKeys.includes('milestones'), 'milestones must not be cleared because it backfills itself');
     assert.equal(new Set(transientKeys).size, transientKeys.length, 'key list must be unique');
   });

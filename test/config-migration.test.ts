@@ -45,6 +45,19 @@ describe('config-migration', () => {
     assert.ok(map['ENABLE_CHAT_RELAY'], 'ENABLE_CHAT_RELAY should be in map');
   });
 
+  it('buildMigrationMap() does not migrate removed GitHub Tracker env keys', () => {
+    const map = buildMigrationMap();
+    for (const key of [
+      'ENABLE_GITHUB_TRACKER',
+      'GITHUB_TOKEN',
+      'GITHUB_REPOS',
+      'GITHUB_CHANNEL_ID',
+      'GITHUB_POLL_INTERVAL',
+    ]) {
+      assert.equal(map[key], undefined, `${key} must not be migrated after GitHub Tracker removal`);
+    }
+  });
+
   // ── 2. Scope assignment ─────────────────────────────────────
 
   it('assigns RCON/SFTP/channel keys to server:primary, others to app', () => {

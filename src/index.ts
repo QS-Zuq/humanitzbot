@@ -594,7 +594,7 @@ client.once(Events.ClientReady, (readyClient) => {
       {
         // PR2: central contract lives in bot-state-backup.ts so tests can assert
         // that FIRST_RUN clears kill_tracker / weekly_baseline / recap_service
-        // but does not clear self-seeding github_tracker or backfilled milestones.
+        // but does not clear backfilled milestones.
         const transientKeys = FIRST_RUN_TRANSIENT_KEYS;
         // Stage 4: backup transient keys before deletion (idempotent)
         backupFirstRunKeys(db, transientKeys);

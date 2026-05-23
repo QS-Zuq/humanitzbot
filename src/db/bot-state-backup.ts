@@ -2,7 +2,7 @@
  * bot-state-backup.ts — startup-time bot_state backup utilities.
  *
  * backupCriticalBotStateKeys: one-shot idempotent backup of canary keys
- *   (kill_tracker, github_tracker) to a date-stamped prefix row before
+ *   (kill_tracker) to a date-stamped prefix row before
  *   any schema validation is applied. Guards against "read invalid → partial
  *   recovery → write default → silent data wipe" (Pre-mortem S4).
  *
@@ -16,7 +16,7 @@
 import type { HumanitZDB } from './database.js';
 
 /** Keys backed up as canary rows on every startup. */
-const CRITICAL_KEYS = ['kill_tracker', 'github_tracker'] as const;
+const CRITICAL_KEYS = ['kill_tracker'] as const;
 
 /** Prefix used for canary startup backups. */
 export const CANARY_BACKUP_PREFIX = 'canary_backup__';
@@ -32,8 +32,8 @@ const BACKUP_TTL_DAYS = 7;
  *
  * Keep this list centralized so PR2's reset contract is testable: do clear
  * keys that have no bootstrap/backfill path (`kill_tracker`,
- * `weekly_baseline`, `recap_service`), but do not clear `github_tracker` or
- * `milestones` because they self-seed/backfill and clearing only adds churn.
+ * `weekly_baseline`, `recap_service`), but do not clear `milestones`
+ * because they self-seed/backfill and clearing only adds churn.
  */
 export const FIRST_RUN_TRANSIENT_KEYS = [
   'msg_id_server_status',
