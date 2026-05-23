@@ -171,7 +171,6 @@ const ENV_CATEGORIES = [
       { env: 'ENABLE_MILESTONES', label: 'Milestones (true/false)', cfg: 'enableMilestones', type: 'bool' },
       { env: 'ENABLE_RECAPS', label: 'Recaps (true/false)', cfg: 'enableRecaps', type: 'bool' },
       { env: 'ENABLE_ANTICHEAT', label: 'Anticheat (true/false)', cfg: 'enableAnticheat', type: 'bool' },
-      { env: 'ENABLE_GITHUB_TRACKER', label: 'GitHub Tracker (true/false)', cfg: 'enableGithubTracker', type: 'bool' },
       {
         env: 'ENABLE_SERVER_SCHEDULER',
         label: 'Server Scheduler (true/false)',
@@ -630,21 +629,6 @@ const ENV_CATEGORIES = [
     ],
   },
   {
-    id: 'github_tracker',
-    label: 'GitHub Tracker',
-    emoji: '🐙',
-    group: 1,
-    description: 'GitHub commit/PR tracking (restart required)',
-    restart: true,
-    reloadStrategy: 'module-reconfigure',
-    fields: [
-      { env: 'GITHUB_TOKEN', label: 'GitHub Token', cfg: 'githubToken', sensitive: true },
-      { env: 'GITHUB_REPOS', label: 'Repos (owner/repo, comma-sep)', cfg: 'githubRepos' },
-      { env: 'GITHUB_CHANNEL_ID', label: 'GitHub Channel', cfg: 'githubChannelId' },
-      { env: 'GITHUB_POLL_INTERVAL', label: 'Poll Interval (ms)', cfg: 'githubPollInterval', type: 'int' },
-    ],
-  },
-  {
     id: 'anticheat_config',
     label: 'Anticheat Config',
     emoji: '🛡️',
@@ -987,7 +971,7 @@ const ENV_CATEGORY_GROUPS = [
   {
     id: 'automation',
     icon: 'calendar-clock',
-    categories: ['automsg', 'restart_schedule', 'github_tracker', 'pvp', 'pvp_hours'],
+    categories: ['automsg', 'restart_schedule', 'pvp', 'pvp_hours'],
   },
   {
     id: 'tracking',

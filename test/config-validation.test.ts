@@ -352,6 +352,12 @@ describe('ENV_KEY_VALIDATORS', () => {
     assert.strictEqual(ENV_KEY_VALIDATORS.STATUS_CHANNEL_INTERVAL.min, 60000);
   });
 
+  it('does not keep validators for removed GitHub Tracker env keys', () => {
+    for (const key of ['GITHUB_CHANNEL_ID', 'GITHUB_POLL_INTERVAL']) {
+      assert.equal(ENV_KEY_VALIDATORS[key], undefined, `${key} validator must be removed`);
+    }
+  });
+
   it('all validator types reference existing FIELD_VALIDATORS', () => {
     for (const [key, def] of Object.entries(ENV_KEY_VALIDATORS)) {
       assert.ok(FIELD_VALIDATORS[(def as any).type], `${key} references unknown validator type: ${(def as any).type}`);

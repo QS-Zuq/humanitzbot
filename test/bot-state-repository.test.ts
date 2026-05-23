@@ -19,13 +19,11 @@ import { getSchemaMode, reloadSchemaMode } from '../src/state/bot-state-mode.js'
 import {
   KILL_TRACKER_DEFAULT,
   normalizeKillTracker,
-  normalizeGithubTracker,
   isServerStatusCacheFresh,
   normalizeMilestoneState,
   normalizeRecapService,
   normalizeServerStatusCache,
   type KillTrackerShape,
-  type GithubTrackerShape,
 } from '../src/state/bot-state-schemas.js';
 
 // ─── Test DB setup ─────────────────────────────────────────────────────────
@@ -243,16 +241,6 @@ describe('BotStateRepository.setStateJSONValidated', () => {
       repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, badVal);
     }, /bot_state\.kill_tracker failed validation/);
     assert.equal(getRaw('kill_tracker'), null);
-  });
-
-  it('github_tracker valid value round-trip', () => {
-    const gt: GithubTrackerShape = {
-      'owner/repo': { seenPrIds: [1, 2, 3], bootstrapped: true },
-    };
-    repo.setStateJSONValidated('github_tracker', normalizeGithubTracker, gt);
-    const raw = getRaw('github_tracker');
-    assert.ok(raw !== null);
-    assert.deepEqual((JSON.parse(raw) as GithubTrackerShape)['owner/repo']?.seenPrIds, [1, 2, 3]);
   });
 
   // P1-3 regression: normalizer must emit issues for substituted fields (hasExtendedStats, etc.)

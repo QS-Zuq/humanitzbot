@@ -93,10 +93,10 @@ describe('attachBotStateListeners (Stage 6)', { concurrency: false }, () => {
     const log = makeLog();
     attachBotStateListeners(log, stubDb);
 
-    botStateEvents.emit('parse-error', { key: 'github_tracker', error: 'unexpected end', rawValue: '' });
+    botStateEvents.emit('parse-error', { key: 'legacy_state_key', error: 'unexpected end', rawValue: '' });
 
     assert.ok(log._warns.length >= 1, 'should have logged at least 1 warning');
-    assert.ok(log._warns[0].includes('github_tracker'), 'warn must mention the key');
+    assert.ok(log._warns[0].includes('legacy_state_key'), 'warn must mention the key');
   });
 
   it('T6-shape-invalid: warn includes key and issues', () => {

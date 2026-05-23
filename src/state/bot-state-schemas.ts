@@ -6,9 +6,9 @@
  * of the target type (invalid fields are substituted with safe defaults).
  * `issues` lists per-field diagnostic strings for every substitution made.
  *
- * Only kill_tracker and github_tracker are canary keys for PR2.  The other
- * keys (milestones, weekly_baseline, recap_service …) will get normalizers in
- * PR4/PR5.
+ * Only kill_tracker is a canary key for PR2. The other keys
+ * (milestones, weekly_baseline, recap_service …) will get normalizers in
+ * later follow-up work.
  *
  * Decision: Option E selected after Stage 0 spike — see temp/pr2-schema-spike.md.
  */
@@ -275,67 +275,6 @@ export function normalizeKillTracker(raw: unknown): { shape: KillTrackerShape; i
     issues.push('root.lastPollDate: expected string | null | undefined (dropped)');
   } else {
     out.lastPollDate = raw.lastPollDate;
-  }
-  return { shape: out, issues };
-}
-
-// ─── github_tracker ──────────────────────────────────────────────────────────
-
-export interface RepoState {
-  seenPrIds?: number[];
-  closedPrIds?: number[];
-  seenCommitShas?: string[];
-  bootstrapped?: boolean;
-  _bootstrapAttempts?: number;
-}
-
-export type GithubTrackerShape = Record<string, RepoState>;
-
-export const GITHUB_TRACKER_DEFAULT: GithubTrackerShape = {};
-
-/** Factory — always returns a fresh default instance (prevents cross-instance mutation). */
-export function makeGithubTrackerDefault(): GithubTrackerShape {
-  return {};
-}
-
-/**
- * Option E normalizer for github_tracker.
- * Per-repo recovery: a bad repo entry is skipped while healthy siblings are preserved.
- */
-export function normalizeGithubTracker(raw: unknown): { shape: GithubTrackerShape; issues: string[] } {
-  const issues: string[] = [];
-  const out: GithubTrackerShape = {};
-  if (!isObj(raw)) {
-    issues.push('root: expected object');
-    return { shape: out, issues };
-  }
-  for (const [repo, rs] of Object.entries(raw)) {
-    if (!isObj(rs)) {
-      issues.push(`[${repo}]: expected object (skipped)`);
-      continue;
-    }
-    const recovered: RepoState = {};
-    if (rs.seenPrIds !== undefined) {
-      if (isNumberArray(rs.seenPrIds)) recovered.seenPrIds = rs.seenPrIds;
-      else issues.push(`[${repo}].seenPrIds: expected number[] (dropped)`);
-    }
-    if (rs.closedPrIds !== undefined) {
-      if (isNumberArray(rs.closedPrIds)) recovered.closedPrIds = rs.closedPrIds;
-      else issues.push(`[${repo}].closedPrIds: expected number[] (dropped)`);
-    }
-    if (rs.seenCommitShas !== undefined) {
-      if (isStringArray(rs.seenCommitShas)) recovered.seenCommitShas = rs.seenCommitShas;
-      else issues.push(`[${repo}].seenCommitShas: expected string[] (dropped)`);
-    }
-    if (rs.bootstrapped !== undefined) {
-      if (typeof rs.bootstrapped === 'boolean') recovered.bootstrapped = rs.bootstrapped;
-      else issues.push(`[${repo}].bootstrapped: expected boolean (dropped)`);
-    }
-    if (rs._bootstrapAttempts !== undefined) {
-      if (typeof rs._bootstrapAttempts === 'number') recovered._bootstrapAttempts = rs._bootstrapAttempts;
-      else issues.push(`[${repo}]._bootstrapAttempts: expected number (dropped)`);
-    }
-    out[repo] = recovered;
   }
   return { shape: out, issues };
 }

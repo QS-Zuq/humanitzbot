@@ -215,7 +215,6 @@ const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
   PLAYER_STATS_CHANNEL_ID: { type: 'snowflake' },
 
   ACTIVITY_LOG_CHANNEL_ID: { type: 'snowflake' },
-  GITHUB_CHANNEL_ID: { type: 'snowflake' },
   HOWYAGARN_CHANNEL_ID: { type: 'snowflake' },
 
   // Hosts
@@ -251,7 +250,6 @@ const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
   RESOURCE_CACHE_TTL: { type: 'interval', min: 10000 },
   AGENT_POLL_INTERVAL: { type: 'interval', min: 30000 },
   AGENT_TIMEOUT: { type: 'interval', min: 10000 },
-  GITHUB_POLL_INTERVAL: { type: 'interval', min: 30000 },
 };
 
 // ── Main validation function ─────────────────────────────────

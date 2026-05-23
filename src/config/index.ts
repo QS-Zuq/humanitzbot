@@ -166,13 +166,6 @@ interface Config {
   enableMilestones: boolean;
   enableRecaps: boolean;
   enableAnticheat: boolean;
-  enableGithubTracker: boolean;
-
-  // GitHub Tracker
-  githubToken: string;
-  githubRepos: string[];
-  githubChannelId: string;
-  githubPollInterval: number;
   anticheatAnalyzeInterval: number;
   anticheatBaselineInterval: number;
 
@@ -544,16 +537,6 @@ const config = {
   enableMilestones: envBool('ENABLE_MILESTONES', false),
   enableRecaps: envBool('ENABLE_RECAPS', false),
   enableAnticheat: envBool('ENABLE_ANTICHEAT', false),
-  enableGithubTracker: envBool('ENABLE_GITHUB_TRACKER', false),
-
-  // GitHub Tracker — poll GitHub repos for PR/commit changes, post to per-repo threads
-  githubToken: process.env.GITHUB_TOKEN || '',
-  githubRepos: (process.env.GITHUB_REPOS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
-  githubChannelId: process.env.GITHUB_CHANNEL_ID || '',
-  githubPollInterval: Math.max(parseInt(process.env.GITHUB_POLL_INTERVAL ?? '', 10) || 60_000, 30_000),
   anticheatAnalyzeInterval: parseInt(process.env.ANTICHEAT_ANALYZE_INTERVAL ?? '', 10) || 60_000,
   anticheatBaselineInterval: parseInt(process.env.ANTICHEAT_BASELINE_INTERVAL ?? '', 10) || 900_000,
 
