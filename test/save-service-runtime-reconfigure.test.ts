@@ -248,6 +248,32 @@ describe('SaveService runtime handler registration', () => {
     assert.equal(applier.hasModuleReconfigure('AGENT_PANEL_DELAY'), false);
   });
 
+  it('registers SaveService handlers with owner-scoped lifecycle cleanup', async () => {
+    const applier = new RuntimeConfigApplier();
+    const config = {
+      agentMode: 'auto',
+      savePollInterval: 300_000,
+      agentPollInterval: 90_000,
+      agentTimeout: 120_000,
+      agentPanelDelay: 3_000,
+    };
+
+    registerSaveServiceRuntimeHandlers({
+      runtimeConfigApplier: applier,
+      saveService: {
+        reconfigure() {},
+      },
+      getConfig: () => config,
+    });
+
+    await applier.cleanupOwner('save-service-runtime');
+
+    assert.equal(applier.hasModuleReconfigure('SAVE_POLL_INTERVAL'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_POLL_INTERVAL'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_TIMEOUT'), false);
+    assert.equal(applier.hasModuleReconfigure('AGENT_PANEL_DELAY'), false);
+  });
+
   it('applies SAVE_POLL_INTERVAL in normal mode without changing the agent/cache cadence', () => {
     const applier = new RuntimeConfigApplier();
     const config = {

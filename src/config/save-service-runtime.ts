@@ -8,7 +8,11 @@ const AGENT_PANEL_DELAY_MIN_MS = 500;
 type SaveServiceRuntimeEnvKey = 'SAVE_POLL_INTERVAL' | 'AGENT_POLL_INTERVAL' | 'AGENT_TIMEOUT' | 'AGENT_PANEL_DELAY';
 
 interface RuntimeConfigRegistry {
-  registerModuleReconfigure(envKey: string, handler: RuntimeConfigApplyHandler): () => void;
+  registerModuleReconfigure(
+    envKey: string,
+    handler: RuntimeConfigApplyHandler,
+    options?: { ownerId?: string },
+  ): () => void;
 }
 
 interface SaveServiceReconfigurable {
@@ -37,6 +41,7 @@ const TIMING_FIELDS: Record<SaveServiceRuntimeEnvKey, { cfgKey: keyof SaveServic
   AGENT_TIMEOUT: { cfgKey: 'agentTimeout', min: AGENT_TIMEOUT_MIN_MS },
   AGENT_PANEL_DELAY: { cfgKey: 'agentPanelDelay', min: AGENT_PANEL_DELAY_MIN_MS },
 };
+const SAVE_SERVICE_RUNTIME_OWNER = 'save-service-runtime';
 
 export function isDirectSavePolling(options: { agentMode?: unknown; localPath?: unknown }): boolean {
   const localPath = typeof options.localPath === 'string' ? options.localPath.trim() : '';
@@ -94,18 +99,30 @@ export function registerSaveServiceRuntimeHandlers(options: RegisterSaveServiceR
   };
 
   const unregisterHandlers = [
-    runtimeConfigApplier.registerModuleReconfigure('SAVE_POLL_INTERVAL', reconfigurePollInterval),
-    runtimeConfigApplier.registerModuleReconfigure('AGENT_POLL_INTERVAL', reconfigurePollInterval),
-    runtimeConfigApplier.registerModuleReconfigure('AGENT_TIMEOUT', (context) => {
-      const cfg = getConfig();
-      const agentTimeout = applyTimingContext(cfg, context);
-      saveService.reconfigure({ agentTimeout });
+    runtimeConfigApplier.registerModuleReconfigure('SAVE_POLL_INTERVAL', reconfigurePollInterval, {
+      ownerId: SAVE_SERVICE_RUNTIME_OWNER,
     }),
-    runtimeConfigApplier.registerModuleReconfigure('AGENT_PANEL_DELAY', (context) => {
-      const cfg = getConfig();
-      const agentPanelDelay = applyTimingContext(cfg, context);
-      saveService.reconfigure({ agentPanelDelay });
+    runtimeConfigApplier.registerModuleReconfigure('AGENT_POLL_INTERVAL', reconfigurePollInterval, {
+      ownerId: SAVE_SERVICE_RUNTIME_OWNER,
     }),
+    runtimeConfigApplier.registerModuleReconfigure(
+      'AGENT_TIMEOUT',
+      (context) => {
+        const cfg = getConfig();
+        const agentTimeout = applyTimingContext(cfg, context);
+        saveService.reconfigure({ agentTimeout });
+      },
+      { ownerId: SAVE_SERVICE_RUNTIME_OWNER },
+    ),
+    runtimeConfigApplier.registerModuleReconfigure(
+      'AGENT_PANEL_DELAY',
+      (context) => {
+        const cfg = getConfig();
+        const agentPanelDelay = applyTimingContext(cfg, context);
+        saveService.reconfigure({ agentPanelDelay });
+      },
+      { ownerId: SAVE_SERVICE_RUNTIME_OWNER },
+    ),
   ];
 
   return () => {
