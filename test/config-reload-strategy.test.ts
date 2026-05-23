@@ -122,7 +122,7 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, false);
   });
 
-  it('applies PR4 timer handlers while keeping excluded timer keys pending', () => {
+  it('applies PR5 timer handlers while keeping GitHub polling pending', () => {
     const pr4Keys = [
       'LOG_POLL_INTERVAL',
       'CHAT_POLL_INTERVAL',
@@ -132,15 +132,30 @@ describe('config reload strategy helpers', () => {
       'ANTICHEAT_ANALYZE_INTERVAL',
       'ANTICHEAT_BASELINE_INTERVAL',
     ];
-    const result = summarizeConfigReloadApply([...pr4Keys, 'SAVE_POLL_INTERVAL', 'GITHUB_POLL_INTERVAL'], {
+    const pr5Keys = [...pr4Keys, 'SAVE_POLL_INTERVAL', 'AGENT_POLL_INTERVAL', 'AGENT_TIMEOUT', 'AGENT_PANEL_DELAY'];
+    const result = summarizeConfigReloadApply([...pr5Keys, 'GITHUB_POLL_INTERVAL'], {
       categories: ENV_CATEGORIES,
       applyModuleReconfigure(envKey) {
-        return pr4Keys.includes(envKey);
+        return pr5Keys.includes(envKey);
       },
     });
 
-    assert.deepEqual(result.appliedModuleReconfigure, pr4Keys);
-    assert.deepEqual(result.pendingModuleReconfigure, ['SAVE_POLL_INTERVAL', 'GITHUB_POLL_INTERVAL']);
+    assert.deepEqual(result.appliedModuleReconfigure, pr5Keys);
+    assert.deepEqual(result.pendingModuleReconfigure, ['GITHUB_POLL_INTERVAL']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('keeps agent lifecycle settings out of PR5 runtime timing handlers', () => {
+    const pr5TimingKeys = ['AGENT_POLL_INTERVAL', 'AGENT_TIMEOUT'];
+    const result = summarizeConfigReloadApply(['AGENT_MODE', 'AGENT_TRIGGER', 'AGENT_NODE_PATH', ...pr5TimingKeys], {
+      categories: ENV_CATEGORIES,
+      applyModuleReconfigure(envKey) {
+        return pr5TimingKeys.includes(envKey);
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, pr5TimingKeys);
+    assert.deepEqual(result.pendingReconnect, ['AGENT_MODE', 'AGENT_TRIGGER', 'AGENT_NODE_PATH']);
     assert.equal(result.restartRequired, true);
   });
 
