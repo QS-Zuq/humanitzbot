@@ -23,6 +23,12 @@ function aggregateErrors(err: unknown): unknown[] {
   return Array.from(err.errors as Iterable<unknown>);
 }
 
+function listenerRegistrationOwners(registry: RuntimeModuleRegistry): Map<string, unknown> {
+  const value = Reflect.get(registry, '_listenerRegistrations');
+  assert.ok(value instanceof Map);
+  return value as Map<string, unknown>;
+}
+
 describe('RuntimeModuleRegistry', () => {
   it('starts registered modules idempotently', async () => {
     const registry = new RuntimeModuleRegistry();
@@ -163,6 +169,20 @@ describe('RuntimeModuleRegistry', () => {
     await registry.cleanupOwner('chat-relay');
 
     assert.deepEqual(emitter.removed, [{ event: 'messageCreate', listener }]);
+  });
+
+  it('clears listener bookkeeping even when the cleanup stack is already empty', async () => {
+    const registry = new RuntimeModuleRegistry();
+    const emitter = new FakeEmitter();
+    const listener = () => {};
+
+    const unregister = registry.trackListener('chat-relay', emitter, 'messageCreate', listener);
+    assert.equal(listenerRegistrationOwners(registry).has('chat-relay'), true);
+
+    unregister();
+    await registry.cleanupOwner('chat-relay');
+
+    assert.equal(listenerRegistrationOwners(registry).has('chat-relay'), false);
   });
 
   it('restores tracked callbacks to the previous callback', async () => {

@@ -159,22 +159,24 @@ class RuntimeModuleRegistry {
     requireOwnerId(ownerId);
 
     const stack = this._ownerCleanups.get(ownerId);
-    if (!stack || stack.length === 0) return;
-
     const errors: unknown[] = [];
-    while (stack.length > 0) {
-      const entry = stack.pop();
-      if (!entry || !entry.active) continue;
-      entry.active = false;
 
-      try {
-        await entry.cleanup();
-      } catch (err) {
-        errors.push(err);
+    if (stack) {
+      while (stack.length > 0) {
+        const entry = stack.pop();
+        if (!entry || !entry.active) continue;
+        entry.active = false;
+
+        try {
+          await entry.cleanup();
+        } catch (err) {
+          errors.push(err);
+        }
       }
+
+      this._ownerCleanups.delete(ownerId);
     }
 
-    this._ownerCleanups.delete(ownerId);
     this._listenerRegistrations.delete(ownerId);
 
     throwAggregateError(`Runtime owner "${ownerId}" cleanup failed`, errors);
