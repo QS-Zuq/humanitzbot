@@ -33,6 +33,7 @@ export interface ConfigReloadApplyResult {
   updated: string[];
   appliedLive: string[];
   appliedModuleReconfigure: string[];
+  appliedReconnect: string[];
   pendingModuleReconfigure: string[];
   pendingModuleRestart: string[];
   pendingReconnect: string[];
@@ -47,6 +48,7 @@ interface SummarizeConfigReloadOptions {
   categories?: EnvConfigCategoryWithReloadStrategy[];
   applyLive?: (envKey: string) => void;
   applyModuleReconfigure?: (envKey: string) => boolean;
+  applyConnectionReconnect?: (envKey: string) => boolean;
 }
 
 export const DEFAULT_RELOAD_STRATEGY: ReloadStrategy = 'bot-restart';
@@ -91,6 +93,7 @@ export function createEmptyConfigReloadApplyResult(): ConfigReloadApplyResult {
     updated: [],
     appliedLive: [],
     appliedModuleReconfigure: [],
+    appliedReconnect: [],
     pendingModuleReconfigure: [],
     pendingModuleRestart: [],
     pendingReconnect: [],
@@ -151,6 +154,7 @@ function buildConfigReloadMessage(result: ConfigReloadApplyResult): string {
   if (result.appliedLive.length > 0) parts.push(`${result.appliedLive.length} applied live`);
   if (result.appliedModuleReconfigure.length > 0)
     parts.push(`${result.appliedModuleReconfigure.length} applied module reconfigure`);
+  if (result.appliedReconnect.length > 0) parts.push(`${result.appliedReconnect.length} applied reconnect`);
   if (result.pendingModuleReconfigure.length > 0)
     parts.push(`${result.pendingModuleReconfigure.length} pending module reconfigure`);
   if (result.pendingModuleRestart.length > 0)
@@ -193,6 +197,18 @@ export function summarizeConfigReloadApply(
       try {
         if (options.applyModuleReconfigure?.(envKey) === true) {
           result.appliedModuleReconfigure.push(envKey);
+          continue;
+        }
+      } catch (err) {
+        result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
+        continue;
+      }
+    }
+
+    if (strategy === 'connection-reconnect') {
+      try {
+        if (options.applyConnectionReconnect?.(envKey) === true) {
+          result.appliedReconnect.push(envKey);
           continue;
         }
       } catch (err) {

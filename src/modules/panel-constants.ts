@@ -8,8 +8,8 @@
 // ── Env categories ──────────────────────────────────────────
 // Max 5 fields per category (Discord modal limit).
 // `cfg` = config.js key for live apply. `type` = value parser.
-// `restart` = true when bot restart is required for the change to take effect.
-// `reloadStrategy` = precise runtime apply class; old `restart` is compatibility-only.
+// `restart` = legacy compatibility hint; exact runtime behavior comes from `reloadStrategy`.
+// `reloadStrategy` = precise runtime apply class used by bot-config save responses.
 // `sensitive` = true hides the current value in the modal (passwords / API keys).
 // `style` = 'paragraph' for multi-line TextInput.
 // `group` = 1 (core settings select) or 2 (display / schedule select).
@@ -73,7 +73,7 @@ const ENV_CATEGORIES = [
     label: 'RCON & Panel API',
     emoji: '🔑',
     group: 1,
-    description: 'Connection credentials (restart required)',
+    description: 'Connection credentials (Panel API applies without bot restart; RCON changes require reconnect)',
     restart: true,
     reloadStrategy: 'connection-reconnect',
     fields: [

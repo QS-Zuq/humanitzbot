@@ -70,4 +70,81 @@ describe('RuntimeConfigApplier', () => {
       /timer refused/,
     );
   });
+
+  it('applies registered connection-reconnect handlers', () => {
+    const applier = new RuntimeConfigApplier();
+    const seen: unknown[] = [];
+
+    applier.registerConnectionReconnect('PANEL_SERVER_URL', (context) => {
+      seen.push(context);
+    });
+
+    const applied = applier.applyConnectionReconnect({
+      envKey: 'PANEL_SERVER_URL',
+      cfgKey: 'panelServerUrl',
+      value: 'https://panel.example.test/server/abc123',
+    });
+
+    assert.equal(applied, true);
+    assert.deepEqual(seen, [
+      {
+        envKey: 'PANEL_SERVER_URL',
+        cfgKey: 'panelServerUrl',
+        value: 'https://panel.example.test/server/abc123',
+      },
+    ]);
+  });
+
+  it('returns false when no connection-reconnect handler is registered', () => {
+    const applier = new RuntimeConfigApplier();
+
+    const applied = applier.applyConnectionReconnect({
+      envKey: 'RCON_HOST',
+      cfgKey: 'rconHost',
+      value: '10.0.0.99',
+    });
+
+    assert.equal(applied, false);
+  });
+
+  it('unregisters only the matching connection-reconnect handler', () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+    const first = () => {
+      calls += 1;
+    };
+    const second = () => {
+      calls += 10;
+    };
+    const unregisterFirst = applier.registerConnectionReconnect('PANEL_API_KEY', first);
+    applier.registerConnectionReconnect('PANEL_API_KEY', second);
+
+    unregisterFirst();
+
+    const applied = applier.applyConnectionReconnect({
+      envKey: 'PANEL_API_KEY',
+      cfgKey: 'panelApiKey',
+      value: 'secret',
+    });
+
+    assert.equal(applied, true);
+    assert.equal(calls, 10);
+  });
+
+  it('surfaces connection-reconnect handler failures to callers', () => {
+    const applier = new RuntimeConfigApplier();
+    applier.registerConnectionReconnect('PANEL_SERVER_URL', () => {
+      throw new Error('panel refused');
+    });
+
+    assert.throws(
+      () =>
+        applier.applyConnectionReconnect({
+          envKey: 'PANEL_SERVER_URL',
+          cfgKey: 'panelServerUrl',
+          value: 'https://panel.example.test/server/abc123',
+        }),
+      /panel refused/,
+    );
+  });
 });

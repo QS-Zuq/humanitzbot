@@ -780,11 +780,15 @@ describe('Web Map Admin — POST endpoints', () => {
         rconHost: config.rconHost,
         serverStatusInterval: config.serverStatusInterval,
         botLocale: config.botLocale,
+        panelServerUrl: config.panelServerUrl,
+        panelApiKey: config.panelApiKey,
       };
       config.showVitals = true;
       config.rconHost = '127.0.0.1';
       config.serverStatusInterval = 30_000;
       config.botLocale = 'en';
+      config.panelServerUrl = 'https://panel.before.test/server/before';
+      config.panelApiKey = 'before-secret';
     });
 
     afterEach(() => {
@@ -792,7 +796,22 @@ describe('Web Map Admin — POST endpoints', () => {
       config.rconHost = savedConfig.rconHost as string | undefined;
       config.serverStatusInterval = savedConfig.serverStatusInterval as number;
       config.botLocale = savedConfig.botLocale as string;
+      config.panelServerUrl = savedConfig.panelServerUrl as string;
+      config.panelApiKey = savedConfig.panelApiKey as string;
     });
+
+    function makePanelCredentialApplier(onInvalidate: () => void): RuntimeConfigApplier {
+      const applier = new RuntimeConfigApplier();
+      applier.registerConnectionReconnect('PANEL_SERVER_URL', (context) => {
+        config.panelServerUrl = context.value as string;
+        onInvalidate();
+      });
+      applier.registerConnectionReconnect('PANEL_API_KEY', (context) => {
+        config.panelApiKey = context.value as string;
+        onInvalidate();
+      });
+      return applier;
+    }
 
     it('requires admin tier', () => {
       const mw = getTierMiddleware('POST', '/api/panel/bot-config');
@@ -886,6 +905,125 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['RCON_HOST']);
       assert.equal(config.rconHost, '127.0.0.1');
       assert.equal(repo.docs['server:primary']?.rconHost, '10.0.0.99');
+    });
+
+    it('applies registered Panel API URL reconnect settings without restartRequired', () => {
+      const repo = mockConfigRepo();
+      let invalidations = 0;
+      const applier = makePanelCredentialApplier(() => {
+        invalidations += 1;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const panelHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextUrl = 'https://panel.after.test/server/after';
+      const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl } } });
+      const res = mockRes();
+
+      panelHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, ['PANEL_SERVER_URL']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.panelServerUrl, nextUrl);
+      assert.equal(repo.docs['server:primary']?.panelServerUrl, nextUrl);
+      assert.equal(invalidations >= 1, true);
+    });
+
+    it('applies registered Panel API key reconnect settings without leaking the raw secret', () => {
+      const repo = mockConfigRepo();
+      let invalidations = 0;
+      const applier = makePanelCredentialApplier(() => {
+        invalidations += 1;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const panelHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextSecret = 'new-secret-key';
+      const req = mockReq({ body: { changes: { PANEL_API_KEY: nextSecret } } });
+      const res = mockRes();
+
+      panelHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, ['PANEL_API_KEY']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.panelApiKey, nextSecret);
+      assert.equal(repo.docs['server:primary']?.panelApiKey, nextSecret);
+      assert.equal(invalidations >= 1, true);
+      assert.equal(JSON.stringify(res._json).includes(nextSecret), false);
+    });
+
+    it('applies both Panel API credentials and keeps their secret response safe', () => {
+      const repo = mockConfigRepo();
+      let invalidations = 0;
+      const applier = makePanelCredentialApplier(() => {
+        invalidations += 1;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const panelHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextUrl = 'https://panel.after.test/server/after';
+      const nextSecret = 'new-secret-key';
+      const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl, PANEL_API_KEY: nextSecret } } });
+      const res = mockRes();
+
+      panelHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, ['PANEL_SERVER_URL', 'PANEL_API_KEY']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.panelServerUrl, nextUrl);
+      assert.equal(config.panelApiKey, nextSecret);
+      assert.equal(invalidations >= 1, true);
+      assert.equal(JSON.stringify(res._json).includes(nextSecret), false);
+    });
+
+    it('reports mixed Panel API reconnect and pending RCON reconnect truthfully', () => {
+      const repo = mockConfigRepo();
+      const applier = makePanelCredentialApplier(() => {});
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const mixedHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextUrl = 'https://panel.after.test/server/after';
+      const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl, RCON_HOST: '10.0.0.99' } } });
+      const res = mockRes();
+
+      mixedHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, ['PANEL_SERVER_URL']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['RCON_HOST']);
+      assert.equal(config.panelServerUrl, nextUrl);
+      assert.equal(config.rconHost, '127.0.0.1');
+      assert.match(String((res._json as Record<string, unknown>).message), /applied reconnect/);
+      assert.match(String((res._json as Record<string, unknown>).message), /pending reconnect/);
+    });
+
+    it('reports Panel API reconnect handler failures as errors without marking the key applied', () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      applier.registerConnectionReconnect('PANEL_SERVER_URL', () => {
+        throw new Error('panel refused');
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const failingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const nextUrl = 'https://panel.after.test/server/after';
+      const req = mockReq({ body: { changes: { PANEL_SERVER_URL: nextUrl } } });
+      const res = mockRes();
+
+      failingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      const [error] = (res._json as { errors: Array<{ key: string; strategy: string; message: string }> }).errors;
+      assert.ok(error);
+      assert.equal(error.key, 'PANEL_SERVER_URL');
+      assert.equal(error.strategy, 'connection-reconnect');
+      assert.equal(error.message, 'panel refused');
+      assert.equal(repo.docs['server:primary']?.panelServerUrl, nextUrl);
     });
 
     it('reports mixed live and pending changes truthfully', () => {

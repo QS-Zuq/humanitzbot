@@ -16,7 +16,7 @@ import { errMsg } from './utils/error.js';
 initLogger();
 
 import config from './config/index.js';
-import { isAdminView as _isAdminViewRaw } from './config/index.js';
+import { isAdminView as _isAdminViewRaw, setConfigValue } from './config/index.js';
 import rcon from './rcon/rcon.js';
 import { getServerInfo, getPlayerList, sendAdminMessage } from './rcon/server-info.js';
 import ChatRelay from './modules/chat-relay.js';
@@ -472,6 +472,14 @@ client.once(Events.ClientReady, (readyClient) => {
     config.hydrate(configRepo);
     config.loadDisplayOverrides(db); // Legacy no-op — kept for backward compat
     panelApi.invalidateConfig();
+    runtimeConfigApplier.registerConnectionReconnect('PANEL_SERVER_URL', ({ cfgKey, value }) => {
+      setConfigValue(config, cfgKey, value);
+      panelApi.invalidateConfig();
+    });
+    runtimeConfigApplier.registerConnectionReconnect('PANEL_API_KEY', ({ cfgKey, value }) => {
+      setConfigValue(config, cfgKey, value);
+      panelApi.invalidateConfig();
+    });
 
     console.log('[BOT] SQLite database initialised');
 
