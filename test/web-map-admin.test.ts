@@ -12,6 +12,7 @@ const { API_ERRORS } = _api_errors as any;
 import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
 
+import RuntimeConfigApplier from '../src/config/runtime-config-applier.js';
 import config from '../src/config/index.js';
 
 import * as _route_helpers from './helpers/route-helpers.js';
@@ -777,14 +778,20 @@ describe('Web Map Admin — POST endpoints', () => {
       savedConfig = {
         showVitals: config.showVitals,
         rconHost: config.rconHost,
+        serverStatusInterval: config.serverStatusInterval,
+        botLocale: config.botLocale,
       };
       config.showVitals = true;
       config.rconHost = '127.0.0.1';
+      config.serverStatusInterval = 30_000;
+      config.botLocale = 'en';
     });
 
     afterEach(() => {
       config.showVitals = savedConfig.showVitals as boolean;
       config.rconHost = savedConfig.rconHost as string | undefined;
+      config.serverStatusInterval = savedConfig.serverStatusInterval as number;
+      config.botLocale = savedConfig.botLocale as string;
     });
 
     it('requires admin tier', () => {
@@ -897,6 +904,76 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(config.showVitals, false);
       assert.equal(config.rconHost, '127.0.0.1');
       assert.match(String((res._json as Record<string, unknown>).message), /pending reconnect/);
+    });
+
+    it('applies registered module-reconfigure settings without restartRequired', () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      const applied: unknown[] = [];
+      applier.registerModuleReconfigure('SERVER_STATUS_INTERVAL', (context) => {
+        applied.push(context);
+        config.serverStatusInterval = context.value as number;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const reconfigureHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { SERVER_STATUS_INTERVAL: '45000' } } });
+      const res = mockRes();
+
+      reconfigureHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleReconfigure, ['SERVER_STATUS_INTERVAL']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, []);
+      assert.deepEqual(applied, [{ envKey: 'SERVER_STATUS_INTERVAL', cfgKey: 'serverStatusInterval', value: 45_000 }]);
+      assert.equal(config.serverStatusInterval, 45_000);
+      assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
+    });
+
+    it('keeps module-reconfigure settings pending when no runtime handler is registered', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, {
+        db: mockDb(),
+        configRepo: repo,
+        runtimeConfigApplier: new RuntimeConfigApplier(),
+      });
+      const pendingReconfigureHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { BOT_LOCALE: 'zh-TW' } } });
+      const res = mockRes();
+
+      pendingReconfigureHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleReconfigure, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, ['BOT_LOCALE']);
+      assert.equal(config.botLocale, 'en');
+      assert.equal(repo.docs.app?.botLocale, 'zh-TW');
+    });
+
+    it('reports module-reconfigure handler failures as errors without marking pending as applied', () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      applier.registerModuleReconfigure('SERVER_STATUS_INTERVAL', () => {
+        throw new Error('timer refused');
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const failingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { SERVER_STATUS_INTERVAL: '45000' } } });
+      const res = mockRes();
+
+      failingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleReconfigure, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, []);
+      const [error] = (res._json as { errors: Array<{ key: string; strategy: string; message: string }> }).errors;
+      assert.ok(error);
+      assert.equal(error.key, 'SERVER_STATUS_INTERVAL');
+      assert.equal(error.strategy, 'module-reconfigure');
+      assert.equal(error.message, 'timer refused');
+      assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
     });
 
     it('falls unknown primary settings back to pending bot restart without live apply', () => {

@@ -32,6 +32,7 @@ export interface ConfigReloadError {
 export interface ConfigReloadApplyResult {
   updated: string[];
   appliedLive: string[];
+  appliedModuleReconfigure: string[];
   pendingModuleReconfigure: string[];
   pendingModuleRestart: string[];
   pendingReconnect: string[];
@@ -45,6 +46,7 @@ export interface ConfigReloadApplyResult {
 interface SummarizeConfigReloadOptions {
   categories?: EnvConfigCategoryWithReloadStrategy[];
   applyLive?: (envKey: string) => void;
+  applyModuleReconfigure?: (envKey: string) => boolean;
 }
 
 export const DEFAULT_RELOAD_STRATEGY: ReloadStrategy = 'bot-restart';
@@ -88,6 +90,7 @@ export function createEmptyConfigReloadApplyResult(): ConfigReloadApplyResult {
   return {
     updated: [],
     appliedLive: [],
+    appliedModuleReconfigure: [],
     pendingModuleReconfigure: [],
     pendingModuleRestart: [],
     pendingReconnect: [],
@@ -102,7 +105,7 @@ export function createEmptyConfigReloadApplyResult(): ConfigReloadApplyResult {
 function toErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
   if (typeof err === 'string' && err) return err;
-  return 'Live apply failed';
+  return 'Runtime apply failed';
 }
 
 function assertNever(value: never): never {
@@ -146,6 +149,8 @@ function buildConfigReloadMessage(result: ConfigReloadApplyResult): string {
 
   const parts: string[] = [];
   if (result.appliedLive.length > 0) parts.push(`${result.appliedLive.length} applied live`);
+  if (result.appliedModuleReconfigure.length > 0)
+    parts.push(`${result.appliedModuleReconfigure.length} applied module reconfigure`);
   if (result.pendingModuleReconfigure.length > 0)
     parts.push(`${result.pendingModuleReconfigure.length} pending module reconfigure`);
   if (result.pendingModuleRestart.length > 0)
@@ -153,7 +158,7 @@ function buildConfigReloadMessage(result: ConfigReloadApplyResult): string {
   if (result.pendingReconnect.length > 0) parts.push(`${result.pendingReconnect.length} pending reconnect`);
   if (result.pendingBotRestart.length > 0) parts.push(`${result.pendingBotRestart.length} pending bot restart`);
   if (result.pendingGameRestart.length > 0) parts.push(`${result.pendingGameRestart.length} pending game restart`);
-  if (result.errors.length > 0) parts.push(`${result.errors.length} live apply failed`);
+  if (result.errors.length > 0) parts.push(`${result.errors.length} runtime apply failed`);
 
   return `Settings saved. ${parts.join(', ')}.`;
 }
@@ -182,6 +187,18 @@ export function summarizeConfigReloadApply(
         result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
       }
       continue;
+    }
+
+    if (strategy === 'module-reconfigure') {
+      try {
+        if (options.applyModuleReconfigure?.(envKey) === true) {
+          result.appliedModuleReconfigure.push(envKey);
+          continue;
+        }
+      } catch (err) {
+        result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
+        continue;
+      }
     }
 
     addPending(result, envKey, strategy);
