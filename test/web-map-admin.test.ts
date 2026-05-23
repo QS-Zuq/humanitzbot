@@ -1,6 +1,6 @@
 'use strict';
 
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _mock_db from './helpers/mock-db.js';
@@ -11,6 +11,8 @@ const { API_ERRORS } = _api_errors as any;
 
 import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
+
+import config from '../src/config/index.js';
 
 import * as _route_helpers from './helpers/route-helpers.js';
 const { extractHandler: _extractHandler, extractMiddleware: _extractMiddleware } = _route_helpers as any;
@@ -26,6 +28,10 @@ function getHandler(method: string, routePath: string) {
 
 function getTierMiddleware(method: string, routePath: string) {
   return _extractMiddleware(_server._app, method.toLowerCase(), routePath, 0);
+}
+
+function getHandlerFromServer(server: { _app: unknown }, method: string, routePath: string) {
+  return _extractHandler(server._app, method.toLowerCase(), routePath);
 }
 
 function mockSrv(overrides: Record<string, unknown> = {}) {
@@ -88,6 +94,32 @@ function mockRes() {
     redirect() {},
   };
   return res;
+}
+
+function mockConfigRepo(initial: Record<string, Record<string, unknown>> = {}) {
+  const docs: Record<string, Record<string, unknown>> = {};
+  for (const [scope, data] of Object.entries(initial)) {
+    docs[scope] = { ...data };
+  }
+
+  return {
+    docs,
+    get(scope: string) {
+      return docs[scope];
+    },
+    set(scope: string, data: Record<string, unknown>) {
+      docs[scope] = { ...data };
+    },
+    update(scope: string, patch: Record<string, unknown>) {
+      docs[scope] = { ...(docs[scope] || {}), ...patch };
+    },
+    delete(scope: string) {
+      Reflect.deleteProperty(docs, scope);
+    },
+    loadAll() {
+      return Object.entries(docs).map(([scope, data]) => [scope, { data }] as const);
+    },
+  };
 }
 
 function mockReq(overrides: Record<string, unknown> = {}) {
@@ -739,6 +771,21 @@ describe('Web Map Admin — POST endpoints', () => {
 
   describe('POST /api/panel/bot-config', () => {
     const handler = getHandler('POST', '/api/panel/bot-config');
+    let savedConfig: Record<string, unknown>;
+
+    beforeEach(() => {
+      savedConfig = {
+        showVitals: config.showVitals,
+        rconHost: config.rconHost,
+      };
+      config.showVitals = true;
+      config.rconHost = '127.0.0.1';
+    });
+
+    afterEach(() => {
+      config.showVitals = savedConfig.showVitals as boolean;
+      config.rconHost = savedConfig.rconHost as string | undefined;
+    });
 
     it('requires admin tier', () => {
       const mw = getTierMiddleware('POST', '/api/panel/bot-config');
@@ -775,6 +822,14 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS);
     });
 
+    it('returns 403 when modifying bootstrap-only key (WEB_MAP_SESSION_SECRET)', () => {
+      const req = mockReq({ body: { changes: { WEB_MAP_SESSION_SECRET: 'x'.repeat(64) } } });
+      const res = mockRes();
+      handler(req, res);
+      assert.equal(res._status, 403);
+      assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS);
+    });
+
     it('returns 400 when value contains newline', () => {
       const req = mockReq({ body: { changes: { SERVER_NAME: 'line1\nline2' } } });
       const res = mockRes();
@@ -789,6 +844,95 @@ describe('Web Map Admin — POST endpoints', () => {
       handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.VALUE_TOO_LONG);
+    });
+
+    it('applies explicit live settings to config memory and DB without restartRequired', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const liveHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { SHOW_VITALS: 'false' } } });
+      const res = mockRes();
+
+      liveHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).updated, ['SHOW_VITALS']);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedLive, ['SHOW_VITALS']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.showVitals, false);
+      assert.equal(repo.docs.app?.showVitals, false);
+    });
+
+    it('keeps connection settings pending and does not mutate active config memory', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const pendingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99' } } });
+      const res = mockRes();
+
+      pendingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedLive, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['RCON_HOST']);
+      assert.equal(config.rconHost, '127.0.0.1');
+      assert.equal(repo.docs['server:primary']?.rconHost, '10.0.0.99');
+    });
+
+    it('reports mixed live and pending changes truthfully', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const mixedHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { SHOW_VITALS: 'false', RCON_HOST: '10.0.0.99' } } });
+      const res = mockRes();
+
+      mixedHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedLive, ['SHOW_VITALS']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['RCON_HOST']);
+      assert.equal(config.showVitals, false);
+      assert.equal(config.rconHost, '127.0.0.1');
+      assert.match(String((res._json as Record<string, unknown>).message), /pending reconnect/);
+    });
+
+    it('falls unknown primary settings back to pending bot restart without live apply', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const unknownHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { FUTURE_SETTING: 'enabled' } } });
+      const res = mockRes();
+
+      unknownHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedLive, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingBotRestart, ['FUTURE_SETTING']);
+      assert.equal(repo.docs.app?.FUTURE_SETTING, 'enabled');
+    });
+
+    it('shows pending DB value on primary bot-config GET before active config memory changes', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const getBotConfigHandler = getHandlerFromServer(server, 'GET', '/api/panel/bot-config');
+      const postReq = mockReq({ body: { changes: { RCON_HOST: '10.0.0.99' } } });
+      const postRes = mockRes();
+
+      postHandler(postReq, postRes);
+
+      const getReq = mockReq();
+      const getRes = mockRes();
+      getBotConfigHandler(getReq, getRes);
+
+      const sections = (getRes._json as { sections: Array<{ keys: Array<{ key: string; value: string }> }> }).sections;
+      const rconHost = sections.flatMap((section) => section.keys).find((entry) => entry.key === 'RCON_HOST');
+      assert.equal(rconHost?.value, '10.0.0.99');
+      assert.equal(config.rconHost, '127.0.0.1');
     });
   });
 

@@ -15,6 +15,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import config, { getConfigValue, setConfigValue } from '../config/index.js';
+import { summarizeConfigReloadApply } from '../config/reload-strategy.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
@@ -3130,8 +3131,8 @@ class WebMapServer {
       'PANEL_API_KEY',
     ]);
 
-    // Keys that are read-only (managed by the bot, not user-editable via web)
-    const ENV_READONLY_KEYS = new Set(['ENV_SCHEMA_VERSION']);
+    // Keys that are read-only (managed by the bot/bootstrap .env, not user-editable via web)
+    const ENV_READONLY_KEYS = new Set(['ENV_SCHEMA_VERSION', ...BOOTSTRAP_KEYS]);
 
     // ── Per-server bot config (servers.json) helpers ──────────────
 
@@ -3425,6 +3426,7 @@ class WebMapServer {
 
         // ── Primary: read from config singleton + DB documents ──
         if (configRepo) {
+          const migrationMap = buildMigrationMap();
           const appData = configRepo.get('app') || {};
           const serverData = configRepo.get('server:primary') || {};
 
@@ -3435,14 +3437,20 @@ class WebMapServer {
               const isSensitive =
                 ('sensitive' in field && Boolean(field.sensitive)) || ENV_SENSITIVE_KEYS.has(field.env);
               const isReadOnly = ENV_READONLY_KEYS.has(field.env);
+              const mapping = migrationMap[field.env];
+              const doc =
+                mapping?.scope === 'server:primary' || SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
+              const docKey = mapping?.cfgKey || field.env;
+              const hasDbValue = Object.prototype.hasOwnProperty.call(doc, docKey);
 
-              // Resolve value: cfg-keyed → config singleton; env-keyed → DB document
-              let rawValue;
-              if (field.cfg) {
+              // Resolve value: DB document first, then config singleton for live/hydrated fallback.
+              let rawValue: unknown;
+              if (hasDbValue) {
+                rawValue = doc[docKey];
+              } else if (field.cfg) {
                 rawValue = getConfigValue(config, field.cfg);
               } else {
                 // Fields without cfg are stored under their env key in DB
-                const doc = SERVER_SCOPED_KEYS.has(field.env) ? serverData : appData;
                 rawValue = doc[field.env];
               }
               const value =
@@ -3558,7 +3566,7 @@ class WebMapServer {
       if (!req.srv.isPrimary) {
         try {
           const serverId = req.srv.serverId;
-          const updated = new Set();
+          const updated = new Set<string>();
           const ok = _saveServerDef(serverId, (serverDef) => {
             for (const [envKey, value] of Object.entries(changes)) {
               const mapping = ENV_TO_SERVERDEF[envKey];
@@ -3631,15 +3639,10 @@ class WebMapServer {
       if (configRepo) {
         try {
           const migrationMap = buildMigrationMap();
-          // Build envKey → restart lookup from ENV_CATEGORIES
-          const restartByEnvKey = new Map();
-          for (const cat of ENV_CATEGORIES) {
-            for (const f of (cat as { fields: { env: string }[]; restart?: boolean }).fields)
-              restartByEnvKey.set(f.env, (cat as { restart?: boolean }).restart);
-          }
           const appPatch: Record<string, unknown> = {};
           const serverPatch: Record<string, unknown> = {};
-          const updated = new Set();
+          const updated = new Set<string>();
+          const liveConfigValues = new Map<string, { cfgKey: string; value: unknown }>();
 
           for (const [envKey, rawValue] of Object.entries(changes)) {
             // Skip bootstrap keys — they live in .env and can't be changed via web panel
@@ -3658,10 +3661,7 @@ class WebMapServer {
               appPatch[targetKey] = coerced;
             }
 
-            // Only live-apply to config singleton if the field's category does NOT require restart
-            if (mapping?.cfgKey && !restartByEnvKey.get(envKey)) {
-              setConfigValue(config, mapping.cfgKey, coerced);
-            }
+            if (mapping?.cfgKey) liveConfigValues.set(envKey, { cfgKey: mapping.cfgKey, value: coerced });
 
             updated.add(envKey);
           }
@@ -3669,10 +3669,16 @@ class WebMapServer {
           if (Object.keys(appPatch).length > 0) configRepo.update('app', appPatch);
           if (Object.keys(serverPatch).length > 0) configRepo.update('server:primary', serverPatch);
 
+          const applyResult = summarizeConfigReloadApply(updated, {
+            applyLive(envKey) {
+              const liveConfigValue = liveConfigValues.get(envKey);
+              if (!liveConfigValue) throw new Error('No runtime config mapping for live setting');
+              setConfigValue(config, liveConfigValue.cfgKey, liveConfigValue.value);
+            },
+          });
+
           sendOk(res, {
-            updated: [...updated],
-            restartRequired: true,
-            message: `Updated ${updated.size} setting${updated.size !== 1 ? 's' : ''}. Restart the bot for changes to take effect.`,
+            ...applyResult,
           });
           return;
         } catch (err: unknown) {

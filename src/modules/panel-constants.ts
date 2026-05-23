@@ -9,6 +9,7 @@
 // Max 5 fields per category (Discord modal limit).
 // `cfg` = config.js key for live apply. `type` = value parser.
 // `restart` = true when bot restart is required for the change to take effect.
+// `reloadStrategy` = precise runtime apply class; old `restart` is compatibility-only.
 // `sensitive` = true hides the current value in the modal (passwords / API keys).
 // `style` = 'paragraph' for multi-line TextInput.
 // `group` = 1 (core settings select) or 2 (display / schedule select).
@@ -22,6 +23,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Discord channel assignments (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'ADMIN_CHANNEL_ID', label: 'Admin Channel', cfg: 'adminChannelId' },
       { env: 'CHAT_CHANNEL_ID', label: 'Chat Channel', cfg: 'chatChannelId' },
@@ -37,6 +39,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Server name, editor toggles (restart)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'SERVER_NAME', label: 'Server Display Name', cfg: 'serverName' },
 
@@ -57,6 +60,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Admin users, roles, and alert channels (restart)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'ADMIN_USER_IDS', label: 'Admin User IDs (comma-sep)', cfg: 'adminUserIds' },
       { env: 'ADMIN_ROLE_IDS', label: 'Admin Role IDs (comma-sep)', cfg: 'adminRoleIds' },
@@ -71,6 +75,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Connection credentials (restart required)',
     restart: true,
+    reloadStrategy: 'connection-reconnect',
     fields: [
       { env: 'RCON_HOST', label: 'RCON Host', cfg: 'rconHost' },
       { env: 'RCON_PORT', label: 'RCON Port', cfg: 'rconPort', type: 'int' },
@@ -86,6 +91,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'SFTP host, credentials, base path (restart)',
     restart: true,
+    reloadStrategy: 'connection-reconnect',
     fields: [
       { env: 'SFTP_HOST', label: 'SFTP Host', cfg: 'sftpHost' },
       { env: 'SFTP_PORT', label: 'SFTP Port', cfg: 'sftpPort', type: 'int' },
@@ -102,6 +108,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Auto-discovered paths — override if needed (restart)',
     restart: true,
+    reloadStrategy: 'connection-reconnect',
     fields: [
       { env: 'SFTP_LOG_PATH', label: 'Log File Path', cfg: 'sftpLogPath' },
       { env: 'SFTP_CONNECT_LOG_PATH', label: 'Player Connect Log', cfg: 'sftpConnectLogPath' },
@@ -117,6 +124,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Remote save-parser agent (restart required)',
     restart: true,
+    reloadStrategy: 'connection-reconnect',
     fields: [
       { env: 'AGENT_MODE', label: 'Mode (auto/agent/direct)', cfg: 'agentMode' },
       { env: 'AGENT_TRIGGER', label: 'Trigger (auto/ssh/panel/none)', cfg: 'agentTrigger' },
@@ -132,6 +140,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Enable/disable core modules (restart required)',
     restart: true,
+    reloadStrategy: 'module-restart',
     fields: [
       {
         env: 'ENABLE_STATUS_CHANNELS',
@@ -171,6 +180,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Broadcast & welcome toggles (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'DISCORD_INVITE_LINK', label: 'Discord Invite Link', cfg: 'discordInviteLink' },
       { env: 'ENABLE_AUTO_MSG_LINK', label: 'Link Broadcast (true/false)', cfg: 'enableAutoMsgLink', type: 'bool' },
@@ -189,6 +199,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Kill feed & death loop (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'ENABLE_PVP_KILL_FEED', label: 'PvP Kill Feed (true/false)', cfg: 'enablePvpKillFeed', type: 'bool' },
       { env: 'PVP_KILL_WINDOW', label: 'Kill Window (ms)', cfg: 'pvpKillWindow', type: 'int' },
@@ -209,6 +220,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Save-based activity feed toggles (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'ENABLE_FISHING_FEED', label: 'Fishing Feed (true/false)', cfg: 'enableFishingFeed', type: 'bool' },
       { env: 'ENABLE_RECIPE_FEED', label: 'Recipe Feed (true/false)', cfg: 'enableRecipeFeed', type: 'bool' },
@@ -237,6 +249,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Update frequencies in ms (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'SERVER_STATUS_INTERVAL', label: 'Status Refresh (ms)', cfg: 'serverStatusInterval', type: 'int' },
       { env: 'LOG_POLL_INTERVAL', label: 'Log Poll (ms)', cfg: 'logPollInterval', type: 'int' },
@@ -252,6 +265,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Cache TTLs, auto-msg intervals (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'STATUS_CACHE_TTL', label: 'RCON Cache TTL (ms)', cfg: 'statusCacheTtl', type: 'int' },
       { env: 'RESOURCE_CACHE_TTL', label: 'Resource Cache TTL (ms)', cfg: 'resourceCacheTtl', type: 'int' },
@@ -268,6 +282,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Player stats sections (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_VITALS', label: 'Vitals (true/false)', cfg: 'showVitals', type: 'bool' },
       { env: 'SHOW_STATUS_EFFECTS', label: 'Status Effects (true/false)', cfg: 'showStatusEffects', type: 'bool' },
@@ -283,6 +298,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Individual vital stats (parent: Vitals)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_HEALTH', label: 'Health (true/false)', cfg: 'showHealth', type: 'bool' },
       { env: 'SHOW_HUNGER', label: 'Hunger (true/false)', cfg: 'showHunger', type: 'bool' },
@@ -298,6 +314,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Individual status effect types (parent: Status Effects)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_BATTERY', label: 'Battery (true/false)', cfg: 'showBattery', type: 'bool' },
       { env: 'SHOW_PLAYER_STATES', label: 'Player States (true/false)', cfg: 'showPlayerStates', type: 'bool' },
@@ -313,6 +330,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Individual inventory slots (parent: Inventory)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_EQUIPMENT', label: 'Equipment (true/false)', cfg: 'showEquipment', type: 'bool' },
       { env: 'SHOW_QUICK_SLOTS', label: 'Quick Slots (true/false)', cfg: 'showQuickSlots', type: 'bool' },
@@ -328,6 +346,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Recipes, connections, raid sub-toggles',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       {
         env: 'SHOW_CRAFTING_RECIPES',
@@ -353,6 +372,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Restrict sections to Discord admins (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_ADMIN_ACCESS', label: 'Admin Access (true/false)', cfg: 'showAdminAccess', type: 'bool' },
       {
@@ -372,6 +392,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Server status sections (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_SERVER_SETTINGS', label: 'Server Settings (true/false)', cfg: 'showServerSettings', type: 'bool' },
       { env: 'SHOW_LOOT_SCARCITY', label: 'Loot Scarcity (true/false)', cfg: 'showLootScarcity', type: 'bool' },
@@ -387,6 +408,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Additional display toggles (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_RAID_STATS', label: 'Raid Stats (true/false)', cfg: 'showRaidStats', type: 'bool' },
       { env: 'SHOW_PVP_KILLS', label: 'PvP Kills (true/false)', cfg: 'showPvpKills', type: 'bool' },
@@ -407,6 +429,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Server status extras (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       {
         env: 'SHOW_EXTENDED_SETTINGS',
@@ -427,6 +450,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Per-category settings grid toggles (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_SETTINGS_GENERAL', label: 'General (true/false)', cfg: 'showSettingsGeneral', type: 'bool' },
       { env: 'SHOW_SETTINGS_TIME', label: 'Time & Seasons (true/false)', cfg: 'showSettingsTime', type: 'bool' },
@@ -451,6 +475,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Restrict sections to Discord admins (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       { env: 'SHOW_VITALS_ADMIN_ONLY', label: 'Vitals (true/false)', cfg: 'showVitalsAdminOnly', type: 'bool' },
       {
@@ -494,6 +519,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Time settings (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'BOT_TIMEZONE', label: 'Bot Timezone (IANA)', cfg: 'botTimezone' },
       { env: 'LOG_TIMEZONE', label: 'Log Timezone (IANA)', cfg: 'logTimezone' },
@@ -506,6 +532,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Thread mode, leaderboards, SSH (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'USE_CHAT_THREADS', label: 'Chat in Threads (true/false)', cfg: 'useChatThreads', type: 'bool' },
       { env: 'USE_ACTIVITY_THREADS', label: 'Activity Threads (true/false)', cfg: 'useActivityThreads', type: 'bool' },
@@ -521,6 +548,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Save-diff activity log toggles (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'ENABLE_ACTIVITY_LOG', label: 'Enable Activity Log (true/false)', cfg: 'enableActivityLog', type: 'bool' },
       { env: 'ENABLE_CONTAINER_LOG', label: 'Container Log (true/false)', cfg: 'enableContainerLog', type: 'bool' },
@@ -536,6 +564,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'PvP times, delay, server name (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'PVP_START_TIME', label: 'Default Start (HH:MM)', cfg: 'pvpStartMinutes' },
       { env: 'PVP_END_TIME', label: 'Default End (HH:MM)', cfg: 'pvpEndMinutes' },
@@ -551,6 +580,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Per-day PvP hour overrides (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'PVP_HOURS_MON', label: 'Monday (HH:MM-HH:MM)', cfg: 'pvpHoursMon' },
       { env: 'PVP_HOURS_TUE', label: 'Tuesday (HH:MM-HH:MM)', cfg: 'pvpHoursTue' },
@@ -575,6 +605,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Bot language and stdin console (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'BOT_LOCALE', label: 'Bot Locale (en/zh-TW/zh-CN)', cfg: 'botLocale' },
       { env: 'ENABLE_STDIN_CONSOLE', label: 'Stdin Console (true/false)', cfg: 'enableStdinConsole', type: 'bool' },
@@ -593,6 +624,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'GitHub commit/PR tracking (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'GITHUB_TOKEN', label: 'GitHub Token', cfg: 'githubToken', sensitive: true },
       { env: 'GITHUB_REPOS', label: 'Repos (owner/repo, comma-sep)', cfg: 'githubRepos' },
@@ -607,6 +639,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Anticheat analysis intervals (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       {
         env: 'ANTICHEAT_ANALYZE_INTERVAL',
@@ -629,6 +662,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Agent remote paths and panel trigger (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'AGENT_REMOTE_DIR', label: 'Remote Directory', cfg: 'agentRemoteDir' },
       { env: 'AGENT_CACHE_PATH', label: 'Cache Path', cfg: 'agentCachePath' },
@@ -643,6 +677,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Scheduled restart times and profiles (restart required)',
     restart: true,
+    reloadStrategy: 'module-reconfigure',
     fields: [
       { env: 'RESTART_TIMES', label: 'Restart Times (HH:MM, comma-sep)', cfg: 'restartTimes' },
       { env: 'RESTART_PROFILES', label: 'Profiles (comma-sep)', cfg: 'restartProfiles' },
@@ -658,6 +693,7 @@ const ENV_CATEGORIES = [
     group: 1,
     description: 'Host, Docker, HZMod, SSH key (restart required)',
     restart: true,
+    reloadStrategy: 'connection-reconnect',
     fields: [
       { env: 'PUBLIC_HOST', label: 'Public Host / IP', cfg: 'publicHost' },
       { env: 'DOCKER_CONTAINER', label: 'Docker Container Name', cfg: 'dockerContainer' },
@@ -676,6 +712,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Additional display and admin-only toggles (applies live)',
     restart: false,
+    reloadStrategy: 'live',
     fields: [
       {
         env: 'SHOW_INVENTORY_LOG_ADMIN_ONLY',
@@ -713,6 +750,7 @@ const ENV_CATEGORIES = [
     group: 2,
     description: 'Web panel session store and authentication (restart required)',
     restart: true,
+    reloadStrategy: 'bot-restart',
     fields: [
       { env: 'SESSION_STORE', label: 'Session Store (memory/sqlite/redis)', cfg: 'sessionStore' },
       { env: 'SESSION_TTL', label: 'Session TTL (seconds)', cfg: 'sessionTtl', type: 'int' },
