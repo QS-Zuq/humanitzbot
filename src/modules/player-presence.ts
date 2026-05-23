@@ -31,6 +31,7 @@ class PlayerPresenceTracker extends EventEmitter {
   private _onlinePlayers: Set<string>;
   private _pollTimer: ReturnType<typeof setInterval> | null;
   private _initialised: boolean;
+  private _polling: boolean;
 
   constructor(deps: PresenceDeps = {}) {
     super();
@@ -43,6 +44,7 @@ class PlayerPresenceTracker extends EventEmitter {
     this._onlinePlayers = new Set();
     this._pollTimer = null;
     this._initialised = false;
+    this._polling = false;
   }
 
   // ── Lifecycle ─────────────────────────────────────────────
@@ -60,6 +62,20 @@ class PlayerPresenceTracker extends EventEmitter {
     this._log.info('Stopped.');
   }
 
+  reconfigure(options: { autoMsgJoinCheckInterval?: unknown }): void {
+    if (!Object.hasOwn(options, 'autoMsgJoinCheckInterval')) return;
+
+    const previousInterval = this._config.autoMsgJoinCheckInterval;
+    const nextInterval = this._coerceInterval(options.autoMsgJoinCheckInterval, previousInterval, 5_000);
+    this._config.autoMsgJoinCheckInterval = nextInterval;
+
+    if (!this._pollTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => void this._poll(), nextInterval);
+    this._log.info(`Polling every ${nextInterval / 1000}s`);
+  }
+
   // ── Public API ────────────────────────────────────────────
 
   /** Current set of online player IDs (SteamID or name fallback). */
@@ -70,6 +86,12 @@ class PlayerPresenceTracker extends EventEmitter {
   /** Whether the initial player list has been loaded. */
   get initialised() {
     return this._initialised;
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
   }
 
   // ── Private ───────────────────────────────────────────────
@@ -105,16 +127,18 @@ class PlayerPresenceTracker extends EventEmitter {
    */
   private async _poll() {
     if (!this._initialised) return;
+    if (this._polling) return;
 
-    let list: PlayerList;
+    this._polling = true;
     try {
-      list = await this._getPlayerList();
-    } catch {
-      // RCON failure expected during server restarts — silently ignore
-      return;
-    }
+      let list: PlayerList;
+      try {
+        list = await this._getPlayerList();
+      } catch {
+        // RCON failure expected during server restarts — silently ignore
+        return;
+      }
 
-    try {
       const currentOnline = new Set<string>();
       const newJoiners: { id: string; name: string; steamId: string | null }[] = [];
 
@@ -158,6 +182,8 @@ class PlayerPresenceTracker extends EventEmitter {
       }
     } catch (err: unknown) {
       this._log.error('Unexpected poll error:', err);
+    } finally {
+      this._polling = false;
     }
   }
 }

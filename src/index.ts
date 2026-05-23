@@ -77,6 +77,7 @@ interface AnticheatInstance {
   stop: () => Promise<void> | void;
   available: boolean;
   onSaveSync: (result: SaveSyncResult) => Promise<void>;
+  reconfigure: (options: { anticheatAnalyzeInterval?: unknown; anticheatBaselineInterval?: unknown }) => void;
 }
 
 interface HowyagarnManagerInstance {
@@ -739,6 +740,11 @@ client.once(Events.ClientReady, (readyClient) => {
           panelApi: panelApi.available ? panelApi : null,
         });
         await logWatcher.start();
+        if (logWatcher.interval) {
+          runtimeConfigApplier.registerModuleReconfigure('LOG_POLL_INTERVAL', ({ value }) => {
+            logWatcher?.reconfigure({ logPollInterval: value });
+          });
+        }
         setStatus('Log Watcher', '🟢 Active');
       }
     } else {
@@ -767,6 +773,11 @@ client.once(Events.ClientReady, (readyClient) => {
           });
         }
         await chatRelay.start();
+        if (_chatRelay.healthy) {
+          runtimeConfigApplier.registerModuleReconfigure('CHAT_POLL_INTERVAL', ({ value }) => {
+            _chatRelay.reconfigure({ chatPollInterval: value });
+          });
+        }
         setStatus('Chat Relay', '🟢 Active');
       }
     } else {
@@ -783,6 +794,9 @@ client.once(Events.ClientReady, (readyClient) => {
     });
     try {
       await presenceTracker.start();
+      runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_JOIN_CHECK', ({ value }) => {
+        presenceTracker?.reconfigure({ autoMsgJoinCheckInterval: value });
+      });
     } catch (err: unknown) {
       console.error('[PRESENCE] Failed to start player presence tracker:', errMsg(err));
     }
@@ -802,6 +816,16 @@ client.once(Events.ClientReady, (readyClient) => {
       });
       // Note: start() is synchronous; if it ever returns Promise, callers must await
       autoMessages.start();
+      if (config.enableAutoMsgLink) {
+        runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_LINK_INTERVAL', ({ value }) => {
+          autoMessages?.reconfigure({ autoMsgLinkInterval: value });
+        });
+      }
+      if (config.enableAutoMsgPromo) {
+        runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_PROMO_INTERVAL', ({ value }) => {
+          autoMessages?.reconfigure({ autoMsgPromoInterval: value });
+        });
+      }
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');
@@ -992,6 +1016,12 @@ client.once(Events.ClientReady, (readyClient) => {
             });
           });
         }
+        runtimeConfigApplier.registerModuleReconfigure('ANTICHEAT_ANALYZE_INTERVAL', ({ value }) => {
+          _anticheat.reconfigure({ anticheatAnalyzeInterval: value });
+        });
+        runtimeConfigApplier.registerModuleReconfigure('ANTICHEAT_BASELINE_INTERVAL', ({ value }) => {
+          _anticheat.reconfigure({ anticheatBaselineInterval: value });
+        });
         setStatus('Anticheat', '🟢 Active');
       } else {
         setStatus('Anticheat', '🟡 Package not installed');

@@ -115,6 +115,47 @@ class AutoMessages {
     this._log.info('Stopped.');
   }
 
+  reconfigure(options: { autoMsgLinkInterval?: unknown; autoMsgPromoInterval?: unknown }): void {
+    if (Object.hasOwn(options, 'autoMsgLinkInterval')) {
+      this._reconfigureLinkInterval(options.autoMsgLinkInterval);
+    }
+    if (Object.hasOwn(options, 'autoMsgPromoInterval')) {
+      this._reconfigurePromoInterval(options.autoMsgPromoInterval);
+    }
+  }
+
+  private _reconfigureLinkInterval(value: unknown): void {
+    const previousInterval = this.linkInterval;
+    const nextInterval = this._coerceInterval(value, previousInterval, 60_000);
+    this._config.autoMsgLinkInterval = nextInterval;
+    this.linkInterval = nextInterval;
+
+    if (!this._linkTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._linkTimer);
+    this._linkTimer = setInterval(() => void this._sendDiscordLink(), nextInterval);
+    this._log.info(`Discord link every ${nextInterval / 60000} min`);
+  }
+
+  private _reconfigurePromoInterval(value: unknown): void {
+    const previousInterval = this.promoInterval;
+    const nextInterval = this._coerceInterval(value, previousInterval, 60_000);
+    this._config.autoMsgPromoInterval = nextInterval;
+    this.promoInterval = nextInterval;
+
+    if (!this._promoTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._promoTimer);
+    this._promoTimer = setInterval(() => void this._sendPromoMessage(), nextInterval);
+    this._log.info(`Promo message every ${nextInterval / 60000} min`);
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
+  }
+
   // ── Private methods ────────────────────────────────────────
 
   private async _sendDiscordLink() {

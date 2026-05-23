@@ -19,6 +19,9 @@ type ConfigType = typeof _defaultConfig;
 let AnticheatEngine: unknown = null;
 let _available = false;
 
+const MIN_ANTICHEAT_ANALYZE_INTERVAL_MS = 30_000;
+const MIN_ANTICHEAT_BASELINE_INTERVAL_MS = 60_000;
+
 try {
   const _require = createRequire(import.meta.url);
   const _acMod = _require('@humanitzbot/qs-anticheat') as Record<string, unknown>;
@@ -151,6 +154,47 @@ class AnticheatIntegration {
     } catch (err: unknown) {
       console.error('[ANTICHEAT] Analysis error:', errMsg(err));
     }
+  }
+
+  reconfigure(options: { anticheatAnalyzeInterval?: unknown; anticheatBaselineInterval?: unknown }): void {
+    if (Object.hasOwn(options, 'anticheatAnalyzeInterval')) {
+      this._reconfigureAnalyzeInterval(options.anticheatAnalyzeInterval);
+    }
+    if (Object.hasOwn(options, 'anticheatBaselineInterval')) {
+      this._reconfigureBaselineInterval(options.anticheatBaselineInterval);
+    }
+  }
+
+  private _reconfigureAnalyzeInterval(value: unknown): void {
+    const previousInterval = this._config.anticheatAnalyzeInterval;
+    const nextInterval = this._coerceInterval(value, MIN_ANTICHEAT_ANALYZE_INTERVAL_MS, 'anticheat analyze');
+    this._config.anticheatAnalyzeInterval = nextInterval;
+
+    if (!this._analyzeTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._analyzeTimer);
+    this._analyzeTimer = setInterval(() => void this._runAnalysis(), nextInterval);
+    console.log('[ANTICHEAT] Analysis interval updated — every %ds', nextInterval / 1000);
+  }
+
+  private _reconfigureBaselineInterval(value: unknown): void {
+    const previousInterval = this._config.anticheatBaselineInterval;
+    const nextInterval = this._coerceInterval(value, MIN_ANTICHEAT_BASELINE_INTERVAL_MS, 'anticheat baseline');
+    this._config.anticheatBaselineInterval = nextInterval;
+
+    if (!this._baselineTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._baselineTimer);
+    this._baselineTimer = setInterval(() => void this._recalibrateBaseline(), nextInterval);
+    console.log('[ANTICHEAT] Baseline interval updated — every %ds', nextInterval / 1000);
+  }
+
+  private _coerceInterval(value: unknown, minMs: number, label: string): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`${label} interval must be a finite number`);
+    }
+    return Math.max(Math.trunc(parsed), minMs);
   }
 
   /**

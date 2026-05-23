@@ -73,6 +73,7 @@ class ChatRelay {
   private _headless: boolean;
   private _locale: string;
   private _logChatWarned: boolean;
+  private _polling: boolean;
   _awaitActivityThread: boolean;
 
   // Mixed-in from chat-relay-parser.ts via Object.assign
@@ -101,6 +102,7 @@ class ChatRelay {
     this._headless = false; // true when running without a Discord channel (DB-only data collection)
     this._locale = getLocale({ serverConfig: this._config });
     this._logChatWarned = false;
+    this._polling = false;
     this._awaitActivityThread = false;
   }
 
@@ -170,6 +172,26 @@ class ChatRelay {
       this._boundOnMessage = null;
     }
     this._log.info('Stopped.');
+  }
+
+  reconfigure(options: { chatPollInterval?: unknown }): void {
+    if (!Object.hasOwn(options, 'chatPollInterval')) return;
+
+    const previousInterval = this._config.chatPollInterval;
+    const nextInterval = this._coerceInterval(options.chatPollInterval, previousInterval, 5_000);
+    this._config.chatPollInterval = nextInterval;
+
+    if (!this._pollTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => void this._pollChat(), nextInterval);
+    this._log.info(`Polling fetchchat every ${nextInterval / 1000}s`);
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
   }
 
   /**
@@ -375,6 +397,9 @@ class ChatRelay {
   // ── Inbound: fetchchat → Discord thread ────────────────────
 
   async _pollChat() {
+    if (this._polling) return;
+
+    this._polling = true;
     try {
       const raw = await this._rcon.send('fetchchat');
       if (!raw || !raw.trim()) return;
@@ -410,6 +435,8 @@ class ChatRelay {
       if (!msg.includes('not connected') && !msg.includes('No response')) {
         this._log.error('Poll error:', msg);
       }
+    } finally {
+      this._polling = false;
     }
   }
 
