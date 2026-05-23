@@ -122,6 +122,28 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, false);
   });
 
+  it('applies PR4 timer handlers while keeping excluded timer keys pending', () => {
+    const pr4Keys = [
+      'LOG_POLL_INTERVAL',
+      'CHAT_POLL_INTERVAL',
+      'AUTO_MSG_LINK_INTERVAL',
+      'AUTO_MSG_PROMO_INTERVAL',
+      'AUTO_MSG_JOIN_CHECK',
+      'ANTICHEAT_ANALYZE_INTERVAL',
+      'ANTICHEAT_BASELINE_INTERVAL',
+    ];
+    const result = summarizeConfigReloadApply([...pr4Keys, 'SAVE_POLL_INTERVAL', 'GITHUB_POLL_INTERVAL'], {
+      categories: ENV_CATEGORIES,
+      applyModuleReconfigure(envKey) {
+        return pr4Keys.includes(envKey);
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, pr4Keys);
+    assert.deepEqual(result.pendingModuleReconfigure, ['SAVE_POLL_INTERVAL', 'GITHUB_POLL_INTERVAL']);
+    assert.equal(result.restartRequired, true);
+  });
+
   it('keeps module-reconfigure keys pending when no handler exists', () => {
     const result = summarizeConfigReloadApply(['SERVER_STATUS_INTERVAL'], {
       categories: TEST_CATEGORIES,

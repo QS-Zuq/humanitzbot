@@ -60,6 +60,20 @@ class PlayerPresenceTracker extends EventEmitter {
     this._log.info('Stopped.');
   }
 
+  reconfigure(options: { autoMsgJoinCheckInterval?: unknown }): void {
+    if (!Object.hasOwn(options, 'autoMsgJoinCheckInterval')) return;
+
+    const previousInterval = this._config.autoMsgJoinCheckInterval;
+    const nextInterval = this._coerceInterval(options.autoMsgJoinCheckInterval, previousInterval, 5_000);
+    this._config.autoMsgJoinCheckInterval = nextInterval;
+
+    if (!this._pollTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => void this._poll(), nextInterval);
+    this._log.info(`Polling every ${nextInterval / 1000}s`);
+  }
+
   // ── Public API ────────────────────────────────────────────
 
   /** Current set of online player IDs (SteamID or name fallback). */
@@ -70,6 +84,12 @@ class PlayerPresenceTracker extends EventEmitter {
   /** Whether the initial player list has been loaded. */
   get initialised() {
     return this._initialised;
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
   }
 
   // ── Private ───────────────────────────────────────────────

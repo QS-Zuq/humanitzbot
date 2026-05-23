@@ -153,6 +153,43 @@ class AnticheatIntegration {
     }
   }
 
+  reconfigure(options: { anticheatAnalyzeInterval?: unknown; anticheatBaselineInterval?: unknown }): void {
+    if (Object.hasOwn(options, 'anticheatAnalyzeInterval')) {
+      this._reconfigureAnalyzeInterval(options.anticheatAnalyzeInterval);
+    }
+    if (Object.hasOwn(options, 'anticheatBaselineInterval')) {
+      this._reconfigureBaselineInterval(options.anticheatBaselineInterval);
+    }
+  }
+
+  private _reconfigureAnalyzeInterval(value: unknown): void {
+    const previousInterval = this._config.anticheatAnalyzeInterval;
+    const nextInterval = this._coerceInterval(value, previousInterval || 60_000);
+    this._config.anticheatAnalyzeInterval = nextInterval;
+
+    if (!this._analyzeTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._analyzeTimer);
+    this._analyzeTimer = setInterval(() => void this._runAnalysis(), nextInterval);
+  }
+
+  private _reconfigureBaselineInterval(value: unknown): void {
+    const previousInterval = this._config.anticheatBaselineInterval;
+    const nextInterval = this._coerceInterval(value, previousInterval || 900_000);
+    this._config.anticheatBaselineInterval = nextInterval;
+
+    if (!this._baselineTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._baselineTimer);
+    this._baselineTimer = setInterval(() => void this._recalibrateBaseline(), nextInterval);
+  }
+
+  private _coerceInterval(value: unknown, fallback: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return interval > 0 ? interval : fallback;
+  }
+
   /**
    * Trigger analysis immediately (called by SaveService on sync).
    */

@@ -172,6 +172,26 @@ class ChatRelay {
     this._log.info('Stopped.');
   }
 
+  reconfigure(options: { chatPollInterval?: unknown }): void {
+    if (!Object.hasOwn(options, 'chatPollInterval')) return;
+
+    const previousInterval = this._config.chatPollInterval;
+    const nextInterval = this._coerceInterval(options.chatPollInterval, previousInterval, 5_000);
+    this._config.chatPollInterval = nextInterval;
+
+    if (!this._pollTimer || nextInterval === previousInterval) return;
+
+    clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => void this._pollChat(), nextInterval);
+    this._log.info(`Polling fetchchat every ${nextInterval / 1000}s`);
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
+  }
+
   /**
    * Delete old bot-posted starter messages (embeds without a thread) so the
    * channel stays clean across restarts. Keeps messages that have threads

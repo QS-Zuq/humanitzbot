@@ -620,6 +620,22 @@ class LogWatcher {
     this._savePvpKills();
   }
 
+  reconfigure(options: { logPollInterval?: unknown }): void {
+    if (!Object.hasOwn(options, 'logPollInterval')) return;
+
+    const previousInterval = this._config.logPollInterval;
+    const nextInterval = this._coerceInterval(options.logPollInterval, previousInterval, 10_000);
+    this._config.logPollInterval = nextInterval;
+
+    if (!this.interval || nextInterval === previousInterval) return;
+
+    clearInterval(this.interval);
+    this.interval = setInterval(() => {
+      logRejection(this._poll(), this._log, `${this._log.label}:poll`);
+    }, nextInterval);
+    this._log.info(`Polling logs every ${nextInterval / 1000}s`);
+  }
+
   // ─── INTERNAL ─────────────────────────────────────────────
 
   _loadOffsets(): SavedOffsets | null {
@@ -848,6 +864,12 @@ class LogWatcher {
   /** Returns the display name for this server (from SERVER_NAME env or servers.json name). */
   _getServerLabel() {
     return this._config.serverName || '';
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
   }
 
   async _poll() {
