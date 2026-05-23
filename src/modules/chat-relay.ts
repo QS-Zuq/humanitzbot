@@ -73,6 +73,7 @@ class ChatRelay {
   private _headless: boolean;
   private _locale: string;
   private _logChatWarned: boolean;
+  private _polling: boolean;
   _awaitActivityThread: boolean;
 
   // Mixed-in from chat-relay-parser.ts via Object.assign
@@ -101,6 +102,7 @@ class ChatRelay {
     this._headless = false; // true when running without a Discord channel (DB-only data collection)
     this._locale = getLocale({ serverConfig: this._config });
     this._logChatWarned = false;
+    this._polling = false;
     this._awaitActivityThread = false;
   }
 
@@ -395,6 +397,9 @@ class ChatRelay {
   // ── Inbound: fetchchat → Discord thread ────────────────────
 
   async _pollChat() {
+    if (this._polling) return;
+
+    this._polling = true;
     try {
       const raw = await this._rcon.send('fetchchat');
       if (!raw || !raw.trim()) return;
@@ -430,6 +435,8 @@ class ChatRelay {
       if (!msg.includes('not connected') && !msg.includes('No response')) {
         this._log.error('Poll error:', msg);
       }
+    } finally {
+      this._polling = false;
     }
   }
 

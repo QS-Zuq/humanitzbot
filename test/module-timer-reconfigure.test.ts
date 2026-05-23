@@ -79,6 +79,14 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe('module timer reconfigure', () => {
   it('ChatRelay resets active chat poll timer without re-registering Discord listeners', () => {
     withIntervalSpy((spy) => {
@@ -113,6 +121,35 @@ describe('module timer reconfigure', () => {
       assert.deepEqual(spy.cleared, []);
       assert.deepEqual(spy.scheduled, []);
     });
+  });
+
+  it('ChatRelay skips overlapping chat polls', async () => {
+    const firstPoll = deferred<string>();
+    let sendCalls = 0;
+    const relay = new ChatRelay(
+      { on: () => {}, removeListener: () => {} } as any,
+      {
+        config: baseConfig(),
+        rcon: {
+          send: async () => {
+            sendCalls += 1;
+            if (sendCalls === 1) return firstPoll.promise;
+            return '';
+          },
+        },
+      } as any,
+    );
+
+    const poll1 = (relay as any)._pollChat();
+    const poll2 = (relay as any)._pollChat();
+
+    assert.equal(sendCalls, 1);
+    firstPoll.resolve('');
+    await Promise.all([poll1, poll2]);
+
+    await (relay as any)._pollChat();
+
+    assert.equal(sendCalls, 2);
   });
 
   it('AutoMessages resets only existing link/promo timers', () => {
@@ -179,6 +216,36 @@ describe('module timer reconfigure', () => {
     });
   });
 
+  it('PlayerPresenceTracker skips overlapping polls', async () => {
+    const firstPoll = deferred<{ players: unknown[] }>();
+    let listCalls = 0;
+    const tracker = new PlayerPresenceTracker({
+      config: baseConfig(),
+      playtime: {
+        playerJoin: () => {},
+        recordPlayerCount: () => {},
+        recordUniqueToday: () => {},
+      },
+      getPlayerList: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return firstPoll.promise as any;
+        return { players: [] } as any;
+      },
+    } as any);
+    (tracker as any)._initialised = true;
+
+    const poll1 = (tracker as any)._poll();
+    const poll2 = (tracker as any)._poll();
+
+    assert.equal(listCalls, 1);
+    firstPoll.resolve({ players: [] });
+    await Promise.all([poll1, poll2]);
+
+    await (tracker as any)._poll();
+
+    assert.equal(listCalls, 2);
+  });
+
   it('AnticheatIntegration resets active timers without starting unavailable engine', () => {
     withIntervalSpy((spy) => {
       const config = baseConfig({ anticheatAnalyzeInterval: 60_000, anticheatBaselineInterval: 900_000 });
@@ -201,14 +268,32 @@ describe('module timer reconfigure', () => {
     });
   });
 
-  it('AnticheatIntegration keeps invalid intervals at the previous safe value', () => {
+  it('AnticheatIntegration clamps low intervals to safe minimums', () => {
     withIntervalSpy((spy) => {
       const config = baseConfig({ anticheatAnalyzeInterval: 60_000, anticheatBaselineInterval: 900_000 });
       const anticheat = new AnticheatIntegration({ config });
       const analyzeTimer = spy.existing(60_000);
       (anticheat as any)._analyzeTimer = analyzeTimer;
 
-      anticheat.reconfigure({ anticheatAnalyzeInterval: -1 });
+      anticheat.reconfigure({ anticheatAnalyzeInterval: 1_000 });
+
+      assert.equal(config.anticheatAnalyzeInterval, 30_000);
+      assert.deepEqual(spy.cleared, [analyzeTimer]);
+      assert.equal(spy.scheduled.length, 1);
+      assert.equal(spy.scheduled[0]?.delay, 30_000);
+    });
+  });
+
+  it('AnticheatIntegration rejects non-numeric runtime intervals visibly', () => {
+    withIntervalSpy((spy) => {
+      const config = baseConfig({ anticheatAnalyzeInterval: 60_000, anticheatBaselineInterval: 900_000 });
+      const anticheat = new AnticheatIntegration({ config });
+      const analyzeTimer = spy.existing(60_000);
+      (anticheat as any)._analyzeTimer = analyzeTimer;
+
+      assert.throws(() => {
+        anticheat.reconfigure({ anticheatAnalyzeInterval: 'not-a-number' });
+      }, /anticheat analyze interval must be a finite number/);
 
       assert.equal(config.anticheatAnalyzeInterval, 60_000);
       assert.deepEqual(spy.cleared, []);
