@@ -247,7 +247,7 @@ const ENV_CATEGORIES = [
     label: 'Poll Intervals',
     emoji: '⏱️',
     group: 1,
-    description: 'Update frequencies in ms (restart required)',
+    description: 'Update frequencies in ms (live when a module reconfigure handler is available)',
     restart: true,
     reloadStrategy: 'module-reconfigure',
     fields: [

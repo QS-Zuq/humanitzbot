@@ -15,6 +15,7 @@ const { ENV_CATEGORIES } = _panel_constants as {
 const TEST_CATEGORIES: EnvConfigCategoryWithReloadStrategy[] = [
   { restart: false, fields: [{ env: 'LEGACY_RESTART_FALSE' }] },
   { restart: false, reloadStrategy: 'live', fields: [{ env: 'SHOW_VITALS' }] },
+  { restart: true, reloadStrategy: 'module-reconfigure', fields: [{ env: 'SERVER_STATUS_INTERVAL' }] },
   { restart: true, reloadStrategy: 'connection-reconnect', fields: [{ env: 'RCON_HOST' }] },
   { restart: true, reloadStrategy: 'bot-restart', fields: [{ env: 'SESSION_STORE' }] },
   { restart: true, reloadStrategy: 'game-restart', fields: [{ env: 'GAME_DIFFICULTY' }] },
@@ -49,6 +50,54 @@ describe('config reload strategy helpers', () => {
   it('classifies connection keys as pending reconnect', () => {
     const result = summarizeConfigReloadApply(['RCON_HOST'], { categories: TEST_CATEGORIES });
     assert.deepEqual(result.pendingReconnect, ['RCON_HOST']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('applies module-reconfigure keys when a handler accepts them', () => {
+    const applied: string[] = [];
+    const result = summarizeConfigReloadApply(['SERVER_STATUS_INTERVAL'], {
+      categories: TEST_CATEGORIES,
+      applyModuleReconfigure(envKey) {
+        applied.push(envKey);
+        return true;
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, ['SERVER_STATUS_INTERVAL']);
+    assert.deepEqual(result.pendingModuleReconfigure, []);
+    assert.deepEqual(applied, ['SERVER_STATUS_INTERVAL']);
+    assert.equal(result.restartRequired, false);
+  });
+
+  it('keeps module-reconfigure keys pending when no handler exists', () => {
+    const result = summarizeConfigReloadApply(['SERVER_STATUS_INTERVAL'], {
+      categories: TEST_CATEGORIES,
+      applyModuleReconfigure() {
+        return false;
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, []);
+    assert.deepEqual(result.pendingModuleReconfigure, ['SERVER_STATUS_INTERVAL']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('records module-reconfigure handler failures without counting the key as applied', () => {
+    const result = summarizeConfigReloadApply(['SERVER_STATUS_INTERVAL'], {
+      categories: TEST_CATEGORIES,
+      applyModuleReconfigure() {
+        throw new Error('timer refused');
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, []);
+    assert.deepEqual(result.pendingModuleReconfigure, []);
+    assert.equal(result.errors.length, 1);
+    const [error] = result.errors;
+    assert.ok(error);
+    assert.equal(error.key, 'SERVER_STATUS_INTERVAL');
+    assert.equal(error.strategy, 'module-reconfigure');
+    assert.equal(error.message, 'timer refused');
     assert.equal(result.restartRequired, true);
   });
 

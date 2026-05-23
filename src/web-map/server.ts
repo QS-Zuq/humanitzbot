@@ -16,6 +16,7 @@ import path from 'path';
 import fs from 'fs';
 import config, { getConfigValue, setConfigValue } from '../config/index.js';
 import { summarizeConfigReloadApply } from '../config/reload-strategy.js';
+import type { RuntimeConfigApplier } from '../config/runtime-config-applier.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
 import { cleanName as cleanActorName, cleanItemName, cleanItemArray } from '../parsers/ue4-names.js';
@@ -430,6 +431,7 @@ class WebMapServer {
   _multiServerManager: MultiServerManager | null;
   _plugins: Array<Record<string, unknown>>;
   _configRepo: ConfigRepo | null;
+  _runtimeConfigApplier: RuntimeConfigApplier | null;
   _worldBounds: { xMin: number; xMax: number; yMin: number; yMax: number };
   _responseCache: Map<string, { data: unknown; ts: number }>;
   _playerCache: Map<string, unknown>;
@@ -451,6 +453,7 @@ class WebMapServer {
       saveService?: SaveService | null;
       multiServerManager?: MultiServerManager | null;
       configRepo?: unknown;
+      runtimeConfigApplier?: RuntimeConfigApplier | null;
     } = {},
   ) {
     this._client = client;
@@ -468,6 +471,7 @@ class WebMapServer {
     this._multiServerManager = opts.multiServerManager || null;
     this._plugins = []; // Registered plugins (private modules)
     this._configRepo = (opts.configRepo || config._configRepo || null) as ConfigRepo | null;
+    this._runtimeConfigApplier = opts.runtimeConfigApplier || null;
 
     // World coordinate bounds — loaded from calibration file or defaults
     this._worldBounds = this._loadCalibration();
@@ -3642,7 +3646,7 @@ class WebMapServer {
           const appPatch: Record<string, unknown> = {};
           const serverPatch: Record<string, unknown> = {};
           const updated = new Set<string>();
-          const liveConfigValues = new Map<string, { cfgKey: string; value: unknown }>();
+          const runtimeConfigValues = new Map<string, { cfgKey: string; value: unknown }>();
 
           for (const [envKey, rawValue] of Object.entries(changes)) {
             // Skip bootstrap keys — they live in .env and can't be changed via web panel
@@ -3661,7 +3665,7 @@ class WebMapServer {
               appPatch[targetKey] = coerced;
             }
 
-            if (mapping?.cfgKey) liveConfigValues.set(envKey, { cfgKey: mapping.cfgKey, value: coerced });
+            if (mapping?.cfgKey) runtimeConfigValues.set(envKey, { cfgKey: mapping.cfgKey, value: coerced });
 
             updated.add(envKey);
           }
@@ -3671,9 +3675,26 @@ class WebMapServer {
 
           const applyResult = summarizeConfigReloadApply(updated, {
             applyLive(envKey) {
-              const liveConfigValue = liveConfigValues.get(envKey);
+              const liveConfigValue = runtimeConfigValues.get(envKey);
               if (!liveConfigValue) throw new Error('No runtime config mapping for live setting');
               setConfigValue(config, liveConfigValue.cfgKey, liveConfigValue.value);
+            },
+            applyModuleReconfigure: (envKey) => {
+              const runtimeConfigValue = runtimeConfigValues.get(envKey);
+              if (!runtimeConfigValue) {
+                if (this._runtimeConfigApplier?.hasModuleReconfigure(envKey)) {
+                  throw new Error('No runtime config mapping for module reconfigure setting');
+                }
+                return false;
+              }
+
+              return (
+                this._runtimeConfigApplier?.applyModuleReconfigure({
+                  envKey,
+                  cfgKey: runtimeConfigValue.cfgKey,
+                  value: runtimeConfigValue.value,
+                }) === true
+              );
             },
           });
 

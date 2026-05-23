@@ -48,6 +48,7 @@ import { createBotStatusManager } from './utils/status.js';
 import { needsSync, syncEnv, getVersion, getExampleVersion } from './env-sync.js';
 import ConfigRepository from './db/config-repository.js';
 import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from './db/config-migration.js';
+import RuntimeConfigApplier from './config/runtime-config-applier.js';
 import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
@@ -336,6 +337,7 @@ let serverScheduler: InstanceType<typeof ServerScheduler> | undefined;
 
 let multiServerManager: InstanceType<typeof MultiServerManager> | undefined;
 let webMapServer: InstanceType<typeof WebMapServer> | undefined;
+const runtimeConfigApplier = new RuntimeConfigApplier();
 
 let hzmodPlugin: { ipcClient?: { destroy: () => void } } | undefined; // Howyagarn web plugin result
 let db: InstanceType<typeof HumanitZDB> | undefined;
@@ -561,7 +563,7 @@ client.once(Events.ClientReady, (readyClient) => {
         }
         // Assign the module-level variable only after start() succeeds, so a failed
         // start doesn't leave a half-initialised server reachable to shutdown handlers.
-        const server = new WebMapServer(readyClient, { db, configRepo });
+        const server = new WebMapServer(readyClient, { db, configRepo, runtimeConfigApplier });
         await server.start();
         webMapServer = server;
         const suffix = mode === 'oauth' ? '' : ' (no auth)';
@@ -686,6 +688,9 @@ client.once(Events.ClientReady, (readyClient) => {
       const categoryHint = config.serverName;
       statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
       await statusChannels.start();
+      runtimeConfigApplier.registerModuleReconfigure('STATUS_CHANNEL_INTERVAL', ({ value }) => {
+        statusChannels?.reconfigure({ statusChannelInterval: value });
+      });
       setStatus('Status Channels', '🟢 Active');
     } else {
       setStatus('Status Channels', '⚫ Disabled');
@@ -700,6 +705,9 @@ client.once(Events.ClientReady, (readyClient) => {
       } else {
         serverStatus = new ServerStatus(readyClient, { db });
         await serverStatus.start();
+        runtimeConfigApplier.registerModuleReconfigure('SERVER_STATUS_INTERVAL', ({ value }) => {
+          serverStatus?.reconfigure({ serverStatusInterval: value });
+        });
         setStatus('Server Status', '🟢 Active');
       }
     } else {

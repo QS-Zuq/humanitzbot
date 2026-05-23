@@ -39,7 +39,7 @@ class StatusChannels {
     this._config = deps.config ?? _defaultConfig;
     this._getPlayerList = deps.getPlayerList ?? getPlayerList;
     this._categoryHint = deps.categoryName ?? '';
-    this.updateIntervalMs = Math.max(this._config.statusChannelInterval || 60000, 60000); // min 60s (Discord rate limits)
+    this.updateIntervalMs = this._resolveUpdateIntervalMs(this._config.statusChannelInterval);
   }
 
   async start() {
@@ -72,13 +72,41 @@ class StatusChannels {
       });
 
       // Start repeating updates
-      this.interval = setInterval(() => void this._update(), this.updateIntervalMs);
+      this._startUpdateLoop();
     } catch (err: unknown) {
       console.error('[STATUS] Failed to start:', errMsg(err));
     }
   }
 
   stop() {
+    this._stopUpdateLoop();
+  }
+
+  reconfigure(settings: { statusChannelInterval?: unknown }): void {
+    if (!Object.prototype.hasOwnProperty.call(settings, 'statusChannelInterval')) return;
+
+    const nextIntervalMs = this._resolveUpdateIntervalMs(settings.statusChannelInterval);
+    this._config.statusChannelInterval = nextIntervalMs;
+    if (nextIntervalMs === this.updateIntervalMs) return;
+
+    this.updateIntervalMs = nextIntervalMs;
+    if (this.interval) {
+      this._startUpdateLoop();
+    }
+  }
+
+  private _resolveUpdateIntervalMs(value: unknown): number {
+    const parsed = parseInt(String(value), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 60000;
+    return Math.max(parsed, 60000); // min 60s (Discord rate limits)
+  }
+
+  private _startUpdateLoop(): void {
+    this._stopUpdateLoop();
+    this.interval = setInterval(() => void this._update(), this.updateIntervalMs);
+  }
+
+  private _stopUpdateLoop(): void {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;

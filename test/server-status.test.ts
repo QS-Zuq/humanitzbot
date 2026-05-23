@@ -126,3 +126,59 @@ describe('ServerStatus bot_state cache hydration', () => {
     assert.equal(status._lastPlayerList, null);
   });
 });
+
+describe('ServerStatus runtime reconfigure', () => {
+  it('resets the active update timer exactly once when SERVER_STATUS_INTERVAL changes', () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const scheduled: Array<{ handle: ReturnType<typeof setInterval>; delay?: number }> = [];
+    const cleared: Array<ReturnType<typeof setInterval>> = [];
+    const oldHandle = { id: 'old' } as unknown as ReturnType<typeof setInterval>;
+
+    globalThis.setInterval = ((handler: (...args: unknown[]) => void, delay?: number) => {
+      const handle = { handler, delay } as unknown as ReturnType<typeof setInterval>;
+      scheduled.push({ handle, delay });
+      return handle;
+    }) as typeof setInterval;
+    globalThis.clearInterval = ((handle: ReturnType<typeof setInterval>) => {
+      cleared.push(handle);
+    }) as typeof clearInterval;
+
+    try {
+      const cfg = config({ serverStatusInterval: 30_000 });
+      const status = new ServerStatus(mockClient(), { db: null, config: cfg });
+      status.interval = oldHandle;
+      status.updateIntervalMs = 30_000;
+
+      status.reconfigure({ serverStatusInterval: 60_000 });
+
+      assert.equal(status.updateIntervalMs, 60_000);
+      assert.equal(cfg.serverStatusInterval, 60_000);
+      assert.deepEqual(cleared, [oldHandle]);
+      assert.equal(scheduled.length, 1);
+      assert.equal(scheduled[0]?.delay, 60_000);
+
+      status.reconfigure({ serverStatusInterval: 60_000 });
+
+      assert.equal(scheduled.length, 1);
+      assert.equal(cleared.length, 1);
+
+      status.stop();
+
+      assert.equal(status.interval, null);
+      assert.equal(cleared.length, 2);
+      const [scheduledTimer] = scheduled;
+      assert.ok(scheduledTimer);
+      assert.equal(cleared[1], scheduledTimer.handle);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  it('keeps SERVER_STATUS_INTERVAL at or above the runtime minimum', () => {
+    const status = new ServerStatus(mockClient(), { db: null, config: config({ serverStatusInterval: 1_000 }) });
+
+    assert.equal(status.updateIntervalMs, 15_000);
+  });
+});

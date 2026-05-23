@@ -86,7 +86,7 @@ class ServerStatus {
     this.channel = null;
     this.statusMessage = null;
     this.interval = null;
-    this.updateIntervalMs = parseInt(String(this._config.serverStatusInterval), 10) || 30000;
+    this.updateIntervalMs = this._resolveUpdateIntervalMs(this._config.serverStatusInterval);
 
     // Track online/offline state for transitions
     this._lastOnline = null;
@@ -130,9 +130,7 @@ class ServerStatus {
       await this._update();
 
       // Start the loop
-      this.interval = setInterval(() => {
-        void this._update();
-      }, this.updateIntervalMs);
+      this._startUpdateLoop();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this._log.error('Failed to start:', msg);
@@ -141,6 +139,37 @@ class ServerStatus {
   }
 
   stop() {
+    this._stopUpdateLoop();
+  }
+
+  reconfigure(settings: { serverStatusInterval?: unknown }): void {
+    if (!Object.prototype.hasOwnProperty.call(settings, 'serverStatusInterval')) return;
+
+    const nextIntervalMs = this._resolveUpdateIntervalMs(settings.serverStatusInterval);
+    this._config.serverStatusInterval = nextIntervalMs;
+    if (nextIntervalMs === this.updateIntervalMs) return;
+
+    this.updateIntervalMs = nextIntervalMs;
+    if (this.interval) {
+      this._startUpdateLoop();
+    }
+    this._log.info(`Reconfigured update interval to ${this.updateIntervalMs / 1000}s`);
+  }
+
+  private _resolveUpdateIntervalMs(value: unknown): number {
+    const parsed = parseInt(String(value), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 30000;
+    return Math.max(parsed, 15000);
+  }
+
+  private _startUpdateLoop(): void {
+    this._stopUpdateLoop();
+    this.interval = setInterval(() => {
+      void this._update();
+    }, this.updateIntervalMs);
+  }
+
+  private _stopUpdateLoop(): void {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
