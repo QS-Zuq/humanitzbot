@@ -781,6 +781,9 @@ describe('Web Map Admin — POST endpoints', () => {
         rconHost: config.rconHost,
         rconPort: config.rconPort,
         rconPassword: config.rconPassword,
+        enableServerStatus: config.enableServerStatus,
+        enableChatRelay: config.enableChatRelay,
+        enablePlayerStats: config.enablePlayerStats,
         serverStatusInterval: config.serverStatusInterval,
         statusCacheTtl: config.statusCacheTtl,
         resourceCacheTtl: config.resourceCacheTtl,
@@ -816,6 +819,9 @@ describe('Web Map Admin — POST endpoints', () => {
       config.rconHost = '127.0.0.1';
       config.rconPort = 14541;
       config.rconPassword = 'before-rcon-secret';
+      config.enableServerStatus = true;
+      config.enableChatRelay = true;
+      config.enablePlayerStats = true;
       config.serverStatusInterval = 30_000;
       config.statusCacheTtl = 30_000;
       config.resourceCacheTtl = 30_000;
@@ -853,6 +859,9 @@ describe('Web Map Admin — POST endpoints', () => {
       config.rconHost = savedConfig.rconHost as string | undefined;
       config.rconPort = savedConfig.rconPort as number;
       config.rconPassword = savedConfig.rconPassword as string;
+      config.enableServerStatus = savedConfig.enableServerStatus as boolean;
+      config.enableChatRelay = savedConfig.enableChatRelay as boolean;
+      config.enablePlayerStats = savedConfig.enablePlayerStats as boolean;
       config.serverStatusInterval = savedConfig.serverStatusInterval as number;
       config.statusCacheTtl = savedConfig.statusCacheTtl as number;
       config.resourceCacheTtl = savedConfig.resourceCacheTtl as number;
@@ -1523,6 +1532,45 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.autoMsgLinkText, 'Join us');
     });
 
+    it('applies registered module-restart settings without restartRequired', async () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      const applied: unknown[] = [];
+      applier.registerModuleRestart('ENABLE_SERVER_STATUS', async (context) => {
+        applied.push(context);
+        config.enableServerStatus = context.value as boolean;
+      });
+      applier.registerModuleRestart('ENABLE_PLAYER_STATS', async (context) => {
+        applied.push(context);
+        config.enablePlayerStats = context.value as boolean;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const restartHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: { changes: { ENABLE_SERVER_STATUS: 'false', ENABLE_PLAYER_STATS: 'false' } },
+      });
+      const res = mockRes();
+
+      await restartHandler(req, res);
+
+      const body = res._json as Record<string, unknown>;
+      assert.equal(res._status, 200);
+      assert.equal(body.restartRequired, false);
+      assert.deepEqual([...(body.appliedModuleRestart as string[])].sort(), [
+        'ENABLE_PLAYER_STATS',
+        'ENABLE_SERVER_STATUS',
+      ]);
+      assert.deepEqual(body.pendingModuleRestart, []);
+      assert.deepEqual(applied, [
+        { envKey: 'ENABLE_SERVER_STATUS', cfgKey: 'enableServerStatus', value: false },
+        { envKey: 'ENABLE_PLAYER_STATS', cfgKey: 'enablePlayerStats', value: false },
+      ]);
+      assert.equal(config.enableServerStatus, false);
+      assert.equal(config.enablePlayerStats, false);
+      assert.equal(repo.docs.app?.enableServerStatus, false);
+      assert.equal(repo.docs.app.enablePlayerStats, false);
+    });
+
     it('keeps module-reconfigure settings pending when no runtime handler is registered', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, {
@@ -1579,6 +1627,27 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.discordInviteLink, 'https://discord.gg/pending');
     });
 
+    it('keeps module-restart settings pending when no runtime owner is registered', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, {
+        db: mockDb(),
+        configRepo: repo,
+        runtimeConfigApplier: new RuntimeConfigApplier(),
+      });
+      const pendingRestartHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { ENABLE_CHAT_RELAY: 'false' } } });
+      const res = mockRes();
+
+      await pendingRestartHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleRestart, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleRestart, ['ENABLE_CHAT_RELAY']);
+      assert.equal(config.enableChatRelay, true);
+      assert.equal(repo.docs.app?.enableChatRelay, false);
+    });
+
     it('reports module-reconfigure handler failures as errors without marking pending as applied', async () => {
       const repo = mockConfigRepo();
       const applier = new RuntimeConfigApplier();
@@ -1602,6 +1671,32 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(error.strategy, 'module-reconfigure');
       assert.equal(error.message, 'timer refused');
       assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
+    });
+
+    it('reports module-restart handler failures as errors without marking pending as applied', async () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      applier.registerModuleRestart('ENABLE_SERVER_STATUS', async () => {
+        throw new Error('restart refused');
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const failingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { ENABLE_SERVER_STATUS: 'false' } } });
+      const res = mockRes();
+
+      await failingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleRestart, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleRestart, []);
+      const [error] = (res._json as { errors: Array<{ key: string; strategy: string; message: string }> }).errors;
+      assert.ok(error);
+      assert.equal(error.key, 'ENABLE_SERVER_STATUS');
+      assert.equal(error.strategy, 'module-restart');
+      assert.equal(error.message, 'restart refused');
+      assert.equal(config.enableServerStatus, true);
+      assert.equal(repo.docs.app?.enableServerStatus, false);
     });
 
     it('falls unknown primary settings back to pending bot restart without live apply', async () => {

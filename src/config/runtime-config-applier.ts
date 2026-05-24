@@ -7,6 +7,7 @@ export interface RuntimeConfigApplyContext {
 }
 
 export type RuntimeConfigApplyHandler = (context: RuntimeConfigApplyContext) => void;
+export type RuntimeConfigApplyAsyncHandler = (context: RuntimeConfigApplyContext) => void | Promise<void>;
 export type RuntimeConfigApplyBatchHandler = (contexts: RuntimeConfigApplyContext[]) => void | Promise<void>;
 
 export interface RuntimeConfigBatchApplyError {
@@ -36,6 +37,7 @@ function toErrorMessage(err: unknown): string {
 
 class RuntimeConfigApplier {
   private readonly _moduleReconfigureHandlers = new Map<string, RuntimeConfigApplyHandler>();
+  private readonly _moduleRestartHandlers = new Map<string, RuntimeConfigApplyAsyncHandler>();
   private readonly _connectionReconnectHandlers = new Map<string, RuntimeConfigApplyHandler>();
   private readonly _connectionReconnectBatchHandlers = new Set<RuntimeConfigBatchHandlerEntry>();
   private readonly _connectionReconnectBatchHandlersByKey = new Map<string, RuntimeConfigBatchHandlerEntry>();
@@ -72,6 +74,40 @@ class RuntimeConfigApplier {
     const handler = this._moduleReconfigureHandlers.get(context.envKey);
     if (!handler) return false;
     handler(context);
+    return true;
+  }
+
+  registerModuleRestart(
+    envKey: string,
+    handler: RuntimeConfigApplyAsyncHandler,
+    options: RuntimeConfigRegisterOptions = {},
+  ): () => void {
+    if (!envKey) throw new Error('envKey is required');
+    this._moduleRestartHandlers.set(envKey, handler);
+
+    const unregisterHandler = () => {
+      if (this._moduleRestartHandlers.get(envKey) === handler) {
+        this._moduleRestartHandlers.delete(envKey);
+      }
+    };
+
+    if (!options.ownerId) return unregisterHandler;
+
+    const unregisterOwnerCleanup = this._lifecycle.trackCleanup(options.ownerId, unregisterHandler);
+    return () => {
+      unregisterOwnerCleanup();
+      unregisterHandler();
+    };
+  }
+
+  hasModuleRestart(envKey: string): boolean {
+    return this._moduleRestartHandlers.has(envKey);
+  }
+
+  async applyModuleRestart(context: RuntimeConfigApplyContext): Promise<boolean> {
+    const handler = this._moduleRestartHandlers.get(context.envKey);
+    if (!handler) return false;
+    await handler(context);
     return true;
   }
 

@@ -71,6 +71,77 @@ describe('RuntimeConfigApplier', () => {
     );
   });
 
+  it('applies registered module-restart handlers', async () => {
+    const applier = new RuntimeConfigApplier();
+    const seen: unknown[] = [];
+
+    applier.registerModuleRestart('ENABLE_SERVER_STATUS', async (context) => {
+      seen.push(context);
+    });
+
+    const applied = await applier.applyModuleRestart({
+      envKey: 'ENABLE_SERVER_STATUS',
+      cfgKey: 'enableServerStatus',
+      value: false,
+    });
+
+    assert.equal(applied, true);
+    assert.deepEqual(seen, [{ envKey: 'ENABLE_SERVER_STATUS', cfgKey: 'enableServerStatus', value: false }]);
+  });
+
+  it('returns false when no module-restart handler is registered', async () => {
+    const applier = new RuntimeConfigApplier();
+
+    const applied = await applier.applyModuleRestart({
+      envKey: 'ENABLE_LOG_WATCHER',
+      cfgKey: 'enableLogWatcher',
+      value: false,
+    });
+
+    assert.equal(applied, false);
+  });
+
+  it('unregisters only the matching module-restart handler', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+    const first = () => {
+      calls += 1;
+    };
+    const second = () => {
+      calls += 10;
+    };
+    const unregisterFirst = applier.registerModuleRestart('ENABLE_SERVER_STATUS', first);
+    applier.registerModuleRestart('ENABLE_SERVER_STATUS', second);
+
+    unregisterFirst();
+
+    const applied = await applier.applyModuleRestart({
+      envKey: 'ENABLE_SERVER_STATUS',
+      cfgKey: 'enableServerStatus',
+      value: false,
+    });
+
+    assert.equal(applied, true);
+    assert.equal(calls, 10);
+  });
+
+  it('surfaces module-restart handler failures to callers', async () => {
+    const applier = new RuntimeConfigApplier();
+    applier.registerModuleRestart('ENABLE_SERVER_STATUS', () => {
+      throw new Error('restart refused');
+    });
+
+    await assert.rejects(
+      () =>
+        applier.applyModuleRestart({
+          envKey: 'ENABLE_SERVER_STATUS',
+          cfgKey: 'enableServerStatus',
+          value: false,
+        }),
+      /restart refused/,
+    );
+  });
+
   it('applies registered connection-reconnect handlers', () => {
     const applier = new RuntimeConfigApplier();
     const seen: unknown[] = [];
@@ -230,6 +301,47 @@ describe('RuntimeConfigApplier', () => {
         envKey: 'PANEL_API_KEY',
         cfgKey: 'panelApiKey',
         value: 'secret',
+      }),
+      false,
+    );
+    assert.equal(calls, 0);
+  });
+
+  it('unregisters owner-scoped module-restart handlers as a group', async () => {
+    const applier = new RuntimeConfigApplier();
+    let calls = 0;
+
+    applier.registerModuleRestart(
+      'ENABLE_SERVER_STATUS',
+      () => {
+        calls += 1;
+      },
+      { ownerId: 'server-status' },
+    );
+    applier.registerModuleRestart(
+      'ENABLE_PLAYER_STATS',
+      () => {
+        calls += 10;
+      },
+      { ownerId: 'server-status' },
+    );
+
+    assert.equal(applier.hasModuleRestart('ENABLE_SERVER_STATUS'), true);
+    await applier.cleanupOwner('server-status');
+
+    assert.equal(
+      await applier.applyModuleRestart({
+        envKey: 'ENABLE_SERVER_STATUS',
+        cfgKey: 'enableServerStatus',
+        value: false,
+      }),
+      false,
+    );
+    assert.equal(
+      await applier.applyModuleRestart({
+        envKey: 'ENABLE_PLAYER_STATS',
+        cfgKey: 'enablePlayerStats',
+        value: false,
       }),
       false,
     );
