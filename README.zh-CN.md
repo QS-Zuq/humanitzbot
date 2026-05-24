@@ -15,13 +15,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+" />
+  <img src="https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
   <img src="https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white" alt="discord.js v14" />
   <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-1622_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1936_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -105,7 +105,7 @@
 
 ### 前置要求
 
-- **Node.js** 18+（推荐 22+）
+- **Node.js** 22+
 - 已启用 **RCON** 的 HumanitZ 专属服务器
 - 服务器的 **SFTP** 访问权限（密码或 SSH 密钥）
 - 一个 [Discord bot 应用程序](https://discord.com/developers/applications)
@@ -307,7 +307,7 @@ src/
 ### 测试
 
 ```bash
-npm test                 # 在 47 个测试文件中执行 1622 个测试
+npm test                 # 在 70 个测试文件中执行 1936 个测试
 ```
 
 ### 构建 CSS
@@ -334,7 +334,7 @@ npm run build:template   # 重新构建模板数据库
 
 | 组件           | 技术                          |
 | -------------- | ----------------------------- |
-| **Runtime**    | Node.js 18+                   |
+| **Runtime**    | Node.js 22+                   |
 | **Discord**    | discord.js v14                |
 | **Database**   | 使用 better-sqlite3 的 SQLite |
 | **Web Server** | Express v5                    |
