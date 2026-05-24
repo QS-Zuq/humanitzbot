@@ -55,7 +55,7 @@ interface DeathLoopEntry {
   count: number;
   firstTimestamp: number;
   lastTimestamp: number;
-  suppressed: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface ContainerAccessEntry {
@@ -308,7 +308,7 @@ class LogWatcher {
     this._pvpKillsDirty = false;
     this._loadPvpKills();
 
-    // Death loop detection: Map<playerNameLower, { count, firstTimestamp, lastTimestamp, suppressed }>
+    // Death loop detection: Map<playerNameLower, { count, firstTimestamp, lastTimestamp, timer }>
     this._deathLoopTracker = new Map();
 
     // Container access tracker: tracks who opened which container type recently.
@@ -628,20 +628,56 @@ class LogWatcher {
     this._savePvpKills();
   }
 
-  reconfigure(options: { logPollInterval?: unknown }): void {
-    if (!Object.hasOwn(options, 'logPollInterval')) return;
+  reconfigure(options: {
+    logPollInterval?: unknown;
+    enablePvpKillFeed?: unknown;
+    pvpKillWindow?: unknown;
+    enableDeathLoopDetection?: unknown;
+    deathLoopThreshold?: unknown;
+    deathLoopWindow?: unknown;
+  }): void {
+    let clearDeathLoopTracker = false;
 
-    const previousInterval = this._config.logPollInterval;
-    const nextInterval = this._coerceInterval(options.logPollInterval, previousInterval, 10_000);
-    this._config.logPollInterval = nextInterval;
+    if (Object.hasOwn(options, 'logPollInterval')) {
+      const previousInterval = this._config.logPollInterval;
+      const nextInterval = this._coerceInterval(options.logPollInterval, previousInterval, 10_000);
+      this._config.logPollInterval = nextInterval;
 
-    if (!this.interval || nextInterval === previousInterval) return;
+      if (this.interval && nextInterval !== previousInterval) {
+        clearInterval(this.interval);
+        this.interval = setInterval(() => {
+          logRejection(this._poll(), this._log, `${this._log.label}:poll`);
+        }, nextInterval);
+        this._log.info(`Polling logs every ${nextInterval / 1000}s`);
+      }
+    }
 
-    clearInterval(this.interval);
-    this.interval = setInterval(() => {
-      logRejection(this._poll(), this._log, `${this._log.label}:poll`);
-    }, nextInterval);
-    this._log.info(`Polling logs every ${nextInterval / 1000}s`);
+    if (Object.hasOwn(options, 'enablePvpKillFeed')) {
+      this._config.enablePvpKillFeed = this._coerceBoolean(options.enablePvpKillFeed, this._config.enablePvpKillFeed);
+    }
+    if (Object.hasOwn(options, 'pvpKillWindow')) {
+      this._config.pvpKillWindow = this._coercePositiveInteger(options.pvpKillWindow, this._config.pvpKillWindow, 1);
+    }
+    if (Object.hasOwn(options, 'enableDeathLoopDetection')) {
+      const previous = this._config.enableDeathLoopDetection;
+      const next = this._coerceBoolean(options.enableDeathLoopDetection, this._config.enableDeathLoopDetection);
+      this._config.enableDeathLoopDetection = next;
+      if (previous && !next) clearDeathLoopTracker = true;
+    }
+    if (Object.hasOwn(options, 'deathLoopThreshold')) {
+      const previous = this._config.deathLoopThreshold;
+      const next = this._coercePositiveInteger(options.deathLoopThreshold, this._config.deathLoopThreshold, 1);
+      this._config.deathLoopThreshold = next;
+      if (next !== previous) clearDeathLoopTracker = true;
+    }
+    if (Object.hasOwn(options, 'deathLoopWindow')) {
+      const previous = this._config.deathLoopWindow;
+      const next = this._coercePositiveInteger(options.deathLoopWindow, this._config.deathLoopWindow, 1);
+      this._config.deathLoopWindow = next;
+      if (next !== previous) clearDeathLoopTracker = true;
+    }
+
+    if (clearDeathLoopTracker) this._clearDeathLoopTracker();
   }
 
   async reconfigureSftpLogSource(options: { sftpLogPath?: unknown; sftpConnectLogPath?: unknown }): Promise<void> {
@@ -954,6 +990,29 @@ class LogWatcher {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
     const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
     return Math.max(interval || fallback, minMs);
+  }
+
+  private _coercePositiveInteger(value: unknown, fallback: number, minValue: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(Math.trunc(parsed), minValue);
+  }
+
+  private _coerceBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value !== 'string') return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    return fallback;
+  }
+
+  private _clearDeathLoopTracker(): void {
+    for (const entry of this._deathLoopTracker.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    this._deathLoopTracker.clear();
   }
 
   async _poll() {

@@ -30,6 +30,23 @@ interface AutoMessagesDeps {
   db?: unknown;
 }
 
+interface AutoMessagesReconfigureOptions {
+  autoMsgLinkInterval?: unknown;
+  autoMsgPromoInterval?: unknown;
+  discordInviteLink?: unknown;
+  autoMsgLinkText?: unknown;
+  autoMsgPromoText?: unknown;
+  enableAutoMsgLink?: unknown;
+  enableAutoMsgPromo?: unknown;
+  enableWelcomeMsg?: unknown;
+}
+
+function runtimeStringValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '';
+}
+
 class AutoMessages {
   private _config: ConfigType;
   private _playtime: PlaytimeTracker;
@@ -76,7 +93,7 @@ class AutoMessages {
 
     // Periodic Discord link broadcast
     if (this._config.enableAutoMsgLink) {
-      this._linkTimer = setInterval(() => void this._sendDiscordLink(), this.linkInterval);
+      this._ensureLinkTimer();
       this._log.info(`Discord link every ${this.linkInterval / 60000} min`);
     } else {
       this._log.info('Discord link broadcast disabled');
@@ -84,7 +101,7 @@ class AutoMessages {
 
     // Periodic promo message broadcast
     if (this._config.enableAutoMsgPromo) {
-      this._promoTimer = setInterval(() => void this._sendPromoMessage(), this.promoInterval);
+      this._ensurePromoTimer();
       this._log.info(`Promo message every ${this.promoInterval / 60000} min`);
     } else {
       this._log.info('Promo message disabled');
@@ -92,8 +109,7 @@ class AutoMessages {
 
     // Welcome messages — subscribe to presence tracker join events
     if (this._config.enableWelcomeMsg && this._presenceTracker) {
-      this._onPlayerJoined = (joiner: Joiner) => void this._sendWelcomeMessage(joiner);
-      this._presenceTracker.on('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
+      this._ensureWelcomeListener();
       this._log.info('RCON welcome messages enabled (on player join)');
     } else if (this._config.enableWelcomeMsg) {
       this._log.info('RCON welcome messages enabled but no presence tracker \u2014 skipping');
@@ -104,23 +120,37 @@ class AutoMessages {
   }
 
   stop() {
-    if (this._linkTimer) clearInterval(this._linkTimer);
-    if (this._promoTimer) clearInterval(this._promoTimer);
-    if (this._onPlayerJoined && this._presenceTracker) {
-      this._presenceTracker.removeListener('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
-      this._onPlayerJoined = null;
-    }
-    this._linkTimer = null;
-    this._promoTimer = null;
+    this._clearLinkTimer();
+    this._clearPromoTimer();
+    this._clearWelcomeListener();
     this._log.info('Stopped.');
   }
 
-  reconfigure(options: { autoMsgLinkInterval?: unknown; autoMsgPromoInterval?: unknown }): void {
+  reconfigure(options: AutoMessagesReconfigureOptions): void {
+    if (Object.hasOwn(options, 'discordInviteLink')) {
+      this.discordLink = runtimeStringValue(options.discordInviteLink);
+      this._config.discordInviteLink = this.discordLink;
+    }
+    if (Object.hasOwn(options, 'autoMsgLinkText')) {
+      this._config.autoMsgLinkText = runtimeStringValue(options.autoMsgLinkText);
+    }
+    if (Object.hasOwn(options, 'autoMsgPromoText')) {
+      this._config.autoMsgPromoText = runtimeStringValue(options.autoMsgPromoText);
+    }
     if (Object.hasOwn(options, 'autoMsgLinkInterval')) {
       this._reconfigureLinkInterval(options.autoMsgLinkInterval);
     }
     if (Object.hasOwn(options, 'autoMsgPromoInterval')) {
       this._reconfigurePromoInterval(options.autoMsgPromoInterval);
+    }
+    if (Object.hasOwn(options, 'enableAutoMsgLink')) {
+      this._reconfigureLinkEnabled(options.enableAutoMsgLink);
+    }
+    if (Object.hasOwn(options, 'enableAutoMsgPromo')) {
+      this._reconfigurePromoEnabled(options.enableAutoMsgPromo);
+    }
+    if (Object.hasOwn(options, 'enableWelcomeMsg')) {
+      this._reconfigureWelcomeEnabled(options.enableWelcomeMsg);
     }
   }
 
@@ -132,8 +162,8 @@ class AutoMessages {
 
     if (!this._linkTimer || nextInterval === previousInterval) return;
 
-    clearInterval(this._linkTimer);
-    this._linkTimer = setInterval(() => void this._sendDiscordLink(), nextInterval);
+    this._clearLinkTimer();
+    this._ensureLinkTimer();
     this._log.info(`Discord link every ${nextInterval / 60000} min`);
   }
 
@@ -145,15 +175,92 @@ class AutoMessages {
 
     if (!this._promoTimer || nextInterval === previousInterval) return;
 
-    clearInterval(this._promoTimer);
-    this._promoTimer = setInterval(() => void this._sendPromoMessage(), nextInterval);
+    this._clearPromoTimer();
+    this._ensurePromoTimer();
     this._log.info(`Promo message every ${nextInterval / 60000} min`);
+  }
+
+  private _reconfigureLinkEnabled(value: unknown): void {
+    const enabled = this._coerceBoolean(value, this._config.enableAutoMsgLink);
+    this._config.enableAutoMsgLink = enabled;
+    if (enabled) {
+      this._ensureLinkTimer();
+    } else {
+      this._clearLinkTimer();
+    }
+  }
+
+  private _reconfigurePromoEnabled(value: unknown): void {
+    const enabled = this._coerceBoolean(value, this._config.enableAutoMsgPromo);
+    this._config.enableAutoMsgPromo = enabled;
+    if (enabled) {
+      this._ensurePromoTimer();
+    } else {
+      this._clearPromoTimer();
+    }
+  }
+
+  private _reconfigureWelcomeEnabled(value: unknown): void {
+    const enabled = this._coerceBoolean(value, this._config.enableWelcomeMsg);
+    this._config.enableWelcomeMsg = enabled;
+    if (enabled) {
+      this._ensureWelcomeListener();
+    } else {
+      this._clearWelcomeListener();
+    }
+  }
+
+  private _ensureLinkTimer(): void {
+    if (this._linkTimer) return;
+    this._linkTimer = setInterval(() => void this._sendDiscordLink(), this.linkInterval);
+  }
+
+  private _ensurePromoTimer(): void {
+    if (this._promoTimer) return;
+    this._promoTimer = setInterval(() => void this._sendPromoMessage(), this.promoInterval);
+  }
+
+  private _clearLinkTimer(): void {
+    if (!this._linkTimer) return;
+    clearInterval(this._linkTimer);
+    this._linkTimer = null;
+  }
+
+  private _clearPromoTimer(): void {
+    if (!this._promoTimer) return;
+    clearInterval(this._promoTimer);
+    this._promoTimer = null;
+  }
+
+  private _ensureWelcomeListener(): void {
+    if (!this._presenceTracker || this._onPlayerJoined) return;
+    this._onPlayerJoined = (joiner: Joiner) => void this._sendWelcomeMessage(joiner);
+    this._presenceTracker.on('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
+  }
+
+  private _clearWelcomeListener(): void {
+    if (!this._onPlayerJoined || !this._presenceTracker) {
+      this._onPlayerJoined = null;
+      return;
+    }
+    this._presenceTracker.removeListener('playerJoined', this._onPlayerJoined as (...args: unknown[]) => void);
+    this._onPlayerJoined = null;
   }
 
   private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
     const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
     return Math.max(interval || fallback, minMs);
+  }
+
+  private _coerceBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value !== 'string') return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    return fallback;
   }
 
   // ── Private methods ────────────────────────────────────────

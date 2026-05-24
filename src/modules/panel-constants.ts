@@ -189,7 +189,7 @@ const ENV_CATEGORIES = [
     label: 'Auto Messages',
     emoji: '📢',
     group: 1,
-    description: 'Broadcast & welcome toggles (restart required)',
+    description: 'Broadcast & welcome settings (live when Auto-Messages is active)',
     restart: true,
     reloadStrategy: 'module-reconfigure',
     fields: [
@@ -208,7 +208,7 @@ const ENV_CATEGORIES = [
     label: 'Log Features',
     emoji: '📋',
     group: 1,
-    description: 'Kill feed & death loop (restart required)',
+    description: 'Kill feed & death-loop tuning (live when Log Watcher is active)',
     restart: true,
     reloadStrategy: 'module-reconfigure',
     fields: [
@@ -274,7 +274,7 @@ const ENV_CATEGORIES = [
     label: 'Advanced',
     emoji: '⚙️',
     group: 1,
-    description: 'Cache TTLs, auto-msg intervals (restart required)',
+    description: 'Cache TTLs and auto-msg intervals (live when runtime owners are active)',
     restart: true,
     reloadStrategy: 'module-reconfigure',
     fields: [
