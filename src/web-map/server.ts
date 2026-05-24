@@ -15,7 +15,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import config, { getConfigValue, setConfigValue } from '../config/index.js';
-import { summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
+import { resolveReloadStrategy, summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
 import type { RuntimeConfigApplier } from '../config/runtime-config-applier.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
@@ -3186,6 +3186,27 @@ class WebMapServer {
     // Keys that are read-only (managed by the bot/bootstrap .env, not user-editable via web)
     const ENV_READONLY_KEYS = new Set(['ENV_SCHEMA_VERSION', ...BOOTSTRAP_KEYS]);
 
+    const RELOAD_STRATEGY_REASONS: Record<string, string> = {
+      live: 'Applies immediately to the running bot.',
+      'module-reconfigure': 'Reconfigures the affected module without a full bot restart when a handler is registered.',
+      'module-restart': 'Restarts only the affected module when a runtime handler is registered.',
+      'connection-reconnect': 'Reconnects the affected external client when a runtime handler is registered.',
+      'bot-restart': 'Requires a bot restart because the setting is bound during startup or session setup.',
+      'game-restart': 'Requires a game server restart to apply safely.',
+    };
+
+    function _botConfigRuntimeMetadata(envKey: string): { reloadStrategy: string; reloadStrategyReason: string } {
+      const reloadStrategy = resolveReloadStrategy(envKey);
+      return {
+        reloadStrategy,
+        reloadStrategyReason:
+          envKey === 'WEB_MAP_SESSION_SECRET'
+            ? 'Requires a bot restart because the session signing secret is read from .env during startup.'
+            : (RELOAD_STRATEGY_REASONS[reloadStrategy] ??
+              'Requires a bot restart because the setting is bound during startup or session setup.'),
+      };
+    }
+
     // ── Per-server bot config (servers.json) helpers ──────────────
 
     /**
@@ -3351,6 +3372,7 @@ class WebMapServer {
             value: isSensitive ? '' : value,
             sensitive: isSensitive,
             readOnly: false,
+            ..._botConfigRuntimeMetadata(envKey),
             hasValue: isSensitive ? value.length > 0 : undefined,
             commented: !value && !isSensitive, // show as "not set" if empty
           });
@@ -3517,6 +3539,7 @@ class WebMapServer {
                 value: isSensitive ? '' : value,
                 sensitive: isSensitive,
                 readOnly: isReadOnly,
+                ..._botConfigRuntimeMetadata(field.env),
                 hasValue: isSensitive ? value.length > 0 && !value.startsWith('your_') : undefined,
                 commented: !value && !isSensitive,
               });
@@ -3561,6 +3584,7 @@ class WebMapServer {
               value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: isReadOnly,
+              ..._botConfigRuntimeMetadata(entryKey),
               hasValue: isSensitive ? entryValue.length > 0 && !entryValue.startsWith('your_') : undefined,
               commented: false,
             });
@@ -3573,6 +3597,7 @@ class WebMapServer {
               value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: false,
+              ..._botConfigRuntimeMetadata(entryKey),
               hasValue: false,
               commented: true,
             });

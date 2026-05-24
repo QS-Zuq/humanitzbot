@@ -428,6 +428,38 @@ Panel.tabs = Panel.tabs || {};
     var renderedSectionIds = {};
     var envDescs = getEnvDescs();
 
+    function reloadStrategyBadge(strategy) {
+      if (!strategy) return '';
+      var normalized = String(strategy).replace(/-/g, '_');
+      var label = i18next.t('web:settings.reload_strategy.' + normalized, { defaultValue: strategy });
+      var title = i18next.t('web:settings.reload_strategy_desc.' + normalized, { defaultValue: '' });
+      var styles = {
+        live: 'color:var(--color-calm, #6dba82);border-color:rgba(109,186,130,0.2);background:rgba(109,186,130,0.08)',
+        'module-reconfigure':
+          'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
+        'module-restart':
+          'color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.2);background:rgba(212,168,67,0.08)',
+        'connection-reconnect':
+          'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
+        'bot-restart':
+          'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
+        'game-restart':
+          'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
+      };
+      var style = styles[strategy] || styles['bot-restart'];
+      return (
+        ' <span class="setting-sensitive-badge" data-reload-strategy="' +
+        esc(strategy) +
+        '" style="' +
+        style +
+        '"' +
+        (title ? ' title="' + esc(title) + '"' : '') +
+        '>' +
+        esc(label) +
+        '</span>'
+      );
+    }
+
     // Helper to render a single section (category)
     function renderSection(sec) {
       if (!sec || !sec.keys.length) return null;
@@ -447,6 +479,7 @@ Panel.tabs = Panel.tabs || {};
         var item = sec.keys[ki];
         var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
         row.dataset.key = item.key;
+        row.dataset.reloadStrategy = item.reloadStrategy || '';
         var desc = envDescs[item.key] || '';
         row.dataset.desc = desc.toLowerCase();
 
@@ -455,7 +488,10 @@ Panel.tabs = Panel.tabs || {};
         if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
         if (item.readOnly)
           nameHtml +=
-            ' <span class="setting-sensitive-badge" style="color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">read-only</span>';
+            ' <span class="setting-sensitive-badge" style="color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">' +
+            esc(i18next.t('web:settings.read_only')) +
+            '</span>';
+        nameHtml += reloadStrategyBadge(item.reloadStrategy);
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
         var inputHtml;
@@ -902,8 +938,12 @@ Panel.tabs = Panel.tabs || {};
     }
     const resetBtn = $('#settings-reset-btn');
     if (resetBtn) resetBtn.classList.toggle('hidden', !hasChanges);
+    setSettingsRestartBadge(false);
+  }
+
+  function setSettingsRestartBadge(visible) {
     const restartBadge = $('#settings-restart-badge');
-    if (restartBadge) restartBadge.classList.toggle('hidden', !hasChanges);
+    if (restartBadge) restartBadge.classList.toggle('hidden', !visible);
   }
 
   function humanizeEnvKey(key) {
@@ -973,8 +1013,7 @@ Panel.tabs = Panel.tabs || {};
         S.botConfigChanged = {};
         if (btn) btn.textContent = i18next.t('web:schedule_editor.saved') + ' ✓';
         updateBotConfigBadges();
-        const restartBadge = $('#settings-restart-badge');
-        if (restartBadge) restartBadge.classList.remove('hidden');
+        setSettingsRestartBadge(Boolean(d.restartRequired));
         showToast(
           d.code ? i18next.t('api:errors.' + d.code) : d.message || i18next.t('web:toast.settings_saved'),
           5000,

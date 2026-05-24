@@ -516,6 +516,25 @@ describe('config reload strategy helpers', () => {
     }
   });
 
+  it('real panel metadata keeps final bot-restart scope limited to session/bootstrap keys', () => {
+    const botRestartKeys = new Set<string>();
+
+    for (const category of ENV_CATEGORIES) {
+      for (const field of category.fields) {
+        if (resolveReloadStrategy(field.env, ENV_CATEGORIES) === 'bot-restart') {
+          botRestartKeys.add(field.env);
+        }
+      }
+    }
+
+    assert.deepEqual([...botRestartKeys].sort(), [
+      'SESSION_REDIS_URL',
+      'SESSION_STORE',
+      'SESSION_TTL',
+      'WEB_MAP_SESSION_SECRET',
+    ]);
+  });
+
   it('real panel metadata only resolves live when explicitly allowlisted', () => {
     for (const category of ENV_CATEGORIES) {
       for (const field of category.fields) {

@@ -608,6 +608,23 @@
     },
     "secret_set": "Configured",
     "secret_not_set": "Not configured",
+    "read_only": "read-only",
+    "reload_strategy": {
+      "live": "Live",
+      "module_reconfigure": "Module reconfigure",
+      "module_restart": "Module restart",
+      "connection_reconnect": "Reconnect",
+      "bot_restart": "Bot restart",
+      "game_restart": "Game restart"
+    },
+    "reload_strategy_desc": {
+      "live": "Applies immediately to the running bot.",
+      "module_reconfigure": "Reconfigures the affected module without a full bot restart when a handler is registered.",
+      "module_restart": "Restarts only the affected module when a runtime handler is registered.",
+      "connection_reconnect": "Reconnects the affected external client when a runtime handler is registered.",
+      "bot_restart": "Requires a bot restart because the setting is bound during startup or session setup.",
+      "game_restart": "Requires a game server restart to apply safely."
+    },
     "discover_paths": "Auto-detect Paths",
     "discovering": "Detecting...",
     "discover_done": "Detection complete",
