@@ -386,35 +386,66 @@ function hasSftp(): boolean {
 
 const SERVER_STATUS_RUNTIME_OWNER = 'module:server-status';
 const PLAYER_STATS_RUNTIME_OWNER = 'module:player-stats';
+let serverStatusStartPromise: Promise<void> | null = null;
+let playerStatsStartPromise: Promise<void> | null = null;
+let serverStatusRestartQueue: Promise<void> = Promise.resolve();
+let playerStatsRestartQueue: Promise<void> = Promise.resolve();
 
 function coerceRuntimeBoolean(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   return String(value).trim().toLowerCase() === 'true';
 }
 
+function enqueueServerStatusRestart(operation: () => Promise<void>): Promise<void> {
+  const next = serverStatusRestartQueue.catch(() => undefined).then(operation);
+  serverStatusRestartQueue = next.catch(() => undefined);
+  return next;
+}
+
+function enqueuePlayerStatsRestart(operation: () => Promise<void>): Promise<void> {
+  const next = playerStatsRestartQueue.catch(() => undefined).then(operation);
+  playerStatsRestartQueue = next.catch(() => undefined);
+  return next;
+}
+
 async function startServerStatusModule(readyClient: Client): Promise<void> {
   if (serverStatus) return;
+  if (serverStatusStartPromise) return serverStatusStartPromise;
 
-  if (!config.serverStatusChannelId) {
-    setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
-    console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
-    return;
+  serverStatusStartPromise = (async () => {
+    if (!config.serverStatusChannelId) {
+      setStatus('Server Status', '🟡 Skipped (SERVER_STATUS_CHANNEL_ID not set)');
+      console.log('[BOT] Server status skipped — SERVER_STATUS_CHANNEL_ID not configured');
+      return;
+    }
+
+    const nextServerStatus = new ServerStatus(readyClient, { db });
+    serverStatus = nextServerStatus;
+    try {
+      await nextServerStatus.start();
+    } catch (err) {
+      if (serverStatus === nextServerStatus) serverStatus = undefined;
+      throw err;
+    }
+    runtimeConfigApplier.registerModuleReconfigure(
+      'SERVER_STATUS_INTERVAL',
+      ({ value }) => {
+        serverStatus?.reconfigure({ serverStatusInterval: value });
+      },
+      { ownerId: SERVER_STATUS_RUNTIME_OWNER },
+    );
+    setStatus('Server Status', '🟢 Active');
+  })();
+
+  try {
+    await serverStatusStartPromise;
+  } finally {
+    serverStatusStartPromise = null;
   }
-
-  const nextServerStatus = new ServerStatus(readyClient, { db });
-  await nextServerStatus.start();
-  serverStatus = nextServerStatus;
-  runtimeConfigApplier.registerModuleReconfigure(
-    'SERVER_STATUS_INTERVAL',
-    ({ value }) => {
-      serverStatus?.reconfigure({ serverStatusInterval: value });
-    },
-    { ownerId: SERVER_STATUS_RUNTIME_OWNER },
-  );
-  setStatus('Server Status', '🟢 Active');
 }
 
 async function stopServerStatusModule(): Promise<void> {
+  if (serverStatusStartPromise) await serverStatusStartPromise.catch(() => undefined);
   await runtimeConfigApplier.cleanupOwner(SERVER_STATUS_RUNTIME_OWNER);
   if (serverStatus) {
     serverStatus.stop();
@@ -425,32 +456,48 @@ async function stopServerStatusModule(): Promise<void> {
 
 async function startPlayerStatsModule(readyClient: Client): Promise<void> {
   if (playerStatsChannel) return;
+  if (playerStatsStartPromise) return playerStatsStartPromise;
 
-  if (!hasSftp() && !panelApi.available) {
-    setStatus('Player Stats', '🟡 Skipped (no SFTP, Panel API, or database)');
-    console.log('[BOT] Player stats skipped — no SFTP, Panel API, or database available');
-    return;
-  }
+  playerStatsStartPromise = (async () => {
+    if (!hasSftp() && !panelApi.available) {
+      setStatus('Player Stats', '🟡 Skipped (no SFTP, Panel API, or database)');
+      console.log('[BOT] Player stats skipped — no SFTP, Panel API, or database available');
+      return;
+    }
 
-  if (!config.playerStatsChannelId) {
-    setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
-    console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
-    return;
-  }
+    if (!config.playerStatsChannelId) {
+      setStatus('Player Stats', '🟡 Skipped (PLAYER_STATS_CHANNEL_ID not set)');
+      console.log('[BOT] Player stats skipped — PLAYER_STATS_CHANNEL_ID not configured');
+      return;
+    }
 
-  playerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
-    db,
-    panelApi: panelApi.available ? panelApi : null,
-  });
-  await playerStatsChannel.start();
-  const mode = 'DB-first';
-  setStatus('Player Stats', `🟢 Active (${mode})`);
-  if (!logWatcher) {
-    setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
+    const nextPlayerStatsChannel = new PlayerStatsChannel(readyClient, logWatcher, {
+      db,
+      panelApi: panelApi.available ? panelApi : null,
+    });
+    playerStatsChannel = nextPlayerStatsChannel;
+    try {
+      await nextPlayerStatsChannel.start();
+    } catch (err) {
+      if (playerStatsChannel === nextPlayerStatsChannel) playerStatsChannel = undefined;
+      throw err;
+    }
+    const mode = 'DB-first';
+    setStatus('Player Stats', `🟢 Active (${mode})`);
+    if (!logWatcher) {
+      setStatus('Player Stats', `🟢 Active (${mode}, kill/survival feed unavailable — Log Watcher off)`);
+    }
+  })();
+
+  try {
+    await playerStatsStartPromise;
+  } finally {
+    playerStatsStartPromise = null;
   }
 }
 
 async function stopPlayerStatsModule(): Promise<void> {
+  if (playerStatsStartPromise) await playerStatsStartPromise.catch(() => undefined);
   await runtimeConfigApplier.cleanupOwner(PLAYER_STATS_RUNTIME_OWNER);
   if (playerStatsChannel) {
     playerStatsChannel.stop();
@@ -462,22 +509,26 @@ async function stopPlayerStatsModule(): Promise<void> {
 function registerFeatureToggleRestartHandlers(readyClient: Client): void {
   runtimeConfigApplier.registerModuleRestart('ENABLE_SERVER_STATUS', async ({ cfgKey, value }) => {
     const enabled = coerceRuntimeBoolean(value);
-    if (enabled) {
-      await startServerStatusModule(readyClient);
-    } else {
-      await stopServerStatusModule();
-    }
-    setConfigValue(config, cfgKey, enabled);
+    await enqueueServerStatusRestart(async () => {
+      if (enabled) {
+        await startServerStatusModule(readyClient);
+      } else {
+        await stopServerStatusModule();
+      }
+      setConfigValue(config, cfgKey, enabled);
+    });
   });
 
   runtimeConfigApplier.registerModuleRestart('ENABLE_PLAYER_STATS', async ({ cfgKey, value }) => {
     const enabled = coerceRuntimeBoolean(value);
-    if (enabled) {
-      await startPlayerStatsModule(readyClient);
-    } else {
-      await stopPlayerStatsModule();
-    }
-    setConfigValue(config, cfgKey, enabled);
+    await enqueuePlayerStatsRestart(async () => {
+      if (enabled) {
+        await startPlayerStatsModule(readyClient);
+      } else {
+        await stopPlayerStatsModule();
+      }
+      setConfigValue(config, cfgKey, enabled);
+    });
   });
 }
 

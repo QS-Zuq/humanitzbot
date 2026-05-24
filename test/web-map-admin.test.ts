@@ -1571,6 +1571,42 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app.enablePlayerStats, false);
     });
 
+    it('applies connection-reconnect before module-restart settings in the same save', async () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      const events: string[] = [];
+      const nextSecret = 'after-reconnect-secret';
+      applier.registerConnectionReconnect('PANEL_API_KEY', (context) => {
+        events.push(`reconnect:${context.envKey}`);
+        config.panelApiKey = context.value as string;
+      });
+      applier.registerModuleRestart('ENABLE_PLAYER_STATS', async (context) => {
+        events.push(`restart:${context.envKey}:${config.panelApiKey}`);
+        config.enablePlayerStats = context.value as boolean;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const restartHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: { changes: { ENABLE_PLAYER_STATS: 'false', PANEL_API_KEY: nextSecret } },
+      });
+      const res = mockRes();
+
+      await restartHandler(req, res);
+
+      const body = res._json as Record<string, unknown>;
+      assert.equal(res._status, 200);
+      assert.equal(body.restartRequired, false);
+      assert.deepEqual(body.appliedReconnect, ['PANEL_API_KEY']);
+      assert.deepEqual(body.appliedModuleRestart, ['ENABLE_PLAYER_STATS']);
+      assert.deepEqual(events, ['reconnect:PANEL_API_KEY', `restart:ENABLE_PLAYER_STATS:${nextSecret}`]);
+      assert.equal(config.panelApiKey, nextSecret);
+      assert.equal(config.enablePlayerStats, false);
+      assert.equal(repo.docs['server:primary']?.panelApiKey, nextSecret);
+      const appDoc = repo.docs.app;
+      assert.ok(appDoc);
+      assert.equal(appDoc.enablePlayerStats, false);
+    });
+
     it('keeps module-reconfigure settings pending when no runtime handler is registered', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, {

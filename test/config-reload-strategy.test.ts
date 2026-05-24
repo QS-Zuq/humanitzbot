@@ -237,6 +237,48 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, true);
   });
 
+  it('runs connection-reconnect before async module-restart handlers in mixed saves', async () => {
+    const events: string[] = [];
+    const result = await summarizeConfigReloadApplyAsync(['ENABLE_PLAYER_STATS', 'PANEL_API_KEY'], {
+      categories: ENV_CATEGORIES,
+      async applyConnectionReconnectBatch(envKeys) {
+        events.push(`reconnect:${envKeys.join(',')}`);
+        return { applied: envKeys };
+      },
+      async applyModuleRestartAsync(envKey) {
+        events.push(`restart:${envKey}`);
+        return true;
+      },
+    });
+
+    assert.deepEqual(events, ['reconnect:PANEL_API_KEY', 'restart:ENABLE_PLAYER_STATS']);
+    assert.deepEqual(result.appliedReconnect, ['PANEL_API_KEY']);
+    assert.deepEqual(result.appliedModuleRestart, ['ENABLE_PLAYER_STATS']);
+    assert.equal(result.restartRequired, false);
+  });
+
+  it('keeps module-restart pending when a mixed save leaves reconnect unresolved', async () => {
+    const events: string[] = [];
+    const result = await summarizeConfigReloadApplyAsync(['ENABLE_PLAYER_STATS', 'PANEL_API_KEY'], {
+      categories: ENV_CATEGORIES,
+      async applyConnectionReconnectBatch(envKeys) {
+        events.push(`reconnect:${envKeys.join(',')}`);
+        return { applied: [] };
+      },
+      async applyModuleRestartAsync(envKey) {
+        events.push(`restart:${envKey}`);
+        return true;
+      },
+    });
+
+    assert.deepEqual(events, ['reconnect:PANEL_API_KEY']);
+    assert.deepEqual(result.appliedReconnect, []);
+    assert.deepEqual(result.pendingReconnect, ['PANEL_API_KEY']);
+    assert.deepEqual(result.appliedModuleRestart, []);
+    assert.deepEqual(result.pendingModuleRestart, ['ENABLE_PLAYER_STATS']);
+    assert.equal(result.restartRequired, true);
+  });
+
   it('real panel metadata no longer exposes GitHub Tracker settings', () => {
     const removedKeys = new Set([
       'ENABLE_GITHUB_TRACKER',
