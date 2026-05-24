@@ -496,7 +496,7 @@ class ServerScheduler {
       try {
         await new Promise<void>((resolve, reject) => {
           exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err, stdout) => {
-            if (err) reject(err as Error);
+            if (err) reject(err);
             else {
               if (stdout) this._log.info(`LinuxGSM: ${stdout.trim().split('\n').pop() ?? ''}`);
               resolve();
@@ -510,7 +510,7 @@ class ServerScheduler {
         try {
           await new Promise<void>((resolve, reject) => {
             exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err) => {
-              if (err) reject(err as Error);
+              if (err) reject(err);
               else resolve();
             });
           });
@@ -621,7 +621,7 @@ class ServerScheduler {
                 exec(`docker exec -u linuxgsm ${container} /app/hzserver restart`, { timeout: 120000 }, (err) => {
                   if (err) {
                     exec(`docker stop ${container} && docker start ${container}`, { timeout: 120000 }, (err2) => {
-                      if (err2) reject(err2 as Error);
+                      if (err2) reject(err2);
                       else resolve();
                     });
                   } else resolve();

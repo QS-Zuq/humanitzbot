@@ -28,7 +28,6 @@ import {
   makeWeeklyBaselineDefault,
   normalizeKillTracker,
   normalizeWeeklyBaseline,
-  type KillTrackerShape,
 } from '../state/bot-state-schemas.js';
 
 type ConfigType = typeof config;
@@ -374,7 +373,7 @@ export class KillTracker {
           // and save() to be blocked by normalizer validation.
           if (!r || typeof r !== 'object' || Array.isArray(r)) {
             this._log.warn(`Dropping invalid player record during migration: ${sid}`);
-            Reflect.deleteProperty(this._data.players as Record<string, unknown>, sid);
+            Reflect.deleteProperty(this._data.players, sid);
             continue;
           }
           const record = r as Partial<PlayerKillRecord> & Record<string, unknown>;
@@ -420,11 +419,7 @@ export class KillTracker {
       if (this._db) {
         // Canary write-side: setStateJSONValidated throws if shape is invalid
         // (Principle 1 fail-loud). Caller catches and logs; backup row is preserved.
-        this._db.botState.setStateJSONValidated(
-          'kill_tracker',
-          normalizeKillTracker,
-          this._data as unknown as KillTrackerShape,
-        );
+        this._db.botState.setStateJSONValidated('kill_tracker', normalizeKillTracker, this._data);
       }
       this._dirty = false;
     } catch (err) {
@@ -716,10 +711,7 @@ export class KillTracker {
         newArrSnapshot[k] = [...current];
 
         if (current.length > prev.length) {
-          const toKey = (v: unknown): string =>
-            v !== null && typeof v === 'object'
-              ? JSON.stringify(v as Record<string, unknown>)
-              : String(v as string | number | boolean);
+          const toKey = (v: unknown): string => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
           const prevSet = new Set(prev.map(toKey));
           const newItems = current.filter((v) => !prevSet.has(toKey(v)));
           if (newItems.length > 0) {

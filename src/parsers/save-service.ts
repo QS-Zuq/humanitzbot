@@ -21,12 +21,7 @@ import _panelApiDefault from '../server/panel-api.js';
 import type { PanelFileApi } from '../server/panel-api.js';
 import { importSftpClient, importSsh2Client, importBuildAgentScript } from '../utils/dynamic-imports.js';
 import type { HumanitZDB } from '../db/database.js';
-import {
-  SaveSyncPipeline,
-  type SaveCacheData,
-  type SaveParsedDataInput,
-  type SaveSyncResult,
-} from './save-sync-pipeline.js';
+import { SaveSyncPipeline, type SaveParsedDataInput, type SaveSyncResult } from './save-sync-pipeline.js';
 import type { SaveReadResult } from './save-reader-types.js';
 
 // Shell-safe single-quote escaping for SSH exec arguments
@@ -975,8 +970,8 @@ class SaveService extends EventEmitter {
     }
 
     this._log.info('Downloading save file via Panel API (direct mode)...');
-    const saveBuf: Buffer | null = (await api.downloadFile(this._savePath)) as Buffer | null;
-    if (!saveBuf || saveBuf.length === 0) throw new Error('Empty save file downloaded from Panel API');
+    const saveBuf = await api.downloadFile(this._savePath);
+    if (saveBuf.length === 0) throw new Error('Empty save file downloaded from Panel API');
 
     if (force) {
       try {
@@ -1128,8 +1123,8 @@ class SaveService extends EventEmitter {
     }
     if (this._hasPanelApi() && this._panelApi) {
       try {
-        const clanBuf: Buffer | null = (await this._panelApi.downloadFile(this._clanSavePath)) as Buffer | null;
-        if (clanBuf && clanBuf.length > 0) return parseClanData(clanBuf);
+        const clanBuf = await this._panelApi.downloadFile(this._clanSavePath);
+        if (clanBuf.length > 0) return parseClanData(clanBuf);
       } catch {
         /* Clan file may not exist */
       }
@@ -1143,7 +1138,7 @@ class SaveService extends EventEmitter {
 
   async _syncFromCache(cache: Record<string, unknown>): Promise<void> {
     this._applyCacheIdMap(cache);
-    await this._syncPipeline.syncFromCache(cache as SaveCacheData);
+    await this._syncPipeline.syncFromCache(cache);
   }
 
   _syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): SaveSyncResult {
@@ -1185,8 +1180,8 @@ class SaveService extends EventEmitter {
         updatedAt: new Date().toISOString(),
         playerCount: players.size,
         idMap: this._idMap,
-        worldState: (parsed['worldState'] as Record<string, unknown> | undefined) ?? {},
-        players: {} as Record<string, unknown>,
+        worldState: parsed['worldState'] ?? {},
+        players: {},
         structures: Array.isArray(parsed['structures']) ? parsed['structures'] : [],
         vehicles: Array.isArray(parsed['vehicles']) ? parsed['vehicles'] : [],
         horses: Array.isArray(parsed['horses']) ? parsed['horses'] : [],

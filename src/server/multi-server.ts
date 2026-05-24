@@ -252,7 +252,7 @@ async function _discoverFiles(
   if (depth >= maxDepth) return;
   let items: SftpFileEntry[];
   try {
-    items = (await sftp.list(dir)) as SftpFileEntry[];
+    items = await sftp.list(dir);
   } catch {
     return;
   }
@@ -722,7 +722,7 @@ class ServerInstance {
           panelApi: this.panelApi ?? undefined,
           dataDir: this.dataDir,
           label: 'SAVE:' + this._log.label,
-        } as ConstructorParameters<typeof SaveService>[1]);
+        });
         this.saveService.on(
           'sync',
           (result: { playerCount: number; structureCount: number; mode: string; elapsed: number }) => {
@@ -762,7 +762,7 @@ class ServerInstance {
     // Log Watcher (needs SFTP — can run headless without Discord channel for DB-only data collection)
     if (this.hasSftp) {
       try {
-        const mod = new LogWatcher(this.client, deps as ConstructorParameters<typeof LogWatcher>[1]);
+        const mod = new LogWatcher(this.client, deps);
         if (_defaultConfig.nukeBot) mod.setNukeActive(true);
         await mod.start();
         this._modules.logWatcher = mod;
@@ -800,11 +800,7 @@ class ServerInstance {
     // Player Stats Channel (needs SFTP or Panel File API — can run headless for save-cache.json)
     if (this.hasSftp || this.panelApi) {
       try {
-        const mod = new PlayerStatsChannel(
-          this.client,
-          this._modules.logWatcher ?? null,
-          deps as ConstructorParameters<typeof PlayerStatsChannel>[2],
-        );
+        const mod = new PlayerStatsChannel(this.client, this._modules.logWatcher ?? null, deps);
         await mod.start();
         this._modules.playerStatsChannel = mod;
         this._log.info('PlayerStatsChannel active');
@@ -817,9 +813,7 @@ class ServerInstance {
     if (this.config.guildId) {
       try {
         const categoryName = `\u{1F4CA} ${this.name || this.id}`;
-        const mod = new StatusChannels(this.client, { ...deps, categoryName } as ConstructorParameters<
-          typeof StatusChannels
-        >[1]);
+        const mod = new StatusChannels(this.client, { ...deps, categoryName });
         await mod.start();
         this._modules.statusChannels = mod;
         this._log.info('StatusChannels active');
@@ -852,7 +846,7 @@ class ServerInstance {
         const mod = new AutoMessages({
           ...deps,
           presenceTracker: this._modules.presenceTracker ?? null,
-        } as ConstructorParameters<typeof AutoMessages>[0]);
+        });
         // Note: start() is synchronous; if it ever returns Promise, callers must await
         mod.start();
         this._modules.autoMessages = mod;

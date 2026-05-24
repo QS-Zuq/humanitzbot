@@ -5,7 +5,7 @@ import _server_status from '../src/modules/server-status.js';
 const ServerStatus = _server_status as any;
 
 import * as _mock_db from './helpers/mock-db.js';
-const { mockDb: createMockDb } = _mock_db as any;
+const { mockDb: createMockDb } = _mock_db;
 
 import * as _factories from './helpers/factories.js';
 const { mockClient, mockConfig } = _factories as any;

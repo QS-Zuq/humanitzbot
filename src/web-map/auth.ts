@@ -387,7 +387,7 @@ function setupAuth(
     },
     size: 32,
     ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
-    getCsrfTokenFromRequest: (req: Request) => req.headers['x-csrf-token'] as string,
+    getCsrfTokenFromRequest: (req: Request) => req.headers['x-csrf-token'],
   });
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path === '/auth/callback') {

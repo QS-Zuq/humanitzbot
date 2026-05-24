@@ -38,13 +38,13 @@ async function withIntervalSpy<T>(fn: (spy: IntervalSpy) => Promise<T> | T): Pro
   const originalClearInterval = globalThis.clearInterval;
   const spy = new IntervalSpy();
 
-  globalThis.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+  globalThis.setInterval = (handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
     return spy.schedule(() => {
       if (typeof handler === 'function') {
         (handler as (...callbackArgs: unknown[]) => void)(...args);
       }
     }, timeout ?? 0) as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval;
+  };
 
   globalThis.clearInterval = ((timer?: ReturnType<typeof setInterval>) => {
     spy.clear(timer);

@@ -10,6 +10,7 @@ import * as _game_reference from '../src/parsers/game-reference.js';
 const { createReader, parseHeader, readProperty, cleanName, recoverForward } = _gvas_reader as any;
 
 import * as _save_parser from '../src/parsers/save-parser.js';
+const saveParserInternals = _save_parser as any;
 const {
   parseSave,
   parseClanData,
@@ -20,7 +21,7 @@ const {
   STAT_TAG_MAP,
   createPlayerData,
   simplifyBlueprint,
-} = _save_parser as any;
+} = saveParserInternals;
 
 import _database from '../src/db/database.js';
 const HumanitZDB = _database as any;
@@ -1032,8 +1033,11 @@ describe('game-reference seed', () => {
   });
 
   it('seeds all reference data without errors', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- Test imports seed from a dynamic module shape.
     const { seed } = _game_reference as any;
-    assert.doesNotThrow(() => seed(db));
+    assert.doesNotThrow(() => {
+      seed(db);
+    });
   });
 
   it('populates game_professions', () => {

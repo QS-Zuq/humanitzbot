@@ -477,8 +477,8 @@ function extractBuildings(): Record<string, RawObject> {
         const rc = deepClean(res) as RawObject;
         resources.push({
           type: resolveEnum(rc['ResourceType']),
-          typeRaw: (rc['ResourceType'] as string) || '',
-          amount: (rc['Amount'] as number | undefined) ?? 0,
+          typeRaw: rc['ResourceType'] || '',
+          amount: rc['Amount'] ?? 0,
         });
       }
     }
@@ -498,7 +498,7 @@ function extractBuildings(): Record<string, RawObject> {
           }
         }
         upgrades.push({
-          health: (uc['NewHealth'] as number | undefined) ?? 0,
+          health: uc['NewHealth'] ?? 0,
           resources: upgResources,
         });
       }
@@ -542,7 +542,7 @@ function parseRawObject(struct: RawValue): RawObject | null {
   const c = deepClean(struct) as RawObject;
   const dt = c['Item'] as RawObject | undefined;
   return {
-    itemId: (dt?.['RowName'] as string) || '',
+    itemId: dt?.['RowName'] || '',
     amount: c['Amount'] ?? 0,
     durability: c['Durability'] ?? 0,
     ammo: c['Ammo'] ?? 0,
@@ -642,7 +642,7 @@ function extractSkills(): Record<string, RawObject> {
       for (const mod of perk['AttributeModifiers']) {
         const m = mod as RawObject;
         attributeModifiers.push({
-          conditions: (m['Conditions'] as RawArray | undefined) ?? [],
+          conditions: m['Conditions'] ?? [],
           gainMultiplier: m['GainMultiplier'] ?? 0,
           drainMultiplier: m['DrainMultiplier'] ?? 0,
           valueModifier: m['ValueModifier'] ?? 0,
@@ -660,7 +660,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const gm of s['ModifiersGeneral']) {
             const g = gm as RawObject;
             generalMods.push({
-              effect: (g['Effect'] as RawArray | undefined) ?? [],
+              effect: g['Effect'] ?? [],
               value: g['Value'] ?? 0,
               isPercentage: g['IsPercentage'] ?? false,
             });
@@ -671,7 +671,7 @@ function extractSkills(): Record<string, RawObject> {
           for (const am of s['ModifiersAttributes']) {
             const a = am as RawObject;
             attrMods.push({
-              conditions: (a['Conditions'] as RawArray | undefined) ?? [],
+              conditions: a['Conditions'] ?? [],
               gainMultiplier: a['GainMultiplier'] ?? 0,
               drainMultiplier: a['DrainMultiplier'] ?? 0,
               valueModifier: a['ValueModifier'] ?? 0,
@@ -680,8 +680,8 @@ function extractSkills(): Record<string, RawObject> {
           }
         }
         skillModifiers.push({
-          targetClassifications: (s['TargetClassifications'] as RawArray | undefined) ?? [],
-          conditions: (s['Conditions'] as RawArray | undefined) ?? [],
+          targetClassifications: s['TargetClassifications'] ?? [],
+          conditions: s['Conditions'] ?? [],
           generalModifiers: generalMods,
           attributeModifiers: attrMods,
         });
@@ -724,7 +724,7 @@ function extractProfessions(): Record<string, RawObject> {
             .map(parseRawObject)
             .filter((r): r is RawObject => r !== null && !!r.itemId && r.itemId !== 'None' && r.itemId !== 'Empty')
         : [],
-      passivePerks: (c['PassivePerks'] as RawArray | undefined) ?? [],
+      passivePerks: c['PassivePerks'] ?? [],
     };
   }
   return professions;
@@ -747,8 +747,8 @@ function extractStatistics(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number | undefined) ?? 0,
-      progressMax: (progress?.['y'] as number | undefined) ?? 1,
+      progressMin: progress?.['x'] ?? 0,
+      progressMax: progress?.['y'] ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -773,8 +773,8 @@ function extractStatConfig(): Record<string, RawObject> {
       categoryRaw: c['Category'] || '',
       name: c['Name'] || id,
       description: c['Descriptionn'] || c['Description'] || '',
-      progressMin: (progress?.['x'] as number | undefined) ?? 0,
-      progressMax: (progress?.['y'] as number | undefined) ?? 1,
+      progressMin: progress?.['x'] ?? 0,
+      progressMax: progress?.['y'] ?? 1,
       xp: c['XP'] ?? 0,
       skillPoint: c['SkillPoint'] ?? 0,
     };
@@ -798,11 +798,11 @@ function extractCrops(): Record<string, RawObject> {
       seedItemId: id,
       cropId: c['ID'] ?? 0,
       growthTimeDays: c['GrowthTimeDays'] ?? 0,
-      growSeasons: (c['GrowSeasons'] as RawArray | undefined) ?? [],
-      gridColumns: (colRow?.['x'] as number | undefined) ?? 1,
-      gridRows: (colRow?.['y'] as number | undefined) ?? 1,
-      spacingX: (spacing?.['x'] as number | undefined) ?? 0,
-      spacingY: (spacing?.['y'] as number | undefined) ?? 0,
+      growSeasons: c['GrowSeasons'] ?? [],
+      gridColumns: colRow?.['x'] ?? 1,
+      gridRows: colRow?.['y'] ?? 1,
+      spacingX: spacing?.['x'] ?? 0,
+      spacingY: spacing?.['y'] ?? 0,
       stageCount: Array.isArray(c['Stages']) ? c['Stages'].length : 0,
       harvestResult: c['HarvestResult'] || '',
       harvestCount: c['Count'] ?? 0,
@@ -934,7 +934,7 @@ function extractFurniture(): Record<string, RawObject> {
       for (const dr of c['DropResources']) {
         const d = dr as RawObject;
         dropResources.push({
-          itemId: (d['ItemID'] as string) || '',
+          itemId: d['ItemID'] || '',
           min: d['Min'] ?? 0,
           max: d['Max'] ?? 0,
         });
@@ -965,11 +965,11 @@ function extractTraps(): Record<string, RawObject> {
 
     traps[id] = {
       id,
-      itemId: (itemRef?.['RowName'] as string) || '',
+      itemId: itemRef?.['RowName'] || '',
       requiresWeapon: c['RequiresWeapon'] ?? false,
       requiresAmmo: c['RequiresAmmo'] ?? false,
       requiresItems: c['RequiresItems'] ?? false,
-      requiredAmmoId: (reqAmmo?.['RowName'] as string) || '',
+      requiredAmmoId: reqAmmo?.['RowName'] || '',
       compatibleItemCount: Array.isArray(c['CompatibleItems']) ? c['CompatibleItems'].length : 0,
     };
   }
@@ -1069,7 +1069,7 @@ function extractQuests(): Record<string, RawObject> {
         const item = r['Item'] as RawObject | undefined;
         requirements.push({
           type: resolveEnum(r['Required']),
-          itemId: (item?.['RowName'] as string) || '',
+          itemId: item?.['RowName'] || '',
           amount: r['Amount'] ?? 0,
         });
       }
@@ -1169,7 +1169,7 @@ function extractFoliage(): Record<string, RawObject> {
       for (const drop of c['Drops']) {
         const d = drop as RawObject;
         drops.push({
-          itemId: (d['ItemID'] as string) || ((d['Item'] as RawObject | undefined)?.['RowName'] as string) || '',
+          itemId: d['ItemID'] || (d['Item'] as RawObject | undefined)?.['RowName'] || '',
           chance: d['Chance'] ?? d['ChancePercentage'] ?? 100,
           min: d['Min'] ?? 1,
           max: d['Max'] ?? 1,

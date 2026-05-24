@@ -594,14 +594,9 @@ function _reconcileFungibleGroups(
           z: inc.z,
         };
         const fakeOldInstance = { location_type: dec.locationType, location_id: dec.locationId };
-        const attribution = _attributeMovement(
-          fakeCurrentItem as LocationItem,
-          fakeOldInstance as ItemInstance,
-          snapshot,
-          nameResolver,
-        );
+        const attribution = _attributeMovement(fakeCurrentItem, fakeOldInstance, snapshot, nameResolver);
 
-        const srcGroup = db.item.getItemGroup(dec.groupId) as { item?: string } | undefined;
+        const srcGroup = db.item.getItemGroup(dec.groupId);
         const itemName = srcGroup?.item ?? fingerprint;
 
         db.item.recordGroupMovement({

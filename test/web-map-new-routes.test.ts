@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _mock_db from './helpers/mock-db.js';
-const { mockDb } = _mock_db as any;
+const { mockDb } = _mock_db;
 
 import * as _api_errors from '../src/web-map/api-errors.js';
 const { API_ERRORS } = _api_errors as any;
@@ -50,7 +50,7 @@ function mockRes() {
   const res: Record<string, unknown> = {
     _status: 200,
     _json: null,
-    _headers: {} as Record<string, unknown>,
+    _headers: {},
     status(code: number) {
       res._status = code;
       return res;

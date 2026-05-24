@@ -5,7 +5,7 @@ import _milestone_tracker from '../src/modules/milestone-tracker.js';
 const MilestoneTracker = _milestone_tracker as any;
 
 import * as _mock_db from './helpers/mock-db.js';
-const { mockDb: createMockDb } = _mock_db as any;
+const { mockDb: createMockDb } = _mock_db;
 
 import * as _factories from './helpers/factories.js';
 const { makePlayer, mockClient } = _factories as any;

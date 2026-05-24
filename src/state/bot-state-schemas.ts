@@ -252,19 +252,19 @@ export function normalizeKillTracker(raw: unknown): { shape: KillTrackerShape; i
           ? rec.activitySnapshot
           : (() => {
               issues.push(`players[${sid}].activitySnapshot: expected Record<string,number> (substituted {})`);
-              return {} as Record<string, number>;
+              return {};
             })(),
         activityArraySnapshot: isArrayRecord(rec.activityArraySnapshot)
           ? rec.activityArraySnapshot
           : (() => {
               issues.push(`players[${sid}].activityArraySnapshot: expected Record<string,unknown[]> (substituted {})`);
-              return {} as Record<string, unknown[]>;
+              return {};
             })(),
         challengeSnapshot: isNumberRecord(rec.challengeSnapshot)
           ? rec.challengeSnapshot
           : (() => {
               issues.push(`players[${sid}].challengeSnapshot: expected Record<string,number> (substituted {})`);
-              return {} as Record<string, number>;
+              return {};
             })(),
       };
     }

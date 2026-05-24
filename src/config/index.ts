@@ -796,7 +796,7 @@ if (config.sftpBasePath) {
     const val = config[key] as string;
     // Only prepend if path doesn't start with / (relative path indicator)
     if (val && !val.startsWith('/')) {
-      setConfigValue(config, key as string, prefix + '/' + val);
+      setConfigValue(config, key, prefix + '/' + val);
     }
   }
   _cfgLog.info('SFTP base path:', prefix);

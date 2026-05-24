@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _admin_alert from '../src/utils/admin-alert.js';
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- Test uses module-level escape hatch for mocked Discord client boundaries.
 const { postAdminAlert } = _admin_alert as any;
 
 // ── Helpers ──────────────────────────────────────────────────

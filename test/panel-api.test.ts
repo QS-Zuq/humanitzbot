@@ -24,7 +24,14 @@ function makeApi() {
 }
 
 /** Build a mock Response object. */
-function mockResponse(body: unknown, { status = 200, statusText = 'OK', headers = {} as Record<string, string> } = {}) {
+function mockResponse(
+  body: unknown,
+  {
+    status = 200,
+    statusText = 'OK',
+    headers = {},
+  }: { status?: number; statusText?: string; headers?: Record<string, string> } = {},
+) {
   const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
   return {
     ok: status >= 200 && status < 300,

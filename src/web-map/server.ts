@@ -341,8 +341,7 @@ function safeError(err: unknown): string {
 }
 
 function stripControlChars(value: unknown): string {
-  const input =
-    value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value as string | number | boolean);
+  const input = safeUnknownString(value);
   let out = '';
   for (let i = 0; i < input.length; i++) {
     const code = input.charCodeAt(i);
@@ -352,6 +351,15 @@ function stripControlChars(value: unknown): string {
     out += input[i] ?? '';
   }
   return out;
+}
+
+function safeUnknownString(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'symbol') return value.toString();
+  if (typeof value === 'function') return value.toString();
+  return JSON.stringify(value);
 }
 
 function sendErrorWithData(
@@ -646,9 +654,7 @@ class WebMapServer {
     const keys = Object.keys(patch);
     const previous = plugins.map((plugin) => ({
       plugin,
-      values: Object.fromEntries(
-        keys.map((key) => [key, { had: Object.hasOwn(plugin, key), value: plugin[key] }]),
-      ) as Record<string, { had: boolean; value: unknown }>,
+      values: Object.fromEntries(keys.map((key) => [key, { had: Object.hasOwn(plugin, key), value: plugin[key] }])),
     }));
 
     for (const plugin of plugins) Object.assign(plugin, patch);
@@ -740,10 +746,21 @@ class WebMapServer {
     if (this._configRepo) {
       try {
         const all = this._configRepo.loadAll();
-        const servers = [];
+        const servers: Array<Record<string, unknown> & { id: string; name?: string }> = [];
         for (const [scope, { data }] of all) {
           if (!scope.startsWith('server:') || scope === 'server:primary') continue;
-          if (data.id) servers.push(data as Record<string, unknown> & { id: string });
+          const id = safeUnknownString(data.id);
+          if (id) {
+            const { name, ...serverData } = data;
+            if (name !== undefined && typeof name !== 'string') {
+              console.warn(`[WEB MAP] Ignoring invalid server name for ${scope}: expected string`);
+            }
+            servers.push({
+              ...serverData,
+              id,
+              ...(typeof name === 'string' ? { name } : {}),
+            });
+          }
         }
         return servers;
       } catch (err: unknown) {
@@ -865,7 +882,7 @@ class WebMapServer {
         getPlaytime(steamId: string) {
           const p = players[steamId];
           if (!p) return null;
-          return { totalMs: (p.totalMs as number) || 0, lastSeen: (p.lastSeen as string) || null };
+          return { totalMs: p.totalMs || 0, lastSeen: p.lastSeen || null };
         },
       };
     } catch {
@@ -3352,12 +3369,7 @@ class WebMapServer {
           const mapping = ENV_TO_SERVERDEF[envKey];
           if (!mapping) continue;
           const raw = _getNestedValue(serverDef, mapping.jsonPath);
-          const value =
-            raw != null
-              ? typeof raw === 'object'
-                ? JSON.stringify(raw)
-                : String(raw as string | number | boolean)
-              : '';
+          const value = safeUnknownString(raw);
           const isSensitive = Boolean(mapping.sensitive) || ENV_SENSITIVE_KEYS.has(envKey);
           keys.push({
             key: envKey,
@@ -3519,12 +3531,7 @@ class WebMapServer {
                 // Fields without cfg are stored under their env key in DB
                 rawValue = doc[field.env];
               }
-              const value =
-                rawValue != null
-                  ? typeof rawValue === 'object'
-                    ? JSON.stringify(rawValue)
-                    : String(rawValue as string | number | boolean)
-                  : '';
+              const value = safeUnknownString(rawValue);
 
               keys.push({
                 key: field.env,
@@ -4158,7 +4165,7 @@ class WebMapServer {
       if (masked.sftp?.password != null) masked.sftp.password = { hasValue: !!masked.sftp.password };
       if (masked.sftp?.privateKeyPath != null) masked.sftp.privateKeyPath = { hasValue: !!masked.sftp.privateKeyPath };
       if (masked.panel?.apiKey != null) masked.panel.apiKey = { hasValue: !!masked.panel.apiKey };
-      return masked as Record<string, unknown>;
+      return masked;
     }
 
     /** Test RCON auth via raw Source RCON protocol. Resolves { ok, error? }. */
@@ -4256,7 +4263,7 @@ class WebMapServer {
             return { ok: false, error: 'Cannot read private key: ' + errMsg(keyErr) };
           }
         }
-        await client.connect(opts as Parameters<typeof client.connect>[0]);
+        await client.connect(opts);
         await client.list('/');
         return { ok: true };
       } catch (err: unknown) {
@@ -4313,10 +4320,7 @@ class WebMapServer {
 
         // ── Managed servers ──
         const managed = this._loadServerList();
-        const statuses: Record<string, unknown>[] = (this._multiServerManager?.getStatuses() || []) as Record<
-          string,
-          unknown
-        >[];
+        const statuses: Record<string, unknown>[] = this._multiServerManager?.getStatuses() || [];
         const statusMap = new Map(statuses.map((s) => [s.id as string, s]));
 
         for (const def of managed) {
@@ -4740,13 +4744,13 @@ class WebMapServer {
         }
         if (patch.channels) {
           patch.channels = {
-            ...((existing.channels as Record<string, unknown> | undefined) ?? {}),
+            ...(existing.channels ?? {}),
             ...(patch.channels as Record<string, unknown>),
           };
         }
         if (patch.paths) {
           patch.paths = {
-            ...((existing.paths as Record<string, unknown> | undefined) ?? {}),
+            ...(existing.paths ?? {}),
             ...(patch.paths as Record<string, unknown>),
           };
         }
@@ -5737,7 +5741,7 @@ function _cleanInventorySlots(slots: unknown[]): unknown[] {
     }
     if (typeof slot === 'object' && (slot as Record<string, unknown>).item) {
       const s = slot as Record<string, unknown>;
-      const cleaned: Record<string, unknown> = { ...s, item: cleanItemName(s.item as string) };
+      const cleaned: Record<string, unknown> = { ...s, item: cleanItemName(s.item) };
       // Generate fingerprint for item tracking integration
       // Uses the RAW item name for fingerprint (before cleaning) since
       // that's what the item tracker uses

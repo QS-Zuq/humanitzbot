@@ -20,6 +20,7 @@ import { execFileSync } from 'child_process';
 
 import * as _agent_builder from '../src/parsers/agent-builder.js';
 import * as _save_parser from '../src/parsers/save-parser.js';
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- Test intentionally keeps private module export access loosely typed.
 const { buildAgentScript, writeAgent, AGENT_VERSION } = _agent_builder as any;
 
 // ─── Test data ──────────────────────────────────────────────────────────────
@@ -109,8 +110,9 @@ describe('agent-builder', () => {
   });
 
   it('exports AGENT_VERSION', () => {
-    assert.ok(typeof AGENT_VERSION === 'number');
-    assert.ok(AGENT_VERSION >= 1);
+    const version: number = AGENT_VERSION;
+    assert.ok(Number.isInteger(version));
+    assert.ok(version >= 1);
   });
 });
 

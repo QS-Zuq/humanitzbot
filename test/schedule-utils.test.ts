@@ -2,8 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _schedule_utils from '../src/modules/schedule-utils.js';
-const { getDayOfYear, getDayOffset, getRotatedProfileIndex, getTodaySchedule, getActiveProfileIndex } =
-  _schedule_utils as any;
+const scheduleUtils = _schedule_utils as any;
+const { getDayOfYear, getDayOffset, getRotatedProfileIndex, getTodaySchedule, getActiveProfileIndex } = scheduleUtils;
 
 describe('schedule-utils', () => {
   describe('getDayOfYear', () => {

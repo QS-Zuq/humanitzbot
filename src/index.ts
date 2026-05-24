@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Collection, Events, REST, Routes, EmbedBuilder, MessageFlags } from 'discord.js';
-import type { ChatInputCommandInteraction, GuildMember, TextBasedChannel, ThreadChannel } from 'discord.js';
+import type { ChatInputCommandInteraction, GuildMember, ThreadChannel } from 'discord.js';
 import type { BotStatusManager } from './utils/status.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -702,7 +702,7 @@ client.once(Events.ClientReady, (readyClient) => {
       try {
         // 1. Migrate .env values → DB (read from process.env, NOT the file —
         //    env-sync may have already commented out non-bootstrap keys)
-        const envResult = migrateEnvToDb(process.env as Record<string, string>, configRepo);
+        const envResult = migrateEnvToDb(process.env, configRepo);
 
         // 2. Migrate servers.json → DB (if exists)
         let serverCount = 0;
@@ -1443,10 +1443,7 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('PvP Scheduler', '🟡 Skipped (PVP_START_TIME/PVP_END_TIME not set)');
         console.log('[BOT] PvP scheduler skipped — PVP_START_TIME/PVP_END_TIME not configured');
       } else {
-        pvpScheduler = new PvpScheduler(
-          readyClient,
-          (logWatcher ?? null) as ConstructorParameters<typeof PvpScheduler>[1],
-        );
+        pvpScheduler = new PvpScheduler(readyClient, logWatcher ?? null);
         await pvpScheduler.start();
         setStatus('PvP Scheduler', '🟢 Active');
         if (!logWatcher) {
@@ -1464,10 +1461,7 @@ client.once(Events.ClientReady, (readyClient) => {
         setStatus('Server Scheduler', '🟡 Skipped (SFTP credentials not set)');
         console.log('[BOT] Server scheduler skipped — SFTP_HOST/SFTP_USER/SFTP_PASSWORD not configured');
       } else {
-        serverScheduler = new ServerScheduler(
-          readyClient,
-          (logWatcher ?? null) as ConstructorParameters<typeof ServerScheduler>[1],
-        );
+        serverScheduler = new ServerScheduler(readyClient, logWatcher ?? null);
         await serverScheduler.start();
         if (webMapServer) webMapServer.setScheduler(serverScheduler);
         const status = serverScheduler.getStatus();
@@ -1539,7 +1533,7 @@ client.once(Events.ClientReady, (readyClient) => {
         try {
           const ch = await readyClient.channels.fetch(chId).catch(() => null);
           if (!ch || !('messages' in ch)) continue;
-          const textCh = ch as TextBasedChannel;
+          const textCh = ch;
           const messages = await textCh.messages.fetch({ limit: 30 });
           const toDelete = messages.filter((m) => {
             return (
@@ -1863,7 +1857,7 @@ async function _nukeChannel(discordClient: Client, channelId: string, botId: str
 
     // Delete bot-authored messages (scan up to 1000)
     if (!('messages' in ch)) return;
-    const textCh = ch as TextBasedChannel;
+    const textCh = ch;
     let lastId: string | undefined;
     let deleted = 0;
     for (let page = 0; page < 10; page++) {

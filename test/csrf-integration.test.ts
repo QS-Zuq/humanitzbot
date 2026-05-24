@@ -24,7 +24,7 @@ const { doubleCsrfProtection } = doubleCsrf({
   },
   size: 32,
   ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
-  getCsrfTokenFromRequest: (req: express.Request) => req.headers['x-csrf-token'] as string,
+  getCsrfTokenFromRequest: (req: express.Request) => req.headers['x-csrf-token'],
 });
 
 function buildApp() {
