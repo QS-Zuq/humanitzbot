@@ -224,7 +224,7 @@ describe('config reload strategy helpers', () => {
   });
 
   it('applies PR10 selected feature toggles through module-restart handlers', async () => {
-    const pr10Keys = ['ENABLE_SERVER_STATUS', 'ENABLE_PLAYER_STATS'];
+    const pr10Keys = ['ENABLE_STATUS_CHANNELS', 'ENABLE_SERVER_STATUS', 'ENABLE_PLAYER_STATS'];
     const result = await summarizeConfigReloadApplyAsync([...pr10Keys, 'ENABLE_CHAT_RELAY'], {
       categories: ENV_CATEGORIES,
       async applyModuleRestartAsync(envKey) {
