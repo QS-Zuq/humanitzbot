@@ -49,6 +49,12 @@ interface SummarizeConfigReloadOptions {
   applyLive?: (envKey: string) => void;
   applyModuleReconfigure?: (envKey: string) => boolean;
   applyConnectionReconnect?: (envKey: string) => boolean;
+  applyConnectionReconnectBatch?: (envKeys: string[]) => Promise<ConnectionReconnectBatchApplyResult>;
+}
+
+export interface ConnectionReconnectBatchApplyResult {
+  applied: string[];
+  errors?: Array<{ key: string; message: string }>;
 }
 
 export const DEFAULT_RELOAD_STRATEGY: ReloadStrategy = 'bot-restart';
@@ -218,6 +224,100 @@ export function summarizeConfigReloadApply(
     }
 
     addPending(result, envKey, strategy);
+  }
+
+  result.restartRequired = result.errors.length > 0 || countPending(result) > 0;
+  result.message = buildConfigReloadMessage(result);
+  return result;
+}
+
+export async function summarizeConfigReloadApplyAsync(
+  changedKeys: Iterable<string>,
+  options: SummarizeConfigReloadOptions = {},
+): Promise<ConfigReloadApplyResult> {
+  const result = createEmptyConfigReloadApplyResult();
+  const categories = options.categories ?? getDefaultCategories();
+  const pendingConnectionReconnect: string[] = [];
+
+  for (const envKey of new Set(changedKeys)) {
+    const strategy = resolveReloadStrategy(envKey, categories);
+    result.updated.push(envKey);
+
+    if (strategy === 'live') {
+      if (!options.applyLive) {
+        result.errors.push({ key: envKey, strategy, message: 'Live apply handler is not configured' });
+        continue;
+      }
+
+      try {
+        options.applyLive(envKey);
+        result.appliedLive.push(envKey);
+      } catch (err) {
+        result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
+      }
+      continue;
+    }
+
+    if (strategy === 'module-reconfigure') {
+      try {
+        if (options.applyModuleReconfigure?.(envKey) === true) {
+          result.appliedModuleReconfigure.push(envKey);
+          continue;
+        }
+      } catch (err) {
+        result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
+        continue;
+      }
+    }
+
+    if (strategy === 'connection-reconnect') {
+      pendingConnectionReconnect.push(envKey);
+      continue;
+    }
+
+    addPending(result, envKey, strategy);
+  }
+
+  if (pendingConnectionReconnect.length > 0) {
+    if (options.applyConnectionReconnectBatch) {
+      try {
+        const batchResult = await options.applyConnectionReconnectBatch(pendingConnectionReconnect);
+        const applied = new Set(batchResult.applied);
+        const failed = new Set<string>();
+
+        for (const error of batchResult.errors ?? []) {
+          failed.add(error.key);
+          result.errors.push({ key: error.key, strategy: 'connection-reconnect', message: error.message });
+        }
+
+        for (const envKey of pendingConnectionReconnect) {
+          if (applied.has(envKey)) {
+            result.appliedReconnect.push(envKey);
+          } else if (!failed.has(envKey)) {
+            result.pendingReconnect.push(envKey);
+          }
+        }
+      } catch (err) {
+        const message = toErrorMessage(err);
+        for (const envKey of pendingConnectionReconnect) {
+          result.errors.push({ key: envKey, strategy: 'connection-reconnect', message });
+        }
+      }
+    } else {
+      for (const envKey of pendingConnectionReconnect) {
+        try {
+          if (options.applyConnectionReconnect?.(envKey) === true) {
+            result.appliedReconnect.push(envKey);
+            continue;
+          }
+        } catch (err) {
+          result.errors.push({ key: envKey, strategy: 'connection-reconnect', message: toErrorMessage(err) });
+          continue;
+        }
+
+        result.pendingReconnect.push(envKey);
+      }
+    }
   }
 
   result.restartRequired = result.errors.length > 0 || countPending(result) > 0;

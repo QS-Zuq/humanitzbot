@@ -15,7 +15,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import config, { getConfigValue, setConfigValue } from '../config/index.js';
-import { summarizeConfigReloadApply } from '../config/reload-strategy.js';
+import { summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
 import type { RuntimeConfigApplier } from '../config/runtime-config-applier.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
@@ -37,6 +37,7 @@ import type { PanelApi } from '../server/panel-api.js';
 import serverResources, { formatBytes, formatUptime } from '../server/server-resources.js';
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
 import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
+import { validateField } from '../db/config-validation.js';
 import { readPrivateKey } from '../utils/security.js';
 import {
   getPlayerList as _getPlayerList,
@@ -49,6 +50,20 @@ import { errMsg } from '../utils/error.js';
 import { getDirname } from '../utils/paths.js';
 
 const __dirname = getDirname(import.meta.url);
+
+const BOT_CONFIG_RUNTIME_VALIDATION_KEYS = new Set([
+  'RCON_HOST',
+  'RCON_PORT',
+  'SFTP_HOST',
+  'SFTP_PORT',
+  'SFTP_BASE_PATH',
+  'SFTP_LOG_PATH',
+  'SFTP_CONNECT_LOG_PATH',
+  'SFTP_ID_MAP_PATH',
+  'SFTP_SAVE_PATH',
+  'SFTP_SETTINGS_PATH',
+  'SFTP_PRIVATE_KEY_PATH',
+]);
 
 // ── Server context injected by multi-server middleware ──────────────────────
 
@@ -3539,7 +3554,7 @@ class WebMapServer {
     });
 
     /** POST /api/panel/bot-config — update config in DB (primary) or serverDef (non-primary) */
-    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), (req, res) => {
+    app.post('/api/panel/bot-config', requireTier('admin'), rateLimit(30000, 3), async (req, res) => {
       const { changes } = req.body as { changes?: Record<string, unknown> };
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         sendError(res, API_ERRORS.MISSING_CHANGES_OBJECT, 400);
@@ -3554,6 +3569,7 @@ class WebMapServer {
       }
 
       // Validate values — no newlines, reasonable length
+      const validationMigrationMap = buildMigrationMap();
       for (const [key, value] of Object.entries(changes)) {
         const v = String(value);
         if (/[\r\n]/.test(v)) {
@@ -3563,6 +3579,14 @@ class WebMapServer {
         if (v.length > 2000) {
           sendError(res, API_ERRORS.VALUE_TOO_LONG, 400, key);
           return;
+        }
+        if (BOT_CONFIG_RUNTIME_VALIDATION_KEYS.has(key)) {
+          const mapping = validationMigrationMap[key];
+          const validation = validateField(key, value as string | number | boolean | null | undefined, mapping);
+          if (!validation.valid) {
+            sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, { key, reason: validation.error });
+            return;
+          }
         }
       }
 
@@ -3673,7 +3697,7 @@ class WebMapServer {
           if (Object.keys(appPatch).length > 0) configRepo.update('app', appPatch);
           if (Object.keys(serverPatch).length > 0) configRepo.update('server:primary', serverPatch);
 
-          const applyResult = summarizeConfigReloadApply(updated, {
+          const applyResult = await summarizeConfigReloadApplyAsync(updated, {
             applyLive(envKey) {
               const liveConfigValue = runtimeConfigValues.get(envKey);
               if (!liveConfigValue) throw new Error('No runtime config mapping for live setting');
@@ -3712,6 +3736,41 @@ class WebMapServer {
                   value: runtimeConfigValue.value,
                 }) === true
               );
+            },
+            applyConnectionReconnectBatch: async (envKeys) => {
+              const contexts = envKeys.map((envKey) => {
+                const runtimeConfigValue = runtimeConfigValues.get(envKey);
+                if (!runtimeConfigValue) {
+                  if (this._runtimeConfigApplier?.hasConnectionReconnect(envKey)) {
+                    throw new Error('No runtime config mapping for connection reconnect setting');
+                  }
+                  return null;
+                }
+                return {
+                  envKey,
+                  cfgKey: runtimeConfigValue.cfgKey,
+                  value: runtimeConfigValue.value,
+                };
+              });
+
+              const applicableContexts = contexts.filter(
+                (context): context is NonNullable<typeof context> => context !== null,
+              );
+              const missingApplicableKeys = envKeys.filter((_envKey, index) => contexts[index] === null);
+              const applied = await this._runtimeConfigApplier?.applyConnectionReconnectBatch(applicableContexts);
+
+              return {
+                applied: applied?.applied ?? [],
+                errors: [
+                  ...(applied?.errors ?? []),
+                  ...missingApplicableKeys
+                    .filter((envKey) => this._runtimeConfigApplier?.hasConnectionReconnect(envKey))
+                    .map((envKey) => ({
+                      key: envKey,
+                      message: 'No runtime config mapping for connection reconnect setting',
+                    })),
+                ],
+              };
             },
           });
 

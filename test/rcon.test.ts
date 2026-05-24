@@ -663,3 +663,173 @@ describe('_scheduleReconnect', () => {
     }
   });
 });
+
+describe('manual reconnect', () => {
+  class AutoAuthSocket extends EventEmitter {
+    static instances: AutoAuthSocket[] = [];
+    host = '';
+    port = 0;
+    writes: Buffer[] = [];
+    destroyed = false;
+
+    constructor() {
+      super();
+      AutoAuthSocket.instances.push(this);
+    }
+
+    connect(port: number, host: string, cb: () => void) {
+      this.port = port;
+      this.host = host;
+      setImmediate(cb);
+      return this;
+    }
+
+    write(packet: Buffer) {
+      this.writes.push(Buffer.from(packet));
+      setImmediate(() => this.emit('data', buildRconPacket(1, 2, '')));
+    }
+
+    destroy() {
+      this.destroyed = true;
+    }
+  }
+
+  it('reconnects the same instance with new endpoint options and clears stale state', async () => {
+    AutoAuthSocket.instances = [];
+    const rcon = new RconManager({
+      host: 'old.example.test',
+      port: 14541,
+      password: 'old-secret',
+      Socket: AutoAuthSocket,
+    });
+    await rcon.connect();
+    rcon.cache.set('Players', { data: 'cached', timestamp: Date.now() });
+
+    await rcon.reconnect({ host: 'new.example.test', port: 14542, password: 'new-secret' });
+
+    assert.equal(AutoAuthSocket.instances.length, 2);
+    const oldSocket = AutoAuthSocket.instances[0];
+    const newSocket = AutoAuthSocket.instances[1];
+    assert.ok(oldSocket);
+    assert.ok(newSocket);
+    assert.equal(oldSocket.destroyed, true);
+    assert.equal(newSocket.host, 'new.example.test');
+    assert.equal(newSocket.port, 14542);
+    assert.equal(rcon.connected, true);
+    assert.equal(rcon.authenticated, true);
+    assert.equal(rcon._host, 'new.example.test');
+    assert.equal(rcon._port, 14542);
+    assert.equal(rcon._password, 'new-secret');
+    assert.equal(rcon.cache.size, 0);
+    rcon.disconnect();
+  });
+
+  it('restores previous endpoint options after a failed candidate reconnect without leaving a stale timer', async () => {
+    class SequencedSocket extends AutoAuthSocket {
+      static outcomes: Array<'success' | 'fail'> = [];
+
+      override connect(port: number, host: string, cb: () => void) {
+        this.port = port;
+        this.host = host;
+        const outcome = SequencedSocket.outcomes.shift() ?? 'success';
+        if (outcome === 'fail') {
+          setImmediate(() => this.emit('error', new Error('candidate refused')));
+          return this;
+        }
+        setImmediate(cb);
+        return this;
+      }
+    }
+
+    AutoAuthSocket.instances = [];
+    SequencedSocket.outcomes = ['success', 'fail', 'success'];
+    const rcon = new RconManager({
+      host: 'old.example.test',
+      port: 14541,
+      password: 'old-secret',
+      Socket: SequencedSocket,
+    });
+    await rcon.connect();
+
+    await assert.rejects(
+      rcon.reconnect({ host: 'bad.example.test', port: 14542, password: 'bad-secret' }),
+      /candidate refused/,
+    );
+
+    assert.equal(rcon._host, 'old.example.test');
+    assert.equal(rcon._port, 14541);
+    assert.equal(rcon._password, 'old-secret');
+    assert.equal(rcon.reconnectTimeout, null);
+    assert.equal(
+      AutoAuthSocket.instances.map((socket) => socket.host).join(','),
+      ['old.example.test', 'bad.example.test', 'old.example.test'].join(','),
+    );
+    rcon.disconnect();
+  });
+
+  it('resumes auto reconnect for the old endpoint when restoring the previous connection fails', async () => {
+    class SequencedSocket extends AutoAuthSocket {
+      static outcomes: Array<'success' | 'fail'> = [];
+
+      override connect(port: number, host: string, cb: () => void) {
+        this.port = port;
+        this.host = host;
+        const outcome = SequencedSocket.outcomes.shift() ?? 'success';
+        if (outcome === 'fail') {
+          setImmediate(() => this.emit('error', new Error(`${host} refused`)));
+          return this;
+        }
+        setImmediate(cb);
+        return this;
+      }
+    }
+
+    AutoAuthSocket.instances = [];
+    SequencedSocket.outcomes = ['success', 'fail', 'fail'];
+    const rcon = new RconManager({
+      host: 'old.example.test',
+      port: 14541,
+      password: 'old-secret',
+      Socket: SequencedSocket,
+    });
+    await rcon.connect();
+
+    try {
+      await assert.rejects(
+        rcon.reconnect({ host: 'bad.example.test', port: 14542, password: 'bad-secret' }),
+        /bad\.example\.test refused/,
+      );
+
+      assert.equal(rcon._host, 'old.example.test');
+      assert.equal(rcon._port, 14541);
+      assert.ok(rcon.reconnectTimeout, 'old endpoint reconnect should be scheduled after restore failure');
+    } finally {
+      rcon.disconnect();
+    }
+  });
+
+  it('serializes concurrent manual reconnect requests', async () => {
+    AutoAuthSocket.instances = [];
+    const rcon = new RconManager({
+      host: 'old.example.test',
+      port: 14541,
+      password: 'old-secret',
+      Socket: AutoAuthSocket,
+    });
+    await rcon.connect();
+
+    await Promise.all([
+      rcon.reconnect({ host: 'first.example.test', port: 14542, password: 'first' }),
+      rcon.reconnect({ host: 'second.example.test', port: 14543, password: 'second' }),
+    ]);
+
+    assert.deepEqual(
+      AutoAuthSocket.instances.map((socket) => `${socket.host}:${String(socket.port)}`),
+      ['old.example.test:14541', 'first.example.test:14542', 'second.example.test:14543'],
+    );
+    assert.equal(rcon._host, 'second.example.test');
+    assert.equal(rcon._port, 14543);
+    assert.equal(rcon._password, 'second');
+    rcon.disconnect();
+  });
+});

@@ -2,8 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _reload_strategy from '../src/config/reload-strategy.js';
-const { RELOAD_STRATEGIES, resolveReloadStrategy, summarizeConfigReloadApply, buildReloadStrategyMap } =
-  _reload_strategy;
+const {
+  RELOAD_STRATEGIES,
+  resolveReloadStrategy,
+  summarizeConfigReloadApply,
+  summarizeConfigReloadApplyAsync,
+  buildReloadStrategyMap,
+} = _reload_strategy;
 type EnvConfigCategoryWithReloadStrategy = _reload_strategy.EnvConfigCategoryWithReloadStrategy;
 type ReloadStrategy = _reload_strategy.ReloadStrategy;
 
@@ -246,6 +251,62 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, true);
     assert.match(result.message, /1 applied reconnect/);
     assert.match(result.message, /1 pending reconnect/);
+  });
+
+  it('applies connection-reconnect keys through the async batch handler', async () => {
+    const seen: unknown[] = [];
+    const result = await summarizeConfigReloadApplyAsync(['RCON_HOST', 'RCON_PORT', 'PANEL_SERVER_URL'], {
+      categories: [
+        ...TEST_CATEGORIES,
+        {
+          restart: true,
+          reloadStrategy: 'connection-reconnect',
+          fields: [{ env: 'RCON_PORT' }],
+        },
+      ],
+      async applyConnectionReconnectBatch(envKeys) {
+        seen.push(envKeys);
+        return { applied: ['RCON_HOST', 'RCON_PORT'] };
+      },
+    });
+
+    assert.deepEqual(seen, [['RCON_HOST', 'RCON_PORT', 'PANEL_SERVER_URL']]);
+    assert.deepEqual(result.appliedReconnect, ['RCON_HOST', 'RCON_PORT']);
+    assert.deepEqual(result.pendingReconnect, ['PANEL_SERVER_URL']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('records async batch connection-reconnect errors without marking keys pending', async () => {
+    const result = await summarizeConfigReloadApplyAsync(['RCON_HOST', 'RCON_PASSWORD'], {
+      categories: [
+        ...TEST_CATEGORIES,
+        {
+          restart: true,
+          reloadStrategy: 'connection-reconnect',
+          fields: [{ env: 'RCON_PASSWORD' }],
+        },
+      ],
+      async applyConnectionReconnectBatch() {
+        return {
+          applied: [],
+          errors: [
+            { key: 'RCON_HOST', message: 'rcon refused' },
+            { key: 'RCON_PASSWORD', message: 'rcon refused' },
+          ],
+        };
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, []);
+    assert.deepEqual(result.pendingReconnect, []);
+    assert.deepEqual(
+      result.errors.map((error) => ({ key: error.key, strategy: error.strategy, message: error.message })),
+      [
+        { key: 'RCON_HOST', strategy: 'connection-reconnect', message: 'rcon refused' },
+        { key: 'RCON_PASSWORD', strategy: 'connection-reconnect', message: 'rcon refused' },
+      ],
+    );
+    assert.equal(result.restartRequired, true);
   });
 
   it('falls unknown keys back to pending bot restart', () => {

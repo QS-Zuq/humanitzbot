@@ -50,6 +50,7 @@ import ConfigRepository from './db/config-repository.js';
 import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from './db/config-migration.js';
 import RuntimeConfigApplier from './config/runtime-config-applier.js';
 import { registerSaveServiceRuntimeHandlers } from './config/save-service-runtime.js';
+import { registerCoreConnectionRuntimeHandlers } from './config/core-connection-runtime.js';
 import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
@@ -345,6 +346,7 @@ let hzmodPlugin: { ipcClient?: { destroy: () => void } } | undefined; // Howyaga
 let db: InstanceType<typeof HumanitZDB> | undefined;
 let configRepo: InstanceType<typeof ConfigRepository> | undefined;
 let saveService: InstanceType<typeof SaveService> | undefined;
+let unregisterCoreConnectionRuntimeHandlers: (() => void) | undefined;
 let unregisterSaveServiceRuntimeHandlers: (() => void) | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
 let snapshotService: InstanceType<typeof SnapshotService> | undefined;
@@ -482,6 +484,13 @@ client.once(Events.ClientReady, (readyClient) => {
     runtimeConfigApplier.registerConnectionReconnect('PANEL_API_KEY', ({ cfgKey, value }) => {
       setConfigValue(config, cfgKey, value);
       panelApi.invalidateConfig();
+    });
+    unregisterCoreConnectionRuntimeHandlers = registerCoreConnectionRuntimeHandlers({
+      runtimeConfigApplier,
+      config,
+      rcon,
+      getSaveService: () => saveService,
+      getLogWatcher: () => logWatcher,
     });
 
     console.log('[BOT] SQLite database initialised');
@@ -1428,6 +1437,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (activityLog) activityLog.stop();
   if (anticheatIntegration) await anticheatIntegration.stop();
   if (howyagarnManager) howyagarnManager.shutdown();
+  if (unregisterCoreConnectionRuntimeHandlers) {
+    unregisterCoreConnectionRuntimeHandlers();
+    unregisterCoreConnectionRuntimeHandlers = undefined;
+  }
   if (unregisterSaveServiceRuntimeHandlers) {
     unregisterSaveServiceRuntimeHandlers();
     unregisterSaveServiceRuntimeHandlers = undefined;

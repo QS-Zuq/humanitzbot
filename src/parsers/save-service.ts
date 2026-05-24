@@ -93,6 +93,11 @@ interface SaveServiceReconfigureOptions {
   pollInterval?: unknown;
   agentTimeout?: unknown;
   agentPanelDelay?: unknown;
+  sftpConfig?: SftpConfig | null;
+  savePath?: unknown;
+  clanSavePath?: unknown;
+  agentIdMapPath?: unknown;
+  agentCachePath?: unknown;
 }
 
 // Module-scope references to singletons (always available as internal modules)
@@ -245,11 +250,74 @@ class SaveService extends EventEmitter {
     this._agentTimeout = nextAgentTimeout;
     this._agentPanelDelay = nextAgentPanelDelay;
 
+    const sourceChanged = this._reconfigureSource(options);
+
     if (pollIntervalChanged && this._timer) {
       clearInterval(this._timer);
       this._schedulePollTimer();
       this._log.info(`Reconfigured poll interval → ${String(this._pollInterval / 1000)}s`);
     }
+
+    if (sourceChanged) {
+      this._log.info(`Reconfigured save source paths/config (${this._getStartupModeLabel()} mode)`);
+    }
+  }
+
+  _reconfigureSource(options: SaveServiceReconfigureOptions): boolean {
+    let changed = false;
+
+    if (Object.hasOwn(options, 'sftpConfig') && options.sftpConfig !== this._sftpConfig) {
+      this._sftpConfig = options.sftpConfig ?? null;
+      changed = true;
+    }
+
+    if (Object.hasOwn(options, 'savePath')) {
+      const nextSavePath = typeof options.savePath === 'string' ? options.savePath : '';
+      if (nextSavePath !== this._savePath) {
+        this._savePath = nextSavePath;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'clanSavePath')) {
+      const nextClanSavePath = typeof options.clanSavePath === 'string' ? options.clanSavePath : '';
+      if (nextClanSavePath !== this._clanSavePath) {
+        this._clanSavePath = nextClanSavePath;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentIdMapPath')) {
+      const nextAgentIdMapPath = typeof options.agentIdMapPath === 'string' ? options.agentIdMapPath : '';
+      if (nextAgentIdMapPath !== this._agentIdMapPath) {
+        this._agentIdMapPath = nextAgentIdMapPath;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentCachePath')) {
+      const nextAgentCachePath = typeof options.agentCachePath === 'string' ? options.agentCachePath : '';
+      if (nextAgentCachePath !== this._agentCachePath) {
+        this._agentCachePath = nextAgentCachePath;
+        changed = true;
+      }
+    }
+
+    if (!changed) return false;
+
+    this._lastMtime = null;
+    this._lastClanMtime = null;
+    this._lastCacheMtime = null;
+    this._agentCapable = null;
+    this._panelCapable = null;
+    this._resolvedTrigger = null;
+    this._agentDeployed = false;
+    this._mode = null;
+    this._agentPath = '';
+    this._cachePath = '';
+    this._runScriptPath = '';
+    this._resolvePaths();
+    return true;
   }
 
   _schedulePollTimer(): void {
