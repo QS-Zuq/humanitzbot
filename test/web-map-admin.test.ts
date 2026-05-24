@@ -13,6 +13,7 @@ import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
 
 import RuntimeConfigApplier from '../src/config/runtime-config-applier.js';
+import { registerExternalSourceRuntimeHandlers } from '../src/config/external-source-runtime.js';
 import config from '../src/config/index.js';
 
 import * as _route_helpers from './helpers/route-helpers.js';
@@ -791,6 +792,17 @@ describe('Web Map Admin — POST endpoints', () => {
         sftpPrivateKeyPath: config.sftpPrivateKeyPath,
         sftpLogPath: config.sftpLogPath,
         sftpConnectLogPath: config.sftpConnectLogPath,
+        agentMode: config.agentMode,
+        agentTrigger: config.agentTrigger,
+        agentNodePath: config.agentNodePath,
+        agentRemoteDir: config.agentRemoteDir,
+        agentCachePath: config.agentCachePath,
+        agentPanelCommand: config.agentPanelCommand,
+        savePollInterval: config.savePollInterval,
+        agentPollInterval: config.agentPollInterval,
+        hzmodServerId: config.hzmodServerId,
+        hzmodSocketPath: config.hzmodSocketPath,
+        hzmodStatusPath: config.hzmodStatusPath,
       };
       config.showVitals = true;
       config.rconHost = '127.0.0.1';
@@ -807,6 +819,17 @@ describe('Web Map Admin — POST endpoints', () => {
       config.sftpPrivateKeyPath = '';
       config.sftpLogPath = '/old/HMZLog.log';
       config.sftpConnectLogPath = '/old/PlayerConnectedLog.txt';
+      config.agentMode = 'auto';
+      config.agentTrigger = 'auto';
+      config.agentNodePath = 'node';
+      config.agentRemoteDir = '/old/agent';
+      config.agentCachePath = '/old/cache.json';
+      config.agentPanelCommand = 'createHZSocket';
+      config.savePollInterval = 300_000;
+      config.agentPollInterval = 90_000;
+      config.hzmodServerId = 'vps_dev';
+      config.hzmodSocketPath = '/old/hzmod.sock';
+      config.hzmodStatusPath = '/old/status.json';
     });
 
     afterEach(() => {
@@ -825,6 +848,17 @@ describe('Web Map Admin — POST endpoints', () => {
       config.sftpPrivateKeyPath = savedConfig.sftpPrivateKeyPath as string;
       config.sftpLogPath = savedConfig.sftpLogPath as string;
       config.sftpConnectLogPath = savedConfig.sftpConnectLogPath as string;
+      config.agentMode = savedConfig.agentMode as string;
+      config.agentTrigger = savedConfig.agentTrigger as string;
+      config.agentNodePath = savedConfig.agentNodePath as string;
+      config.agentRemoteDir = savedConfig.agentRemoteDir as string;
+      config.agentCachePath = savedConfig.agentCachePath as string;
+      config.agentPanelCommand = savedConfig.agentPanelCommand as string;
+      config.savePollInterval = savedConfig.savePollInterval as number;
+      config.agentPollInterval = savedConfig.agentPollInterval as number;
+      config.hzmodServerId = savedConfig.hzmodServerId as string;
+      config.hzmodSocketPath = savedConfig.hzmodSocketPath as string;
+      config.hzmodStatusPath = savedConfig.hzmodStatusPath as string;
     });
 
     function makePanelCredentialApplier(onInvalidate: () => void): RuntimeConfigApplier {
@@ -844,6 +878,20 @@ describe('Web Map Admin — POST endpoints', () => {
       const applier = new RuntimeConfigApplier();
       applier.registerConnectionReconnectGroup(envKeys, (contexts) => {
         onApply(contexts as unknown as Array<Record<string, unknown>>);
+      });
+      return applier;
+    }
+
+    function makeExternalSourceApplier(options: {
+      saveService?: { reconfigure(options: Record<string, unknown>): void } | null;
+      reconfigureHzmod?: (next: Record<string, unknown>, previous: Record<string, unknown>) => void | Promise<void>;
+    }) {
+      const applier = new RuntimeConfigApplier();
+      registerExternalSourceRuntimeHandlers({
+        runtimeConfigApplier: applier,
+        config,
+        getSaveService: () => options.saveService as any,
+        reconfigureHzmod: options.reconfigureHzmod as any,
       });
       return applier;
     }
@@ -1085,6 +1133,149 @@ describe('Web Map Admin — POST endpoints', () => {
         'PUBLIC_HOST',
       ]);
       assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+    });
+
+    it('applies registered Agent source reconnect settings without restartRequired', async () => {
+      const repo = mockConfigRepo();
+      const saveCalls: Record<string, unknown>[] = [];
+      const applier = makeExternalSourceApplier({
+        saveService: {
+          reconfigure(options) {
+            saveCalls.push(options);
+          },
+        },
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const agentHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            AGENT_MODE: 'direct',
+            AGENT_TRIGGER: 'panel',
+            AGENT_NODE_PATH: '/usr/bin/node',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await agentHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, [
+        'AGENT_MODE',
+        'AGENT_TRIGGER',
+        'AGENT_NODE_PATH',
+      ]);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.agentMode, 'direct');
+      assert.equal(config.agentTrigger, 'panel');
+      assert.equal(config.agentNodePath, '/usr/bin/node');
+      assert.equal(repo.docs.app?.agentMode, 'direct');
+      assert.deepEqual(saveCalls, [
+        {
+          pollInterval: 300_000,
+          agentMode: 'direct',
+          agentTrigger: 'panel',
+          agentNodePath: '/usr/bin/node',
+          agentRemoteDir: '/old/agent',
+          agentCachePath: '/old/cache.json',
+          agentPanelCommand: 'createHZSocket',
+        },
+      ]);
+    });
+
+    it('reports Agent source reconnect failures while keeping active runtime config old', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeExternalSourceApplier({
+        saveService: {
+          reconfigure() {
+            throw new Error('save source refused');
+          },
+        },
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const agentHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { AGENT_MODE: 'direct', AGENT_TRIGGER: 'panel' } } });
+      const res = mockRes();
+
+      await agentHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, []);
+      assert.equal(config.agentMode, 'auto');
+      assert.equal(config.agentTrigger, 'auto');
+      assert.equal(repo.docs.app?.agentMode, 'direct', 'DB value remains saved for the next restart');
+      assert.deepEqual((res._json as { errors: Array<{ key: string; strategy: string; message: string }> }).errors, [
+        { key: 'AGENT_MODE', strategy: 'connection-reconnect', message: 'save source refused' },
+        { key: 'AGENT_TRIGGER', strategy: 'connection-reconnect', message: 'save source refused' },
+      ]);
+    });
+
+    it('applies registered HZMod source reconnect settings', async () => {
+      const repo = mockConfigRepo();
+      const rebinds: Array<{ next: Record<string, unknown>; previous: Record<string, unknown> }> = [];
+      const applier = makeExternalSourceApplier({
+        reconfigureHzmod(next, previous) {
+          rebinds.push({ next, previous });
+        },
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const hzmodHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            HZMOD_SERVER_ID: 'vps_live',
+            HZMOD_SOCKET_PATH: '/new/hzmod.sock',
+            HZMOD_STATUS_PATH: '/new/status.json',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await hzmodHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, [
+        'HZMOD_SERVER_ID',
+        'HZMOD_SOCKET_PATH',
+        'HZMOD_STATUS_PATH',
+      ]);
+      assert.equal(config.hzmodServerId, 'vps_live');
+      assert.equal(config.hzmodSocketPath, '/new/hzmod.sock');
+      assert.equal(config.hzmodStatusPath, '/new/status.json');
+      assert.equal(repo.docs.app?.hzmodServerId, 'vps_live');
+      assert.equal(rebinds.length, 1);
+      assert.equal(rebinds[0]?.previous.hzmodSocketPath, '/old/hzmod.sock');
+      assert.equal(rebinds[0].next.hzmodSocketPath, '/new/hzmod.sock');
+    });
+
+    it('keeps unrelated reconnect keys pending when mixed with registered PR8 handlers', async () => {
+      const repo = mockConfigRepo();
+      const applier = makeExternalSourceApplier({ reconfigureHzmod() {} });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const mixedHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            HZMOD_SOCKET_PATH: '/new/hzmod.sock',
+            PUBLIC_HOST: 'public.example.test',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await mixedHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedReconnect, ['HZMOD_SOCKET_PATH']);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['PUBLIC_HOST']);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.equal(config.hzmodSocketPath, '/new/hzmod.sock');
+      assert.notEqual(config.publicHost, 'public.example.test');
     });
 
     it('applies registered Panel API URL reconnect settings without restartRequired', async () => {

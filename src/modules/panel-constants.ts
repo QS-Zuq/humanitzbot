@@ -656,7 +656,7 @@ const ENV_CATEGORIES = [
     label: 'Agent Advanced',
     emoji: '🤖',
     group: 1,
-    description: 'Agent remote paths/command stay pending; panel delay applies live',
+    description: 'Agent remote paths/command rebind live; panel delay applies live',
     restart: true,
     reloadStrategy: 'module-reconfigure',
     fields: [
@@ -687,7 +687,7 @@ const ENV_CATEGORIES = [
     label: 'Server Advanced',
     emoji: '🖥️',
     group: 1,
-    description: 'Host, Docker, HZMod, SSH key (restart required)',
+    description: 'Host, Docker, HZMod, SSH key (HZMod reconnects live; other host keys may stay pending)',
     restart: true,
     reloadStrategy: 'connection-reconnect',
     fields: [

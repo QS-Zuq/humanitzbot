@@ -212,6 +212,7 @@ describe('Web Map Read Endpoints', () => {
     delete server._buildLandingData;
     delete server._buildStatusCache;
     delete server._buildStatsCache;
+    server._plugins = [];
   });
 
   // ── GET /api/players ─────────────────────────────────────
@@ -538,6 +539,68 @@ describe('Web Map Read Endpoints', () => {
       handler({ srv: makeSrv({ db: null }), query: {} }, res);
 
       assert.equal((res.body as Record<string, unknown>).db, false);
+    });
+
+    it('refreshes HZMod capability routing after plugin metadata reconfigure', () => {
+      server.registerPlugin({ name: 'hzmod', serverId: 'old-server' });
+      const handler = GET('/api/panel/capabilities');
+
+      const oldRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, oldRes);
+      assert.equal((oldRes.body as Record<string, unknown>).hzmod, true);
+
+      const undo = server.reconfigurePlugin('hzmod', { serverId: 'new-server' });
+
+      const refreshedOldRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, refreshedOldRes);
+      assert.equal((refreshedOldRes.body as Record<string, unknown>).hzmod, undefined);
+
+      const newRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'new-server', isPrimary: false }), query: {} }, newRes);
+      assert.equal((newRes.body as Record<string, unknown>).hzmod, true);
+
+      undo?.();
+
+      const restoredRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, restoredRes);
+      assert.equal((restoredRes.body as Record<string, unknown>).hzmod, true);
+    });
+
+    it('clears cached landing data after plugin metadata reconfigure', async () => {
+      const plugin = {
+        name: 'hzmod',
+        serverId: 'old-server',
+        getLandingData() {
+          return { hzmodServerId: plugin.serverId };
+        },
+      };
+      server.registerPlugin(plugin);
+      server._setCache('landing', 'global', { primary: {}, servers: [], hzmodServerId: 'old-server' });
+      server._buildLandingData = async () => {
+        server._setCache('landing', 'global', {
+          primary: {},
+          servers: [],
+          ...(plugin.getLandingData() as Record<string, unknown>),
+        });
+      };
+
+      server.reconfigurePlugin('hzmod', { serverId: 'new-server' });
+
+      const handler = GET('/api/landing');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).hzmodServerId, 'new-server');
+    });
+
+    it('leaves plugin metadata unchanged when reconfiguring an unknown plugin', () => {
+      const plugin = { name: 'hzmod', serverId: 'old-server' };
+      server.registerPlugin(plugin);
+
+      const undo = server.reconfigurePlugin('missing', { serverId: 'new-server' });
+
+      assert.equal(undo, null);
+      assert.equal(plugin.serverId, 'old-server');
     });
   });
 

@@ -634,6 +634,39 @@ class WebMapServer {
     console.log(`[WEB MAP] Plugin registered: ${plugin.name as string}`);
   }
 
+  /**
+   * Reconfigure plugin metadata at runtime and clear cached responses that may
+   * depend on plugin routing/capability data. Returns an undo callback for
+   * best-effort rollback when a downstream runtime rebind fails.
+   */
+  reconfigurePlugin(name: string, patch: Record<string, unknown>): (() => void) | null {
+    const plugins = this._plugins.filter((plugin) => plugin.name === name);
+    if (plugins.length === 0) return null;
+
+    const keys = Object.keys(patch);
+    const previous = plugins.map((plugin) => ({
+      plugin,
+      values: Object.fromEntries(
+        keys.map((key) => [key, { had: Object.hasOwn(plugin, key), value: plugin[key] }]),
+      ) as Record<string, { had: boolean; value: unknown }>,
+    }));
+
+    for (const plugin of plugins) Object.assign(plugin, patch);
+    this._responseCache.clear();
+
+    return () => {
+      for (const entry of previous) {
+        for (const key of keys) {
+          const old = entry.values[key];
+          if (!old) continue;
+          if (old.had) entry.plugin[key] = old.value;
+          else Reflect.deleteProperty(entry.plugin, key);
+        }
+      }
+      this._responseCache.clear();
+    };
+  }
+
   /** Load player names already known by the local database. */
   _loadDbPlayerNameMap(db: HumanitZDB | null): Record<string, string> {
     const map: Record<string, string> = {};
