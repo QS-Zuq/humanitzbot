@@ -276,6 +276,26 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, true);
   });
 
+  it('applies Agent and HZMod reconnect keys through the async batch handler', async () => {
+    const result = await summarizeConfigReloadApplyAsync(['AGENT_MODE', 'HZMOD_SOCKET_PATH', 'PUBLIC_HOST'], {
+      categories: [
+        {
+          restart: true,
+          reloadStrategy: 'connection-reconnect',
+          fields: [{ env: 'AGENT_MODE' }, { env: 'HZMOD_SOCKET_PATH' }, { env: 'PUBLIC_HOST' }],
+        },
+      ],
+      async applyConnectionReconnectBatch(envKeys) {
+        assert.deepEqual(envKeys, ['AGENT_MODE', 'HZMOD_SOCKET_PATH', 'PUBLIC_HOST']);
+        return { applied: ['AGENT_MODE', 'HZMOD_SOCKET_PATH'] };
+      },
+    });
+
+    assert.deepEqual(result.appliedReconnect, ['AGENT_MODE', 'HZMOD_SOCKET_PATH']);
+    assert.deepEqual(result.pendingReconnect, ['PUBLIC_HOST']);
+    assert.equal(result.restartRequired, true);
+  });
+
   it('records async batch connection-reconnect errors without marking keys pending', async () => {
     const result = await summarizeConfigReloadApplyAsync(['RCON_HOST', 'RCON_PASSWORD'], {
       categories: [

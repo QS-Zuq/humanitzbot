@@ -96,6 +96,11 @@ interface SaveServiceReconfigureOptions {
   sftpConfig?: SftpConfig | null;
   savePath?: unknown;
   clanSavePath?: unknown;
+  agentMode?: unknown;
+  agentNodePath?: unknown;
+  agentRemoteDir?: unknown;
+  agentTrigger?: unknown;
+  agentPanelCommand?: unknown;
   agentIdMapPath?: unknown;
   agentCachePath?: unknown;
 }
@@ -295,10 +300,54 @@ class SaveService extends EventEmitter {
       }
     }
 
+    if (Object.hasOwn(options, 'agentMode')) {
+      const nextAgentMode = typeof options.agentMode === 'string' ? options.agentMode.toLowerCase() : 'auto';
+      if (nextAgentMode !== this._agentMode) {
+        this._agentMode = nextAgentMode;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentNodePath')) {
+      const nextAgentNodePath =
+        typeof options.agentNodePath === 'string' && options.agentNodePath ? options.agentNodePath : 'node';
+      if (nextAgentNodePath !== this._agentNodePath) {
+        this._agentNodePath = nextAgentNodePath;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentRemoteDir')) {
+      const nextAgentRemoteDir = typeof options.agentRemoteDir === 'string' ? options.agentRemoteDir : '';
+      if (nextAgentRemoteDir !== this._agentRemoteDir) {
+        this._agentRemoteDir = nextAgentRemoteDir;
+        changed = true;
+      }
+    }
+
     if (Object.hasOwn(options, 'agentCachePath')) {
       const nextAgentCachePath = typeof options.agentCachePath === 'string' ? options.agentCachePath : '';
       if (nextAgentCachePath !== this._agentCachePath) {
         this._agentCachePath = nextAgentCachePath;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentTrigger')) {
+      const nextAgentTrigger = typeof options.agentTrigger === 'string' ? options.agentTrigger.toLowerCase() : 'auto';
+      if (nextAgentTrigger !== this._agentTrigger) {
+        this._agentTrigger = nextAgentTrigger;
+        changed = true;
+      }
+    }
+
+    if (Object.hasOwn(options, 'agentPanelCommand')) {
+      const nextAgentPanelCommand =
+        typeof options.agentPanelCommand === 'string' && options.agentPanelCommand
+          ? options.agentPanelCommand
+          : 'createHZSocket';
+      if (nextAgentPanelCommand !== this._agentPanelCommand) {
+        this._agentPanelCommand = nextAgentPanelCommand;
         changed = true;
       }
     }

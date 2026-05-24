@@ -169,6 +169,102 @@ describe('SaveService runtime reconfigure', () => {
     });
   });
 
+  it('updates Agent source fields and resets source-derived runtime state', async () => {
+    await withIntervalSpy((spy) => {
+      const service = makeSaveService(90_000);
+
+      Object.assign(service as any, {
+        _savePath: '/old/SaveList/Default/Save_DedicatedSaveMP.sav',
+        _agentMode: 'auto',
+        _agentNodePath: 'node',
+        _agentRemoteDir: '/old/SaveList/Default',
+        _agentCachePath: '',
+        _agentTrigger: 'auto',
+        _agentPanelCommand: 'createHZSocket',
+        _lastMtime: 123,
+        _lastClanMtime: 456,
+        _lastCacheMtime: 789,
+        _agentCapable: true,
+        _panelCapable: true,
+        _resolvedTrigger: 'ssh',
+        _agentDeployed: true,
+        _mode: 'agent',
+        _agentPath: '/old/SaveList/Default/humanitz-agent.js',
+        _cachePath: '/old/SaveList/Default/humanitz-cache.json',
+        _runScriptPath: '/old/SaveList/Default/run-agent.sh',
+      });
+
+      service.reconfigure({
+        agentMode: 'direct',
+        agentNodePath: '/usr/bin/node',
+        agentRemoteDir: '/new/agent',
+        agentCachePath: '/new/cache.json',
+        agentTrigger: 'panel',
+        agentPanelCommand: 'refreshHZSocket',
+        pollInterval: 300_000,
+      });
+
+      assert.equal((service as any)._agentMode, 'direct');
+      assert.equal((service as any)._agentNodePath, '/usr/bin/node');
+      assert.equal((service as any)._agentRemoteDir, '/new/agent');
+      assert.equal((service as any)._agentCachePath, '/new/cache.json');
+      assert.equal((service as any)._agentTrigger, 'panel');
+      assert.equal((service as any)._agentPanelCommand, 'refreshHZSocket');
+      assert.equal((service as any)._pollInterval, 300_000);
+      assert.equal((service as any)._lastMtime, null);
+      assert.equal((service as any)._lastClanMtime, null);
+      assert.equal((service as any)._lastCacheMtime, null);
+      assert.equal((service as any)._agentCapable, null);
+      assert.equal((service as any)._panelCapable, null);
+      assert.equal((service as any)._resolvedTrigger, null);
+      assert.equal((service as any)._agentDeployed, false);
+      assert.equal((service as any)._mode, null);
+      assert.equal((service as any)._agentPath, '/new/agent/humanitz-agent.js');
+      assert.equal((service as any)._cachePath, '/new/cache.json');
+      assert.equal((service as any)._runScriptPath, '');
+      assert.deepEqual(spy.scheduled, []);
+    });
+  });
+
+  it('can restore a previous Agent source snapshot with a second reconfigure call', () => {
+    const service = makeSaveService(90_000);
+    Object.assign(service as any, {
+      _savePath: '/old/SaveList/Default/Save_DedicatedSaveMP.sav',
+      _agentRemoteDir: '/old/SaveList/Default',
+    });
+
+    const previous = {
+      pollInterval: 90_000,
+      agentMode: 'auto',
+      agentNodePath: 'node',
+      agentRemoteDir: '/old/SaveList/Default',
+      agentCachePath: '',
+      agentTrigger: 'auto',
+      agentPanelCommand: 'createHZSocket',
+    };
+
+    service.reconfigure({
+      pollInterval: 300_000,
+      agentMode: 'direct',
+      agentNodePath: '/usr/bin/node',
+      agentRemoteDir: '/new/agent',
+      agentCachePath: '/new/cache.json',
+      agentTrigger: 'panel',
+      agentPanelCommand: 'refreshHZSocket',
+    });
+    service.reconfigure(previous);
+
+    assert.equal((service as any)._pollInterval, 90_000);
+    assert.equal((service as any)._agentMode, 'auto');
+    assert.equal((service as any)._agentNodePath, 'node');
+    assert.equal((service as any)._agentRemoteDir, '/old/SaveList/Default');
+    assert.equal((service as any)._agentCachePath, '');
+    assert.equal((service as any)._agentTrigger, 'auto');
+    assert.equal((service as any)._agentPanelCommand, 'createHZSocket');
+    assert.equal((service as any)._agentPath, '/old/SaveList/Default/humanitz-agent.js');
+    assert.equal((service as any)._cachePath, '/old/SaveList/Default/humanitz-cache.json');
+  });
+
   it('surfaces invalid runtime timing values without mutating the timer', async () => {
     await withIntervalSpy(async (spy) => {
       const service = makeSaveService(60_000);

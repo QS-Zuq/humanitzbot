@@ -51,6 +51,16 @@ import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from '
 import RuntimeConfigApplier from './config/runtime-config-applier.js';
 import { registerSaveServiceRuntimeHandlers } from './config/save-service-runtime.js';
 import { registerCoreConnectionRuntimeHandlers } from './config/core-connection-runtime.js';
+import {
+  registerExternalSourceRuntimeHandlers,
+  type HzmodSourceRuntimeSnapshot,
+} from './config/external-source-runtime.js';
+import {
+  createHzmodIpc,
+  reconfigureHzmodRuntimeState,
+  type HzmodIpcClientConstructor,
+  type HzmodIpcClientInstance,
+} from './config/hzmod-source-runtime.js';
 import { loadServers, createServerConfig } from './server/multi-server.js';
 import BotControlService from './server/bot-control.js';
 import { rebuildThreads } from './commands/threads.js';
@@ -106,15 +116,9 @@ interface HzmodWebPluginModule {
   register: (
     server: WebMapServer,
     cfg: typeof config,
-    opts: { ipc: IpcClientInstance | null },
+    opts: { ipc: HzmodIpcClientInstance | null },
   ) => { ipcClient?: { destroy: () => void } };
   setManager: (manager: HowyagarnManagerInstance) => void;
-}
-
-interface IpcClientInstance {
-  connect: () => void;
-  destroy: () => void;
-  on: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 // ── Server definition (from loadServers() / multi-server.ts) ──
@@ -165,7 +169,7 @@ let AnticheatIntegration:
   | undefined;
 let hzmodWebPlugin: HzmodWebPluginModule | undefined;
 let HowyagarnManager: (new (opts: Record<string, unknown>) => HowyagarnManagerInstance) | undefined;
-let HzmodIpcClient: (new (socketPath: string) => IpcClientInstance) | undefined;
+let HzmodIpcClient: HzmodIpcClientConstructor | undefined;
 
 async function loadOptionalModules(): Promise<void> {
   try {
@@ -348,6 +352,7 @@ let configRepo: InstanceType<typeof ConfigRepository> | undefined;
 let saveService: InstanceType<typeof SaveService> | undefined;
 let unregisterCoreConnectionRuntimeHandlers: (() => void) | undefined;
 let unregisterSaveServiceRuntimeHandlers: (() => void) | undefined;
+let unregisterExternalSourceRuntimeHandlers: (() => void) | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
 let snapshotService: InstanceType<typeof SnapshotService> | undefined;
 let activityLog: InstanceType<typeof ActivityLog> | undefined;
@@ -360,7 +365,7 @@ let botStatusManager: BotStatusManager | undefined;
 
 let howyagarnManager: HowyagarnManagerInstance | undefined;
 
-let hzmodIpc: IpcClientInstance | undefined;
+let hzmodIpc: HzmodIpcClientInstance | undefined;
 // Bot lifecycle embeds (online/offline) go to panel channel — game server status goes to activity thread
 let stdinConsole: InstanceType<typeof StdinConsole> | undefined;
 const startedAt = new Date();
@@ -374,6 +379,25 @@ function setStatus(name: string, status: string): void {
 
 function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
+}
+
+function reconfigureHzmodRuntime(next: HzmodSourceRuntimeSnapshot, previous: HzmodSourceRuntimeSnapshot): void {
+  reconfigureHzmodRuntimeState(
+    {
+      get ipc() {
+        return hzmodIpc;
+      },
+      set ipc(nextIpc) {
+        hzmodIpc = nextIpc;
+      },
+    },
+    next,
+    previous,
+    {
+      getIpcClientConstructor: () => HzmodIpcClient,
+      getWebMapServer: () => webMapServer,
+    },
+  );
 }
 
 /** Find a multi-server PlayerStatsChannel by server ID (used for select menu routing). */
@@ -491,6 +515,12 @@ client.once(Events.ClientReady, (readyClient) => {
       rcon,
       getSaveService: () => saveService,
       getLogWatcher: () => logWatcher,
+    });
+    unregisterExternalSourceRuntimeHandlers = registerExternalSourceRuntimeHandlers({
+      runtimeConfigApplier,
+      config,
+      getSaveService: () => saveService,
+      reconfigureHzmod: reconfigureHzmodRuntime,
     });
 
     console.log('[BOT] SQLite database initialised');
@@ -1053,20 +1083,7 @@ client.once(Events.ClientReady, (readyClient) => {
       } else {
         try {
           // Create shared IPC client for engine communication
-          if (HzmodIpcClient && config.hzmodSocketPath) {
-            hzmodIpc = new HzmodIpcClient(config.hzmodSocketPath);
-            hzmodIpc.on('connect', () => {
-              console.log('[BOT] hzmod IPC connected');
-            });
-            hzmodIpc.on('disconnect', () => {
-              console.log('[BOT] hzmod IPC disconnected — will reconnect');
-            });
-            hzmodIpc.on('error', (ipcErr: unknown) => {
-              console.error('[BOT] hzmod IPC error:', errMsg(ipcErr));
-            });
-            hzmodIpc.connect();
-            console.log(`[BOT] hzmod IPC client connecting to ${config.hzmodSocketPath}`);
-          }
+          hzmodIpc = createHzmodIpc(config.hzmodSocketPath, HzmodIpcClient) ?? undefined;
 
           howyagarnManager = new HowyagarnManager({
             db,
@@ -1444,6 +1461,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (unregisterSaveServiceRuntimeHandlers) {
     unregisterSaveServiceRuntimeHandlers();
     unregisterSaveServiceRuntimeHandlers = undefined;
+  }
+  if (unregisterExternalSourceRuntimeHandlers) {
+    unregisterExternalSourceRuntimeHandlers();
+    unregisterExternalSourceRuntimeHandlers = undefined;
   }
   if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
