@@ -262,8 +262,8 @@ class ServerResources {
     return this._backend;
   }
 
-  reconfigure(options: { resourceCacheTtl?: unknown }): void {
-    if (!Object.hasOwn(options, 'resourceCacheTtl')) return;
+  reconfigure(options: { resourceCacheTtl?: unknown }): number | null {
+    if (!Object.hasOwn(options, 'resourceCacheTtl')) return null;
     const parsed =
       typeof options.resourceCacheTtl === 'number'
         ? options.resourceCacheTtl
@@ -272,7 +272,7 @@ class ServerResources {
           : Number.NaN;
     const nextTtl = Math.max(Number.isFinite(parsed) ? Math.trunc(parsed) : this._ttl, 10_000);
     this._ttl = nextTtl;
-    _defaultConfig.resourceCacheTtl = nextTtl;
+    return nextTtl;
   }
 
   async getResources(): Promise<ResourceResult | null> {

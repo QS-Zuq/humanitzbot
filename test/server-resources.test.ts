@@ -144,11 +144,12 @@ describe('ServerResources cache stale signal', () => {
 
     try {
       const first = await resources.getResources();
-      resources.reconfigure({ resourceCacheTtl: 5_000 });
+      const appliedTtl = resources.reconfigure({ resourceCacheTtl: 5_000 });
       now = 2_500;
       const cached = await resources.getResources();
 
-      assert.equal(config.resourceCacheTtl, 10_000);
+      assert.equal(appliedTtl, 10_000);
+      assert.equal(config.resourceCacheTtl, previousTtl);
       assert.equal(calls, 1);
       assert.equal(cached, first);
     } finally {

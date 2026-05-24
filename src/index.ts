@@ -545,8 +545,9 @@ client.once(Events.ClientReady, (readyClient) => {
         Math.max(Number.isFinite(parsed) ? Math.trunc(parsed) : config.statusCacheTtl, 10_000),
       );
     });
-    runtimeConfigApplier.registerModuleReconfigure('RESOURCE_CACHE_TTL', ({ value }) => {
-      serverResources.reconfigure({ resourceCacheTtl: value });
+    runtimeConfigApplier.registerModuleReconfigure('RESOURCE_CACHE_TTL', ({ cfgKey, value }) => {
+      const nextTtl = serverResources.reconfigure({ resourceCacheTtl: value });
+      if (nextTtl !== null) setConfigValue(config, cfgKey, nextTtl);
     });
     unregisterCoreConnectionRuntimeHandlers = registerCoreConnectionRuntimeHandlers({
       runtimeConfigApplier,
