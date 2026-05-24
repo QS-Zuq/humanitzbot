@@ -418,8 +418,8 @@ function enqueuePlayerStatsRestart(operation: () => Promise<void>): Promise<void
 }
 
 async function startStatusChannelsModule(readyClient: Client): Promise<void> {
-  if (statusChannels) return;
   if (statusChannelsStartPromise) return statusChannelsStartPromise;
+  if (statusChannels) return;
 
   statusChannelsStartPromise = (async () => {
     const categoryHint = config.serverName;
