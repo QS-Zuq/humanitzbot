@@ -15,13 +15,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+" />
+  <img src="https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
   <img src="https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white" alt="discord.js v14" />
   <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/i18n-EN_%7C_%E7%B9%81%E4%B8%AD_%7C_%E7%AE%80%E4%B8%AD-blue" alt="i18n: EN | 繁中 | 简中" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-1622_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1936_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -105,7 +105,7 @@
 
 ### Prerequisites
 
-- **Node.js** 18+ (22+ recommended)
+- **Node.js** 22+
 - A HumanitZ dedicated server with **RCON** enabled
 - **SFTP** access to the server (password or SSH key)
 - A [Discord bot application](https://discord.com/developers/applications)
@@ -307,7 +307,7 @@ SQLite with **60+ tables** covering:
 ### Tests
 
 ```bash
-npm test                 # 1622 tests across 47 test files
+npm test                 # 1936 tests across 70 test files
 ```
 
 ### Build CSS
@@ -334,7 +334,7 @@ npm run build:template   # Rebuild template database
 
 | Component      | Technology                     |
 | -------------- | ------------------------------ |
-| **Runtime**    | Node.js 18+                    |
+| **Runtime**    | Node.js 22+                    |
 | **Discord**    | discord.js v14                 |
 | **Database**   | SQLite via better-sqlite3      |
 | **Web Server** | Express v5                     |
