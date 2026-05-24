@@ -7,10 +7,10 @@ import _recap_service from '../src/modules/recap-service.js';
 const RecapService = _recap_service as any;
 
 import * as _mock_db from './helpers/mock-db.js';
-const { mockDb: createMockDb } = _mock_db as any;
+const { mockDb: createMockDb } = _mock_db;
 
 import * as _factories from './helpers/factories.js';
-const { makePlayer, makeEvent, mockClient, mockConfig } = _factories as any;
+const { makePlayer, makeEvent, mockClient, mockConfig } = _factories;
 
 // ── Domain adapter: adds activity queries and ranking methods ────────────────
 

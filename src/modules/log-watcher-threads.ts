@@ -261,11 +261,11 @@ async function _getOrCreateDailyThread(this: LogWatcherThis): Promise<ThreadLike
           .setTimestamp(),
       ],
     });
-    this._dailyThread = (await starterMsg.startThread({
+    this._dailyThread = await starterMsg.startThread({
       name: threadName,
       autoArchiveDuration: 1440, // keep alive 24h
       reason: 'Daily summary thread',
-    })) as ThreadLike;
+    });
     this._dailyDate = today;
     this._log.info(`Created daily thread: ${threadName}`);
 

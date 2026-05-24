@@ -265,7 +265,7 @@ Available commands:
       return;
     }
     const steamId = args[0] ?? '';
-    const p = this._db.player.getPlayer(steamId) as DbRow | null;
+    const p = this._db.player.getPlayer(steamId);
     if (!p) {
       this._print(`Player not found: ${steamId}`);
       return;

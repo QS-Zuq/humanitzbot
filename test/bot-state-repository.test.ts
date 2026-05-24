@@ -251,7 +251,7 @@ describe('BotStateRepository.setStateJSONValidated', () => {
     const playerRecord = kt.players['steam_123'] as unknown as Record<string, unknown>;
     playerRecord['hasExtendedStats'] = 'yes'; // wrong type
 
-    const { issues } = normalizeKillTracker(kt as unknown);
+    const { issues } = normalizeKillTracker(kt);
     assert.ok(
       issues.length > 0,
       `normalizer must report issue for bad hasExtendedStats, got: ${JSON.stringify(issues)}`,
@@ -263,7 +263,7 @@ describe('BotStateRepository.setStateJSONValidated', () => {
 
     assert.throws(
       () => {
-        repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, kt as unknown as KillTrackerShape);
+        repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, kt);
       },
       /bot_state\.kill_tracker failed validation/,
       'setStateJSONValidated must throw when normalizer reports issues',
@@ -276,11 +276,11 @@ describe('BotStateRepository.setStateJSONValidated', () => {
     const playerRecord = kt.players['steam_123'] as unknown as Record<string, unknown>;
     playerRecord['activitySnapshot'] = 'not-an-object'; // wrong type
 
-    const { issues } = normalizeKillTracker(kt as unknown);
+    const { issues } = normalizeKillTracker(kt);
     assert.ok(issues.length > 0, 'normalizer must report issue for bad activitySnapshot');
 
     assert.throws(() => {
-      repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, kt as unknown as KillTrackerShape);
+      repo.setStateJSONValidated('kill_tracker', normalizeKillTracker, kt);
     }, /bot_state\.kill_tracker failed validation/);
   });
 
@@ -300,7 +300,7 @@ describe('BotStateRepository.setStateJSONValidated', () => {
     };
     (playerRecord.cumulative as unknown as Record<string, unknown>).headshots = 'bad';
 
-    const { shape, issues } = normalizeKillTracker(kt as unknown);
+    const { shape, issues } = normalizeKillTracker(kt);
 
     assert.ok(
       issues.some((issue) => issue.includes('cumulative.headshots')),
@@ -327,7 +327,7 @@ describe('T1 downstream defensive — dry-run + bad raw caller guard', () => {
     // Non-defensive access: Object.keys(null) throws
     let crashedWithoutGuard = false;
     try {
-      Object.keys((result as unknown as KillTrackerShape).players);
+      Object.keys(result.players);
     } catch {
       crashedWithoutGuard = true;
     }
@@ -336,7 +336,7 @@ describe('T1 downstream defensive — dry-run + bad raw caller guard', () => {
     // Defensive access pattern: typeof guard prevents crash
     let crashedWithGuard = false;
     try {
-      const players = (result as unknown as KillTrackerShape).players;
+      const players = result.players;
       if (typeof players === 'object') {
         // players is a non-null object here (typeof object guard satisfied)
         Object.keys(Object.assign({}, players));

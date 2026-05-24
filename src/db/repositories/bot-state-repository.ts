@@ -35,14 +35,8 @@ export class BotStateRepository extends BaseRepository {
 
   /** Set a bot_state value. Creates or replaces. */
   setState(key: string, value: unknown): void {
-    this._stmts.set.run(
-      key,
-      value != null
-        ? typeof value === 'object'
-          ? JSON.stringify(value)
-          : String(value as string | number | boolean)
-        : null,
-    );
+    const stored = value == null ? null : stringifyStateValue(value);
+    this._stmts.set.run(key, stored);
   }
 
   /** Get a bot_state value parsed as JSON. Returns defaultVal if not found or parse fails. */
@@ -150,4 +144,12 @@ export class BotStateRepository extends BaseRepository {
       .run(prefix, `-${daysOlder}`) as { changes: number };
     return result.changes;
   }
+}
+
+function stringifyStateValue(value: NonNullable<unknown>): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'symbol') return value.toString();
+  if (typeof value === 'function') return value.toString();
+  return JSON.stringify(value);
 }

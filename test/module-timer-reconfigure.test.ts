@@ -21,7 +21,7 @@ function withIntervalSpy<T>(fn: (spy: IntervalSpy) => T): T {
   const originalClearInterval = globalThis.clearInterval;
   const spy = new IntervalSpy();
 
-  globalThis.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+  globalThis.setInterval = (handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
     const token = spy.schedule(() => {}, timeout ?? 0);
     token.callback = () => {
       if (typeof handler === 'function') {
@@ -29,7 +29,7 @@ function withIntervalSpy<T>(fn: (spy: IntervalSpy) => T): T {
       }
     };
     return token as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval;
+  };
 
   globalThis.clearInterval = ((timer?: ReturnType<typeof setInterval>) => {
     spy.clear(timer);
@@ -292,7 +292,7 @@ describe('module timer reconfigure', () => {
       },
     };
     const config = baseConfig({ enableWelcomeMsg: false });
-    const autoMessages = new AutoMessages({ config, presenceTracker: presenceTracker as any });
+    const autoMessages = new AutoMessages({ config, presenceTracker: presenceTracker });
 
     autoMessages.reconfigure({ enableWelcomeMsg: true });
     autoMessages.reconfigure({ enableWelcomeMsg: true });

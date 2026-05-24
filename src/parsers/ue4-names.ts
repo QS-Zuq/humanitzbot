@@ -56,12 +56,19 @@ const NPC_ALIASES = new Map<string, string>([
   ['police2', 'Police Zombie'],
 ]);
 
+function stringifyRawName(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number' || typeof raw === 'boolean' || typeof raw === 'bigint') return String(raw);
+  if (typeof raw === 'symbol' || typeof raw === 'function') return raw.toString();
+  return String(raw);
+}
+
 /**
  * Clean a raw UE4 actor name, blueprint path, or item name into a readable label.
  */
 function cleanName(raw: unknown): string {
   if (!raw) return 'Unknown';
-  const rawStr = typeof raw === 'string' ? raw : String(raw as number);
+  const rawStr = stringifyRawName(raw);
   let name = rawStr;
 
   // Strip trailing UE4 pawn metadata: "(25m) Weapon()" suffix
@@ -227,7 +234,7 @@ const ITEM_ALIASES = new Map<string, string>([
  */
 function cleanItemName(raw: unknown): string {
   if (!raw) return 'Unknown';
-  const rawStr = typeof raw === 'string' ? raw : String(raw as number);
+  const rawStr = stringifyRawName(raw);
   let name = rawStr;
 
   // Full path: strip to last segment

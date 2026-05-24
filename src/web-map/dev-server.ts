@@ -93,7 +93,7 @@ interface PlayerEntry {
 
 function parseSave(buf: Buffer): Map<string, SavePlayerData> {
   const result = _parseSaveFull(buf);
-  return result.players as Map<string, SavePlayerData>;
+  return result.players;
 }
 
 import Client from 'ssh2-sftp-client';

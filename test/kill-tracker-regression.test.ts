@@ -166,7 +166,7 @@ describe('KillTracker.load() bad-record cleanup (P1-C regression)', () => {
       ],
     ]);
     assert.doesNotThrow(() => {
-      tracker.accumulate(saveData as unknown as Map<string, Record<string, unknown>>);
+      tracker.accumulate(saveData);
     }, 'accumulate() must not crash after load()');
 
     assert.doesNotThrow(() => {
@@ -175,7 +175,7 @@ describe('KillTracker.load() bad-record cleanup (P1-C regression)', () => {
 
     const stored = getRaw('kill_tracker') as { players: Record<string, unknown> } | null;
     assert.ok(stored !== null, 'kill_tracker row must exist in DB after save()');
-    const storedPlayers = (stored as { players: Record<string, unknown> }).players;
+    const storedPlayers = stored.players;
     assert.equal(storedPlayers['steam_bad'], undefined, 'DB must not contain steam_bad after save()');
     assert.ok(storedPlayers['steam_ok'] !== undefined, 'DB must contain steam_ok after save()');
   });
@@ -229,7 +229,7 @@ describe('KillTracker.load() bad-record cleanup (P1-C regression)', () => {
       ],
     ]);
     assert.doesNotThrow(() => {
-      tracker.accumulate(saveData as unknown as Map<string, Record<string, unknown>>);
+      tracker.accumulate(saveData);
     }, 'accumulate() must not crash for array record path');
   });
 
@@ -309,7 +309,7 @@ describe('KillTracker.load() bad-record cleanup (P1-C regression)', () => {
             vehicleKills: 0,
             daysSurvived: 0,
             hasExtendedStats: false,
-          } as unknown as Record<string, unknown>,
+          },
         ],
       ]),
     );

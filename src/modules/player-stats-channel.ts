@@ -703,7 +703,7 @@ class PlayerStatsChannel {
       this._lastSaveUpdate = new Date();
 
       const prevWorldState = this._worldState;
-      this._worldState = worldState as Record<string, unknown>;
+      this._worldState = worldState;
       this._log.info(`Legacy parse: ${players.size} players (${(buf.length / 1024 / 1024).toFixed(1)}MB)`);
 
       this._runAccumulate();
@@ -1107,9 +1107,9 @@ class PlayerStatsChannel {
           .map((l) => {
             if (typeof l === 'object' && l !== null) {
               const lo = l as Record<string, unknown>;
-              return _cleanItemName((lo['name'] ?? lo['id'] ?? JSON.stringify(l)) as string);
+              return _cleanItemName(lo['name'] ?? lo['id'] ?? JSON.stringify(l));
             }
-            return _cleanItemName(l as string);
+            return _cleanItemName(l);
           })
           .filter(Boolean);
         const display = names.length > 0 && names.length <= 3 ? `: ${names.join(', ')}` : '';
@@ -1125,9 +1125,9 @@ class PlayerStatsChannel {
           .map((u) => {
             if (typeof u === 'object' && u !== null) {
               const uo = u as Record<string, unknown>;
-              return _cleanItemName((uo['name'] ?? uo['id'] ?? JSON.stringify(u)) as string);
+              return _cleanItemName(uo['name'] ?? uo['id'] ?? JSON.stringify(u));
             }
-            return _cleanItemName(u as string);
+            return _cleanItemName(u);
           })
           .filter(Boolean);
         const display =

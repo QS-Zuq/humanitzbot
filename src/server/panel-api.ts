@@ -294,7 +294,7 @@ Object.assign(PanelApi.prototype, {
 
   async getServerDetails(this: PanelApi): Promise<PanelServerDetails> {
     const data = _rec(await this._request(`/api/client/servers/${this._serverId as string}`));
-    return _rec(data['attributes'] ?? data) as PanelServerDetails;
+    return _rec(data['attributes'] ?? data);
   },
 
   async listBackups(this: PanelApi): Promise<PanelBackup[]> {
@@ -426,7 +426,7 @@ Object.assign(PanelApi.prototype, {
     const items = (data['data'] as unknown[] | undefined) ?? [];
     return items.map((s: unknown) => {
       const obj = _rec(s);
-      return _rec(obj['attributes'] ?? s) as PanelSchedule;
+      return _rec(obj['attributes'] ?? s);
     });
   },
 

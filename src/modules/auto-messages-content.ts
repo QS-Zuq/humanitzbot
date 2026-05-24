@@ -132,12 +132,20 @@ function loadWelcomeStats(db: DbLike | null): WelcomeStats {
   try {
     if (db) {
       const data = db.botState.getStateJSON('welcome_stats', null);
-      if (data) return data as WelcomeStats;
+      if (data) return data;
     }
   } catch {
     // ignore
   }
   return {};
+}
+
+function displaySettingValue(value: NonNullable<unknown>): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'symbol' || typeof value === 'function') return value.toString();
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Preserve legacy LootRespawnTimer display coercion for unexpected object values.
+  return String(value);
 }
 
 function formatMs(ms: number) {
@@ -311,11 +319,11 @@ async function buildWelcomeContent(deps: WelcomeContentDeps = {}) {
   // ── Key Settings ──
   if (Object.keys(settings).length > 0) {
     const sp: string[] = [];
-    const zombieHealth = diffLabel(settings.ZombieDiffHealth as string | undefined);
-    const zombieSpawns = spawnLabel(settings.ZombieAmountMulti as string | undefined);
+    const zombieHealth = diffLabel(settings.ZombieDiffHealth);
+    const zombieSpawns = spawnLabel(settings.ZombieAmountMulti);
     if (zombieHealth) sp.push(`Zombies: ${zombieHealth}`);
     if (zombieSpawns && zombieSpawns !== 'Medium') sp.push(`Spawns: ${zombieSpawns}`);
-    if (settings.LootRespawnTimer) sp.push(`Loot: ${String(settings.LootRespawnTimer as string | number)}m`);
+    if (settings.LootRespawnTimer) sp.push(`Loot: ${displaySettingValue(settings.LootRespawnTimer)}m`);
     const pvpOn = settings.PVP === '1' || settings.PVP === 'true';
     sp.push(`PvP: ${pvpOn ? 'On' : 'Off'}`);
     if (sp.length > 0) parts.push(fileColor('gray', sp.join('  |  ')));

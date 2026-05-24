@@ -42,12 +42,12 @@ if (fs.existsSync(TEMPLATE_PATH)) {
 
 // Create fresh DB with schema + seed all game reference data
 const db = new HumanitZDB({ dbPath: TEMPLATE_PATH, label: 'TEMPLATE' });
-(db['init'] as () => void)();
+db['init']();
 gameReferenceSeed(db);
 
 // Stamp the template with build metadata
-(db['setMeta'] as (k: string, v: string) => void)('template_built_at', new Date().toISOString());
-(db['setMeta'] as (k: string, v: string) => void)('template_schema_version', String(SCHEMA_VERSION));
+db['setMeta']('template_built_at', new Date().toISOString());
+db['setMeta']('template_schema_version', String(SCHEMA_VERSION));
 
 // Verify row counts
 const handle = db['db'] as Database.Database;
@@ -82,7 +82,7 @@ for (const table of tableNames) {
   counts[table] = (handle.prepare(`SELECT COUNT(*) as n FROM ${table}`).get() as { n: number }).n;
 }
 
-(db['close'] as () => void)();
+db['close']();
 
 // VACUUM to minimize file size
 const vacDb = new Database(TEMPLATE_PATH);

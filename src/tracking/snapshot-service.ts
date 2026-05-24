@@ -283,12 +283,12 @@ export class SnapshotService {
         airdropY: (airdrop?.['y'] as number | undefined) ?? null,
         airdropAiAlive: (airdrop?.['aiAlive'] as number | undefined) ?? 0,
         summary: {
-          gameDifficulty: (ws['gameDifficulty'] as Record<string, unknown> | undefined) ?? {},
-          heliCrash: (ws['heliCrashData'] as unknown[] | undefined) ?? [],
+          gameDifficulty: ws['gameDifficulty'] ?? {},
+          heliCrash: ws['heliCrashData'] ?? [],
           destroyedSleepers: (ws['destroyedSleepers'] as unknown[] | undefined)?.length ?? 0,
           destroyedRandCars: (ws['destroyedRandCars'] as unknown[] | undefined)?.length ?? 0,
           explodableBarrels: (ws['explodableBarrels'] as unknown[] | undefined)?.length ?? 0,
-          buildingDecayCount: (ws['buildingDecayCount'] as number | undefined) ?? 0,
+          buildingDecayCount: ws['buildingDecayCount'] ?? 0,
         },
       };
 

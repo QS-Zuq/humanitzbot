@@ -37,17 +37,15 @@ function registerWithFakes(
 ) {
   const applier = new RuntimeConfigApplier();
   const config = options.config ?? makeConfig();
-  const rcon =
-    options.rcon ??
-    ({
-      reconnect: async () => {},
-      disconnect() {},
-    } as { reconnect(options: unknown): Promise<void>; disconnect(): void });
+  const rcon = options.rcon ?? {
+    reconnect: async () => {},
+    disconnect() {},
+  };
 
   registerCoreConnectionRuntimeHandlers({
     runtimeConfigApplier: applier,
     config,
-    rcon: rcon as any,
+    rcon: rcon,
     getSaveService: () => options.saveService,
     getLogWatcher: () => options.logWatcher,
   });

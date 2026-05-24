@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as _mock_db from './helpers/mock-db.js';
-const { mockDb } = _mock_db as any;
+const { mockDb } = _mock_db;
 
 import * as _api_errors from '../src/web-map/api-errors.js';
 const { API_ERRORS } = _api_errors as any;
@@ -13,7 +13,7 @@ import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
 
 import * as _route_helpers from './helpers/route-helpers.js';
-const { extractHandler: _extractHandler, extractMiddleware: _extractMiddleware } = _route_helpers as any;
+const { extractHandler: _extractHandler, extractMiddleware: _extractMiddleware } = _route_helpers;
 
 // ── Create WebMapServer instance ────────────────────────────
 
@@ -32,7 +32,7 @@ function mockRes() {
   const res: Record<string, unknown> = {
     _status: 200,
     _json: null,
-    _headers: {} as Record<string, unknown>,
+    _headers: {},
     status(code: number) {
       res._status = code;
       return res;

@@ -5,7 +5,7 @@ import _database from '../src/db/database.js';
 const HumanitZDB = _database as any;
 
 import * as _item_tracker from '../src/db/item-tracker.js';
-const { reconcileItems } = _item_tracker as any;
+const { reconcileItems } = _item_tracker;
 
 let db: any;
 

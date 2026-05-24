@@ -716,10 +716,7 @@ export class PlayerRepository extends BaseRepository {
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
   setServerPeak(key: string, value: unknown): void {
-    const stored =
-      value != null && typeof value === 'object'
-        ? JSON.stringify(value)
-        : String((value ?? '') as string | number | boolean);
+    const stored = value == null ? '' : stringifyServerPeakValue(value);
     this._stmts.setServerPeak.run(key, stored);
   }
 
@@ -902,4 +899,12 @@ export class PlayerRepository extends BaseRepository {
     const row = this._stmts.getAliasStats.get() as DbRow | undefined;
     return { uniquePlayers: row?.unique_players || 0, totalAliases: row?.total_aliases || 0 };
   }
+}
+
+function stringifyServerPeakValue(value: NonNullable<unknown>): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'symbol') return value.toString();
+  if (typeof value === 'function') return value.toString();
+  return JSON.stringify(value);
 }

@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 
 import * as _panel_rcon from '../src/rcon/panel-rcon.js';
 import { ReconnectBackoff } from '../src/rcon/reconnect-backoff.js';
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- Tests use private PanelRcon internals and a mock WebSocket class.
 const { PanelRcon } = _panel_rcon as any;
 
 // ── Mock WebSocket ──────────────────────────────────────
@@ -112,8 +113,8 @@ describe('_handleMessage', () => {
     rcon = createTestRcon();
   });
 
-  afterEach(async () => {
-    await rcon.disconnect();
+  afterEach(() => {
+    rcon.disconnect();
   });
 
   it('auth success sets connected and authenticated', () => {
@@ -660,7 +661,7 @@ describe('disconnect', () => {
     assert.equal(rcon.connected, true);
     assert.ok(rcon._ws);
 
-    await rcon.disconnect();
+    rcon.disconnect();
 
     assert.equal(rcon.connected, false);
     assert.equal(rcon.authenticated, false);
