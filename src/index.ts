@@ -98,6 +98,8 @@ interface HowyagarnManagerInstance {
   onSaveSync: (data: { players: HowyagarnPlayer[]; structures: unknown[] }) => void;
   onLogEvent: (type: string, data: unknown) => void;
   onPlayerConnect: (steamId: string, playerName: string) => void;
+  setIpc?: (ipc: HzmodIpcClientInstance | null) => void;
+  reconfigure?: (options: { ipc?: HzmodIpcClientInstance | null }) => void;
 }
 
 interface HowyagarnPlayer {
@@ -381,6 +383,30 @@ function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
+function rebindHowyagarnManagerIpc(
+  nextIpc: HzmodIpcClientInstance | null,
+  previousIpc: HzmodIpcClientInstance | null,
+): (() => void) | null {
+  const manager = howyagarnManager;
+  if (!manager) return null;
+
+  if (typeof manager.setIpc === 'function') {
+    manager.setIpc(nextIpc);
+    return () => {
+      manager.setIpc?.(previousIpc);
+    };
+  }
+
+  if (typeof manager.reconfigure === 'function') {
+    manager.reconfigure({ ipc: nextIpc });
+    return () => {
+      manager.reconfigure?.({ ipc: previousIpc });
+    };
+  }
+
+  throw new Error('HOWYAGARN manager does not support runtime IPC rebind; restart required for HZMod socket changes');
+}
+
 function reconfigureHzmodRuntime(next: HzmodSourceRuntimeSnapshot, previous: HzmodSourceRuntimeSnapshot): void {
   reconfigureHzmodRuntimeState(
     {
@@ -396,6 +422,7 @@ function reconfigureHzmodRuntime(next: HzmodSourceRuntimeSnapshot, previous: Hzm
     {
       getIpcClientConstructor: () => HzmodIpcClient,
       getWebMapServer: () => webMapServer,
+      rebindManager: rebindHowyagarnManagerIpc,
     },
   );
 }

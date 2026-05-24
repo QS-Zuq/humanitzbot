@@ -108,6 +108,15 @@ function lowerStringValue(value: unknown, fallback: string): string {
   return (raw || fallback).toLowerCase();
 }
 
+function hzmodStringValue(value: unknown, name: string): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value).trim();
+  }
+  throw new Error(`${name} must be a string-compatible value`);
+}
+
 function getAgentSourceSnapshot(config: unknown): AgentSourceRuntimeSnapshot {
   return {
     agentMode: lowerStringValue(getConfigValue(config, 'agentMode'), 'auto'),
@@ -122,11 +131,11 @@ function getAgentSourceSnapshot(config: unknown): AgentSourceRuntimeSnapshot {
 }
 
 function getHzmodSourceSnapshot(config: unknown): HzmodSourceRuntimeSnapshot {
-  return {
+  return normalizeHzmodSourceSnapshot({
     hzmodServerId: stringValue(getConfigValue(config, 'hzmodServerId')),
     hzmodSocketPath: stringValue(getConfigValue(config, 'hzmodSocketPath')),
     hzmodStatusPath: stringValue(getConfigValue(config, 'hzmodStatusPath')),
-  };
+  });
 }
 
 function applyContexts<TSnapshot extends object>(
@@ -157,6 +166,14 @@ function normalizeAgentSourceSnapshot(snapshot: AgentSourceRuntimeSnapshot): Age
   };
 }
 
+function normalizeHzmodSourceSnapshot(snapshot: HzmodSourceRuntimeSnapshot): HzmodSourceRuntimeSnapshot {
+  return {
+    hzmodServerId: hzmodStringValue(snapshot.hzmodServerId, 'hzmodServerId'),
+    hzmodSocketPath: hzmodStringValue(snapshot.hzmodSocketPath, 'hzmodSocketPath'),
+    hzmodStatusPath: hzmodStringValue(snapshot.hzmodStatusPath, 'hzmodStatusPath'),
+  };
+}
+
 function setAgentSourceSnapshot(config: unknown, snapshot: AgentSourceRuntimeSnapshot): void {
   const normalized = normalizeAgentSourceSnapshot(snapshot);
   for (const cfgKey of Object.values(AGENT_SOURCE_ENV_TO_CFG)) {
@@ -165,8 +182,9 @@ function setAgentSourceSnapshot(config: unknown, snapshot: AgentSourceRuntimeSna
 }
 
 function setHzmodSourceSnapshot(config: unknown, snapshot: HzmodSourceRuntimeSnapshot): void {
+  const normalized = normalizeHzmodSourceSnapshot(snapshot);
   for (const cfgKey of Object.values(HZMOD_SOURCE_ENV_TO_CFG)) {
-    setConfigValue(config, cfgKey, snapshot[cfgKey]);
+    setConfigValue(config, cfgKey, normalized[cfgKey]);
   }
 }
 
@@ -228,7 +246,7 @@ function makeHzmodReconnectHandler(
   const { config, reconfigureHzmod } = options;
   return async (contexts) => {
     const previous = getHzmodSourceSnapshot(config);
-    const next = applyContexts(previous, contexts, HZMOD_SOURCE_ENV_TO_CFG);
+    const next = normalizeHzmodSourceSnapshot(applyContexts(previous, contexts, HZMOD_SOURCE_ENV_TO_CFG));
     if (reconfigureHzmod) await reconfigureHzmod(next, previous);
     setHzmodSourceSnapshot(config, next);
   };

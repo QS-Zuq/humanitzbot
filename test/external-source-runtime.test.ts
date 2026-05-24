@@ -239,6 +239,51 @@ describe('external source runtime handlers', () => {
     assert.equal(config.hzmodStatusPath, '/new/status.json');
   });
 
+  it('normalizes HZMod source snapshots before applying runtime config', async () => {
+    const rebinds: Array<{ next: HzmodSourceRuntimeSnapshot; previous: HzmodSourceRuntimeSnapshot }> = [];
+    const { applier, config } = registerWithFakes({
+      reconfigureHzmod(next, previous) {
+        rebinds.push({ next, previous });
+      },
+    });
+
+    const result = await applier.applyConnectionReconnectBatch([
+      { envKey: 'HZMOD_SERVER_ID', cfgKey: 'hzmodServerId', value: ' vps_live ' },
+      { envKey: 'HZMOD_SOCKET_PATH', cfgKey: 'hzmodSocketPath', value: ' /new/hzmod.sock ' },
+      { envKey: 'HZMOD_STATUS_PATH', cfgKey: 'hzmodStatusPath', value: 12345 },
+    ]);
+
+    assert.deepEqual(result.errors, []);
+    const firstRebind = rebinds[0];
+    assert.ok(firstRebind);
+    assert.equal(firstRebind.next.hzmodServerId, 'vps_live');
+    assert.equal(firstRebind.next.hzmodSocketPath, '/new/hzmod.sock');
+    assert.equal(firstRebind.next.hzmodStatusPath, '12345');
+    assert.equal(config.hzmodServerId, 'vps_live');
+    assert.equal(config.hzmodSocketPath, '/new/hzmod.sock');
+    assert.equal(config.hzmodStatusPath, '12345');
+  });
+
+  it('rejects invalid HZMod source values without mutating runtime config', async () => {
+    let rebindCount = 0;
+    const { applier, config } = registerWithFakes({
+      reconfigureHzmod() {
+        rebindCount++;
+      },
+    });
+
+    const result = await applier.applyConnectionReconnectBatch([
+      { envKey: 'HZMOD_SOCKET_PATH', cfgKey: 'hzmodSocketPath', value: { path: '/bad/hzmod.sock' } },
+    ]);
+
+    assert.deepEqual(result.applied, []);
+    assert.deepEqual(result.errors, [
+      { key: 'HZMOD_SOCKET_PATH', message: 'hzmodSocketPath must be a string-compatible value' },
+    ]);
+    assert.equal(rebindCount, 0);
+    assert.equal(config.hzmodSocketPath, '/old/hzmod.sock');
+  });
+
   it('keeps HZMod runtime config unchanged when the optional rebind callback fails', async () => {
     const { applier, config } = registerWithFakes({
       reconfigureHzmod() {

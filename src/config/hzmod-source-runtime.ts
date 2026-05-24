@@ -20,6 +20,10 @@ interface HzmodWebMapPluginHost {
 interface HzmodRuntimeReconfigureOptions {
   getIpcClientConstructor: () => HzmodIpcClientConstructor | undefined;
   getWebMapServer: () => HzmodWebMapPluginHost | null | undefined;
+  rebindManager?: (
+    nextIpc: HzmodIpcClientInstance | null,
+    previousIpc: HzmodIpcClientInstance | null,
+  ) => (() => void) | null;
   logger?: Pick<typeof console, 'log' | 'error'>;
 }
 
@@ -69,6 +73,7 @@ export function reconfigureHzmodRuntimeState(
   const socketChanged = next.hzmodSocketPath !== previous.hzmodSocketPath;
   const previousIpc = state.ipc ?? null;
   let candidateIpc: HzmodIpcClientInstance | null = previousIpc;
+  let rollbackManager: (() => void) | null = null;
   let rollbackPlugin: (() => void) | null = null;
 
   try {
@@ -84,10 +89,12 @@ export function reconfigureHzmodRuntimeState(
       }) ?? null;
 
     if (socketChanged) {
+      rollbackManager = options.rebindManager?.(candidateIpc, previousIpc) ?? null;
       if (previousIpc && previousIpc !== candidateIpc) previousIpc.destroy();
       state.ipc = candidateIpc ?? undefined;
     }
   } catch (err) {
+    rollbackManager?.();
     rollbackPlugin?.();
     if (socketChanged && candidateIpc && candidateIpc !== previousIpc) {
       try {
