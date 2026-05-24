@@ -384,16 +384,25 @@ function hasSftp(): boolean {
   return !!(config.sftpHost && config.sftpUser && (config.sftpPassword || config.sftpPrivateKeyPath));
 }
 
+const STATUS_CHANNELS_RUNTIME_OWNER = 'module:status-channels';
 const SERVER_STATUS_RUNTIME_OWNER = 'module:server-status';
 const PLAYER_STATS_RUNTIME_OWNER = 'module:player-stats';
+let statusChannelsStartPromise: Promise<void> | null = null;
 let serverStatusStartPromise: Promise<void> | null = null;
 let playerStatsStartPromise: Promise<void> | null = null;
+let statusChannelsRestartQueue: Promise<void> = Promise.resolve();
 let serverStatusRestartQueue: Promise<void> = Promise.resolve();
 let playerStatsRestartQueue: Promise<void> = Promise.resolve();
 
 function coerceRuntimeBoolean(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   return String(value).trim().toLowerCase() === 'true';
+}
+
+function enqueueStatusChannelsRestart(operation: () => Promise<void>): Promise<void> {
+  const next = statusChannelsRestartQueue.catch(() => undefined).then(operation);
+  statusChannelsRestartQueue = next.catch(() => undefined);
+  return next;
 }
 
 function enqueueServerStatusRestart(operation: () => Promise<void>): Promise<void> {
@@ -406,6 +415,47 @@ function enqueuePlayerStatsRestart(operation: () => Promise<void>): Promise<void
   const next = playerStatsRestartQueue.catch(() => undefined).then(operation);
   playerStatsRestartQueue = next.catch(() => undefined);
   return next;
+}
+
+async function startStatusChannelsModule(readyClient: Client): Promise<void> {
+  if (statusChannelsStartPromise) return statusChannelsStartPromise;
+  if (statusChannels) return;
+
+  statusChannelsStartPromise = (async () => {
+    const categoryHint = config.serverName;
+    const nextStatusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
+    statusChannels = nextStatusChannels;
+    try {
+      await nextStatusChannels.start();
+    } catch (err) {
+      if (statusChannels === nextStatusChannels) statusChannels = undefined;
+      throw err;
+    }
+    runtimeConfigApplier.registerModuleReconfigure(
+      'STATUS_CHANNEL_INTERVAL',
+      ({ value }) => {
+        statusChannels?.reconfigure({ statusChannelInterval: value });
+      },
+      { ownerId: STATUS_CHANNELS_RUNTIME_OWNER },
+    );
+    setStatus('Status Channels', '🟢 Active');
+  })();
+
+  try {
+    await statusChannelsStartPromise;
+  } finally {
+    statusChannelsStartPromise = null;
+  }
+}
+
+async function stopStatusChannelsModule(): Promise<void> {
+  if (statusChannelsStartPromise) await statusChannelsStartPromise.catch(() => undefined);
+  await runtimeConfigApplier.cleanupOwner(STATUS_CHANNELS_RUNTIME_OWNER);
+  if (statusChannels) {
+    statusChannels.stop();
+    statusChannels = undefined;
+  }
+  setStatus('Status Channels', '⚫ Disabled');
 }
 
 async function startServerStatusModule(readyClient: Client): Promise<void> {
@@ -507,6 +557,18 @@ async function stopPlayerStatsModule(): Promise<void> {
 }
 
 function registerFeatureToggleRestartHandlers(readyClient: Client): void {
+  runtimeConfigApplier.registerModuleRestart('ENABLE_STATUS_CHANNELS', async ({ cfgKey, value }) => {
+    const enabled = coerceRuntimeBoolean(value);
+    await enqueueStatusChannelsRestart(async () => {
+      if (enabled) {
+        await startStatusChannelsModule(readyClient);
+      } else {
+        await stopStatusChannelsModule();
+      }
+      setConfigValue(config, cfgKey, enabled);
+    });
+  });
+
   runtimeConfigApplier.registerModuleRestart('ENABLE_SERVER_STATUS', async ({ cfgKey, value }) => {
     const enabled = coerceRuntimeBoolean(value);
     await enqueueServerStatusRestart(async () => {
@@ -924,13 +986,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
     // Status Channels — voice channel dashboard
     if (config.enableStatusChannels) {
-      const categoryHint = config.serverName;
-      statusChannels = new StatusChannels(readyClient, { categoryName: categoryHint });
-      await statusChannels.start();
-      runtimeConfigApplier.registerModuleReconfigure('STATUS_CHANNEL_INTERVAL', ({ value }) => {
-        statusChannels?.reconfigure({ statusChannelInterval: value });
-      });
-      setStatus('Status Channels', '🟢 Active');
+      await startStatusChannelsModule(readyClient);
     } else {
       setStatus('Status Channels', '⚫ Disabled');
       console.log('[BOT] Status channels disabled via ENABLE_STATUS_CHANNELS=false');
