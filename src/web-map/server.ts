@@ -3753,6 +3753,23 @@ class WebMapServer {
                 }) === true
               );
             },
+            applyModuleRestartAsync: async (envKey) => {
+              const runtimeConfigValue = runtimeConfigValues.get(envKey);
+              if (!runtimeConfigValue) {
+                if (this._runtimeConfigApplier?.hasModuleRestart(envKey)) {
+                  throw new Error('No runtime config mapping for module restart setting');
+                }
+                return false;
+              }
+
+              return (
+                (await this._runtimeConfigApplier?.applyModuleRestart({
+                  envKey,
+                  cfgKey: runtimeConfigValue.cfgKey,
+                  value: runtimeConfigValue.value,
+                })) === true
+              );
+            },
             applyConnectionReconnect: (envKey) => {
               const runtimeConfigValue = runtimeConfigValues.get(envKey);
               if (!runtimeConfigValue) {

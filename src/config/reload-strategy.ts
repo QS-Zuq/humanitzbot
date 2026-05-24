@@ -33,6 +33,7 @@ export interface ConfigReloadApplyResult {
   updated: string[];
   appliedLive: string[];
   appliedModuleReconfigure: string[];
+  appliedModuleRestart: string[];
   appliedReconnect: string[];
   pendingModuleReconfigure: string[];
   pendingModuleRestart: string[];
@@ -48,6 +49,8 @@ interface SummarizeConfigReloadOptions {
   categories?: EnvConfigCategoryWithReloadStrategy[];
   applyLive?: (envKey: string) => void;
   applyModuleReconfigure?: (envKey: string) => boolean;
+  applyModuleRestart?: (envKey: string) => boolean;
+  applyModuleRestartAsync?: (envKey: string) => Promise<boolean>;
   applyConnectionReconnect?: (envKey: string) => boolean;
   applyConnectionReconnectBatch?: (envKeys: string[]) => Promise<ConnectionReconnectBatchApplyResult>;
 }
@@ -99,6 +102,7 @@ export function createEmptyConfigReloadApplyResult(): ConfigReloadApplyResult {
     updated: [],
     appliedLive: [],
     appliedModuleReconfigure: [],
+    appliedModuleRestart: [],
     appliedReconnect: [],
     pendingModuleReconfigure: [],
     pendingModuleRestart: [],
@@ -160,6 +164,8 @@ function buildConfigReloadMessage(result: ConfigReloadApplyResult): string {
   if (result.appliedLive.length > 0) parts.push(`${result.appliedLive.length} applied live`);
   if (result.appliedModuleReconfigure.length > 0)
     parts.push(`${result.appliedModuleReconfigure.length} applied module reconfigure`);
+  if (result.appliedModuleRestart.length > 0)
+    parts.push(`${result.appliedModuleRestart.length} applied module restart`);
   if (result.appliedReconnect.length > 0) parts.push(`${result.appliedReconnect.length} applied reconnect`);
   if (result.pendingModuleReconfigure.length > 0)
     parts.push(`${result.pendingModuleReconfigure.length} pending module reconfigure`);
@@ -211,6 +217,18 @@ export function summarizeConfigReloadApply(
       }
     }
 
+    if (strategy === 'module-restart') {
+      try {
+        if (options.applyModuleRestart?.(envKey) === true) {
+          result.appliedModuleRestart.push(envKey);
+          continue;
+        }
+      } catch (err) {
+        result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
+        continue;
+      }
+    }
+
     if (strategy === 'connection-reconnect') {
       try {
         if (options.applyConnectionReconnect?.(envKey) === true) {
@@ -238,6 +256,7 @@ export async function summarizeConfigReloadApplyAsync(
   const result = createEmptyConfigReloadApplyResult();
   const categories = options.categories ?? getDefaultCategories();
   const pendingConnectionReconnect: string[] = [];
+  const pendingModuleRestart: string[] = [];
 
   for (const envKey of new Set(changedKeys)) {
     const strategy = resolveReloadStrategy(envKey, categories);
@@ -268,6 +287,11 @@ export async function summarizeConfigReloadApplyAsync(
         result.errors.push({ key: envKey, strategy, message: toErrorMessage(err) });
         continue;
       }
+    }
+
+    if (strategy === 'module-restart') {
+      pendingModuleRestart.push(envKey);
+      continue;
     }
 
     if (strategy === 'connection-reconnect') {
@@ -316,6 +340,33 @@ export async function summarizeConfigReloadApplyAsync(
         }
 
         result.pendingReconnect.push(envKey);
+      }
+    }
+  }
+
+  if (pendingModuleRestart.length > 0) {
+    const hasUnresolvedReconnect =
+      pendingConnectionReconnect.length > 0 &&
+      (result.pendingReconnect.length > 0 || result.errors.some((error) => error.strategy === 'connection-reconnect'));
+
+    if (hasUnresolvedReconnect) {
+      for (const envKey of pendingModuleRestart) addPending(result, envKey, 'module-restart');
+    } else {
+      for (const envKey of pendingModuleRestart) {
+        try {
+          const applied = options.applyModuleRestartAsync
+            ? await options.applyModuleRestartAsync(envKey)
+            : options.applyModuleRestart?.(envKey) === true;
+          if (applied) {
+            result.appliedModuleRestart.push(envKey);
+            continue;
+          }
+        } catch (err) {
+          result.errors.push({ key: envKey, strategy: 'module-restart', message: toErrorMessage(err) });
+          continue;
+        }
+
+        addPending(result, envKey, 'module-restart');
       }
     }
   }

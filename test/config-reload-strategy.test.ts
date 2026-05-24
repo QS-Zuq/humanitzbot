@@ -127,6 +127,42 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, false);
   });
 
+  it('applies module-restart keys when a handler accepts them', () => {
+    const applied: string[] = [];
+    const result = summarizeConfigReloadApply(['ENABLE_CHAT_RELAY'], {
+      categories: TEST_CATEGORIES,
+      applyModuleRestart(envKey) {
+        applied.push(envKey);
+        return true;
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleRestart, ['ENABLE_CHAT_RELAY']);
+    assert.deepEqual(result.pendingModuleRestart, []);
+    assert.deepEqual(applied, ['ENABLE_CHAT_RELAY']);
+    assert.equal(result.restartRequired, false);
+    assert.match(result.message, /1 applied module restart/);
+  });
+
+  it('records module-restart handler failures without counting the key as applied', () => {
+    const result = summarizeConfigReloadApply(['ENABLE_CHAT_RELAY'], {
+      categories: TEST_CATEGORIES,
+      applyModuleRestart() {
+        throw new Error('restart refused');
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleRestart, []);
+    assert.deepEqual(result.pendingModuleRestart, []);
+    assert.equal(result.errors.length, 1);
+    const [error] = result.errors;
+    assert.ok(error);
+    assert.equal(error.key, 'ENABLE_CHAT_RELAY');
+    assert.equal(error.strategy, 'module-restart');
+    assert.equal(error.message, 'restart refused');
+    assert.equal(result.restartRequired, true);
+  });
+
   it('applies PR5 timer handlers without retaining removed GitHub polling metadata', () => {
     const pr4Keys = [
       'LOG_POLL_INTERVAL',
@@ -182,7 +218,64 @@ describe('config reload strategy helpers', () => {
     });
 
     assert.deepEqual(result.appliedModuleReconfigure, []);
+    assert.deepEqual(result.appliedModuleRestart, []);
     assert.deepEqual(result.pendingModuleRestart, ['ENABLE_CHAT_RELAY', 'ENABLE_LOG_WATCHER']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('applies PR10 selected feature toggles through module-restart handlers', async () => {
+    const pr10Keys = ['ENABLE_SERVER_STATUS', 'ENABLE_PLAYER_STATS'];
+    const result = await summarizeConfigReloadApplyAsync([...pr10Keys, 'ENABLE_CHAT_RELAY'], {
+      categories: ENV_CATEGORIES,
+      async applyModuleRestartAsync(envKey) {
+        return pr10Keys.includes(envKey);
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleRestart, pr10Keys);
+    assert.deepEqual(result.pendingModuleRestart, ['ENABLE_CHAT_RELAY']);
+    assert.equal(result.restartRequired, true);
+  });
+
+  it('runs connection-reconnect before async module-restart handlers in mixed saves', async () => {
+    const events: string[] = [];
+    const result = await summarizeConfigReloadApplyAsync(['ENABLE_PLAYER_STATS', 'PANEL_API_KEY'], {
+      categories: ENV_CATEGORIES,
+      async applyConnectionReconnectBatch(envKeys) {
+        events.push(`reconnect:${envKeys.join(',')}`);
+        return { applied: envKeys };
+      },
+      async applyModuleRestartAsync(envKey) {
+        events.push(`restart:${envKey}`);
+        return true;
+      },
+    });
+
+    assert.deepEqual(events, ['reconnect:PANEL_API_KEY', 'restart:ENABLE_PLAYER_STATS']);
+    assert.deepEqual(result.appliedReconnect, ['PANEL_API_KEY']);
+    assert.deepEqual(result.appliedModuleRestart, ['ENABLE_PLAYER_STATS']);
+    assert.equal(result.restartRequired, false);
+  });
+
+  it('keeps module-restart pending when a mixed save leaves reconnect unresolved', async () => {
+    const events: string[] = [];
+    const result = await summarizeConfigReloadApplyAsync(['ENABLE_PLAYER_STATS', 'PANEL_API_KEY'], {
+      categories: ENV_CATEGORIES,
+      async applyConnectionReconnectBatch(envKeys) {
+        events.push(`reconnect:${envKeys.join(',')}`);
+        return { applied: [] };
+      },
+      async applyModuleRestartAsync(envKey) {
+        events.push(`restart:${envKey}`);
+        return true;
+      },
+    });
+
+    assert.deepEqual(events, ['reconnect:PANEL_API_KEY']);
+    assert.deepEqual(result.appliedReconnect, []);
+    assert.deepEqual(result.pendingReconnect, ['PANEL_API_KEY']);
+    assert.deepEqual(result.appliedModuleRestart, []);
+    assert.deepEqual(result.pendingModuleRestart, ['ENABLE_PLAYER_STATS']);
     assert.equal(result.restartRequired, true);
   });
 
