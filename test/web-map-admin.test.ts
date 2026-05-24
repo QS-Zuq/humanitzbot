@@ -975,6 +975,46 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS);
     });
 
+    it('returns reload strategy metadata for primary bot-config keys', () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const getBotConfigHandler = getHandlerFromServer(server, 'GET', '/api/panel/bot-config');
+      const req = mockReq();
+      const res = mockRes();
+
+      getBotConfigHandler(req, res);
+
+      const sections = (
+        res._json as {
+          sections: Array<{
+            keys: Array<{
+              key: string;
+              reloadStrategy?: string;
+              reloadStrategyReasonKey?: string;
+              readOnly?: boolean;
+              sensitive?: boolean;
+              value?: string;
+            }>;
+          }>;
+        }
+      ).sections;
+      const keys = new Map(sections.flatMap((section) => section.keys).map((entry) => [entry.key, entry]));
+
+      assert.equal(keys.get('SHOW_VITALS')?.reloadStrategy, 'live');
+      assert.equal(keys.get('ENABLE_STATUS_CHANNELS')?.reloadStrategy, 'module-restart');
+      assert.equal(keys.get('SESSION_STORE')?.reloadStrategy, 'bot-restart');
+      assert.equal(keys.get('SESSION_STORE')?.reloadStrategyReasonKey, 'settings.reload_strategy_desc.bot_restart');
+
+      const sessionSecret = keys.get('WEB_MAP_SESSION_SECRET');
+      assert.ok(sessionSecret);
+      assert.equal(sessionSecret.reloadStrategy, 'bot-restart');
+      assert.equal(sessionSecret.reloadStrategyReasonKey, 'settings.reload_reason.session_secret');
+      assert.equal(sessionSecret.readOnly, true);
+      assert.equal(sessionSecret.sensitive, true);
+      assert.equal(sessionSecret.value, '');
+      assert.equal(Object.prototype.hasOwnProperty.call(sessionSecret, 'reloadStrategyReason'), false);
+    });
+
     it('returns 400 when value contains newline', () => {
       const req = mockReq({ body: { changes: { SERVER_NAME: 'line1\nline2' } } });
       const res = mockRes();

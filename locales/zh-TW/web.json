@@ -608,6 +608,26 @@
     },
     "secret_set": "已設定",
     "secret_not_set": "未設定",
+    "read_only": "唯讀",
+    "reload_strategy": {
+      "live": "即時套用",
+      "module_reconfigure": "模組重新設定",
+      "module_restart": "模組重啟",
+      "connection_reconnect": "重新連線",
+      "bot_restart": "Bot 重啟",
+      "game_restart": "遊戲伺服器重啟"
+    },
+    "reload_strategy_desc": {
+      "live": "會立即套用到目前執行中的 Bot。",
+      "module_reconfigure": "有註冊 handler 時，會重新設定受影響模組，不需完整重啟 Bot。",
+      "module_restart": "有註冊 runtime handler 時，只會重啟受影響模組。",
+      "connection_reconnect": "有註冊 runtime handler 時，會重新連線受影響的外部 client。",
+      "bot_restart": "此設定在啟動或 session 初始化時綁定，需重啟 Bot 才會生效。",
+      "game_restart": "此設定需重啟遊戲伺服器才能安全生效。"
+    },
+    "reload_reason": {
+      "session_secret": "此設定是從 .env 讀取的 session 簽章密鑰，需重啟 Bot 才會生效。"
+    },
     "discover_paths": "自動偵測路徑",
     "discovering": "偵測中…",
     "discover_done": "偵測完成",

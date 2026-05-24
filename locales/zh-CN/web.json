@@ -608,6 +608,26 @@
     },
     "secret_set": "已设置",
     "secret_not_set": "未设置",
+    "read_only": "只读",
+    "reload_strategy": {
+      "live": "即时应用",
+      "module_reconfigure": "模块重新配置",
+      "module_restart": "模块重启",
+      "connection_reconnect": "重新连接",
+      "bot_restart": "Bot 重启",
+      "game_restart": "游戏服务器重启"
+    },
+    "reload_strategy_desc": {
+      "live": "会立即应用到当前运行中的 Bot。",
+      "module_reconfigure": "有注册 handler 时，会重新配置受影响模块，不需完整重启 Bot。",
+      "module_restart": "有注册 runtime handler 时，只会重启受影响模块。",
+      "connection_reconnect": "有注册 runtime handler 时，会重新连接受影响的外部 client。",
+      "bot_restart": "此设置在启动或 session 初始化时绑定，需重启 Bot 才会生效。",
+      "game_restart": "此设置需重启游戏服务器才能安全生效。"
+    },
+    "reload_reason": {
+      "session_secret": "此设置是从 .env 读取的 session 签名密钥，需重启 Bot 才会生效。"
+    },
     "discover_paths": "自动检测路径",
     "discovering": "检测中…",
     "discover_done": "检测完成",

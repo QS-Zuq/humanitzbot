@@ -15,7 +15,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import config, { getConfigValue, setConfigValue } from '../config/index.js';
-import { summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
+import { resolveReloadStrategy, summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
 import type { RuntimeConfigApplier } from '../config/runtime-config-applier.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
 import { AFFLICTION_MAP } from '../parsers/game-data.js';
@@ -3186,6 +3186,19 @@ class WebMapServer {
     // Keys that are read-only (managed by the bot/bootstrap .env, not user-editable via web)
     const ENV_READONLY_KEYS = new Set(['ENV_SCHEMA_VERSION', ...BOOTSTRAP_KEYS]);
 
+    function _reloadStrategyReasonKey(envKey: string, reloadStrategy: string): string {
+      if (envKey === 'WEB_MAP_SESSION_SECRET') return 'settings.reload_reason.session_secret';
+      return `settings.reload_strategy_desc.${reloadStrategy.replace(/-/g, '_')}`;
+    }
+
+    function _botConfigRuntimeMetadata(envKey: string): { reloadStrategy: string; reloadStrategyReasonKey: string } {
+      const reloadStrategy = resolveReloadStrategy(envKey);
+      return {
+        reloadStrategy,
+        reloadStrategyReasonKey: _reloadStrategyReasonKey(envKey, reloadStrategy),
+      };
+    }
+
     // ── Per-server bot config (servers.json) helpers ──────────────
 
     /**
@@ -3351,6 +3364,7 @@ class WebMapServer {
             value: isSensitive ? '' : value,
             sensitive: isSensitive,
             readOnly: false,
+            ..._botConfigRuntimeMetadata(envKey),
             hasValue: isSensitive ? value.length > 0 : undefined,
             commented: !value && !isSensitive, // show as "not set" if empty
           });
@@ -3517,6 +3531,7 @@ class WebMapServer {
                 value: isSensitive ? '' : value,
                 sensitive: isSensitive,
                 readOnly: isReadOnly,
+                ..._botConfigRuntimeMetadata(field.env),
                 hasValue: isSensitive ? value.length > 0 && !value.startsWith('your_') : undefined,
                 commented: !value && !isSensitive,
               });
@@ -3561,6 +3576,7 @@ class WebMapServer {
               value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: isReadOnly,
+              ..._botConfigRuntimeMetadata(entryKey),
               hasValue: isSensitive ? entryValue.length > 0 && !entryValue.startsWith('your_') : undefined,
               commented: false,
             });
@@ -3573,6 +3589,7 @@ class WebMapServer {
               value: isSensitive ? '' : entryValue,
               sensitive: isSensitive,
               readOnly: false,
+              ..._botConfigRuntimeMetadata(entryKey),
               hasValue: false,
               commented: true,
             });
