@@ -625,6 +625,9 @@
       "bot_restart": "Requires a bot restart because the setting is bound during startup or session setup.",
       "game_restart": "Requires a game server restart to apply safely."
     },
+    "reload_reason": {
+      "session_secret": "Requires a bot restart because the session signing secret is read from .env during startup."
+    },
     "discover_paths": "Auto-detect Paths",
     "discovering": "Detecting...",
     "discover_done": "Detection complete",

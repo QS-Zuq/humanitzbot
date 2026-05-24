@@ -24,6 +24,19 @@ Panel.tabs = Panel.tabs || {};
 
   let _inited = false;
 
+  const RELOAD_STRATEGY_BADGE_STYLES = {
+    live: 'color:var(--color-calm, #6dba82);border-color:rgba(109,186,130,0.2);background:rgba(109,186,130,0.08)',
+    'module-reconfigure':
+      'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
+    'module-restart':
+      'color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.2);background:rgba(212,168,67,0.08)',
+    'connection-reconnect':
+      'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
+    'bot-restart': 'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
+    'game-restart':
+      'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
+  };
+
   function init() {
     if (_inited) return;
     _inited = true;
@@ -428,25 +441,14 @@ Panel.tabs = Panel.tabs || {};
     var renderedSectionIds = {};
     var envDescs = getEnvDescs();
 
-    function reloadStrategyBadge(strategy) {
+    function reloadStrategyBadge(strategy, reasonKey) {
       if (!strategy) return '';
       var normalized = String(strategy).replace(/-/g, '_');
       var label = i18next.t('web:settings.reload_strategy.' + normalized, { defaultValue: strategy });
-      var title = i18next.t('web:settings.reload_strategy_desc.' + normalized, { defaultValue: '' });
-      var styles = {
-        live: 'color:var(--color-calm, #6dba82);border-color:rgba(109,186,130,0.2);background:rgba(109,186,130,0.08)',
-        'module-reconfigure':
-          'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
-        'module-restart':
-          'color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.2);background:rgba(212,168,67,0.08)',
-        'connection-reconnect':
-          'color:var(--color-accent, #78a8ff);border-color:rgba(120,168,255,0.2);background:rgba(120,168,255,0.08)',
-        'bot-restart':
-          'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
-        'game-restart':
-          'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
-      };
-      var style = styles[strategy] || styles['bot-restart'];
+      var title = i18next.t('web:' + (reasonKey || 'settings.reload_strategy_desc.' + normalized), {
+        defaultValue: '',
+      });
+      var style = RELOAD_STRATEGY_BADGE_STYLES[strategy] || RELOAD_STRATEGY_BADGE_STYLES['bot-restart'];
       return (
         ' <span class="setting-sensitive-badge" data-reload-strategy="' +
         esc(strategy) +
@@ -491,7 +493,7 @@ Panel.tabs = Panel.tabs || {};
             ' <span class="setting-sensitive-badge" style="color:var(--color-surge, #d4a843);border-color:rgba(212,168,67,0.15);background:rgba(212,168,67,0.08)">' +
             esc(i18next.t('web:settings.read_only')) +
             '</span>';
-        nameHtml += reloadStrategyBadge(item.reloadStrategy);
+        nameHtml += reloadStrategyBadge(item.reloadStrategy, item.reloadStrategyReasonKey);
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
         var inputHtml;

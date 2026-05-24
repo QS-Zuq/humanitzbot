@@ -625,6 +625,9 @@
       "bot_restart": "此設定在啟動或 session 初始化時綁定，需重啟 Bot 才會生效。",
       "game_restart": "此設定需重啟遊戲伺服器才能安全生效。"
     },
+    "reload_reason": {
+      "session_secret": "此設定是從 .env 讀取的 session 簽章密鑰，需重啟 Bot 才會生效。"
+    },
     "discover_paths": "自動偵測路徑",
     "discovering": "偵測中…",
     "discover_done": "偵測完成",

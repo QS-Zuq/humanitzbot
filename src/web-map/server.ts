@@ -3186,24 +3186,16 @@ class WebMapServer {
     // Keys that are read-only (managed by the bot/bootstrap .env, not user-editable via web)
     const ENV_READONLY_KEYS = new Set(['ENV_SCHEMA_VERSION', ...BOOTSTRAP_KEYS]);
 
-    const RELOAD_STRATEGY_REASONS: Record<string, string> = {
-      live: 'Applies immediately to the running bot.',
-      'module-reconfigure': 'Reconfigures the affected module without a full bot restart when a handler is registered.',
-      'module-restart': 'Restarts only the affected module when a runtime handler is registered.',
-      'connection-reconnect': 'Reconnects the affected external client when a runtime handler is registered.',
-      'bot-restart': 'Requires a bot restart because the setting is bound during startup or session setup.',
-      'game-restart': 'Requires a game server restart to apply safely.',
-    };
+    function _reloadStrategyReasonKey(envKey: string, reloadStrategy: string): string {
+      if (envKey === 'WEB_MAP_SESSION_SECRET') return 'settings.reload_reason.session_secret';
+      return `settings.reload_strategy_desc.${reloadStrategy.replace(/-/g, '_')}`;
+    }
 
-    function _botConfigRuntimeMetadata(envKey: string): { reloadStrategy: string; reloadStrategyReason: string } {
+    function _botConfigRuntimeMetadata(envKey: string): { reloadStrategy: string; reloadStrategyReasonKey: string } {
       const reloadStrategy = resolveReloadStrategy(envKey);
       return {
         reloadStrategy,
-        reloadStrategyReason:
-          envKey === 'WEB_MAP_SESSION_SECRET'
-            ? 'Requires a bot restart because the session signing secret is read from .env during startup.'
-            : (RELOAD_STRATEGY_REASONS[reloadStrategy] ??
-              'Requires a bot restart because the setting is bound during startup or session setup.'),
+        reloadStrategyReasonKey: _reloadStrategyReasonKey(envKey, reloadStrategy),
       };
     }
 
