@@ -31,6 +31,7 @@ import PlayerStatsChannel from './modules/player-stats-channel.js';
 import PvpScheduler from './modules/pvp-scheduler.js';
 import ServerScheduler from './modules/server-scheduler.js';
 import panelApi from './server/panel-api.js';
+import serverResources from './server/server-resources.js';
 import MultiServerManager from './server/multi-server.js';
 import { postAdminAlert } from './utils/admin-alert.js';
 import ActivityLog from './modules/activity-log.js';
@@ -536,6 +537,17 @@ client.once(Events.ClientReady, (readyClient) => {
       setConfigValue(config, cfgKey, value);
       panelApi.invalidateConfig();
     });
+    runtimeConfigApplier.registerModuleReconfigure('STATUS_CACHE_TTL', ({ cfgKey, value }) => {
+      const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+      setConfigValue(
+        config,
+        cfgKey,
+        Math.max(Number.isFinite(parsed) ? Math.trunc(parsed) : config.statusCacheTtl, 10_000),
+      );
+    });
+    runtimeConfigApplier.registerModuleReconfigure('RESOURCE_CACHE_TTL', ({ value }) => {
+      serverResources.reconfigure({ resourceCacheTtl: value });
+    });
     unregisterCoreConnectionRuntimeHandlers = registerCoreConnectionRuntimeHandlers({
       runtimeConfigApplier,
       config,
@@ -808,11 +820,27 @@ client.once(Events.ClientReady, (readyClient) => {
           panelApi: panelApi.available ? panelApi : null,
         });
         await logWatcher.start();
+        const _logWatcher = logWatcher;
         if (logWatcher.interval) {
           runtimeConfigApplier.registerModuleReconfigure('LOG_POLL_INTERVAL', ({ value }) => {
-            logWatcher?.reconfigure({ logPollInterval: value });
+            _logWatcher.reconfigure({ logPollInterval: value });
           });
         }
+        runtimeConfigApplier.registerModuleReconfigure('ENABLE_PVP_KILL_FEED', ({ value }) => {
+          _logWatcher.reconfigure({ enablePvpKillFeed: value });
+        });
+        runtimeConfigApplier.registerModuleReconfigure('PVP_KILL_WINDOW', ({ value }) => {
+          _logWatcher.reconfigure({ pvpKillWindow: value });
+        });
+        runtimeConfigApplier.registerModuleReconfigure('ENABLE_DEATH_LOOP_DETECTION', ({ value }) => {
+          _logWatcher.reconfigure({ enableDeathLoopDetection: value });
+        });
+        runtimeConfigApplier.registerModuleReconfigure('DEATH_LOOP_THRESHOLD', ({ value }) => {
+          _logWatcher.reconfigure({ deathLoopThreshold: value });
+        });
+        runtimeConfigApplier.registerModuleReconfigure('DEATH_LOOP_WINDOW', ({ value }) => {
+          _logWatcher.reconfigure({ deathLoopWindow: value });
+        });
         setStatus('Log Watcher', '🟢 Active');
       }
     } else {
@@ -884,16 +912,31 @@ client.once(Events.ClientReady, (readyClient) => {
       });
       // Note: start() is synchronous; if it ever returns Promise, callers must await
       autoMessages.start();
-      if (config.enableAutoMsgLink) {
-        runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_LINK_INTERVAL', ({ value }) => {
-          autoMessages?.reconfigure({ autoMsgLinkInterval: value });
-        });
-      }
-      if (config.enableAutoMsgPromo) {
-        runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_PROMO_INTERVAL', ({ value }) => {
-          autoMessages?.reconfigure({ autoMsgPromoInterval: value });
-        });
-      }
+      const _autoMessages = autoMessages;
+      runtimeConfigApplier.registerModuleReconfigure('DISCORD_INVITE_LINK', ({ value }) => {
+        _autoMessages.reconfigure({ discordInviteLink: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_LINK_TEXT', ({ value }) => {
+        _autoMessages.reconfigure({ autoMsgLinkText: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_PROMO_TEXT', ({ value }) => {
+        _autoMessages.reconfigure({ autoMsgPromoText: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('ENABLE_AUTO_MSG_LINK', ({ value }) => {
+        _autoMessages.reconfigure({ enableAutoMsgLink: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('ENABLE_AUTO_MSG_PROMO', ({ value }) => {
+        _autoMessages.reconfigure({ enableAutoMsgPromo: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('ENABLE_WELCOME_MSG', ({ value }) => {
+        _autoMessages.reconfigure({ enableWelcomeMsg: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_LINK_INTERVAL', ({ value }) => {
+        _autoMessages.reconfigure({ autoMsgLinkInterval: value });
+      });
+      runtimeConfigApplier.registerModuleReconfigure('AUTO_MSG_PROMO_INTERVAL', ({ value }) => {
+        _autoMessages.reconfigure({ autoMsgPromoInterval: value });
+      });
       setStatus('Auto-Messages', '🟢 Active');
     } else {
       setStatus('Auto-Messages', '⚫ Disabled');

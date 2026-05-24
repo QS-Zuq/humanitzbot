@@ -1,6 +1,7 @@
 import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import config from '../src/config/index.js';
 import { ServerResources, type ResourceResult } from '../src/server/server-resources.js';
 
 afterEach(() => {
@@ -125,5 +126,33 @@ describe('ServerResources cache stale signal', () => {
     });
 
     assert.equal(await resources.getResources(), null);
+  });
+
+  it('reconfigures resource cache TTL for active instances', async () => {
+    const previousTtl = config.resourceCacheTtl;
+    let now = 1_000;
+    let calls = 0;
+    const resources = new ServerResources({
+      backend: 'pterodactyl',
+      ttl: 1_000,
+      now: () => now,
+      fetchResource: async () => {
+        calls += 1;
+        return resource({ cpu: calls });
+      },
+    });
+
+    try {
+      const first = await resources.getResources();
+      resources.reconfigure({ resourceCacheTtl: 5_000 });
+      now = 2_500;
+      const cached = await resources.getResources();
+
+      assert.equal(config.resourceCacheTtl, 10_000);
+      assert.equal(calls, 1);
+      assert.equal(cached, first);
+    } finally {
+      config.resourceCacheTtl = previousTtl;
+    }
   });
 });

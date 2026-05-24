@@ -262,6 +262,19 @@ class ServerResources {
     return this._backend;
   }
 
+  reconfigure(options: { resourceCacheTtl?: unknown }): void {
+    if (!Object.hasOwn(options, 'resourceCacheTtl')) return;
+    const parsed =
+      typeof options.resourceCacheTtl === 'number'
+        ? options.resourceCacheTtl
+        : typeof options.resourceCacheTtl === 'string'
+          ? parseInt(options.resourceCacheTtl, 10)
+          : Number.NaN;
+    const nextTtl = Math.max(Number.isFinite(parsed) ? Math.trunc(parsed) : this._ttl, 10_000);
+    this._ttl = nextTtl;
+    _defaultConfig.resourceCacheTtl = nextTtl;
+  }
+
   async getResources(): Promise<ResourceResult | null> {
     if (!this._backend) return null;
     const now = this._now();

@@ -782,6 +782,14 @@ describe('Web Map Admin — POST endpoints', () => {
         rconPort: config.rconPort,
         rconPassword: config.rconPassword,
         serverStatusInterval: config.serverStatusInterval,
+        statusCacheTtl: config.statusCacheTtl,
+        resourceCacheTtl: config.resourceCacheTtl,
+        discordInviteLink: config.discordInviteLink,
+        enableAutoMsgLink: config.enableAutoMsgLink,
+        autoMsgLinkText: config.autoMsgLinkText,
+        enablePvpKillFeed: config.enablePvpKillFeed,
+        pvpKillWindow: config.pvpKillWindow,
+        deathLoopThreshold: config.deathLoopThreshold,
         botLocale: config.botLocale,
         panelServerUrl: config.panelServerUrl,
         panelApiKey: config.panelApiKey,
@@ -809,6 +817,14 @@ describe('Web Map Admin — POST endpoints', () => {
       config.rconPort = 14541;
       config.rconPassword = 'before-rcon-secret';
       config.serverStatusInterval = 30_000;
+      config.statusCacheTtl = 30_000;
+      config.resourceCacheTtl = 30_000;
+      config.discordInviteLink = 'https://discord.gg/before';
+      config.enableAutoMsgLink = true;
+      config.autoMsgLinkText = '';
+      config.enablePvpKillFeed = true;
+      config.pvpKillWindow = 60_000;
+      config.deathLoopThreshold = 3;
       config.botLocale = 'en';
       config.panelServerUrl = 'https://panel.before.test/server/before';
       config.panelApiKey = 'before-secret';
@@ -838,6 +854,14 @@ describe('Web Map Admin — POST endpoints', () => {
       config.rconPort = savedConfig.rconPort as number;
       config.rconPassword = savedConfig.rconPassword as string;
       config.serverStatusInterval = savedConfig.serverStatusInterval as number;
+      config.statusCacheTtl = savedConfig.statusCacheTtl as number;
+      config.resourceCacheTtl = savedConfig.resourceCacheTtl as number;
+      config.discordInviteLink = savedConfig.discordInviteLink as string;
+      config.enableAutoMsgLink = savedConfig.enableAutoMsgLink as boolean;
+      config.autoMsgLinkText = savedConfig.autoMsgLinkText as string;
+      config.enablePvpKillFeed = savedConfig.enablePvpKillFeed as boolean;
+      config.pvpKillWindow = savedConfig.pvpKillWindow as number;
+      config.deathLoopThreshold = savedConfig.deathLoopThreshold as number;
       config.botLocale = savedConfig.botLocale as string;
       config.panelServerUrl = savedConfig.panelServerUrl as string;
       config.panelApiKey = savedConfig.panelApiKey as string;
@@ -1439,6 +1463,66 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(repo.docs.app?.serverStatusInterval, 45_000);
     });
 
+    it('applies registered PR9 low-risk module-reconfigure settings', async () => {
+      const repo = mockConfigRepo();
+      const applier = new RuntimeConfigApplier();
+      applier.registerModuleReconfigure('DISCORD_INVITE_LINK', (context) => {
+        config.discordInviteLink = context.value as string;
+      });
+      applier.registerModuleReconfigure('ENABLE_AUTO_MSG_LINK', (context) => {
+        config.enableAutoMsgLink = context.value as boolean;
+      });
+      applier.registerModuleReconfigure('AUTO_MSG_LINK_TEXT', (context) => {
+        config.autoMsgLinkText = context.value as string;
+      });
+      applier.registerModuleReconfigure('ENABLE_PVP_KILL_FEED', (context) => {
+        config.enablePvpKillFeed = context.value as boolean;
+      });
+      applier.registerModuleReconfigure('PVP_KILL_WINDOW', (context) => {
+        config.pvpKillWindow = context.value as number;
+      });
+      applier.registerModuleReconfigure('DEATH_LOOP_THRESHOLD', (context) => {
+        config.deathLoopThreshold = context.value as number;
+      });
+      applier.registerModuleReconfigure('STATUS_CACHE_TTL', (context) => {
+        config.statusCacheTtl = context.value as number;
+      });
+      applier.registerModuleReconfigure('RESOURCE_CACHE_TTL', (context) => {
+        config.resourceCacheTtl = context.value as number;
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const reconfigureHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const changes = {
+        DISCORD_INVITE_LINK: 'https://discord.gg/after',
+        ENABLE_AUTO_MSG_LINK: 'false',
+        AUTO_MSG_LINK_TEXT: 'Join us',
+        ENABLE_PVP_KILL_FEED: 'false',
+        PVP_KILL_WINDOW: '90000',
+        DEATH_LOOP_THRESHOLD: '4',
+        STATUS_CACHE_TTL: '45000',
+        RESOURCE_CACHE_TTL: '60000',
+      };
+      const req = mockReq({ body: { changes } });
+      const res = mockRes();
+
+      await reconfigureHandler(req, res);
+
+      const body = res._json as Record<string, unknown>;
+      assert.equal(res._status, 200);
+      assert.equal(body.restartRequired, false);
+      assert.deepEqual([...(body.appliedModuleReconfigure as string[])].sort(), Object.keys(changes).sort());
+      assert.deepEqual(body.pendingModuleReconfigure, []);
+      assert.equal(config.discordInviteLink, 'https://discord.gg/after');
+      assert.equal(config.enableAutoMsgLink, false);
+      assert.equal(config.autoMsgLinkText, 'Join us');
+      assert.equal(config.enablePvpKillFeed, false);
+      assert.equal(config.pvpKillWindow, 90_000);
+      assert.equal(config.deathLoopThreshold, 4);
+      assert.equal(config.statusCacheTtl, 45_000);
+      assert.equal(config.resourceCacheTtl, 60_000);
+      assert.equal(repo.docs.app?.autoMsgLinkText, 'Join us');
+    });
+
     it('keeps module-reconfigure settings pending when no runtime handler is registered', async () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, {
@@ -1458,6 +1542,41 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, ['BOT_LOCALE']);
       assert.equal(config.botLocale, 'en');
       assert.equal(repo.docs.app?.botLocale, 'zh-TW');
+    });
+
+    it('keeps PR9 module-reconfigure settings pending when no runtime owner is registered', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, {
+        db: mockDb(),
+        configRepo: repo,
+        runtimeConfigApplier: new RuntimeConfigApplier(),
+      });
+      const pendingReconfigureHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            DISCORD_INVITE_LINK: 'https://discord.gg/pending',
+            ENABLE_PVP_KILL_FEED: 'false',
+            RESOURCE_CACHE_TTL: '60000',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await pendingReconfigureHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, true);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleReconfigure, []);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, [
+        'DISCORD_INVITE_LINK',
+        'ENABLE_PVP_KILL_FEED',
+        'RESOURCE_CACHE_TTL',
+      ]);
+      assert.equal(config.discordInviteLink, 'https://discord.gg/before');
+      assert.equal(config.enablePvpKillFeed, true);
+      assert.equal(config.resourceCacheTtl, 30_000);
+      assert.equal(repo.docs.app?.discordInviteLink, 'https://discord.gg/pending');
     });
 
     it('reports module-reconfigure handler failures as errors without marking pending as applied', async () => {

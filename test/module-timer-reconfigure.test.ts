@@ -63,15 +63,53 @@ class IntervalSpy {
   }
 }
 
+function withTimeoutClearSpy<T>(fn: (spy: TimeoutClearSpy) => T): T {
+  const originalClearTimeout = globalThis.clearTimeout;
+  const spy = new TimeoutClearSpy();
+
+  globalThis.clearTimeout = ((timer?: ReturnType<typeof setTimeout>) => {
+    spy.clear(timer);
+  }) as typeof clearTimeout;
+
+  try {
+    return fn(spy);
+  } finally {
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+}
+
+class TimeoutClearSpy {
+  private _nextId = 1;
+  readonly cleared: unknown[] = [];
+
+  existing(delay = 1): ReturnType<typeof setTimeout> {
+    return { id: this._nextId++, delay, callback: () => undefined } as unknown as ReturnType<typeof setTimeout>;
+  }
+
+  clear(timer: unknown): void {
+    this.cleared.push(timer);
+  }
+}
+
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {
     chatPollInterval: 10_000,
     autoMsgLinkInterval: 1_800_000,
     autoMsgPromoInterval: 2_700_000,
     autoMsgJoinCheckInterval: 10_000,
+    enableAutoMsgLink: true,
+    enableAutoMsgPromo: true,
+    enableWelcomeMsg: true,
+    autoMsgLinkText: '',
+    autoMsgPromoText: '',
     anticheatAnalyzeInterval: 60_000,
     anticheatBaselineInterval: 900_000,
     logPollInterval: 30_000,
+    enablePvpKillFeed: true,
+    pvpKillWindow: 60_000,
+    enableDeathLoopDetection: true,
+    deathLoopThreshold: 3,
+    deathLoopWindow: 60_000,
     discordInviteLink: '',
     serverName: 'Test Server',
     formatTime: (date: Date) => date.toISOString(),
@@ -183,6 +221,90 @@ describe('module timer reconfigure', () => {
       assert.deepEqual(spy.scheduled, []);
       assert.equal((autoMessages as any)._linkTimer, linkTimer);
     });
+  });
+
+  it('AutoMessages updates text and invite settings without sending immediately', () => {
+    withIntervalSpy((spy) => {
+      const config = baseConfig({
+        discordInviteLink: 'https://discord.gg/old',
+        autoMsgLinkText: '',
+        autoMsgPromoText: '',
+      });
+      const autoMessages = new AutoMessages({ config });
+      let sendCalls = 0;
+      (autoMessages as any)._sendDiscordLink = () => {
+        sendCalls += 1;
+      };
+      (autoMessages as any)._sendPromoMessage = () => {
+        sendCalls += 1;
+      };
+
+      autoMessages.reconfigure({
+        discordInviteLink: 'https://discord.gg/new',
+        autoMsgLinkText: 'Join {discord}',
+        autoMsgPromoText: 'Promo {players}',
+      });
+
+      assert.equal(config.discordInviteLink, 'https://discord.gg/new');
+      assert.equal((autoMessages as any).discordLink, 'https://discord.gg/new');
+      assert.equal(config.autoMsgLinkText, 'Join {discord}');
+      assert.equal(config.autoMsgPromoText, 'Promo {players}');
+      assert.equal(sendCalls, 0);
+      assert.deepEqual(spy.scheduled, []);
+    });
+  });
+
+  it('AutoMessages toggles link and promo timers idempotently', () => {
+    withIntervalSpy((spy) => {
+      const config = baseConfig({
+        enableAutoMsgLink: false,
+        enableAutoMsgPromo: true,
+        autoMsgLinkInterval: 120_000,
+        autoMsgPromoInterval: 180_000,
+      });
+      const autoMessages = new AutoMessages({ config });
+      const promoTimer = spy.existing(180_000);
+      (autoMessages as any)._promoTimer = promoTimer;
+
+      autoMessages.reconfigure({ enableAutoMsgLink: true });
+      autoMessages.reconfigure({ enableAutoMsgLink: true });
+      autoMessages.reconfigure({ enableAutoMsgPromo: false });
+
+      assert.equal(config.enableAutoMsgLink, true);
+      assert.equal(config.enableAutoMsgPromo, false);
+      assert.equal(spy.scheduled.length, 1);
+      assert.equal(spy.scheduled[0]?.delay, 120_000);
+      assert.deepEqual(spy.cleared, [promoTimer]);
+      assert.notEqual((autoMessages as any)._linkTimer, null);
+      assert.equal((autoMessages as any)._promoTimer, null);
+    });
+  });
+
+  it('AutoMessages toggles welcome listener idempotently', () => {
+    const added: Array<{ event: string; listener: unknown }> = [];
+    const removed: Array<{ event: string; listener: unknown }> = [];
+    const presenceTracker = {
+      on(event: string, listener: unknown) {
+        added.push({ event, listener });
+      },
+      removeListener(event: string, listener: unknown) {
+        removed.push({ event, listener });
+      },
+    };
+    const config = baseConfig({ enableWelcomeMsg: false });
+    const autoMessages = new AutoMessages({ config, presenceTracker: presenceTracker as any });
+
+    autoMessages.reconfigure({ enableWelcomeMsg: true });
+    autoMessages.reconfigure({ enableWelcomeMsg: true });
+    autoMessages.reconfigure({ enableWelcomeMsg: false });
+
+    assert.equal(config.enableWelcomeMsg, false);
+    assert.equal(added.length, 1);
+    const [addedListener] = added;
+    assert.ok(addedListener);
+    assert.equal(addedListener.event, 'playerJoined');
+    assert.deepEqual(removed, [{ event: 'playerJoined', listener: addedListener.listener }]);
+    assert.equal((autoMessages as any)._onPlayerJoined, null);
   });
 
   it('PlayerPresenceTracker resets active join-check timer', () => {
@@ -367,6 +489,85 @@ describe('module timer reconfigure', () => {
       assert.deepEqual(spy.cleared, [originalTimer]);
       assert.equal(spy.scheduled.length, 1);
       assert.equal(spy.scheduled[0]?.delay, 10_000);
+    });
+  });
+
+  it('LogWatcher applies kill feed and death-loop settings without touching the poll timer', () => {
+    withIntervalSpy((spy) => {
+      const config = baseConfig({
+        enablePvpKillFeed: true,
+        pvpKillWindow: 60_000,
+        enableDeathLoopDetection: true,
+        deathLoopThreshold: 3,
+        deathLoopWindow: 60_000,
+      });
+      const watcher = new LogWatcher({} as any, { config });
+      const originalTimer = spy.existing(30_000);
+      let pollCalls = 0;
+      watcher.interval = originalTimer;
+      (watcher as any)._poll = () => {
+        pollCalls += 1;
+        return Promise.resolve();
+      };
+
+      watcher.reconfigure({
+        enablePvpKillFeed: false,
+        pvpKillWindow: 90_000,
+        enableDeathLoopDetection: false,
+        deathLoopThreshold: 5,
+        deathLoopWindow: 120_000,
+      });
+
+      assert.equal(config.enablePvpKillFeed, false);
+      assert.equal(config.pvpKillWindow, 90_000);
+      assert.equal(config.enableDeathLoopDetection, false);
+      assert.equal(config.deathLoopThreshold, 5);
+      assert.equal(config.deathLoopWindow, 120_000);
+      assert.deepEqual(spy.cleared, []);
+      assert.deepEqual(spy.scheduled, []);
+      assert.equal(watcher.interval, originalTimer);
+      assert.equal(pollCalls, 0);
+    });
+  });
+
+  it('LogWatcher keeps invalid numeric reconfigure values out of runtime config', () => {
+    const config = baseConfig({ pvpKillWindow: 60_000, deathLoopThreshold: 3, deathLoopWindow: 60_000 });
+    const watcher = new LogWatcher({} as any, { config });
+
+    watcher.reconfigure({
+      pvpKillWindow: 'not-a-number',
+      deathLoopThreshold: 'nope',
+      deathLoopWindow: Number.NaN,
+    });
+
+    assert.equal(config.pvpKillWindow, 60_000);
+    assert.equal(config.deathLoopThreshold, 3);
+    assert.equal(config.deathLoopWindow, 60_000);
+
+    watcher.reconfigure({ pvpKillWindow: 0, deathLoopThreshold: 0, deathLoopWindow: 0 });
+
+    assert.equal(config.pvpKillWindow, 1);
+    assert.equal(config.deathLoopThreshold, 1);
+    assert.equal(config.deathLoopWindow, 1);
+  });
+
+  it('LogWatcher clears queued death-loop summaries when detection is disabled live', () => {
+    withTimeoutClearSpy((spy) => {
+      const config = baseConfig({ enableDeathLoopDetection: true, deathLoopThreshold: 3, deathLoopWindow: 60_000 });
+      const watcher = new LogWatcher({} as any, { config });
+      const deathLoopTimer = spy.existing(60_000);
+      (watcher as any)._deathLoopTracker.set('player-one', {
+        count: 3,
+        firstTimestamp: 1_000,
+        lastTimestamp: 2_000,
+        timer: deathLoopTimer,
+      });
+
+      watcher.reconfigure({ enableDeathLoopDetection: false });
+
+      assert.equal(config.enableDeathLoopDetection, false);
+      assert.deepEqual(spy.cleared, [deathLoopTimer]);
+      assert.equal((watcher as any)._deathLoopTracker.size, 0);
     });
   });
 });

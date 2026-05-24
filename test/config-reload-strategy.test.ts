@@ -150,6 +150,42 @@ describe('config reload strategy helpers', () => {
     assert.equal(result.restartRequired, false);
   });
 
+  it('applies PR9 low-risk module-reconfigure keys when handlers exist', () => {
+    const pr9Keys = [
+      'DISCORD_INVITE_LINK',
+      'ENABLE_AUTO_MSG_LINK',
+      'AUTO_MSG_LINK_TEXT',
+      'ENABLE_PVP_KILL_FEED',
+      'PVP_KILL_WINDOW',
+      'DEATH_LOOP_THRESHOLD',
+      'STATUS_CACHE_TTL',
+      'RESOURCE_CACHE_TTL',
+    ];
+    const result = summarizeConfigReloadApply(pr9Keys, {
+      categories: ENV_CATEGORIES,
+      applyModuleReconfigure(envKey) {
+        return pr9Keys.includes(envKey);
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, pr9Keys);
+    assert.deepEqual(result.pendingModuleReconfigure, []);
+    assert.equal(result.restartRequired, false);
+  });
+
+  it('keeps PR10 feature toggles classified as module-restart without PR9 handlers', () => {
+    const result = summarizeConfigReloadApply(['ENABLE_CHAT_RELAY', 'ENABLE_LOG_WATCHER'], {
+      categories: ENV_CATEGORIES,
+      applyModuleReconfigure() {
+        return true;
+      },
+    });
+
+    assert.deepEqual(result.appliedModuleReconfigure, []);
+    assert.deepEqual(result.pendingModuleRestart, ['ENABLE_CHAT_RELAY', 'ENABLE_LOG_WATCHER']);
+    assert.equal(result.restartRequired, true);
+  });
+
   it('real panel metadata no longer exposes GitHub Tracker settings', () => {
     const removedKeys = new Set([
       'ENABLE_GITHUB_TRACKER',
