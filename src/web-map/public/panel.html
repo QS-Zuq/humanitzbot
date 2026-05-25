@@ -508,7 +508,19 @@
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
                 <input type="text" id="activity-search" placeholder="Player or Item#fingerprint..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:activity.search_placeholder"}'>
               </div>
-              <input type="date" id="activity-date" class="input-field w-36">
+              <div class="activity-range-control flex items-center gap-1.5">
+                <select id="activity-range-preset" class="input-field w-32" aria-label="Activity date range" data-i18n-attr='{"aria-label":"web:activity.range_label"}'>
+                  <option value="today" data-i18n="web:activity.range_today">Today</option>
+                  <option value="yesterday" data-i18n="web:activity.range_yesterday">Yesterday</option>
+                  <option value="7d" data-i18n="web:activity.range_7d">7 days</option>
+                  <option value="30d" data-i18n="web:activity.range_30d">30 days</option>
+                  <option value="all" data-i18n="web:activity.range_all">All</option>
+                  <option value="custom" data-i18n="web:activity.range_custom">Custom</option>
+                </select>
+                <input type="date" id="activity-date-from" class="input-field w-36 hidden" aria-label="Activity from date" data-i18n-attr='{"aria-label":"web:activity.range_from"}'>
+                <span id="activity-date-separator" class="text-muted text-xs hidden">—</span>
+                <input type="date" id="activity-date-to" class="input-field w-36 hidden" aria-label="Activity to date" data-i18n-attr='{"aria-label":"web:activity.range_to"}'>
+              </div>
               <button id="activity-toggle-charts" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" title="Toggle charts" data-i18n-attr='{"title":"web:activity.toggle_charts"}'>
                 <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> <span data-i18n="web:activity.charts">Charts</span>
               </button>
@@ -519,8 +531,8 @@
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="activity-stat-cards">
             <div class="stat-card"><div class="stat-label" data-i18n="web:activity.total_events">Total Events</div><div id="act-total" class="stat-value">-</div></div>
             <div class="stat-card"><div class="stat-label" data-i18n="web:activity.event_types">Event Types</div><div id="act-types-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.date_range">Date Range</div><div id="act-date-range" class="stat-value text-sm">-</div></div>
-            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.top_actor">Top Actor</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.showing_range">Showing Range</div><div id="act-date-range" class="stat-value stat-value-range text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.top_player">Top Player</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
           </div>
 
           <!-- Charts panel (collapsible) -->
@@ -528,14 +540,14 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <!-- Daily activity trend -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.daily_activity_30_days">Daily Activity (30 days)</div>
+                <div class="card-title" data-i18n="web:activity.daily_activity_selected_range">Daily Activity</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-daily-activity"></canvas>
                 </div>
               </div>
               <!-- Hourly distribution -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.hourly_distribution_7_days">Hourly Distribution (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.hourly_distribution_selected_range">Hourly Distribution</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-hourly-activity"></canvas>
                 </div>
@@ -551,7 +563,7 @@
               </div>
               <!-- Top actors -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.most_active_players_7_days">Most Active Players (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.most_active_players_selected_range">Most Active Players</div>
                 <div style="height: 220px; position: relative;">
                   <canvas id="chart-top-actors"></canvas>
                 </div>

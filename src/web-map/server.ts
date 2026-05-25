@@ -14,7 +14,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import config, { getConfigValue, setConfigValue } from '../config/index.js';
+import config, { getConfigValue, setConfigValue, _tzOffsetMs } from '../config/index.js';
 import { resolveReloadStrategy, summarizeConfigReloadApplyAsync } from '../config/reload-strategy.js';
 import type { RuntimeConfigApplier } from '../config/runtime-config-applier.js';
 import { parseSave, PERK_MAP } from '../parsers/save-parser.js';
@@ -202,8 +202,110 @@ interface ActivityRow {
   pos_z: number;
   created_at: string;
   steam_id?: string;
+  attributed_name?: string;
   target_steam_id?: string;
   target_name?: string;
+}
+
+type ActivityRangePreset = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom';
+
+type ActivityRange = {
+  preset: ActivityRangePreset;
+  timezone: string;
+  from: string;
+  to: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+function _activityDateKey(date: Date, timezone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '';
+    if (y && m && d) return `${y}-${m}-${d}`;
+  } catch {
+    /* invalid timezone fallback below */
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function _addActivityDays(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function _activitySqlUtcStart(dateKey: string, timezone: string): string {
+  const asUtc = new Date(`${dateKey}T00:00:00Z`);
+  if (Number.isNaN(asUtc.getTime())) return '';
+  try {
+    const offset1 = _tzOffsetMs(asUtc, timezone);
+    const corrected = new Date(asUtc.getTime() - offset1);
+    const offset2 = _tzOffsetMs(corrected, timezone);
+    const utc = offset2 === offset1 ? corrected : new Date(asUtc.getTime() - offset2);
+    return utc.toISOString().slice(0, 19).replace('T', ' ');
+  } catch {
+    return asUtc.toISOString().slice(0, 19).replace('T', ' ');
+  }
+}
+
+function _activityBucketOffsetMinutes(timezone: string): number {
+  try {
+    return Math.round(_tzOffsetMs(new Date(), timezone || 'UTC') / 60000);
+  } catch {
+    return 0;
+  }
+}
+
+function _activityQueryString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function _resolveActivityRange(query: Record<string, unknown>, timezone: string): ActivityRange {
+  const safeTz = timezone || 'UTC';
+  const today = _activityDateKey(new Date(), safeTz);
+  const requested = _activityQueryString(query.range).toLowerCase();
+  const rawFrom = _activityQueryString(query.from);
+  const rawTo = _activityQueryString(query.to);
+  const hasCustomDate = /^\d{4}-\d{2}-\d{2}$/.test(rawFrom) || /^\d{4}-\d{2}-\d{2}$/.test(rawTo);
+  const preset: ActivityRangePreset = ['today', 'yesterday', '7d', '30d', 'all', 'custom'].includes(requested)
+    ? (requested as ActivityRangePreset)
+    : hasCustomDate
+      ? 'custom'
+      : 'today';
+
+  if (preset === 'all') return { preset, timezone: safeTz, from: '', to: '', dateFrom: '', dateTo: '' };
+
+  let from = today;
+  let to = today;
+  if (preset === 'yesterday') {
+    from = _addActivityDays(today, -1);
+    to = from;
+  } else if (preset === '7d') {
+    from = _addActivityDays(today, -6);
+  } else if (preset === '30d') {
+    from = _addActivityDays(today, -29);
+  } else if (preset === 'custom') {
+    from = /^\d{4}-\d{2}-\d{2}$/.test(rawFrom) ? rawFrom : /^\d{4}-\d{2}-\d{2}$/.test(rawTo) ? rawTo : today;
+    to = /^\d{4}-\d{2}-\d{2}$/.test(rawTo) ? rawTo : from;
+    if (to < from) to = from;
+  }
+
+  return {
+    preset,
+    timezone: safeTz,
+    from,
+    to,
+    dateFrom: _activitySqlUtcStart(from, safeTz),
+    dateTo: _activitySqlUtcStart(_addActivityDays(to, 1), safeTz),
+  };
 }
 
 interface ItemInstanceRow {
@@ -1766,22 +1868,58 @@ class WebMapServer {
       const offset = Math.max(parseInt((req.query.offset as string) || '0', 10) || 0, 0);
       const type = (req.query.type as string) || '';
       const actor = (req.query.actor as string) || '';
+      const mode = ((req.query.mode as string) || '').toLowerCase();
+      const q = (req.query.q as string) || actor;
+      const steamId = (req.query.steamId as string) || actor || q;
+      const activityRange = _resolveActivityRange(req.query, srv.config.botTimezone || 'UTC');
+      const rangeOptions = {
+        dateFrom: activityRange.dateFrom,
+        dateTo: activityRange.dateTo,
+        bucketOffsetMinutes: _activityBucketOffsetMinutes(activityRange.timezone),
+      };
 
       try {
         let events;
-        if (actor) {
-          events = srv.db.activityLog.getActivityByActor(actor, limit, offset);
+        if (mode === 'player') {
+          events = srv.db.activityLog.searchActivityByPlayer(steamId, {
+            category: type,
+            limit,
+            offset,
+            ...rangeOptions,
+          });
+        } else if (mode === 'item') {
+          events = srv.db.activityLog.searchActivityByItem(q, { category: type, limit, offset, ...rangeOptions });
+        } else if (mode === 'container') {
+          events = srv.db.activityLog.searchActivityByContainer(q, { category: type, limit, offset, ...rangeOptions });
+        } else if (mode === 'text') {
+          events = srv.db.activityLog.searchActivity(q, { category: type, limit, offset, ...rangeOptions });
+        } else if (actor) {
+          events = srv.db.activityLog.searchActivity(actor, { category: type, limit, offset, ...rangeOptions });
         } else if (type) {
-          events = srv.db.activityLog.getActivityByCategory(type, limit, offset);
+          events = srv.db.activityLog.getActivityByCategory(type, limit, offset, rangeOptions);
         } else {
-          events = srv.db.activityLog.getRecentActivity(limit, offset);
+          events = srv.db.activityLog.getRecentActivity(limit, offset, rangeOptions);
         }
 
         // Resolve steam IDs through this server's SQLite aliases + clean UE4 blueprint names
         const resolved = (events as unknown as ActivityRow[]).map((e) => {
           // SAFETY: getRecentActivity returns DbRow[] with ActivityRow shape
           const out: ActivityRow & { actor_name?: string; target_name?: string; item?: string } = { ...e };
-          if (!out.actor_name && out.steam_id) {
+          const actorIsSteamId = !!out.actor && /^\d{17}$/.test(out.actor);
+          const details = out.details as unknown;
+          if (!out.steam_id && details && typeof details === 'object' && !Array.isArray(details)) {
+            const detailRecord = details as Record<string, unknown>;
+            const ownerCandidate =
+              detailRecord.owner || detailRecord.newOwner || detailRecord.ownerSteamId || detailRecord.oldOwner || '';
+            const ownerSteamId =
+              typeof ownerCandidate === 'string' || typeof ownerCandidate === 'number' ? String(ownerCandidate) : '';
+            if (/^\d{17}$/.test(ownerSteamId)) out.steam_id = ownerSteamId;
+          }
+          if (out.steam_id) {
+            const attributedName = this._resolveServerPlayerName(srv, out.steam_id);
+            if (attributedName) out.attributed_name = attributedName;
+          }
+          if (!out.actor_name && out.steam_id && (!out.actor || actorIsSteamId)) {
             const actorName = this._resolveServerPlayerName(srv, out.steam_id);
             if (actorName) out.actor_name = actorName;
           } else if (!out.actor_name && out.actor) {
@@ -1797,7 +1935,7 @@ class WebMapServer {
           return out;
         });
 
-        res.json({ events: resolved });
+        res.json({ events: resolved, range: activityRange, timezone: activityRange.timezone });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
       }
@@ -1806,13 +1944,20 @@ class WebMapServer {
     // ── Panel: Activity stats (aggregated trends) ──
     app.get('/api/panel/activity-stats', requireTier('survivor'), rateLimit(15000, 10), (req, res) => {
       const srv = req.srv;
-      if (!srv.db) return res.json({ categories: {}, hourly: [], daily: [], types: {} });
+      if (!srv.db)
+        return res.json({ categories: {}, hourly: [], daily: [], types: {}, topPlayers: [], topContainers: [] });
 
       try {
-        const total = srv.db.activityLog.getActivityCount();
+        const activityRange = _resolveActivityRange(req.query, srv.config.botTimezone || 'UTC');
+        const rangeOptions = {
+          dateFrom: activityRange.dateFrom,
+          dateTo: activityRange.dateTo,
+          bucketOffsetMinutes: _activityBucketOffsetMinutes(activityRange.timezone),
+        };
+        const total = srv.db.activityLog.getActivityCount(rangeOptions);
 
         // Count by type
-        const typeCounts = srv.db.activityLog.countByType() as { type: string; count: number }[];
+        const typeCounts = srv.db.activityLog.countByType(rangeOptions) as { type: string; count: number }[];
         const types: Record<string, number> = {};
         for (const r of typeCounts) types[r.type] = r.count;
 
@@ -1830,13 +1975,15 @@ class WebMapServer {
           ],
           session: ['player_connect', 'player_disconnect'],
           combat: ['player_death', 'player_death_pvp', 'damage_taken'],
-          building: [
+          structure: [
             'player_build',
             'structure_placed',
             'structure_destroyed',
             'structure_damaged',
+            'structure_upgraded',
             'building_destroyed',
             'raid_damage',
+            'clan_building_damage',
           ],
           horse: ['horse_appeared', 'horse_disappeared', 'horse_change'],
           admin: ['admin_access', 'anticheat_flag'],
@@ -1848,24 +1995,40 @@ class WebMapServer {
         }
 
         // Hourly distribution (last 7 days)
-        const hourly = srv.db.activityLog.hourlyDistribution(7) as { hour: number; count: number }[];
+        const hourly = srv.db.activityLog.hourlyDistribution(7, rangeOptions) as { hour: number; count: number }[];
 
         // Daily totals (last 30 days)
-        const daily = srv.db.activityLog.dailyCount(30) as { day: string; count: number }[];
+        const daily = srv.db.activityLog.dailyCount(30, rangeOptions) as { day: string; count: number }[];
 
         // Daily by category (last 14 days, for stacked chart)
-        const dailyByType = srv.db.activityLog.dailyByType(14) as { day: string; type: string; count: number }[];
+        const dailyByType = srv.db.activityLog.dailyByType(14, rangeOptions) as {
+          day: string;
+          type: string;
+          count: number;
+        }[];
 
-        // Top actors (last 7 days)
-        const topActors = srv.db.activityLog.topActors(7, 10) as { actor: string; count: number }[];
+        // Top reliable player actors and container actors (last 7 days)
+        const topPlayers = srv.db.activityLog.topPlayers(7, 10, rangeOptions) as { steam_id: string; count: number }[];
+        const topContainers = srv.db.activityLog.topContainers(7, 10, rangeOptions) as {
+          actor: string;
+          actor_name?: string;
+          count: number;
+        }[];
 
-        // Resolve actor names
-        for (const a of topActors) {
-          a.actor = this._resolveServerPlayerName(srv, a.actor) ?? cleanActorName(a.actor);
-        }
+        // Resolve player names and clean container actor names separately
+        const resolvedTopPlayers = topPlayers.map((p) => ({
+          steam_id: p.steam_id,
+          actor: this._resolveServerPlayerName(srv, p.steam_id) ?? p.steam_id,
+          count: p.count,
+        }));
+        const resolvedTopContainers = topContainers.map((c) => ({
+          actor: c.actor,
+          actor_name: c.actor_name || c.actor,
+          count: c.count,
+        }));
 
         // Date range
-        const range = srv.db.activityLog.dateRange();
+        const range = srv.db.activityLog.dateRange(rangeOptions);
 
         res.json({
           total,
@@ -1874,8 +2037,12 @@ class WebMapServer {
           hourly,
           daily,
           dailyByType,
-          topActors,
+          topPlayers: resolvedTopPlayers,
+          topContainers: resolvedTopContainers,
+          topActors: resolvedTopPlayers,
           dateRange: { earliest: range?.earliest, latest: range?.latest },
+          selectedRange: activityRange,
+          timezone: activityRange.timezone,
         });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
@@ -2508,6 +2675,13 @@ class WebMapServer {
             result.found = true;
             result.data = row;
             result.refTable = 'game_afflictions';
+          }
+        } else if (type === 'profession') {
+          const row = srv.db.gameData.findByName('game_professions', name);
+          if (row) {
+            result.found = true;
+            result.data = row;
+            result.refTable = 'game_professions';
           }
         } else if (type === 'skill') {
           const row = srv.db.gameData.findByName('game_skills', name);

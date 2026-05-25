@@ -15,9 +15,22 @@ import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tra
 import { errMsg } from '../utils/error.js';
 
 type ConfigType = typeof _defaultConfig;
+export const SESSION_DEDUPE_WINDOW_MS = 60_000;
+
+interface PresenceDb {
+  player?: {
+    setAllPlayersOffline?: () => void;
+    touchPresence?: (steamId: string, name: string, online: boolean) => void;
+  };
+  activityLog?: {
+    hasRecentActivity?: (type: string, steamId: string, source: string, windowMs: number) => boolean;
+    insertActivity?: (entry: Record<string, unknown>) => void;
+  };
+}
 
 interface PresenceDeps {
   config?: ConfigType;
+  db?: PresenceDb;
   playtime?: PlaytimeTracker;
   getPlayerList?: typeof _defaultGetPlayerList;
   label?: string;
@@ -25,10 +38,12 @@ interface PresenceDeps {
 
 class PlayerPresenceTracker extends EventEmitter {
   private _config: ConfigType;
+  private _db: PresenceDb | null;
   private _playtime: PlaytimeTracker;
   private _getPlayerList: typeof _defaultGetPlayerList;
   private _log: Logger;
   private _onlinePlayers: Set<string>;
+  private _onlinePlayerNames: Map<string, string>;
   private _pollTimer: ReturnType<typeof setInterval> | null;
   private _initialised: boolean;
   private _polling: boolean;
@@ -36,12 +51,14 @@ class PlayerPresenceTracker extends EventEmitter {
   constructor(deps: PresenceDeps = {}) {
     super();
     this._config = deps.config ?? _defaultConfig;
+    this._db = deps.db ?? null;
     this._playtime = deps.playtime ?? _defaultPlaytime;
     this._getPlayerList = deps.getPlayerList ?? _defaultGetPlayerList;
     // Sanitize label — may originate from user-configurable server names in multi-server mode
     this._log = createLogger(deps.label, 'PRESENCE');
 
     this._onlinePlayers = new Set();
+    this._onlinePlayerNames = new Map();
     this._pollTimer = null;
     this._initialised = false;
     this._polling = false;
@@ -103,14 +120,18 @@ class PlayerPresenceTracker extends EventEmitter {
   private async _seedPlayers() {
     try {
       const list = await this._getPlayerList();
+      this._safeSetAllOffline();
       for (const p of list.players) {
         const hasSteamId = p.steamId && p.steamId !== 'N/A';
         const id = hasSteamId ? p.steamId : p.name;
+        const name = p.name || 'Unknown';
         this._onlinePlayers.add(id);
+        if (name) this._onlinePlayerNames.set(id, name);
 
         // Start playtime session for players with a real SteamID
         if (hasSteamId) {
-          this._playtime.playerJoin(id, p.name || 'Unknown');
+          this._playtime.playerJoin(id, name);
+          this._touchPresence(id, name, true);
         }
       }
       this._initialised = true;
@@ -140,23 +161,32 @@ class PlayerPresenceTracker extends EventEmitter {
       }
 
       const currentOnline = new Set<string>();
+      const currentNames = new Map<string, string>();
       const newJoiners: { id: string; name: string; steamId: string | null }[] = [];
 
       for (const p of list.players) {
         const hasSteamId = p.steamId && p.steamId !== 'N/A';
         const id = hasSteamId ? p.steamId : p.name;
+        const name = p.name || 'Unknown';
         currentOnline.add(id);
+        if (name) currentNames.set(id, name);
 
         if (!this._onlinePlayers.has(id)) {
-          newJoiners.push({ id, name: p.name || 'Unknown', steamId: hasSteamId ? p.steamId : null });
+          newJoiners.push({ id, name, steamId: hasSteamId ? p.steamId : null });
         }
       }
 
       // Detect leaves
       for (const id of this._onlinePlayers) {
         if (!currentOnline.has(id)) {
+          const name = this._onlinePlayerNames.get(id) ?? id;
+          if (/^\d{17}$/.test(id)) {
+            this._playtime.playerLeave(id);
+            this._touchPresence(id, name, false);
+            this._recordSessionActivity('player_disconnect', id, name);
+          }
           try {
-            this.emit('playerLeft', { id });
+            this.emit('playerLeft', { id, name, steamId: /^\d{17}$/.test(id) ? id : null });
           } catch (e: unknown) {
             this._log.error('Listener error on playerLeft:', e);
           }
@@ -164,6 +194,7 @@ class PlayerPresenceTracker extends EventEmitter {
       }
 
       this._onlinePlayers = currentOnline;
+      this._onlinePlayerNames = currentNames;
 
       // Record peak player count and unique players for today (SteamID only)
       const steamOnly = ([...currentOnline] as string[]).filter((id) => /^\d{17}$/.test(id));
@@ -174,6 +205,11 @@ class PlayerPresenceTracker extends EventEmitter {
 
       // Emit join events (wrapped individually so one listener failure doesn't block others)
       for (const joiner of newJoiners) {
+        if (joiner.steamId) {
+          this._playtime.playerJoin(joiner.steamId, joiner.name);
+          this._touchPresence(joiner.steamId, joiner.name, true);
+          this._recordSessionActivity('player_connect', joiner.steamId, joiner.name);
+        }
         try {
           this.emit('playerJoined', joiner);
         } catch (e: unknown) {
@@ -184,6 +220,43 @@ class PlayerPresenceTracker extends EventEmitter {
       this._log.error('Unexpected poll error:', err);
     } finally {
       this._polling = false;
+    }
+  }
+
+  private _safeSetAllOffline(): void {
+    try {
+      this._db?.player?.setAllPlayersOffline?.();
+    } catch (err: unknown) {
+      this._log.warn('Failed to reset presence online flags:', errMsg(err));
+    }
+  }
+
+  private _touchPresence(steamId: string, name: string, online: boolean): void {
+    try {
+      this._db?.player?.touchPresence?.(steamId, name, online);
+    } catch (err: unknown) {
+      this._log.warn('Failed to update player presence:', errMsg(err));
+    }
+  }
+
+  private _recordSessionActivity(type: 'player_connect' | 'player_disconnect', steamId: string, name: string): void {
+    try {
+      const activityLog = this._db?.activityLog;
+      if (!activityLog?.insertActivity) return;
+      const hasLogSourceDuplicate =
+        activityLog.hasRecentActivity?.(type, steamId, 'log', SESSION_DEDUPE_WINDOW_MS) ?? false;
+      if (hasLogSourceDuplicate) return;
+      activityLog.insertActivity({
+        type,
+        category: 'session',
+        actor: steamId,
+        actorName: name,
+        steamId,
+        source: 'presence',
+        details: { source: 'rcon_presence' },
+      });
+    } catch (err: unknown) {
+      this._log.warn('Failed to write presence session activity:', errMsg(err));
     }
   }
 }

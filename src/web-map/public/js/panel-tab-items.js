@@ -461,6 +461,8 @@ Panel.tabs = Panel.tabs || {};
         if (fpHash && fpItem) {
           const searchEl = $('#activity-search');
           if (searchEl) searchEl.value = fpItem + '#' + fpHash;
+          S.activitySearchMode = '';
+          S.activitySearchSteamId = '';
           switchTab('activity');
           setTimeout(function () {
             if (Panel.shared.activityFeed) Panel.shared.activityFeed.resetPaging();

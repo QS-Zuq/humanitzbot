@@ -326,6 +326,16 @@ describe('LogWatcher event seams', () => {
             sftpHost: '',
           },
           db: {
+            player: {
+              resolveNameToSteamId(name: string) {
+                if (name === 'Bob') return { steamId: '76561100000000002', name, source: 'test', isCurrent: true };
+                return null;
+              },
+              resolveSteamIdToName(steamId: string) {
+                if (steamId === '76561100000000002') return 'Bob';
+                return steamId;
+              },
+            },
             activityLog: {
               insertActivitiesAt(entries: Array<Record<string, unknown>>) {
                 logged.push(...entries);
@@ -338,6 +348,7 @@ describe('LogWatcher event seams', () => {
           playerStats: {
             recordConnect: () => {},
             recordDisconnect: () => {},
+            getSteamId: (name: string) => (name === 'Alice' ? '76561100000000001' : null),
           },
           playtime: {
             playerJoin: () => {},
@@ -373,6 +384,94 @@ describe('LogWatcher event seams', () => {
     assert.ok(forwardedEvent);
     assert.equal(forwardedEvent.type, 'player_connect');
     assert.equal(forwardedEvent.steamId, '76561100000000001');
+  });
+
+  it('normalizes player Steam IDs and canonical categories at the DB logging seam', () => {
+    const { lw, logged } = createWatcher();
+
+    lw._logEvent({
+      type: 'player_death_pvp',
+      category: 'death',
+      actorName: 'Alice',
+      targetName: 'Bob',
+      timestamp: new Date('2026-01-01T12:00:00.000Z'),
+    });
+    lw._logEvent({
+      type: 'player_build',
+      category: 'build',
+      actorName: 'Alice',
+      item: 'Wall',
+      timestamp: new Date('2026-01-01T12:01:00.000Z'),
+    });
+    lw._logEvent({
+      type: 'container_loot',
+      category: 'loot',
+      actorName: 'Alice',
+      item: 'Crate',
+      timestamp: new Date('2026-01-01T12:02:00.000Z'),
+    });
+
+    const combat = logged[0];
+    const structure = logged[1];
+    const container = logged[2];
+    assert.ok(combat);
+    assert.ok(structure);
+    assert.ok(container);
+    assert.equal(combat.category, 'combat');
+    assert.equal(combat.steamId, '76561100000000001');
+    assert.equal(combat.actor, '76561100000000001');
+    assert.equal(combat.targetSteamId, '76561100000000002');
+    assert.equal(structure.category, 'structure');
+    assert.equal(structure.steamId, '76561100000000001');
+    assert.equal(container.category, 'container');
+    assert.equal(container.steamId, '76561100000000001');
+  });
+
+  it('does not duplicate presence-sourced session rows when the log line arrives later', () => {
+    const { lw, logged } = createWatcher();
+    const duplicateChecks: Array<{
+      type: string;
+      steamId: string;
+      source: string;
+      windowMs: number;
+      now: Date;
+    }> = [];
+    lw._db.activityLog.hasRecentActivity = (
+      type: string,
+      steamId: string,
+      source: string,
+      windowMs: number,
+      now: Date,
+    ) => {
+      duplicateChecks.push({ type, steamId, source, windowMs, now });
+      return source === 'presence';
+    };
+
+    lw._logEvent({
+      type: 'player_connect',
+      category: 'session',
+      actorName: 'Alice',
+      timestamp: new Date('2026-01-01T12:00:00.000Z'),
+    });
+
+    assert.equal(logged.length, 0);
+    assert.equal(duplicateChecks.length, 1);
+    assert.deepEqual(
+      {
+        type: duplicateChecks[0]?.type,
+        steamId: duplicateChecks[0]?.steamId,
+        source: duplicateChecks[0]?.source,
+        windowMs: duplicateChecks[0]?.windowMs,
+        now: duplicateChecks[0]?.now.toISOString(),
+      },
+      {
+        type: 'player_connect',
+        steamId: '76561100000000001',
+        source: 'presence',
+        windowMs: 60_000,
+        now: '2026-01-01T12:00:00.000Z',
+      },
+    );
   });
 });
 

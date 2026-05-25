@@ -826,6 +826,7 @@ class ServerInstance {
       try {
         const mod = new PlayerPresenceTracker({
           config: this.config,
+          db: this.db,
           playtime: this.playtime,
           getPlayerList: deps.getPlayerList,
           label: 'PRESENCE:' + this._log.label,

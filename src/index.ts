@@ -1080,6 +1080,7 @@ client.once(Events.ClientReady, (readyClient) => {
     // Player Presence Tracker — infrastructure (always-on: peak/unique stats, join/leave events)
     presenceTracker = new PlayerPresenceTracker({
       config,
+      db,
       playtime,
       getPlayerList,
       label: 'PRESENCE',

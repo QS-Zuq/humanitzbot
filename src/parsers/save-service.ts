@@ -193,7 +193,7 @@ class SaveService extends EventEmitter {
       getIdMap: () => this._idMap,
       getMode: () => this._mode ?? this._agentMode,
       getSyncCount: () => this._syncCount,
-      readOldStateForDiff: () => this._readOldStateForDiff(),
+      readOldStateForDiff: (candidateSteamIds) => this._readOldStateForDiff(candidateSteamIds),
       writeSaveCache: (parsed) => {
         this._writeSaveCache(parsed);
       },
@@ -1145,7 +1145,7 @@ class SaveService extends EventEmitter {
     return this._syncPipeline.syncParsedData(parsed, clans);
   }
 
-  _readOldStateForDiff(): Record<string, unknown> | null {
+  _readOldStateForDiff(candidateSteamIds: string[] = []): Record<string, unknown> | null {
     if (this._syncCount === 0) return null;
     try {
       const containers = this._db.worldObject.getAllContainers();
@@ -1156,6 +1156,9 @@ class SaveService extends EventEmitter {
       let playersList: unknown[] = [];
       try {
         playersList = this._db.player.getOnlinePlayersForDiff();
+        if (playersList.length === 0 && candidateSteamIds.length > 0) {
+          playersList = this._db.player.getPlayersForDiffBySteamIds(candidateSteamIds);
+        }
       } catch {
         /* empty */
       }
