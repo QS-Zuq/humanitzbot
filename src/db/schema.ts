@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 
@@ -890,6 +890,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_item ON activity_log(item);
 CREATE INDEX IF NOT EXISTS idx_activity_steam_id ON activity_log(steam_id);
 CREATE INDEX IF NOT EXISTS idx_activity_source ON activity_log(source);
+CREATE INDEX IF NOT EXISTS idx_activity_recent_dedupe ON activity_log(type, steam_id, source, created_at DESC, id DESC);
 `;
 
 // Activity log event types:

@@ -2,14 +2,24 @@ import type Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository.js';
 import { _json } from './db-utils.js';
 
-const FIND_BY_NAME_TABLES = new Map<string, string>([
-  ['game_items', 'game_items'],
-  ['game_buildings', 'game_buildings'],
-  ['game_vehicles_ref', 'game_vehicles_ref'],
-  ['game_animals', 'game_animals'],
-  ['game_recipes', 'game_recipes'],
-  ['game_afflictions', 'game_afflictions'],
-  ['game_skills', 'game_skills'],
+type FindByNameLookup = {
+  table: string;
+  where: string;
+  paramCount: number;
+};
+
+const FIND_BY_NAME_TABLES = new Map<string, FindByNameLookup>([
+  ['game_items', { table: 'game_items', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_buildings', { table: 'game_buildings', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_vehicles_ref', { table: 'game_vehicles_ref', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_animals', { table: 'game_animals', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_recipes', { table: 'game_recipes', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_afflictions', { table: 'game_afflictions', where: 'name LIKE ?', paramCount: 1 }],
+  ['game_skills', { table: 'game_skills', where: 'name LIKE ?', paramCount: 1 }],
+  [
+    'game_professions',
+    { table: 'game_professions', where: 'id LIKE ? OR perk LIKE ? OR enum_value LIKE ?', paramCount: 3 },
+  ],
 ]);
 
 export class GameDataRepository extends BaseRepository {
@@ -18,7 +28,7 @@ export class GameDataRepository extends BaseRepository {
     getGameItem: Database.Statement;
     searchGameItems: Database.Statement;
     countSeededItems: Database.Statement;
-    findByNameByTable: Map<string, Database.Statement>;
+    findByNameByTable: Map<string, { stmt: Database.Statement; paramCount: number }>;
   };
 
   protected _prepareStatements(): void {
@@ -38,9 +48,12 @@ export class GameDataRepository extends BaseRepository {
       searchGameItems: this._handle.prepare('SELECT * FROM game_items WHERE name LIKE ? OR id LIKE ? LIMIT 20'),
       countSeededItems: this._handle.prepare('SELECT COUNT(*) as count FROM game_items'),
       findByNameByTable: new Map(
-        Array.from(FIND_BY_NAME_TABLES.entries(), ([table, safeTable]) => [
+        Array.from(FIND_BY_NAME_TABLES.entries(), ([table, lookup]) => [
           table,
-          this._handle.prepare(`SELECT * FROM ${safeTable} WHERE name LIKE ? LIMIT 1`),
+          {
+            stmt: this._handle.prepare(`SELECT * FROM ${lookup.table} WHERE ${lookup.where} LIMIT 1`),
+            paramCount: lookup.paramCount,
+          },
         ]),
       ),
     };
@@ -192,9 +205,10 @@ export class GameDataRepository extends BaseRepository {
   }
 
   findByName(table: string, name: string) {
-    const stmt = this._stmts.findByNameByTable.get(table);
-    if (!stmt) throw new Error(`Unsupported game-data lookup table: ${table}`);
-    return stmt.get(`%${name}%`);
+    const lookup = this._stmts.findByNameByTable.get(table);
+    if (!lookup) throw new Error(`Unsupported game-data lookup table: ${table}`);
+    const q = `%${name}%`;
+    return lookup.stmt.get(...Array.from({ length: lookup.paramCount }, () => q));
   }
 
   // ─── New game reference seed methods (schema v11) ─────────────────────────

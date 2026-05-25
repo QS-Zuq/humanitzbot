@@ -16,10 +16,20 @@ Panel.tabs = Panel.tabs || {};
   const fmtNum = Panel.core.utils.fmtNum;
   const formatPlaytime = Panel.core.utils.formatPlaytime;
   const entityLink = Panel.core.utils.entityLink;
+  const clampToViewport =
+    Panel.core.utils.clampToViewport ||
+    function (popup) {
+      if (!popup) return;
+      const rect = popup.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) popup.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+      if (rect.bottom > window.innerHeight - 8)
+        popup.style.top = Math.max(8, window.innerHeight - rect.height - 8) + 'px';
+    };
   const setBreadcrumbs = Panel.nav.setBreadcrumbs;
   const getTabLabels = Panel.nav.getTabLabels;
 
   let _inited = false;
+  const _playerDetailCache = new Map();
 
   function init() {
     if (_inited) return;
@@ -215,7 +225,7 @@ Panel.tabs = Panel.tabs || {};
         '</a></td>';
       (function (player) {
         tr.addEventListener('click', function (e) {
-          if (e.target.tagName === 'A') return;
+          if (e.target.closest('a, .player-link, .entity-link')) return;
           showPlayerModal(player);
         });
       })(p);
@@ -356,7 +366,9 @@ Panel.tabs = Panel.tabs || {};
   function showPlayerModal(p) {
     const modal = $('#player-modal');
     const content = $('#player-modal-content');
-    if (!modal || !content) return;
+    if (!modal || !content) return false;
+    if (modal.closest && modal.closest('.tab-content')) document.body.appendChild(modal);
+    if (p && p.steamId) _playerDetailCache.set(p.steamId, p);
     content.innerHTML = buildPlayerDetail(p);
     content.dataset.steamId = p.steamId || '';
     modal.classList.remove('hidden');
@@ -369,6 +381,138 @@ Panel.tabs = Panel.tabs || {};
     if (typeof gsap !== 'undefined') {
       const inner = modal.querySelector('.bg-surface-100');
       if (inner) gsap.fromTo(inner, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out' });
+    }
+    return true;
+  }
+
+  function _playerPopupValue(label, value) {
+    if (value == null || value === '') return '';
+    return (
+      '<div class="flex justify-between gap-3 text-xs">' +
+      '<span class="text-muted">' +
+      esc(label) +
+      '</span><span class="text-gray-300 truncate text-right" title="' +
+      esc(value) +
+      '">' +
+      esc(value) +
+      '</span></div>'
+    );
+  }
+
+  function _playerName(p) {
+    return (p && p.name) || i18next.t('web:player_detail.player_fallback', { defaultValue: 'Unknown Player' });
+  }
+
+  function _renderPlayerPopup(triggerEl, p, loading) {
+    const old = document.querySelector('.item-popup');
+    if (old) old.remove();
+
+    const popup = document.createElement('div');
+    popup.className = 'item-popup player-popup';
+
+    const steamId = (p && p.steamId) || '';
+    const playerName = _playerName(p);
+    const isOnline = !!(p && p.isOnline);
+    const statusLabel = isOnline
+      ? i18next.t('web:dashboard.online', { defaultValue: 'Online' })
+      : i18next.t('web:dashboard.offline', { defaultValue: 'Offline' });
+
+    let html =
+      '<div class="item-popup-header">' +
+      esc(playerName) +
+      '<span class="item-popup-close" style="cursor:pointer;color:var(--color-horde, #c45a4a);font-size:14px;line-height:1;padding:2px 4px;border-radius:3px;margin:-2px -4px -2px 0" title="Close">&times;</span></div>';
+    html += '<div class="item-popup-body">';
+    html +=
+      '<div class="flex items-center gap-1.5 text-[10px] mb-2 ' +
+      (isOnline ? 'text-emerald-400' : 'text-muted') +
+      '"><span class="status-dot ' +
+      (isOnline ? 'online' : 'offline') +
+      '" style="width:7px;height:7px"></span>' +
+      esc(statusLabel) +
+      '</div>';
+
+    if (loading)
+      html +=
+        '<div class="text-[10px] text-muted mb-2">' +
+        i18next.t('web:loading.generic', { defaultValue: 'Loading...' }) +
+        '</div>';
+
+    html += '<div class="grid gap-y-0.5 mb-2">';
+    html += _playerPopupValue(i18next.t('web:player_detail.steam_id', { defaultValue: 'Steam ID' }), steamId);
+    if (p && p.level)
+      html += _playerPopupValue(i18next.t('web:player_detail.level', { defaultValue: 'Level' }), p.level);
+    if (p && p.clanName)
+      html += _playerPopupValue(
+        i18next.t('web:player_detail.clan', { defaultValue: 'Clan' }),
+        p.clanName + (p.clanRank ? ' (' + p.clanRank + ')' : ''),
+      );
+    if (p && p.profession)
+      html += _playerPopupValue(
+        i18next.t('web:player_detail.profession', { defaultValue: 'Profession' }),
+        p.profession,
+      );
+    html += '</div>';
+
+    html += '<div class="mt-2 flex gap-2 flex-wrap">';
+    if (steamId) {
+      html +=
+        '<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="' +
+        esc(steamId) +
+        '" data-mode="player" data-steam-id="' +
+        esc(steamId) +
+        '">' +
+        i18next.t('web:player_detail.activity_log', { defaultValue: 'Activity log' }) +
+        ' \u2192</span>';
+      html +=
+        '<span class="player-detail-link text-[10px] text-accent hover:underline cursor-pointer" data-steam-id="' +
+        esc(steamId) +
+        '">' +
+        i18next.t('web:player_detail.view_details', { defaultValue: 'View details' }) +
+        ' \u2192</span>';
+      html +=
+        '<a href="https://steamcommunity.com/profiles/' +
+        esc(steamId) +
+        '" target="_blank" class="text-[10px] text-accent hover:underline">' +
+        i18next.t('web:player_detail.steam_profile', { defaultValue: 'Steam profile' }) +
+        ' \u2197</a>';
+    }
+    html += '</div></div>';
+
+    popup.innerHTML = html;
+
+    const rect = triggerEl.getBoundingClientRect();
+    popup.style.position = 'fixed';
+    popup.style.left = Math.min(rect.right + 8, window.innerWidth - 320) + 'px';
+    popup.style.top = Math.max(rect.top - 20, 8) + 'px';
+    popup.style.zIndex = '10000';
+    popup.style.maxWidth = '320px';
+    document.body.appendChild(popup);
+    clampToViewport(popup);
+  }
+
+  async function showPlayerPopup(triggerEl, playerOrRef) {
+    if (!triggerEl) return;
+    const steamId = (playerOrRef && playerOrRef.steamId) || '';
+    const cached = steamId
+      ? S.players.find(function (p) {
+          return p.steamId === steamId;
+        })
+      : null;
+    const player = cached || _playerDetailCache.get(steamId) || playerOrRef || {};
+    if (steamId && player && player.steamId) _playerDetailCache.set(steamId, player);
+    _renderPlayerPopup(triggerEl, player, !!steamId && !cached);
+
+    if (steamId && !cached) {
+      try {
+        const r = await apiFetch('/api/players/' + encodeURIComponent(steamId));
+        if (r.ok) {
+          const fetched = await r.json();
+          if (fetched && fetched.steamId) _playerDetailCache.set(fetched.steamId, fetched);
+          _renderPlayerPopup(triggerEl, fetched, false);
+        }
+      } catch (_e) {
+        /* keep the lightweight fallback popup */
+      }
     }
   }
 
@@ -386,13 +530,13 @@ Panel.tabs = Panel.tabs || {};
       '<div class="text-xs text-muted">' +
       entityLink(
         p.profession || i18next.t('web:player_detail.profession_unknown', { defaultValue: 'Unknown' }),
-        'item',
+        'profession',
       ) +
       ' \u00b7 ' +
       (p.male
         ? i18next.t('web:player_detail.gender.male', { defaultValue: 'Male' })
         : i18next.t('web:player_detail.gender.female', { defaultValue: 'Female' }));
-    if (p.affliction && p.affliction !== 'Unknown') html += ' \u00b7 ' + entityLink(p.affliction, 'item');
+    if (p.affliction && p.affliction !== 'Unknown') html += ' \u00b7 ' + entityLink(p.affliction, 'affliction');
     if (p.clanName)
       html +=
         ' \u00b7 <span class="entity-link" data-entity-table="clans" data-entity-search="' +
@@ -403,11 +547,22 @@ Panel.tabs = Panel.tabs || {};
         (p.clanRank ? ' (' + esc(p.clanRank) + ')' : '');
     html += '</div>';
     html +=
-      '<a href="https://steamcommunity.com/profiles/' +
+      '<div class="flex items-center gap-3 flex-wrap mt-0.5"><a href="https://steamcommunity.com/profiles/' +
       esc(p.steamId) +
       '" target="_blank" class="text-[11px] text-accent hover:underline font-mono">' +
       esc(p.steamId) +
       '</a>';
+    if (p.steamId) {
+      html +=
+        '<span class="activity-link text-[11px] text-accent hover:underline cursor-pointer" data-search="' +
+        esc(p.steamId) +
+        '" data-mode="player" data-steam-id="' +
+        esc(p.steamId) +
+        '">' +
+        i18next.t('web:player_detail.activity_log', { defaultValue: 'Activity log' }) +
+        ' \u2192</span>';
+    }
+    html += '</div>';
     html += '</div></div>';
 
     if (p.level || p.expCurrent) {
@@ -805,14 +960,27 @@ Panel.tabs = Panel.tabs || {};
 
   async function fetchAndShowPlayer(steamId) {
     try {
-      const r = await apiFetch('/api/players/' + steamId);
+      const r = await apiFetch('/api/players/' + encodeURIComponent(steamId));
       if (r.ok) {
         const p = await r.json();
-        showPlayerModal(p);
+        if (p && p.steamId) _playerDetailCache.set(p.steamId, p);
+        return showPlayerModal(p);
       }
     } catch (_e) {
       /* silent */
     }
+    return false;
+  }
+
+  async function showPlayerDetails(steamId) {
+    if (!steamId) return false;
+    const player =
+      S.players.find(function (p) {
+        return p.steamId === steamId;
+      }) || _playerDetailCache.get(steamId);
+
+    if (player) return showPlayerModal(player);
+    return fetchAndShowPlayer(steamId);
   }
 
   function reset() {
@@ -824,6 +992,8 @@ Panel.tabs = Panel.tabs || {};
     load: loadPlayers,
     reset: reset,
     showPlayerModal: showPlayerModal,
+    showPlayerPopup: showPlayerPopup,
+    showPlayerDetails: showPlayerDetails,
     buildPlayerDetail: buildPlayerDetail,
     fetchAndShowPlayer: fetchAndShowPlayer,
     renderPlayers: renderPlayers,

@@ -91,6 +91,7 @@ export class PlayerRepository extends BaseRepository {
     getAllPlayers: Database.Statement;
     getOnlinePlayers: Database.Statement;
     getOnlinePlayersForDiff: Database.Statement;
+    touchPresence: Database.Statement;
     setPlayerOnline: Database.Statement;
     setAllOffline: Database.Statement;
     upsertPlayerLogStats: Database.Statement;
@@ -293,6 +294,15 @@ export class PlayerRepository extends BaseRepository {
       getOnlinePlayersForDiff: this._handle.prepare(
         'SELECT steam_id, name, online, inventory, equipment, quick_slots, backpack_items, pos_x, pos_y, pos_z FROM players WHERE online = 1',
       ),
+      touchPresence: this._handle.prepare(`
+        INSERT INTO players (steam_id, name, online, first_seen, last_seen, updated_at)
+        VALUES (@steam_id, @name, @online, datetime('now'), datetime('now'), datetime('now'))
+        ON CONFLICT(steam_id) DO UPDATE SET
+          name = CASE WHEN excluded.name != '' THEN excluded.name ELSE players.name END,
+          online = excluded.online,
+          last_seen = datetime('now'),
+          updated_at = datetime('now')
+      `),
       setPlayerOnline: this._handle.prepare(
         "UPDATE players SET online = ?, last_seen = datetime('now') WHERE steam_id = ?",
       ),
@@ -627,6 +637,37 @@ export class PlayerRepository extends BaseRepository {
    */
   getOnlinePlayersForDiff() {
     return this._stmts.getOnlinePlayersForDiff.all().map(_parsePlayerRowForDiff);
+  }
+
+  getPlayersForDiffBySteamIds(steamIds: string[]) {
+    const ids = [...new Set(steamIds.filter((steamId) => /^\d{17}$/.test(steamId)))];
+    if (ids.length === 0) return [];
+
+    const rows: DbRow[] = [];
+    const chunkSize = 500;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const stmt = this._handle.prepare(`
+        SELECT steam_id, name, online, inventory, equipment, quick_slots, backpack_items, pos_x, pos_y, pos_z
+        FROM players
+        WHERE steam_id IN (${placeholders})
+      `);
+      rows.push(...(stmt.all(...chunk) as DbRow[]));
+    }
+
+    return rows.map(_parsePlayerRowForDiff).filter((row): row is DbRow => row !== null);
+  }
+
+  touchPresence(steamId: string, name: string, online: boolean) {
+    if (!/^\d{17}$/.test(steamId)) return;
+    const cleanName = typeof name === 'string' ? name.trim() : '';
+    this._stmts.touchPresence.run({
+      steam_id: steamId,
+      name: cleanName,
+      online: online ? 1 : 0,
+    });
+    if (cleanName) this.registerAlias(steamId, cleanName, 'presence');
   }
 
   setPlayerOnline(steamId: string, online: boolean) {

@@ -160,10 +160,11 @@ window.Panel = window.Panel || {};
   });
 
   document.addEventListener('click', function (e) {
-    // Player link click → open player modal
+    // Player link click → show compact player popup, matching item/container links.
     const link = e.target.closest('.player-link');
     if (link) {
       e.preventDefault();
+      e.stopPropagation();
       const steamId = link.dataset.steamId;
       const name = link.textContent;
       const player = S.players.find(function (p) {
@@ -173,11 +174,30 @@ window.Panel = window.Panel || {};
           (name && p.name && p.name.toLowerCase() === name.toLowerCase())
         );
       });
-      if (player && Panel._internal.showPlayerModal) Panel._internal.showPlayerModal(player);
+      if (Panel._internal.showPlayerPopup)
+        Panel._internal.showPlayerPopup(link, player || { steamId: steamId, name: name });
+      else if (player && Panel._internal.showPlayerModal) Panel._internal.showPlayerModal(player);
       else if (steamId && Panel._internal.fetchAndShowPlayer) Panel._internal.fetchAndShowPlayer(steamId);
       else if (Panel._internal.showToast) {
         Panel._internal.showToast(i18next.t('web:toast.player_not_found', { name: name || 'Unknown' }), 2500);
       }
+      return;
+    }
+
+    // Player popup "full details" action.
+    const playerDetailLink = e.target.closest('.player-detail-link');
+    if (playerDetailLink) {
+      e.preventDefault();
+      e.stopPropagation();
+      const steamId = playerDetailLink.dataset.steamId || '';
+      const player = S.players.find(function (p) {
+        return steamId && p.steamId === steamId;
+      });
+      const openPopup = document.querySelector('.item-popup');
+      if (openPopup) openPopup.remove();
+      if (steamId && Panel._internal.showPlayerDetails) Panel._internal.showPlayerDetails(steamId);
+      else if (player && Panel._internal.showPlayerModal) Panel._internal.showPlayerModal(player);
+      else if (steamId && Panel._internal.fetchAndShowPlayer) Panel._internal.fetchAndShowPlayer(steamId);
       return;
     }
 
@@ -195,10 +215,15 @@ window.Panel = window.Panel || {};
       e.preventDefault();
       const actSearch = actLink.dataset.search || '';
       const actType = actLink.dataset.type || '';
+      const actMode = actLink.dataset.mode || '';
+      const actSteamId = actLink.dataset.steamId || '';
+      S.activitySearchMode = actMode;
+      S.activitySearchSteamId = actSteamId;
       const as = $('#activity-search');
       if (as) as.value = actSearch;
       const af = $('#activity-filter');
-      if (af && actType) af.value = actType;
+      if (af) af.value = actType;
+      S.activityCategory = actType;
       // Close any open popup/modal before navigating
       const openPopup = document.querySelector('.item-popup');
       if (openPopup) openPopup.remove();

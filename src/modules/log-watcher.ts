@@ -21,6 +21,9 @@ function runtimeStringValue(value: unknown): string {
   return '';
 }
 
+const STEAM_ID_RE = /^\d{17}$/;
+const SESSION_DEDUPE_WINDOW_MS = 60_000;
+
 interface LogWatcherDeps {
   config?: ConfigType;
   playtime?: PlaytimeTracker;
@@ -1671,41 +1674,150 @@ class LogWatcher {
   _logEvent(entry: LogEventEntry) {
     if (!this._db) return;
     try {
+      const steamId = this._resolveLogSteamId(entry.actorName, entry.steamId);
+      const targetSteamId = this._resolveLogSteamId(entry.targetName, entry.targetSteamId);
+      const actorName = this._resolveLogPlayerName(steamId, entry.actorName);
+      const targetName = this._resolveLogPlayerName(targetSteamId, entry.targetName);
+      const category = this._canonicalLogCategory(entry);
+      const actor = steamId || actorName || '';
+      const source = entry.source || 'log';
+      const details = entry.details || {};
+
+      if (this._shouldSkipPresenceDuplicate(entry.type, category, steamId, source, entry.timestamp)) return;
+
       if (entry.timestamp) {
         this._db.activityLog.insertActivitiesAt([
           {
             type: entry.type,
-            category: entry.category || '',
-            actor: entry.steamId || entry.actorName || '',
-            actorName: entry.actorName || '',
-            steamId: entry.steamId || '',
+            category,
+            actor,
+            actorName,
+            steamId,
             item: entry.item || '',
             amount: entry.amount || 0,
-            details: entry.details || {},
-            source: 'log',
-            targetName: entry.targetName || '',
-            targetSteamId: entry.targetSteamId || '',
+            details,
+            source,
+            targetName,
+            targetSteamId,
             createdAt: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : entry.timestamp,
           },
         ]);
       } else {
         this._db.activityLog.insertActivity({
           type: entry.type,
-          category: entry.category || '',
-          actor: entry.steamId || entry.actorName || '',
-          actorName: entry.actorName || '',
-          steamId: entry.steamId || '',
+          category,
+          actor,
+          actorName,
+          steamId,
           item: entry.item || '',
           amount: entry.amount || 0,
-          details: entry.details || {},
-          source: 'log',
-          targetName: entry.targetName || '',
-          targetSteamId: entry.targetSteamId || '',
+          details,
+          source,
+          targetName,
+          targetSteamId,
         });
       }
     } catch (err: unknown) {
       // DB errors should never disrupt event processing
       this._log.warn(`Failed to log event ${entry.type}:`, errMsg(err));
+    }
+  }
+
+  private _resolveLogSteamId(name: string | undefined, steamId: string | undefined): string {
+    if (steamId && STEAM_ID_RE.test(steamId)) return steamId;
+    if (name && STEAM_ID_RE.test(name)) return name;
+    if (!name) return '';
+
+    try {
+      const fromStats = this._playerStats.getSteamId(name);
+      if (fromStats && STEAM_ID_RE.test(fromStats)) return fromStats;
+    } catch {
+      /* best-effort */
+    }
+
+    try {
+      const fromDb = this._db?.player.resolveNameToSteamId(name);
+      const fromDbSteamId = typeof fromDb?.steamId === 'string' ? fromDb.steamId : '';
+      if (fromDbSteamId && STEAM_ID_RE.test(fromDbSteamId)) return fromDbSteamId;
+    } catch {
+      /* best-effort */
+    }
+
+    return '';
+  }
+
+  private _resolveLogPlayerName(steamId: string, fallbackName: string | undefined): string {
+    if (fallbackName) return fallbackName;
+    if (!steamId) return '';
+    try {
+      const name = this._db?.player.resolveSteamIdToName(steamId);
+      return name || steamId;
+    } catch {
+      return steamId;
+    }
+  }
+
+  private _canonicalLogCategory(entry: LogEventEntry): string {
+    const category = entry.category || '';
+    if (category === 'session' || entry.type === 'player_connect' || entry.type === 'player_disconnect') {
+      return 'session';
+    }
+    if (
+      category === 'combat' ||
+      category === 'death' ||
+      entry.type === 'damage_taken' ||
+      entry.type === 'player_death' ||
+      entry.type === 'player_death_pvp'
+    ) {
+      return 'combat';
+    }
+    if (
+      category === 'build' ||
+      category === 'building' ||
+      category === 'raid' ||
+      category === 'structure' ||
+      entry.type === 'player_build' ||
+      entry.type === 'raid_damage' ||
+      entry.type === 'building_destroyed' ||
+      entry.type === 'clan_building_damage'
+    ) {
+      return 'structure';
+    }
+    if (
+      category === 'loot' ||
+      category === 'clan' ||
+      category === 'container' ||
+      entry.type === 'container_loot' ||
+      entry.type === 'clan_container_access'
+    ) {
+      return 'container';
+    }
+    if (category === 'admin' || entry.type === 'admin_access' || entry.type === 'anticheat_flag') return 'admin';
+    return category;
+  }
+
+  private _shouldSkipPresenceDuplicate(
+    type: string,
+    category: string,
+    steamId: string,
+    source: string,
+    timestamp: Date | string | undefined,
+  ): boolean {
+    if (
+      source !== 'log' ||
+      category !== 'session' ||
+      (type !== 'player_connect' && type !== 'player_disconnect') ||
+      !steamId
+    ) {
+      return false;
+    }
+
+    const eventTime = timestamp instanceof Date ? timestamp : timestamp ? new Date(timestamp) : new Date();
+    const now = Number.isNaN(eventTime.getTime()) ? new Date() : eventTime;
+    try {
+      return this._db?.activityLog.hasRecentActivity(type, steamId, 'presence', SESSION_DEDUPE_WINDOW_MS, now) ?? false;
+    } catch {
+      return false;
     }
   }
 

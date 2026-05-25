@@ -68,7 +68,14 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     getRecentActivity: () => [],
     getActivityByCategory: () => [],
     getActivityByActor: () => [],
+    searchActivity: () => [],
+    searchActivityByPlayer: () => [],
+    searchActivityByItem: () => [],
+    searchActivityByContainer: () => [],
     getActivitySince: () => [],
+    countByTextSearch: () => 0,
+    topPlayers: () => [],
+    topContainers: () => [],
     getRecentChat: () => [],
     searchChat: () => [],
     getChatSince: () => [],
@@ -110,7 +117,14 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     getRecentActivity: merged.getRecentActivity,
     getActivityByCategory: merged.getActivityByCategory,
     getActivityByActor: merged.getActivityByActor,
+    searchActivity: merged.searchActivity,
+    searchActivityByPlayer: merged.searchActivityByPlayer,
+    searchActivityByItem: merged.searchActivityByItem,
+    searchActivityByContainer: merged.searchActivityByContainer,
     getActivitySince: merged.getActivitySince,
+    countByTextSearch: merged.countByTextSearch,
+    topPlayers: merged.topPlayers,
+    topContainers: merged.topContainers,
     ...actOvr,
   };
   merged.chatLog = {
@@ -650,9 +664,9 @@ describe('Web Map Read Endpoints', () => {
       );
     });
 
-    it('filters by actor query param', () => {
+    it('searches by actor query param', () => {
       const db = makeMockDb({
-        getActivityByActor: (actor: string) => [{ type: 'player_build', actor, timestamp: 'now' }],
+        searchActivity: (actor: string) => [{ type: 'player_build', actor, timestamp: 'now' }],
       });
 
       const handler = GET('/api/panel/activity');
@@ -661,6 +675,340 @@ describe('Web Map Read Endpoints', () => {
 
       assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 1);
       assert.equal(((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.actor, 'Alice');
+    });
+
+    it('scopes actor search by type query param', () => {
+      const calls: Array<{ actor: string; category?: string; limit?: number; offset?: number }> = [];
+      const db = makeMockDb({
+        searchActivity: (actor: string, opts: { category?: string; limit?: number; offset?: number }) => {
+          calls.push({ actor, ...opts });
+          return [
+            {
+              type: 'container_item_added',
+              category: opts.category,
+              actor: 'House_Chest_1',
+              actor_name: 'House Chest',
+              steam_id: '76561198000000001',
+              item: 'Rope',
+              timestamp: 'now',
+            },
+          ];
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { type: 'container', actor: 'Alice', limit: '25', offset: '5' } }, res);
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.actor, 'Alice');
+      assert.equal(call.category, 'container');
+      assert.equal(call.limit, 25);
+      assert.equal(call.offset, 5);
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.category, 'container');
+      assert.equal(event.actor_name, 'House Chest');
+      assert.equal(event.attributed_name, 'Alice');
+    });
+
+    it('resolves owner from activity details when the event has no direct steam_id', () => {
+      const db = makeMockDb({
+        getRecentActivity: () => [
+          {
+            type: 'horse_appeared',
+            category: 'horse',
+            actor: 'Horse_A::76561198000000001',
+            actor_name: 'Horse',
+            details: { owner: '76561198000000001' },
+            pos_x: 1000,
+            pos_y: -2000,
+            timestamp: 'now',
+          },
+        ],
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.steam_id, '76561198000000001');
+      assert.equal(event.attributed_name, 'Alice');
+      assert.equal(event.pos_x, 1000);
+      assert.equal(event.pos_y, -2000);
+    });
+
+    it('supports explicit player activity mode', () => {
+      const calls: Array<{ steamId: string; category?: string; limit?: number; offset?: number }> = [];
+      const db = makeMockDb({
+        activityLog: {
+          searchActivityByPlayer: (steamId: string, opts: { category?: string; limit?: number; offset?: number }) => {
+            calls.push({ steamId, ...opts });
+            return [
+              {
+                type: 'inventory_item_added',
+                category: 'inventory',
+                actor: steamId,
+                steam_id: steamId,
+                item: 'Fork',
+                timestamp: 'now',
+              },
+            ];
+          },
+          searchActivityByItem: () => {
+            throw new Error('wrong mode');
+          },
+          searchActivityByContainer: () => {
+            throw new Error('wrong mode');
+          },
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db }),
+          query: { mode: 'player', steamId: '76561198000000001', type: 'inventory', limit: '25', offset: '5' },
+        },
+        res,
+      );
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.steamId, '76561198000000001');
+      assert.equal(call.category, 'inventory');
+      assert.equal(call.limit, 25);
+      assert.equal(call.offset, 5);
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.actor_name, 'Alice');
+      assert.equal(event.item, 'Fork');
+    });
+
+    it('supports explicit item and container activity modes', () => {
+      const calls: Array<{ mode: string; q: string; category?: string }> = [];
+      const db = makeMockDb({
+        activityLog: {
+          searchActivityByItem: (q: string, opts: { category?: string }) => {
+            calls.push({ mode: 'item', q, category: opts.category });
+            return [
+              { type: 'inventory_item_added', category: 'inventory', actor: 'player', item: q, timestamp: 'now' },
+            ];
+          },
+          searchActivityByContainer: (q: string, opts: { category?: string }) => {
+            calls.push({ mode: 'container', q, category: opts.category });
+            return [{ type: 'container_item_added', category: 'container', actor: q, item: 'Fork', timestamp: 'now' }];
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+
+      const itemRes = mockRes();
+      handler({ srv: makeSrv({ db }), query: { mode: 'item', q: 'Fork' } }, itemRes);
+      assert.equal(((itemRes.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.item, 'Fork');
+
+      const containerRes = mockRes();
+      handler({ srv: makeSrv({ db }), query: { mode: 'container', q: 'BuildContainer_1134' } }, containerRes);
+      assert.equal(
+        ((containerRes.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.actor,
+        'BuildContainer_1134',
+      );
+
+      assert.equal(calls.length, 2);
+      assert.deepEqual(
+        calls.map(({ mode, q, category }) => ({ mode, q, category })),
+        [
+          { mode: 'item', q: 'Fork', category: '' },
+          { mode: 'container', q: 'BuildContainer_1134', category: '' },
+        ],
+      );
+    });
+
+    it('converts custom activity date range to bot-timezone UTC query bounds', () => {
+      const calls: Array<{ limit?: number; offset?: number; dateFrom?: string; dateTo?: string }> = [];
+      const db = makeMockDb({
+        getRecentActivity: (limit: number, offset: number, opts: { dateFrom?: string; dateTo?: string }) => {
+          calls.push({ limit, offset, ...opts });
+          return [];
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db, config: { botTimezone: 'Asia/Taipei', serverName: 'Test' } }),
+          query: { range: 'custom', from: '2026-05-24', to: '2026-05-24' },
+        },
+        res,
+      );
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.dateFrom, '2026-05-23 16:00:00');
+      assert.equal(call.dateTo, '2026-05-24 16:00:00');
+      assert.deepEqual((res.body as Record<string, unknown>).range, {
+        preset: 'custom',
+        timezone: 'Asia/Taipei',
+        from: '2026-05-24',
+        to: '2026-05-24',
+        dateFrom: '2026-05-23 16:00:00',
+        dateTo: '2026-05-24 16:00:00',
+      });
+    });
+  });
+
+  describe('GET /api/panel/activity-stats', () => {
+    it('returns canonical category keys for activity stats', () => {
+      const db = makeMockDb({
+        activityLog: {
+          getActivityCount: () => 9,
+          countByType: () => [
+            { type: 'player_build', count: 2 },
+            { type: 'raid_damage', count: 1 },
+            { type: 'container_loot', count: 3 },
+            { type: 'player_death', count: 1 },
+            { type: 'player_connect', count: 2 },
+          ],
+          hourlyDistribution: () => [],
+          dailyCount: () => [],
+          dailyByType: () => [],
+          topPlayers: () => [{ steam_id: '76561198000000001', count: 2 }],
+          topContainers: () => [{ actor: 'BuildContainer_1134', actor_name: 'BuildContainer_1134', count: 3 }],
+          dateRange: () => ({ earliest: null, latest: null }),
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity-stats');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      const body = res.body as {
+        categories: Record<string, number>;
+        total: number;
+        topPlayers: Array<{ actor: string; count: number }>;
+        topContainers: Array<{ actor: string; count: number }>;
+        topActors: Array<{ actor: string; count: number }>;
+      };
+      assert.equal(body.total, 9);
+      assert.equal(body.categories.structure, 3);
+      assert.equal(body.categories.container, 3);
+      assert.equal(body.categories.combat, 1);
+      assert.equal(body.categories.session, 2);
+      assert.equal(Object.hasOwn(body.categories, 'building'), false);
+      assert.deepEqual(body.topPlayers, [{ actor: 'Alice', steam_id: '76561198000000001', count: 2 }]);
+      assert.deepEqual(body.topActors, body.topPlayers);
+      assert.deepEqual(body.topContainers, [
+        { actor: 'BuildContainer_1134', actor_name: 'BuildContainer_1134', count: 3 },
+      ]);
+    });
+
+    it('scopes activity stats to the selected bot-timezone range', () => {
+      const calls: Array<{ method: string; dateFrom?: string; dateTo?: string }> = [];
+      const capture = (method: string) => (arg?: { dateFrom?: string; dateTo?: string }) => {
+        calls.push({ method, ...(arg || {}) });
+        return method === 'count' ? 2 : [];
+      };
+      const db = makeMockDb({
+        activityLog: {
+          getActivityCount: capture('count'),
+          countByType: capture('types'),
+          hourlyDistribution: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'hourly', ...opts });
+            return [];
+          },
+          dailyCount: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'daily', ...opts });
+            return [];
+          },
+          dailyByType: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'dailyByType', ...opts });
+            return [];
+          },
+          topPlayers: (_days: number, _limit: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'topPlayers', ...opts });
+            return [];
+          },
+          topContainers: (_days: number, _limit: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'topContainers', ...opts });
+            return [];
+          },
+          dateRange: (opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'dateRange', ...opts });
+            return { earliest: null, latest: null };
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/activity-stats');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db, config: { botTimezone: 'Asia/Taipei', serverName: 'Test' } }),
+          query: { range: 'custom', from: '2026-05-24', to: '2026-05-25' },
+        },
+        res,
+      );
+
+      assert.ok(calls.length >= 8);
+      for (const call of calls) {
+        assert.equal(call.dateFrom, '2026-05-23 16:00:00');
+        assert.equal(call.dateTo, '2026-05-25 16:00:00');
+      }
+      assert.deepEqual((res.body as Record<string, unknown>).selectedRange, {
+        preset: 'custom',
+        timezone: 'Asia/Taipei',
+        from: '2026-05-24',
+        to: '2026-05-25',
+        dateFrom: '2026-05-23 16:00:00',
+        dateTo: '2026-05-25 16:00:00',
+      });
+    });
+  });
+
+  // ── GET /api/panel/lookup/:type/:name ─────────────────────
+
+  describe('GET /api/panel/lookup/:type/:name', () => {
+    it('looks up professions through game_professions', () => {
+      const calls: Array<{ table: string; name: string }> = [];
+      const db = makeMockDb({
+        gameData: {
+          findByName: (table: string, name: string) => {
+            calls.push({ table, name });
+            return table === 'game_professions' && name === 'Farmer'
+              ? { id: 'Farmer', perk: 'Grow food faster' }
+              : null;
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/lookup/:type/:name');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { type: 'profession', name: 'Farmer' }, query: {} }, res);
+
+      assert.deepEqual(calls, [{ table: 'game_professions', name: 'Farmer' }]);
+      assert.equal((res.body as Record<string, unknown>).found, true);
+      assert.equal((res.body as Record<string, unknown>).refTable, 'game_professions');
     });
   });
 

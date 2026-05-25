@@ -1256,7 +1256,7 @@ describe('Item Tracker', () => {
       assert.ok(indexNames('item_groups').includes('idx_item_grp_lost_at'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
-      assert.equal(db._getMeta('schema_version'), '16');
+      assert.equal(db._getMeta('schema_version'), '17');
     });
   });
 });

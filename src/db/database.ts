@@ -561,6 +561,13 @@ class HumanitZDB {
         } catch {
           /* */
         }
+        try {
+          this._handle.exec(
+            'CREATE INDEX IF NOT EXISTS idx_activity_recent_dedupe ON activity_log(type, steam_id, source, created_at DESC, id DESC)',
+          );
+        } catch {
+          /* */
+        }
 
         // Chat log table
         this._handle.exec(`
@@ -1284,6 +1291,14 @@ class HumanitZDB {
           CREATE INDEX IF NOT EXISTS idx_item_mov_group ON item_movements(group_id);
         `);
         this._log.info('Migration v15→v16: item tracker purge indexes');
+      }
+
+      // v16 → v17: activity recent dedupe composite index
+      if (fromVersion < 17) {
+        this._handle.exec(`
+          CREATE INDEX IF NOT EXISTS idx_activity_recent_dedupe ON activity_log(type, steam_id, source, created_at DESC, id DESC);
+        `);
+        this._log.info('Migration v16→v17: activity recent dedupe index');
       }
 
       this._setMeta('schema_version', String(SCHEMA_VERSION));

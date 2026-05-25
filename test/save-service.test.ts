@@ -138,6 +138,9 @@ function makeDb(overrides: AnyRecord = {}) {
       getOnlinePlayersForDiff() {
         return [];
       },
+      getPlayersForDiffBySteamIds() {
+        return [];
+      },
       importIdMap(entries: AnyRecord[]) {
         importedIdMap.push(...entries);
       },
@@ -745,6 +748,71 @@ describe('SaveService _syncParsedData', () => {
     assert.ok(result.activityEvents > 0);
     assert.ok(result.diffEvents.length > 0);
     assert.equal(db.insertedActivities.length, 1);
+  });
+
+  it('falls back to current parsed Steam IDs for old player diff when no online rows exist', () => {
+    const candidateCalls: string[][] = [];
+    const db = makeDb({
+      worldObject: {
+        getAllContainers() {
+          return [{ actorName: 'crate', items: [] }];
+        },
+        getAllWorldHorses() {
+          return [];
+        },
+        getAllVehicles() {
+          return [];
+        },
+        getStructures() {
+          return [];
+        },
+      },
+      player: {
+        getOnlinePlayersForDiff() {
+          return [];
+        },
+        getPlayersForDiffBySteamIds(steamIds: string[]) {
+          candidateCalls.push(steamIds);
+          return [
+            {
+              steam_id: '76561198000000021',
+              name: 'Alice',
+              inventory: [{ item: 'Nails', amount: 3 }],
+              equipment: [],
+              quick_slots: [],
+              backpack_items: [],
+            },
+          ];
+        },
+        importIdMap(entries: AnyRecord[]) {
+          db.importedIdMap.push(...entries);
+        },
+      },
+    });
+    const svc = makeService(db);
+    svc._syncCount = 1;
+    const parsed = makeParsedSave({
+      players: new Map([
+        [
+          '76561198000000021',
+          {
+            name: 'Alice',
+            inventory: [],
+            equipment: [],
+            quick_slots: [],
+            backpack_items: [],
+          },
+        ],
+      ]),
+      containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 3 }] }],
+    });
+
+    const result = svc._syncParsedData(parsed, []);
+
+    assert.deepEqual(candidateCalls, [['76561198000000021']]);
+    const containerEvent = result.diffEvents.find((event: AnyRecord) => event.type === 'container_item_added');
+    assert.ok(containerEvent);
+    assert.equal(containerEvent.attributedSteamId, '76561198000000021');
   });
 
   it('continues when guarded activity log insert and purge fail', () => {

@@ -91,7 +91,7 @@ export interface SaveSyncPipelineDeps {
   getIdMap: () => Record<string, string>;
   getMode: () => string;
   getSyncCount: () => number;
-  readOldStateForDiff: () => Record<string, unknown> | null;
+  readOldStateForDiff: (candidateSteamIds?: string[]) => Record<string, unknown> | null;
   writeSaveCache: (parsed: SaveParsedDataInput) => void;
   emitSync: (result: SaveSyncResult) => void;
   shouldFetchClanData: () => boolean;
@@ -204,7 +204,8 @@ export class SaveSyncPipeline {
     if (isFirstSync) return diffEvents;
 
     try {
-      const oldState = this._deps.readOldStateForDiff();
+      const candidateSteamIds = [...players.keys()].filter((steamId) => /^\d{17}$/.test(steamId));
+      const oldState = this._deps.readOldStateForDiff(candidateSteamIds);
       if (oldState) {
         const newState = {
           containers: parsed.containers ?? [],

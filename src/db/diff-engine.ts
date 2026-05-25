@@ -83,6 +83,14 @@ interface PlayerChanges {
   lost: Map<string, number>;
 }
 
+type AttributionStatus = 'attributed' | 'ambiguous' | 'unmatched' | 'no_inventory_delta';
+
+interface AttributionCandidate {
+  name: string;
+  steamId: string;
+  matchAmount: number;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  Main entry point
 // ═══════════════════════════════════════════════════════════════════════════
@@ -833,7 +841,7 @@ function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
   const containerEvents = events.filter((e) => e.category === 'container' && e.item);
   const inventoryEvents = events.filter((e) => e.category === 'inventory' && e.item);
 
-  if (containerEvents.length === 0 || inventoryEvents.length === 0) return;
+  if (containerEvents.length === 0) return;
 
   const playerChanges = new Map<string, PlayerChanges>();
   for (const e of inventoryEvents) {
@@ -862,7 +870,12 @@ function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
   for (const ce of containerEvents) {
     if (ce.type !== 'container_item_added' && ce.type !== 'container_item_removed') continue;
 
-    let bestPlayer: { name: string; steamId: string } | null = null;
+    if (playerChanges.size === 0) {
+      _setContainerAttribution(ce, 'no_inventory_delta', 'no matching inventory delta events in this sync batch');
+      continue;
+    }
+
+    let bestPlayers: AttributionCandidate[] = [];
     let bestScore = 0;
 
     for (const [steamId, pc] of playerChanges) {
@@ -877,17 +890,61 @@ function _crossReferenceContainerAccess(events: ActivityEvent[]): void {
         ce.type === 'container_item_removed' ? (pc.gained.get(ce.item) ?? 0) : (pc.lost.get(ce.item) ?? 0);
 
       const score = Math.min(matchAmount, ce.amount);
-      if (score > 0 && score > bestScore) {
+      if (score <= 0) continue;
+      if (score > bestScore) {
         bestScore = score;
-        bestPlayer = { name: pc.name, steamId };
+        bestPlayers = [{ name: pc.name, steamId, matchAmount: score }];
+      } else if (score === bestScore) {
+        bestPlayers.push({ name: pc.name, steamId, matchAmount: score });
       }
     }
 
-    if (bestPlayer) {
+    if (bestScore <= 0) {
+      _setContainerAttribution(ce, 'unmatched', 'inventory deltas exist but none match this container item');
+      continue;
+    }
+
+    if (bestPlayers.length === 1) {
+      const [bestPlayer] = bestPlayers;
+      if (!bestPlayer) continue;
       ce.attributedPlayer = bestPlayer.name;
       ce.attributedSteamId = bestPlayer.steamId;
+      _setContainerAttribution(ce, 'attributed', 'unique matching inventory delta', bestScore, bestPlayers);
+    } else {
+      _setContainerAttribution(
+        ce,
+        'ambiguous',
+        'multiple players have equally strong matching inventory deltas',
+        bestScore,
+        bestPlayers,
+      );
     }
   }
+}
+
+function _setContainerAttribution(
+  event: ActivityEvent,
+  status: AttributionStatus,
+  reason: string,
+  matchAmount = 0,
+  matchedCandidates: AttributionCandidate[] = [],
+): void {
+  const candidateCount = matchedCandidates.length;
+  event.details = {
+    ...event.details,
+    attributionSource: 'save-diff-inventory-crossref',
+    matchAmount,
+    ambiguous: status === 'ambiguous',
+    candidateCount,
+    attribution: {
+      status,
+      source: 'save-diff-inventory-crossref',
+      reason,
+      matchAmount,
+      candidateCount,
+      ...(matchedCandidates.length > 0 ? { matchedCandidates } : {}),
+    },
+  };
 }
 
 export {

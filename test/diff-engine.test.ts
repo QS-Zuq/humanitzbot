@@ -5,6 +5,7 @@ import * as _diff_engine from '../src/db/diff-engine.js';
 const {
   diffContainers,
   diffHorses,
+  diffSaveState,
   diffPlayerInventories,
   diffWorldState,
   diffVehicleInventories,
@@ -557,5 +558,172 @@ describe('diffVehicleInventories', () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].type, 'vehicle_item_added');
     assert.equal(events[0].category, 'vehicle');
+  });
+});
+
+describe('container attribution cross-reference', () => {
+  it('attributes a container transfer only when one player has a positive matching inventory delta', () => {
+    const events = diffSaveState(
+      {
+        containers: [{ actorName: 'crate', items: [] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [{ item: 'Nails', amount: 4 }],
+          },
+        ],
+      },
+      {
+        containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 4 }] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [],
+          },
+        ],
+      },
+      (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+    );
+
+    const containerEvent = events.find((event: any) => event.type === 'container_item_added');
+    assert.ok(containerEvent);
+    assert.equal(containerEvent.attributedSteamId, '76561198000000001');
+    assert.equal(containerEvent.attributedPlayer, 'Alice');
+    assert.deepEqual(containerEvent.details, {
+      durability: undefined,
+      ammo: undefined,
+      attributionSource: 'save-diff-inventory-crossref',
+      matchAmount: 4,
+      ambiguous: false,
+      candidateCount: 1,
+      attribution: {
+        status: 'attributed',
+        source: 'save-diff-inventory-crossref',
+        reason: 'unique matching inventory delta',
+        matchAmount: 4,
+        candidateCount: 1,
+        matchedCandidates: [{ name: 'Alice', steamId: '76561198000000001', matchAmount: 4 }],
+      },
+    });
+  });
+
+  it('marks tie matches as ambiguous and does not assign a player', () => {
+    const events = diffSaveState(
+      {
+        containers: [{ actorName: 'crate', items: [] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [{ item: 'Nails', amount: 2 }],
+          },
+          {
+            steam_id: '76561198000000002',
+            name: 'Bob',
+            inventory: [{ item: 'Nails', amount: 2 }],
+          },
+        ],
+      },
+      {
+        containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 2 }] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [],
+          },
+          {
+            steam_id: '76561198000000002',
+            name: 'Bob',
+            inventory: [],
+          },
+        ],
+      },
+    );
+
+    const containerEvent = events.find((event: any) => event.type === 'container_item_added');
+    assert.ok(containerEvent);
+    assert.equal(containerEvent.attributedSteamId, undefined);
+    assert.equal(containerEvent.attributedPlayer, undefined);
+    assert.equal(containerEvent.details.ambiguous, true);
+    assert.equal(containerEvent.details.matchAmount, 2);
+    assert.equal(containerEvent.details.candidateCount, 2);
+    assert.equal(containerEvent.details.attribution.status, 'ambiguous');
+    assert.equal(
+      containerEvent.details.attribution.reason,
+      'multiple players have equally strong matching inventory deltas',
+    );
+    assert.deepEqual(containerEvent.details.attribution.matchedCandidates, [
+      { name: 'Alice', steamId: '76561198000000001', matchAmount: 2 },
+      { name: 'Bob', steamId: '76561198000000002', matchAmount: 2 },
+    ]);
+  });
+
+  it('marks container changes with no player inventory deltas as no_inventory_delta', () => {
+    const events = diffSaveState(
+      {
+        containers: [{ actorName: 'crate', items: [] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [],
+          },
+        ],
+      },
+      {
+        containers: [{ actorName: 'crate', items: [{ item: 'Fork', amount: 1 }] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [],
+          },
+        ],
+      },
+    );
+
+    const containerEvent = events.find((event: any) => event.type === 'container_item_added');
+    assert.ok(containerEvent);
+    assert.equal(containerEvent.attributedSteamId, undefined);
+    assert.equal(containerEvent.details.attribution.status, 'no_inventory_delta');
+    assert.equal(containerEvent.details.attribution.matchAmount, 0);
+    assert.equal(containerEvent.details.attribution.candidateCount, 0);
+  });
+
+  it('marks container changes as unmatched when inventory deltas do not match the item', () => {
+    const events = diffSaveState(
+      {
+        containers: [{ actorName: 'crate', items: [] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [{ item: 'Nails', amount: 1 }],
+          },
+        ],
+      },
+      {
+        containers: [{ actorName: 'crate', items: [{ item: 'Fork', amount: 1 }] }],
+        players: [
+          {
+            steam_id: '76561198000000001',
+            name: 'Alice',
+            inventory: [],
+          },
+        ],
+      },
+    );
+
+    const containerEvent = events.find((event: any) => event.type === 'container_item_added');
+    assert.ok(containerEvent);
+    assert.equal(containerEvent.attributedSteamId, undefined);
+    assert.equal(containerEvent.details.attribution.status, 'unmatched');
+    assert.equal(
+      containerEvent.details.attribution.reason,
+      'inventory deltas exist but none match this container item',
+    );
   });
 });

@@ -303,7 +303,7 @@ window.Panel = window.Panel || {};
     // Quick links
     html += '<div class="mt-2 flex gap-2 flex-wrap">';
     const actSearchVal = fp ? name + '#' + fp : name;
-    html += `<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="${esc(actSearchVal)}">${fp ? '\ud83d\udd0d ' + i18next.t('web:item_popup.track_item') : i18next.t('web:item_popup.activity_log')} \u2192</span>`;
+    html += `<span class="activity-link text-[10px] text-accent hover:underline cursor-pointer" data-search="${esc(actSearchVal)}" data-mode="${fp ? '' : 'item'}">${fp ? '\ud83d\udd0d ' + i18next.t('web:item_popup.track_item') : i18next.t('web:item_popup.activity_log')} \u2192</span>`;
     if (S.tier >= 3) {
       // admin
       const dbSearch = fp || name;
@@ -581,6 +581,8 @@ window.Panel = window.Panel || {};
 
     // Activity tab — reset charts flag so they reload for new server
     S.activityCategory = '';
+    S.activitySearchMode = '';
+    S.activitySearchSteamId = '';
     S.activityChartsLoaded = false;
     if (S.activityCharts) {
       Object.keys(S.activityCharts).forEach(function (k) {
@@ -1004,16 +1006,37 @@ window.Panel = window.Panel || {};
       as.addEventListener(
         'input',
         debounce(function () {
+          S.activitySearchMode = '';
+          S.activitySearchSteamId = '';
           resetActivityPaging();
           if (Panel.tabs.activity) Panel.tabs.activity.loadActivity();
         }, 300),
       );
-    const ad = $('#activity-date');
-    if (ad)
-      ad.addEventListener('change', function () {
-        resetActivityPaging();
-        if (Panel.tabs.activity) Panel.tabs.activity.loadActivity();
+    function reloadActivityRange() {
+      resetActivityPaging();
+      if (Panel.tabs.activity) {
+        if (Panel.tabs.activity.updateRangeControls) Panel.tabs.activity.updateRangeControls();
+        Panel.tabs.activity.loadActivity();
+        Panel.tabs.activity.loadActivityStats();
+      }
+    }
+    const arp = $('#activity-range-preset');
+    if (arp)
+      arp.addEventListener('change', function () {
+        S.activityRangePreset = arp.value || 'today';
+        reloadActivityRange();
       });
+    ['activity-date-from', 'activity-date-to'].forEach(function (id) {
+      const dateInput = $('#' + id);
+      if (!dateInput) return;
+      dateInput.addEventListener('change', function () {
+        resetActivityPaging();
+        if (Panel.tabs.activity) {
+          Panel.tabs.activity.loadActivity();
+          Panel.tabs.activity.loadActivityStats();
+        }
+      });
+    });
     // Charts toggle
     const actChartToggle = $('#activity-toggle-charts');
     if (actChartToggle)
@@ -1331,6 +1354,12 @@ window.Panel = window.Panel || {};
   Panel._internal = Panel._internal || {};
   Panel._internal.showPlayerModal = function (p) {
     if (Panel.tabs.players) Panel.tabs.players.showPlayerModal(p);
+  };
+  Panel._internal.showPlayerPopup = function (triggerEl, p) {
+    if (Panel.tabs.players) Panel.tabs.players.showPlayerPopup(triggerEl, p);
+  };
+  Panel._internal.showPlayerDetails = function (id) {
+    if (Panel.tabs.players) Panel.tabs.players.showPlayerDetails(id);
   };
   Panel._internal.fetchAndShowPlayer = function (id) {
     if (Panel.tabs.players) Panel.tabs.players.fetchAndShowPlayer(id);
