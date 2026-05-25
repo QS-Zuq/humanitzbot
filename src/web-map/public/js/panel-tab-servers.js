@@ -32,7 +32,10 @@ Panel.tabs = Panel.tabs || {};
 
   function relativeTime(dateStr) {
     if (!dateStr) return t('card_last_sync_never');
-    var diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    var parser = Panel.core.utils && Panel.core.utils.parseDbTimestamp;
+    var date = parser ? parser(dateStr) : new Date(dateStr);
+    if (!date || Number.isNaN(date.getTime())) return t('card_last_sync_never');
+    var diff = Math.floor((Date.now() - date.getTime()) / 1000);
     if (diff < 60) return diff + 's ago';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';

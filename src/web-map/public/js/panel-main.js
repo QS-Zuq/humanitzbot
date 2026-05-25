@@ -152,7 +152,9 @@ window.Panel = window.Panel || {};
 
   function _timeAgo(dateStr) {
     if (!dateStr) return '-';
-    let d = new Date(dateStr + 'Z');
+    const parser = Panel.core.utils && Panel.core.utils.parseDbTimestamp;
+    const d = parser ? parser(dateStr) : new Date(dateStr);
+    if (!d || Number.isNaN(d.getTime())) return '-';
     const now = Date.now();
     const diff = Math.max(0, now - d.getTime());
     if (diff < 60000) return 'now';

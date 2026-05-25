@@ -14,6 +14,7 @@ import {
 import { t, getLocale, fmtDate, fmtNumber } from '../i18n/index.js';
 import { formatUptime as fmtUp } from '../server/server-resources.js';
 import _defaultConfig from '../config/index.js';
+import { parseDbTimestampUtc } from '../db/timestamp.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,8 @@ function _weatherLabel(locale: string, weather: unknown): string {
 
 function _footer(playtimeTracker: PlaytimeLike, cfg: ConfigType): string {
   const locale = getLocale({ serverConfig: cfg });
-  const since = fmtDate(playtimeTracker.getTrackingSince(), locale, cfg.botTimezone);
+  const trackingSince = parseDbTimestampUtc(playtimeTracker.getTrackingSince());
+  const since = trackingSince ? fmtDate(trackingSince, locale, cfg.botTimezone) : '--';
   return _ts(locale, 'tracking_footer', { since });
 }
 
@@ -225,7 +227,8 @@ function _statsBlock(
   }
 
   const peaks = playtimeTracker.getPeaks();
-  const allTimePeakDate = peaks.allTimePeakDate ? fmtDate(peaks.allTimePeakDate, locale, cfg.botTimezone) : '';
+  const parsedAllTimePeakDate = parseDbTimestampUtc(peaks.allTimePeakDate);
+  const allTimePeakDate = parsedAllTimePeakDate ? fmtDate(parsedAllTimePeakDate, locale, cfg.botTimezone) : '';
   fields.push(
     {
       name: _ts(locale, 'todays_peak'),

@@ -13,6 +13,8 @@ Panel.tabs = Panel.tabs || {};
   const el = Panel.core.el;
   const esc = Panel.core.esc;
   const apiFetch = Panel.core.apiFetch;
+  const parseDbTimestamp = Panel.core.utils.parseDbTimestamp;
+  const resolvePanelTimeZone = Panel.core.utils.resolvePanelTimeZone;
 
   let _inited = false;
 
@@ -71,29 +73,34 @@ Panel.tabs = Panel.tabs || {};
       const m = chrono[i];
 
       if (!compact && m.created_at) {
-        const d = new Date(m.created_at);
-        const dateKey = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
-        const timeKey = dateKey + '-' + Math.floor(d.getTime() / 1800000);
-        if (timeKey !== lastDateKey) {
-          const sep = el('div', 'chat-time-sep');
-          let label = dateKey;
-          if (i > 0) {
-            label += ' \u00b7 ' + (window.fmtTime ? window.fmtTime(d) : d.toLocaleTimeString());
+        const d = parseDbTimestamp ? parseDbTimestamp(m.created_at) : null;
+        if (d) {
+          const timezone = resolvePanelTimeZone ? resolvePanelTimeZone() : '';
+          const dateKey = window.fmtDate ? window.fmtDate(d, timezone || undefined) : d.toLocaleDateString();
+          const timeKey = dateKey + '-' + Math.floor(d.getTime() / 1800000);
+          if (timeKey !== lastDateKey) {
+            const sep = el('div', 'chat-time-sep');
+            let label = dateKey;
+            if (i > 0) {
+              label +=
+                ' \u00b7 ' + (window.fmtTime ? window.fmtTime(d, timezone || undefined) : d.toLocaleTimeString());
+            }
+            sep.innerHTML = '<span>' + esc(label) + '</span>';
+            container.appendChild(sep);
+            lastDateKey = timeKey;
           }
-          sep.innerHTML = '<span>' + esc(label) + '</span>';
-          container.appendChild(sep);
-          lastDateKey = timeKey;
         }
       }
       const msg = el('div', 'chat-msg');
       const isSystem = m.type === 'join' || m.type === 'leave' || m.type === 'death';
       const isOutbound = m.direction === 'outbound';
-      const timestamp =
-        !compact && m.created_at
-          ? window.fmtTime
-            ? window.fmtTime(new Date(m.created_at))
-            : new Date(m.created_at).toLocaleTimeString()
-          : '';
+      const date = !compact && m.created_at && parseDbTimestamp ? parseDbTimestamp(m.created_at) : null;
+      const timezone = resolvePanelTimeZone ? resolvePanelTimeZone() : '';
+      const timestamp = date
+        ? window.fmtTime
+          ? window.fmtTime(date, timezone || undefined)
+          : date.toLocaleTimeString()
+        : '';
       const timeHtml = timestamp ? '<span class="chat-time-inline">' + timestamp + '</span>' : '';
       if (isSystem) {
         const action = m.type === 'join' ? 'joined' : m.type === 'leave' ? 'left' : 'died';

@@ -16,6 +16,7 @@ import * as gameData from '../parsers/game-data.js';
 import { cleanItemName as _rawClean, cleanItemArray, isHexGuid } from '../parsers/ue4-names.js';
 import { buildScheduleField } from '../server/server-display.js';
 import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
+import { parseDbTimestampUtc } from '../db/timestamp.js';
 
 // ─── PSCThis — shape of `this` in all embed builder methods ──────────────────
 
@@ -35,6 +36,7 @@ interface ClanEntry {
 interface PSCThis {
   _config: {
     locale?: string;
+    botTimezone?: string;
     serverName?: string;
     canShow(key: string, isAdmin: boolean): boolean;
     showHealth?: boolean;
@@ -841,8 +843,8 @@ function buildFullPlayerEmbed(this: PSCThis, steamId: string, { isAdmin = false 
   // First seen + sessions
   const metaBits = [];
   if (resolved.firstSeen) {
-    const fs = new Date(resolved.firstSeen);
-    metaBits.push(_tp(locale, 'first_seen', { date: fmtDate(fs, locale) }));
+    const fs = parseDbTimestampUtc(resolved.firstSeen);
+    if (fs) metaBits.push(_tp(locale, 'first_seen', { date: fmtDate(fs, locale, this._config.botTimezone) }));
   }
   if (pt?.sessions && pt.sessions > 0) {
     metaBits.push(
@@ -1395,13 +1397,15 @@ function buildFullPlayerEmbed(this: PSCThis, steamId: string, { isAdmin = false 
   // Last active + connections
   const metaLines = [];
   if (resolved.lastActive) {
-    const d = new Date(resolved.lastActive);
-    metaLines.push(
-      _tp(locale, 'last_seen', {
-        date: fmtDate(d, locale),
-        time: fmtTime(d, locale),
-      }),
-    );
+    const d = parseDbTimestampUtc(resolved.lastActive);
+    if (d) {
+      metaLines.push(
+        _tp(locale, 'last_seen', {
+          date: fmtDate(d, locale, this._config.botTimezone),
+          time: fmtTime(d, locale, this._config.botTimezone),
+        }),
+      );
+    }
   }
   if (this._config.canShow('showConnections', isAdmin) && log) {
     const conn = [];
@@ -1482,9 +1486,10 @@ function buildFullPlayerEmbed(this: PSCThis, steamId: string, { isAdmin = false 
       const flags = cheatFlags.slice(-3) as Record<string, unknown>[];
       const lines = flags.map((f) => {
         const ts = f['timestamp'];
-        const d = new Date(typeof ts === 'string' ? ts : 0);
+        const d = parseDbTimestampUtc(ts);
         const flagType = f['type'];
-        return `${fmtDate(d, locale)} \u2014 \`${typeof flagType === 'string' ? flagType : ''}\``;
+        const date = d ? fmtDate(d, locale, this._config.botTimezone) : '--';
+        return `${date} \u2014 \`${typeof flagType === 'string' ? flagType : ''}\``;
       });
       if (cheatFlags.length > 3) {
         lines.unshift(_tp(locale, 'ac_flags_total', { count: fmtNumber(cheatFlags.length, locale) }));

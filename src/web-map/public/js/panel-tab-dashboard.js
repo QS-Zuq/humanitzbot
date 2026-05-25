@@ -116,6 +116,7 @@ Panel.tabs = Panel.tabs || {};
       const status = results[0].ok ? await results[0].json() : {};
       const stats = results[1].ok ? await results[1].json() : {};
       const caps = results[2].ok ? await results[2].json() : {};
+      S.timezone = status.timezone || S.timezone || '';
 
       const isOn = status.serverState === 'running';
       const stEl = $('#d-status');
@@ -864,10 +865,9 @@ Panel.tabs = Panel.tabs || {};
   /** Format relative time from ISO string */
   function _relativeTime(isoStr) {
     if (!isoStr) return '';
-    var d = new Date(isoStr);
-    if (isNaN(d.getTime())) {
-      d = new Date(isoStr + 'Z');
-    }
+    var parser = Panel.core.utils && Panel.core.utils.parseDbTimestamp;
+    var d = parser ? parser(isoStr) : new Date(isoStr);
+    if (!d || isNaN(d.getTime())) return '';
     var diff = Math.max(0, Date.now() - d.getTime());
     if (diff < 60000) return i18next.t('web:common.just_now', { defaultValue: 'just now' });
     if (diff < 3600000) return Math.floor(diff / 60000) + 'm';

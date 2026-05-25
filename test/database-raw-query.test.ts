@@ -474,6 +474,136 @@ describe('PR3 repository migration helpers', () => {
     assert.ok(indexes.some((row) => row.name === 'idx_activity_recent_dedupe'));
   });
 
+  it('normalizes explicit DB wall-clock timestamp writes to canonical UTC text', () => {
+    const steamId = '76561198000000123';
+
+    db.chatLog.insertChatAt({
+      type: 'game',
+      playerName: 'Alice',
+      steamId,
+      message: 'hello',
+      createdAt: '2026-05-25T09:53:29.769Z',
+    });
+    const chat = db.rawQuery('SELECT created_at FROM chat_log WHERE steam_id = ?', [steamId], {
+      ctx: 'test:chat-timestamp-normalized',
+      mode: 'get',
+    }) as { created_at: string } | undefined;
+    assert.equal(chat?.created_at, '2026-05-25 09:53:29');
+
+    db.activityLog.insertActivitiesAt([
+      {
+        type: 'loot',
+        category: 'inventory',
+        actor: steamId,
+        actorName: 'Alice',
+        item: 'Bandage',
+        createdAt: '2026-05-25T09:54:30.123Z',
+      },
+    ]);
+    const activity = db.rawQuery('SELECT created_at FROM activity_log WHERE actor = ?', [steamId], {
+      ctx: 'test:activity-timestamp-normalized',
+      mode: 'get',
+    }) as { created_at: string } | undefined;
+    assert.equal(activity?.created_at, '2026-05-25 09:54:30');
+
+    db.player.upsertFullPlaytime(steamId, {
+      name: 'Alice',
+      totalMs: 123_000,
+      sessions: 1,
+      firstSeen: '2026-05-25T09:53:29.769Z',
+      lastLogin: new Date('2026-05-25T10:00:00.999Z'),
+      lastSeen: '2026-05-25 10:01:02',
+    });
+    db.player.upsertFullLogStats(steamId, {
+      name: 'Alice',
+      cheatFlags: [{ type: 'speed', timestamp: '2026-05-25T10:02:03.456Z' }],
+      lastEvent: '2026-05-25T10:03:04.567Z',
+    });
+    db.player.updatePlayerName(steamId, 'Alice2', [{ name: 'Alice', until: '2026-05-25T10:04:05.678Z' }]);
+    db.player.setServerPeak('all_time_peak_date', '2026-05-25T10:05:06.789Z');
+    db.player.setServerPeak('today_date', '2026-05-25');
+
+    const player = db.rawQuery(
+      `SELECT playtime_first_seen, playtime_last_login, playtime_last_seen,
+              log_last_event, log_cheat_flags, name_history
+       FROM players WHERE steam_id = ?`,
+      [steamId],
+      { ctx: 'test:player-timestamp-normalized', mode: 'get' },
+    ) as {
+      playtime_first_seen: string;
+      playtime_last_login: string;
+      playtime_last_seen: string;
+      log_last_event: string;
+      log_cheat_flags: string;
+      name_history: string;
+    };
+
+    assert.equal(player.playtime_first_seen, '2026-05-25 09:53:29');
+    assert.equal(player.playtime_last_login, '2026-05-25 10:00:00');
+    assert.equal(player.playtime_last_seen, '2026-05-25 10:01:02');
+    assert.equal(player.log_last_event, '2026-05-25 10:03:04');
+    assert.deepEqual(JSON.parse(player.log_cheat_flags), [{ type: 'speed', timestamp: '2026-05-25 10:02:03' }]);
+    assert.deepEqual(JSON.parse(player.name_history), [{ name: 'Alice', until: '2026-05-25 10:04:05' }]);
+
+    const peaks = db.rawQuery(
+      'SELECT key, value FROM server_peaks WHERE key IN (?, ?) ORDER BY key',
+      ['all_time_peak_date', 'today_date'],
+      {
+        ctx: 'test:server-peak-timestamp-normalized',
+      },
+    ) as Array<{ key: string; value: string }>;
+    assert.deepEqual(peaks, [
+      { key: 'all_time_peak_date', value: '2026-05-25 10:05:06' },
+      { key: 'today_date', value: '2026-05-25' },
+    ]);
+    assert.throws(() => {
+      db.chatLog.insertChatAt({
+        type: 'game',
+        playerName: 'Alice',
+        steamId,
+        message: 'bad timestamp',
+        createdAt: 'not-a-timestamp',
+      });
+    }, /Invalid chat createdAt timestamp/);
+    assert.throws(() => {
+      db.activityLog.insertActivitiesAt([
+        {
+          type: 'loot',
+          category: 'inventory',
+          actor: steamId,
+          actorName: 'Alice',
+          item: 'Bad Timestamp',
+          createdAt: 'not-a-timestamp',
+        },
+      ]);
+    }, /Invalid activity createdAt timestamp/);
+
+    const invalidSteamId = '76561198000000124';
+    db.player.upsertFullLogStats(invalidSteamId, {
+      name: 'Bob',
+      cheatFlags: [{ type: 'speed', timestamp: 'not-a-timestamp' }, { type: 'note' }],
+      lastEvent: 'not-a-timestamp',
+    });
+    db.player.updatePlayerName(invalidSteamId, 'Bob2', [{ name: 'Bob', until: 'not-a-timestamp' }, { name: 'Bobby' }]);
+    db.player.setServerPeak('unique_day_peak_date', 'not-a-timestamp');
+    const invalidPlayer = db.rawQuery(
+      'SELECT log_last_event, log_cheat_flags, name_history FROM players WHERE steam_id = ?',
+      [invalidSteamId],
+      {
+        ctx: 'test:player-invalid-timestamp-normalized',
+        mode: 'get',
+      },
+    ) as { log_last_event: string | null; log_cheat_flags: string; name_history: string };
+    assert.equal(invalidPlayer.log_last_event, null);
+    assert.deepEqual(JSON.parse(invalidPlayer.log_cheat_flags), [{ type: 'speed', timestamp: null }, { type: 'note' }]);
+    assert.deepEqual(JSON.parse(invalidPlayer.name_history), [{ name: 'Bob', until: null }, { name: 'Bobby' }]);
+    const invalidPeak = db.rawQuery('SELECT value FROM server_peaks WHERE key = ?', ['unique_day_peak_date'], {
+      ctx: 'test:server-peak-invalid-timestamp-normalized',
+      mode: 'get',
+    }) as { value: string } | undefined;
+    assert.equal(invalidPeak?.value, '');
+  });
+
   it('self-heals the recent activity dedupe index when migrating from v16', () => {
     db.db?.exec('DROP INDEX IF EXISTS idx_activity_recent_dedupe');
     db._setMeta('schema_version', '16');
