@@ -46,6 +46,7 @@ window.Panel = window.Panel || {};
     activityRangePreset: 'today',
     activitySelectedRange: null,
     activityTimeZone: '',
+    timezone: '',
     activityChartsLoaded: false,
     activityCharts: {},
     activityStats: null,

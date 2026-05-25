@@ -1,6 +1,14 @@
 import type Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository.js';
 import { type DbRow } from './db-utils.js';
+import { formatDbTimestampUtc, normalizeDbTimestampUtc } from '../timestamp.js';
+
+function _normalizeInsertChatAtTimestamp(value: unknown): string {
+  if (value == null || (typeof value === 'string' && !value.trim())) return formatDbTimestampUtc();
+  const normalized = normalizeDbTimestampUtc(value);
+  if (!normalized) throw new RangeError('Invalid chat createdAt timestamp');
+  return normalized;
+}
 
 export class ChatLogRepository extends BaseRepository {
   declare private _stmts: {
@@ -55,7 +63,7 @@ export class ChatLogRepository extends BaseRepository {
 
   /**
    * Insert a chat entry with explicit timestamp (for backfill).
-   * @param {object} entry - includes createdAt ISO string
+   * @param {object} entry - includes createdAt timestamp
    */
   insertChatAt(entry: Record<string, unknown>) {
     this._stmts.insertChatAt.run(
@@ -66,7 +74,7 @@ export class ChatLogRepository extends BaseRepository {
       entry.direction || 'game',
       entry.discordUser || '',
       entry.isAdmin ? 1 : 0,
-      entry.createdAt,
+      _normalizeInsertChatAtTimestamp(entry.createdAt ?? entry.created_at),
     );
   }
 
@@ -81,9 +89,9 @@ export class ChatLogRepository extends BaseRepository {
     return this._stmts.searchChat.all(pattern, pattern, limit);
   }
 
-  /** Get all chat since a given ISO timestamp. */
-  getChatSince(isoTimestamp: string) {
-    return this._stmts.getChatSince.all(isoTimestamp);
+  /** Get all chat since a given timestamp. */
+  getChatSince(timestamp: string) {
+    return this._stmts.getChatSince.all(normalizeDbTimestampUtc(timestamp) ?? timestamp);
   }
 
   /** Delete all chat log entries. */

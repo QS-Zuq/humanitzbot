@@ -3,6 +3,8 @@ import { t, getLocalizations, fmtDate, fmtTime } from '../i18n/index.js';
 import { formatBytes, formatUptime } from '../server/server-resources.js';
 import _panelApi from '../server/panel-api.js';
 import { errMsg } from '../utils/error.js';
+import config from '../config/index.js';
+import { parseDbTimestampUtc } from '../db/timestamp.js';
 
 const panelApi = _panelApi as typeof _panelApi & {
   getResources(): Promise<{
@@ -47,6 +49,12 @@ const panelApi = _panelApi as typeof _panelApi & {
     }>
   >;
 };
+
+function _formatTimestamp(value: unknown, locale: string): string | null {
+  const date = parseDbTimestampUtc(value);
+  if (!date) return null;
+  return `${fmtDate(date, locale, config.botTimezone)} ${fmtTime(date, locale, config.botTimezone)}`;
+}
 
 const STATE_DISPLAY: Record<string, { emoji: string; key: string; color: number }> = {
   running: { emoji: '🟢', key: 'running', color: 0x2ecc71 },
@@ -369,9 +377,7 @@ async function _backups(interaction: import('discord.js').ChatInputCommandIntera
         const status = b.is_successful ? '✅' : '❌';
         const lock = b.is_locked ? ' 🔒' : '';
         const size = formatBytes(b.bytes);
-        const date = b.completed_at
-          ? `${fmtDate(new Date(b.completed_at), locale)} ${fmtTime(new Date(b.completed_at), locale)}`
-          : t('commands:qspanel.reply.backup_in_progress', locale);
+        const date = _formatTimestamp(b.completed_at, locale) || t('commands:qspanel.reply.backup_in_progress', locale);
         return t('commands:qspanel.reply.backup_line', locale, {
           status,
           lock,
@@ -463,12 +469,8 @@ async function _schedules(interaction: import('discord.js').ChatInputCommandInte
         const active = schedule.is_active ? '🟢' : '⚫';
         const onlineOnly = schedule.only_when_online ? t('commands:qspanel.reply.online_only_suffix', locale) : '';
         const cron = `${schedule.cron?.minute ?? '*'} ${schedule.cron?.hour ?? '*'} ${schedule.cron?.day_of_month ?? '*'} ${schedule.cron?.month ?? '*'} ${schedule.cron?.day_of_week ?? '*'}`;
-        const lastRun = schedule.last_run_at
-          ? `${fmtDate(new Date(schedule.last_run_at), locale)} ${fmtTime(new Date(schedule.last_run_at), locale)}`
-          : t('commands:qspanel.reply.never', locale);
-        const nextRun = schedule.next_run_at
-          ? `${fmtDate(new Date(schedule.next_run_at), locale)} ${fmtTime(new Date(schedule.next_run_at), locale)}`
-          : '--';
+        const lastRun = _formatTimestamp(schedule.last_run_at, locale) || t('commands:qspanel.reply.never', locale);
+        const nextRun = _formatTimestamp(schedule.next_run_at, locale) || '--';
         return t('commands:qspanel.reply.schedule_line', locale, {
           active,
           name: schedule.name,

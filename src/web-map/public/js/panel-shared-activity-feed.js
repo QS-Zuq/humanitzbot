@@ -118,6 +118,9 @@ Panel.shared = Panel.shared || {};
   }
 
   function parseActivityTimestamp(value) {
+    if (Panel.core.utils && Panel.core.utils.parseDbTimestamp) {
+      return Panel.core.utils.parseDbTimestamp(value);
+    }
     if (!value) return null;
     if (value instanceof Date) return value;
     const raw = String(value).trim();
@@ -130,7 +133,12 @@ Panel.shared = Panel.shared || {};
   function formatActivityTime(value) {
     const date = parseActivityTimestamp(value);
     if (!date) return '';
-    const timezone = S.activityTimeZone || (S.activitySelectedRange && S.activitySelectedRange.timezone) || '';
+    const timezone =
+      Panel.core.utils && Panel.core.utils.resolvePanelTimeZone
+        ? Panel.core.utils.resolvePanelTimeZone(
+            S.activityTimeZone || (S.activitySelectedRange && S.activitySelectedRange.timezone) || '',
+          )
+        : S.activityTimeZone || (S.activitySelectedRange && S.activitySelectedRange.timezone) || '';
     if (window.fmtTime) return window.fmtTime(date, timezone || undefined);
     return date.toLocaleTimeString();
   }

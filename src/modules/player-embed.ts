@@ -16,6 +16,7 @@ import { EmbedBuilder } from 'discord.js';
 import _defaultPlaytime from '../tracking/playtime-tracker.js';
 import _defaultConfig from '../config/index.js';
 import { t, getLocale, fmtDate, fmtTime, fmtNumber } from '../i18n/index.js';
+import { parseDbTimestampUtc } from '../db/timestamp.js';
 
 type ConfigType = typeof _defaultConfig;
 
@@ -73,13 +74,15 @@ function buildPlayerEmbed(stats: PlayerStats, opts: PlayerEmbedOpts = {}) {
     );
   }
   if (stats.lastEvent) {
-    const d = new Date(stats.lastEvent);
-    desc.push(
-      _pe(locale, 'last_seen', {
-        date: fmtDate(d, locale, cfg.botTimezone),
-        time: fmtTime(d, locale, cfg.botTimezone),
-      }),
-    );
+    const d = parseDbTimestampUtc(stats.lastEvent);
+    if (d) {
+      desc.push(
+        _pe(locale, 'last_seen', {
+          date: fmtDate(d, locale, cfg.botTimezone),
+          time: fmtTime(d, locale, cfg.botTimezone),
+        }),
+      );
+    }
   }
   if (stats.nameHistory && stats.nameHistory.length > 0) {
     desc.push(_pe(locale, 'aka_names', { names: stats.nameHistory.map((h) => h.name).join(', ') }));
@@ -173,8 +176,9 @@ function buildPlayerEmbed(stats: PlayerStats, opts: PlayerEmbedOpts = {}) {
   if (isAdmin && stats.cheatFlags && stats.cheatFlags.length > 0) {
     const flags = stats.cheatFlags.slice(-3);
     const lines = flags.map((f) => {
-      const d = new Date(f.timestamp);
-      return `${fmtDate(d, locale, cfg.botTimezone)} \u2014 \`${f.type}\``;
+      const d = parseDbTimestampUtc(f.timestamp);
+      const date = d ? fmtDate(d, locale, cfg.botTimezone) : '--';
+      return `${date} \u2014 \`${f.type}\``;
     });
     if (stats.cheatFlags.length > 3) {
       lines.unshift(_pe(locale, 'ac_flags_total', { count: fmtNumber(stats.cheatFlags.length, locale) }));

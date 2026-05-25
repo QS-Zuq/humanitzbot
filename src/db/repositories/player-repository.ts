@@ -1,6 +1,9 @@
 import type Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository.js';
 import { _json, type DbRow } from './db-utils.js';
+import { normalizeDbTimestampUtc } from '../timestamp.js';
+
+const SERVER_PEAK_TIMESTAMP_KEYS = new Set(['tracking_since', 'all_time_peak_date', 'unique_day_peak_date']);
 
 function _parsePlayerRow(row: unknown): DbRow | null {
   if (!row) return null;
@@ -82,6 +85,31 @@ function _parsePlayerRowForDiff(row: unknown): DbRow | null {
     }
   }
   return parsed;
+}
+
+function _normalizeTimestampField(value: unknown): string | null {
+  if (value == null || (typeof value === 'string' && !value.trim())) return null;
+  return normalizeDbTimestampUtc(value);
+}
+
+function _normalizeNameHistory(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return (value as unknown[]).map((entry: unknown): unknown => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+    const record = entry as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, 'until')) return record;
+    return { ...record, until: _normalizeTimestampField(record.until) };
+  });
+}
+
+function _normalizeCheatFlags(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return (value as unknown[]).map((entry: unknown): unknown => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+    const record = entry as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, 'timestamp')) return record;
+    return { ...record, timestamp: _normalizeTimestampField(record.timestamp) };
+  });
 }
 
 export class PlayerRepository extends BaseRepository {
@@ -686,11 +714,10 @@ export class PlayerRepository extends BaseRepository {
   }
 
   /** Update name and name history. */
-  updatePlayerName(steamId: string, name: string, nameHistory: unknown[]) {
+  updatePlayerName(steamId: string, name: string, nameHistory: unknown) {
     this._handle
       .prepare("UPDATE players SET name = ?, name_history = ?, updated_at = datetime('now') WHERE steam_id = ?")
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive: untyped callers may pass null
-      .run(name, JSON.stringify(nameHistory ?? []), steamId);
+      .run(name, JSON.stringify(_normalizeNameHistory(nameHistory)), steamId);
   }
 
   /**
@@ -717,8 +744,8 @@ export class PlayerRepository extends BaseRepository {
       log_build_items: JSON.stringify(data.buildItems || {}),
       log_killed_by: JSON.stringify(data.killedBy || {}),
       log_damage_detail: JSON.stringify(data.damageTaken || {}),
-      log_cheat_flags: JSON.stringify(data.cheatFlags || []),
-      log_last_event: data.lastEvent || null,
+      log_cheat_flags: JSON.stringify(_normalizeCheatFlags(data.cheatFlags)),
+      log_last_event: normalizeDbTimestampUtc(data.lastEvent) ?? null,
     });
   }
 
@@ -740,9 +767,9 @@ export class PlayerRepository extends BaseRepository {
       name: data.name || '',
       playtime_seconds: Math.floor((Number(data.totalMs) || 0) / 1000),
       session_count: data.sessions || 0,
-      playtime_first_seen: data.firstSeen || null,
-      playtime_last_login: data.lastLogin || null,
-      playtime_last_seen: data.lastSeen || null,
+      playtime_first_seen: normalizeDbTimestampUtc(data.firstSeen) ?? null,
+      playtime_last_login: normalizeDbTimestampUtc(data.lastLogin) ?? null,
+      playtime_last_seen: normalizeDbTimestampUtc(data.lastSeen) ?? null,
     });
   }
 
@@ -757,7 +784,8 @@ export class PlayerRepository extends BaseRepository {
    * Set a server peak value (e.g. all_time_peak, today_peak, unique_today).
    */
   setServerPeak(key: string, value: unknown): void {
-    const stored = value == null ? '' : stringifyServerPeakValue(value);
+    const normalized = SERVER_PEAK_TIMESTAMP_KEYS.has(key) ? _normalizeTimestampField(value) : value;
+    const stored = normalized == null ? '' : stringifyServerPeakValue(normalized);
     this._stmts.setServerPeak.run(key, stored);
   }
 

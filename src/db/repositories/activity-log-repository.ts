@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository.js';
 import { type DbRow } from './db-utils.js';
+import { formatDbTimestampUtc, normalizeDbTimestampUtc } from '../timestamp.js';
 
 const STEAM_ID_RE = /^\d{17}$/;
 const MIN_SEARCH_TERM_LENGTH = 2;
@@ -98,29 +99,19 @@ function _mergeAttributionDetails(details: unknown, entry: Record<string, unknow
   return merged;
 }
 
-function _formatSqliteUtc(date: Date): string {
-  return date
-    .toISOString()
-    .replace('T', ' ')
-    .replace(/\.\d{3}Z$/, '');
-}
-
-function _normalizeCreatedAt(value: unknown): unknown {
-  if (value instanceof Date) return _formatSqliteUtc(value);
-  if (typeof value !== 'string') return value;
-  const raw = value.trim();
-  if (!raw) return raw;
-  const sqliteUtc = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/);
-  const parsed = new Date(sqliteUtc ? `${sqliteUtc[1]}T${sqliteUtc[2]}Z` : raw);
-  return Number.isNaN(parsed.getTime()) ? value : _formatSqliteUtc(parsed);
+function _normalizeCreatedAt(value: unknown): string | null {
+  if (value == null || (typeof value === 'string' && !value.trim())) return null;
+  const normalized = normalizeDbTimestampUtc(value);
+  if (!normalized) throw new RangeError('Invalid activity createdAt timestamp');
+  return normalized;
 }
 
 function _recentBounds(now: Date, windowMs: number) {
   if (Number.isNaN(now.getTime())) return null;
   const start = new Date(now.getTime() - windowMs);
   return {
-    sqliteStart: _formatSqliteUtc(start),
-    sqliteEnd: _formatSqliteUtc(now),
+    sqliteStart: formatDbTimestampUtc(start),
+    sqliteEnd: formatDbTimestampUtc(now),
     isoStart: start.toISOString(),
     isoEnd: now.toISOString(),
   };
@@ -198,8 +189,8 @@ function _dateParams(range: ActivityDateRangeOptions): string[] {
   const params: string[] = [];
   const from = _asString(range.dateFrom);
   const to = _asString(range.dateTo);
-  if (from) params.push(from);
-  if (to) params.push(to);
+  if (from) params.push(normalizeDbTimestampUtc(from) ?? from);
+  if (to) params.push(normalizeDbTimestampUtc(to) ?? to);
   return params;
 }
 
@@ -445,6 +436,7 @@ export class ActivityLogRepository extends BaseRepository {
     const tx = this._handle.transaction((list: Array<Record<string, unknown>>) => {
       for (const entry of list) {
         const activity = _normalizeActivityEntry(entry);
+        if (!activity.createdAt) throw new RangeError('Missing activity createdAt timestamp');
         this._stmts.insertActivityAt.run(
           activity.type,
           activity.category,
