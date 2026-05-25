@@ -122,8 +122,8 @@ Panel.shared = Panel.shared || {};
     if (value instanceof Date) return value;
     const raw = String(value).trim();
     if (!raw) return null;
-    const sqliteUtc = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?$/);
-    const parsed = new Date(sqliteUtc ? sqliteUtc[1] + 'T' + sqliteUtc[2] + 'Z' : raw);
+    const sqliteUtc = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/);
+    const parsed = new Date(sqliteUtc ? sqliteUtc[1] + 'T' + sqliteUtc[2] + (sqliteUtc[3] || '') + 'Z' : raw);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 

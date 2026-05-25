@@ -536,7 +536,7 @@ describe('HumanitZDB', () => {
 
     it('sets schema version', () => {
       const version = db._getMeta('schema_version');
-      assert.equal(version, '16');
+      assert.equal(version, '17');
     });
 
     it('creates player_aliases table', () => {

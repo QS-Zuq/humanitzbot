@@ -211,6 +211,35 @@ describe('panel shared activity feed formatter', () => {
     assert.match(row.innerHTML, /2026-05-24T15:03:12\.000Z\|Asia\/Taipei/);
   });
 
+  it('preserves sub-second precision when parsing SQLite UTC timestamps', () => {
+    const { feed } = loadActivityFeed();
+    const rows: Array<{ innerHTML: string }> = [];
+    const container = {
+      innerHTML: '',
+      appendChild: (item: { innerHTML: string }) => rows.push(item),
+    };
+
+    feed.render(
+      container,
+      [
+        {
+          type: 'inventory_item_added',
+          actor: 'Alice',
+          actor_name: 'Alice',
+          steam_id: '76561198000000001',
+          item: 'Fork',
+          amount: 1,
+          created_at: '2026-05-24 15:03:12.789',
+        },
+      ],
+      false,
+      false,
+    );
+
+    assert.equal(rows.length, 1);
+    assert.match(rows[0]?.innerHTML || '', /2026-05-24T15:03:12\.789Z\|Asia\/Taipei/);
+  });
+
   it('keeps rendering the feed when a single event formatter throws', () => {
     const errors: unknown[][] = [];
     const { feed } = loadActivityFeed({

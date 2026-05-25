@@ -98,6 +98,34 @@ function _mergeAttributionDetails(details: unknown, entry: Record<string, unknow
   return merged;
 }
 
+function _formatSqliteUtc(date: Date): string {
+  return date
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d{3}Z$/, '');
+}
+
+function _normalizeCreatedAt(value: unknown): unknown {
+  if (value instanceof Date) return _formatSqliteUtc(value);
+  if (typeof value !== 'string') return value;
+  const raw = value.trim();
+  if (!raw) return raw;
+  const sqliteUtc = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/);
+  const parsed = new Date(sqliteUtc ? `${sqliteUtc[1]}T${sqliteUtc[2]}Z` : raw);
+  return Number.isNaN(parsed.getTime()) ? value : _formatSqliteUtc(parsed);
+}
+
+function _recentBounds(now: Date, windowMs: number) {
+  if (Number.isNaN(now.getTime())) return null;
+  const start = new Date(now.getTime() - windowMs);
+  return {
+    sqliteStart: _formatSqliteUtc(start),
+    sqliteEnd: _formatSqliteUtc(now),
+    isoStart: start.toISOString(),
+    isoEnd: now.toISOString(),
+  };
+}
+
 function _normalizeActivityEntry(entry: Record<string, unknown>): NormalizedActivityEntry {
   const actor = _firstString(entry.actor);
   const steamId = _firstString(
@@ -120,7 +148,7 @@ function _normalizeActivityEntry(entry: Record<string, unknown>): NormalizedActi
     x: entry.x ?? entry.pos_x ?? null,
     y: entry.y ?? entry.pos_y ?? null,
     z: entry.z ?? entry.pos_z ?? null,
-    createdAt: entry.createdAt ?? entry.created_at,
+    createdAt: _normalizeCreatedAt(entry.createdAt ?? entry.created_at),
     steamId,
     source: _firstString(entry.source) || 'save',
     targetName: _firstString(entry.targetName, entry.target_name),
@@ -193,7 +221,6 @@ export class ActivityLogRepository extends BaseRepository {
     getActivityByCategoryPaged: Database.Statement;
     getActivityByActor: Database.Statement;
     getActivityByActorPaged: Database.Statement;
-    searchActivity: Database.Statement;
     getActivitySince: Database.Statement;
     getActivitySinceBySource: Database.Statement;
     hasRecentActivity: Database.Statement;
@@ -240,22 +267,6 @@ export class ActivityLogRepository extends BaseRepository {
       getActivityByActorPaged: this._handle.prepare(
         'SELECT * FROM activity_log WHERE actor = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
       ),
-      searchActivity: this._handle.prepare(`
-        SELECT * FROM activity_log
-        WHERE (? = '' OR category = ?)
-          AND (
-            actor = ?
-            OR steam_id = ?
-            OR target_steam_id = ?
-            OR actor LIKE ? ESCAPE '\\'
-            OR actor_name LIKE ? ESCAPE '\\'
-            OR target_name LIKE ? ESCAPE '\\'
-            OR item LIKE ? ESCAPE '\\'
-            OR details LIKE ? ESCAPE '\\'
-          )
-        ORDER BY created_at DESC, id DESC
-        LIMIT ? OFFSET ?
-      `),
       getActivitySince: this._handle.prepare(
         'SELECT * FROM activity_log WHERE created_at >= ? ORDER BY created_at ASC, id ASC',
       ),
@@ -267,7 +278,10 @@ export class ActivityLogRepository extends BaseRepository {
         WHERE type = ?
           AND steam_id = ?
           AND source = ?
-          AND ((julianday(?) - julianday(created_at)) * 86400000.0) BETWEEN 0 AND ?
+          AND (
+            (created_at >= ? AND created_at <= ?)
+            OR (created_at >= ? AND created_at <= ?)
+          )
         ORDER BY created_at DESC, id DESC
         LIMIT 1
       `),
@@ -647,7 +661,17 @@ export class ActivityLogRepository extends BaseRepository {
 
   hasRecentActivity(type: string, steamId: string, source: string, windowMs: number, now: Date = new Date()): boolean {
     if (!type || !STEAM_ID_RE.test(steamId) || !source || windowMs <= 0) return false;
-    return !!this._stmts.hasRecentActivity.get(type, steamId, source, now.toISOString(), windowMs);
+    const bounds = _recentBounds(now, windowMs);
+    if (!bounds) return false;
+    return !!this._stmts.hasRecentActivity.get(
+      type,
+      steamId,
+      source,
+      bounds.sqliteStart,
+      bounds.sqliteEnd,
+      bounds.isoStart,
+      bounds.isoEnd,
+    );
   }
 
   /** Purge old activity entries (e.g. '-30 days'). */

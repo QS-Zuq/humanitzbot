@@ -412,6 +412,7 @@ describe('PR3 repository migration helpers', () => {
 
   it('detects recent activity by type, Steam ID, source, and window', () => {
     const steamId = '76561198000000014';
+    const legacySteamId = '76561198000000015';
     db.activityLog.insertActivitiesAt([
       {
         type: 'player_connect',
@@ -423,9 +424,33 @@ describe('PR3 repository migration helpers', () => {
         createdAt: '2026-05-24T12:00:00.000Z',
       },
     ]);
+    const handle = db.db;
+    assert.ok(handle);
+    handle
+      .prepare(
+        `INSERT INTO activity_log (type, category, actor, actor_name, steam_id, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run('player_connect', 'session', legacySteamId, 'LegacyAlice', legacySteamId, 'log', '2026-05-24T12:00:00.000Z');
+
+    const stored = db.rawQuery('SELECT created_at FROM activity_log WHERE steam_id = ?', [steamId], {
+      ctx: 'test:activity-recent-created-at',
+      mode: 'get',
+    }) as { created_at: string } | undefined;
+    assert.equal(stored?.created_at, '2026-05-24 12:00:00');
 
     assert.equal(
       db.activityLog.hasRecentActivity('player_connect', steamId, 'log', 60_000, new Date('2026-05-24T12:00:30.000Z')),
+      true,
+    );
+    assert.equal(
+      db.activityLog.hasRecentActivity(
+        'player_connect',
+        legacySteamId,
+        'log',
+        60_000,
+        new Date('2026-05-24T12:00:30.000Z'),
+      ),
       true,
     );
     assert.equal(
@@ -442,6 +467,23 @@ describe('PR3 repository migration helpers', () => {
       ),
       false,
     );
+
+    const indexes = db.rawQuery('PRAGMA index_list("activity_log")', [], {
+      ctx: 'test:activity-recent-index',
+    }) as Array<{ name: string }>;
+    assert.ok(indexes.some((row) => row.name === 'idx_activity_recent_dedupe'));
+  });
+
+  it('self-heals the recent activity dedupe index when migrating from v16', () => {
+    db.db?.exec('DROP INDEX IF EXISTS idx_activity_recent_dedupe');
+    db._setMeta('schema_version', '16');
+    db._applySchema();
+
+    const indexes = db.rawQuery('PRAGMA index_list("activity_log")', [], {
+      ctx: 'test:activity-recent-index-migration',
+    }) as Array<{ name: string }>;
+    assert.ok(indexes.some((row) => row.name === 'idx_activity_recent_dedupe'));
+    assert.equal(db._getMeta('schema_version'), '17');
   });
 
   it('reads canonical activity categories across legacy category aliases without backfilling old rows', () => {
