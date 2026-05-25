@@ -98,6 +98,7 @@ Panel.tabs = Panel.tabs || {};
     const category = S.activityCategory || '';
     const rawSearch = $('#activity-search') ? $('#activity-search').value : '';
     let search = rawSearch.toLowerCase();
+    let querySearch = rawSearch.trim();
     const searchMode = S.activitySearchMode || '';
     const searchSteamId = S.activitySearchSteamId || '';
 
@@ -111,6 +112,7 @@ Panel.tabs = Panel.tabs || {};
       showFingerprintTracker(fpItem, fpHash);
       // Also load normal activity filtered by item name
       search = fpItem.toLowerCase();
+      querySearch = fpItem;
     } else {
       hideFingerprintTracker();
     }
@@ -126,9 +128,9 @@ Panel.tabs = Panel.tabs || {};
     if (searchMode === 'player' && searchSteamId) {
       params.set('mode', 'player');
       params.set('steamId', searchSteamId);
-    } else if ((searchMode === 'item' || searchMode === 'container' || searchMode === 'text') && rawSearch.trim()) {
+    } else if ((searchMode === 'item' || searchMode === 'container' || searchMode === 'text') && querySearch) {
       params.set('mode', searchMode);
-      params.set('q', rawSearch.trim());
+      params.set('q', querySearch);
     } else if (search) {
       params.set('actor', search);
     }
@@ -319,7 +321,7 @@ Panel.tabs = Panel.tabs || {};
       if (movementsEl)
         movementsEl.innerHTML =
           '<div class="text-xs text-red-400 text-center py-2">' +
-          i18next.t('web:activity.loading_tracker_data') +
+          i18next.t('web:activity.failed_to_load_tracker_data') +
           '</div>';
     }
   }

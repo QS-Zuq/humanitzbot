@@ -56,6 +56,16 @@ function loadActivityTab(
     'activity-date-to',
     'activity-date-separator',
     'activity-load-more',
+    'fingerprint-tracker',
+    'fp-item-name',
+    'fp-hash',
+    'fp-instance-info',
+    'fp-ownership',
+    'fp-ownership-chain',
+    'fp-movements',
+    'fp-loading',
+    'fp-empty',
+    'fp-limit',
   ]) {
     elements.set(id, makeElement());
   }
@@ -161,6 +171,13 @@ describe('panel activity tab', () => {
     assert.match(itemUrl, /mode=item/);
     assert.match(itemUrl, /q=Fork/);
 
+    searchEl.value = 'Fork#abc123def456';
+    await activityTab.loadActivity();
+    const fingerprintItemUrl = apiCalls.pop() || '';
+    assert.match(fingerprintItemUrl, /mode=item/);
+    assert.match(fingerprintItemUrl, /q=Fork/);
+    assert.doesNotMatch(fingerprintItemUrl, /q=Fork%23abc123def456/);
+
     state.activitySearchMode = 'container';
     searchEl.value = 'BuildContainer_1134';
     await activityTab.loadActivity();
@@ -249,5 +266,31 @@ describe('panel activity tab', () => {
     const firstLog = errors[0]?.[0];
     assert.equal(typeof firstLog, 'string');
     assert.match(firstLog as string, /failed to load activity feed/);
+  });
+
+  it('shows a tracker failure message when fingerprint lookup fails', async () => {
+    const { activityTab, elements, state } = loadActivityTab(
+      { events: [] },
+      {
+        apiFetch: async (url: string) => {
+          if (url.startsWith('/api/panel/items/lookup?')) {
+            return { ok: false, status: 500, json: async () => ({ error: 'lookup failed' }) };
+          }
+          return { ok: true, json: async () => ({ events: [] }) };
+        },
+      },
+    );
+    const searchEl = elements.get('activity-search');
+    assert.ok(searchEl);
+    state.activitySearchMode = 'item';
+    searchEl.value = 'Fork#abc123def456';
+
+    await activityTab.loadActivity();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const movementsEl = elements.get('fp-movements');
+    assert.ok(movementsEl);
+    assert.match(movementsEl.innerHTML, /web:activity\.failed_to_load_tracker_data/);
   });
 });

@@ -433,6 +433,7 @@
     "item_tracker": "物品追踪",
     "chain_of_custody": "监管链",
     "loading_tracker_data": "正在加载追踪数据...",
+    "failed_to_load_tracker_data": "追踪数据加载失败。",
     "no_movements_recorded_for_item": "此物品未记录任何移动轨迹。",
     "load_more": "加载更多",
     "close_tracker": "关闭追踪",
@@ -1330,6 +1331,16 @@
     "last_seen": "最后出现",
     "qty_tracked": "追踪数量",
     "ownership_chain": "持有链"
+  },
+  "activity_item_popover": {
+    "close": "关闭",
+    "title": "物品动作",
+    "track_item": "追踪这个物品",
+    "track_unavailable": "无法精准追踪",
+    "filter_same_item": "筛选同名活动",
+    "view_database": "查看数据库",
+    "fingerprint_label": "指纹",
+    "no_fingerprint_old_event": "这笔活动没有指纹元数据。"
   },
   "location_type": {
     "player": "玩家",
