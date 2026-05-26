@@ -10,14 +10,22 @@ Panel.tabs = Panel.tabs || {};
 
   const S = Panel.core.S;
   const $ = Panel.core.$;
-  const $$ = Panel.core.$$;
   const esc = Panel.core.esc;
   const apiFetch = Panel.core.apiFetch;
   const switchTab = Panel.nav.switchTab;
+  const ITEMS_PAGE_SIZE = 100;
+  const LOCATIONS_PAGE_SIZE = 100;
 
   let _inited = false;
-  let _itemsData = { instances: [], groups: [], locations: [], counts: {} };
+  let _itemsData = { instances: [], groups: [], locations: [], counts: {}, pagination: {} };
   let _itemsMovements = [];
+  let _itemsOffset = 0;
+  let _itemsHasMoreInstances = false;
+  let _itemsHasMoreGroups = false;
+  let _itemsLoadSeq = 0;
+  let _itemsPageLoading = false;
+  let _locationsLoaded = false;
+  let _locationsLoading = false;
 
   function init() {
     if (_inited) return;
@@ -30,20 +38,29 @@ Panel.tabs = Panel.tabs || {};
       searchInput.addEventListener('input', function () {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(function () {
-          if (S.currentTab === 'items') loadItems();
+          if (S.currentTab === 'items') loadItems({ reset: true });
         }, 300);
       });
     }
     const viewSelect = $('#items-view');
     if (viewSelect)
       viewSelect.addEventListener('change', function () {
-        if (S.currentTab === 'items') loadItems();
+        if (S.currentTab === 'items') loadItems({ reset: true });
       });
     const locFilter = $('#items-location-filter');
-    if (locFilter)
+    if (locFilter) {
       locFilter.addEventListener('change', function () {
-        if (S.currentTab === 'items') loadItems();
+        if (S.currentTab === 'items') loadItems({ reset: true });
       });
+      locFilter.addEventListener('focus', function () {
+        _loadLocationOptions();
+      });
+      locFilter.addEventListener('mousedown', function () {
+        _loadLocationOptions();
+      });
+    }
+    const content = $('#items-content');
+    if (content) content.addEventListener('click', _handleItemsContentClick);
     const closeBtn = $('#item-detail-close');
     if (closeBtn)
       closeBtn.addEventListener('click', function () {
@@ -58,198 +75,321 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Data Loading ────────────────────────────────────────────────
 
-  async function loadItems() {
-    try {
-      let search = ($('#items-search') ? $('#items-search').value : '').trim();
-      const view = $('#items-view') ? $('#items-view').value : 'all';
+  async function loadItems(options) {
+    const reset = !options || options.reset !== false;
+    const view = _getItemsView();
+    const loadSeq = ++_itemsLoadSeq;
+    if (reset) {
+      _itemsOffset = 0;
+      _itemsHasMoreInstances = false;
+      _itemsHasMoreGroups = false;
+      _itemsData = { instances: [], groups: [], locations: _itemsData.locations || [], counts: {}, pagination: {} };
+      _itemsMovements = [];
+      _setItemCountersLoading();
+      _renderItemsShell(view);
+    }
 
-      let url = '/api/panel/items?limit=500';
-      if (search) url += '&search=' + encodeURIComponent(search);
-      const locFilter = $('#items-location-filter') ? $('#items-location-filter').value : '';
-      if (locFilter) {
-        const parts = locFilter.split('|');
-        url += '&locationType=' + encodeURIComponent(parts[0]) + '&locationId=' + encodeURIComponent(parts[1]);
+    const pending = [_loadRecentMovements(loadSeq)];
+    if (view !== 'movements') pending.push(_loadItemPage({ reset: reset, loadSeq: loadSeq, view: view }));
+    await Promise.allSettled(pending);
+  }
+
+  function _getItemsView() {
+    const value = $('#items-view') ? $('#items-view').value : 'all';
+    return value === 'instances' || value === 'groups' || value === 'movements' ? value : 'all';
+  }
+
+  function _getItemQueryParams(view) {
+    const params = new URLSearchParams();
+    params.set('limit', String(ITEMS_PAGE_SIZE));
+    params.set('offset', String(_itemsOffset));
+    params.set('view', view === 'movements' ? 'all' : view);
+    const search = ($('#items-search') ? $('#items-search').value : '').trim();
+    if (search) params.set('search', search);
+    const locFilter = $('#items-location-filter') ? $('#items-location-filter').value : '';
+    if (locFilter) {
+      const parts = locFilter.split('|');
+      if (parts[0] && parts[1]) {
+        params.set('locationType', parts[0]);
+        params.set('locationId', parts[1]);
       }
+    }
+    return params;
+  }
 
-      const resp = await apiFetch(url);
-      _itemsData = await resp.json();
-
+  async function _loadRecentMovements(loadSeq) {
+    _renderRecentMovementsLoading();
+    try {
       const movResp = await apiFetch('/api/panel/movements?limit=50');
       const movData = await movResp.json();
+      if (loadSeq !== _itemsLoadSeq) return;
       _itemsMovements = movData.movements || [];
-
-      const uc = $('#items-unique-count');
-      if (uc) uc.textContent = _itemsData.counts?.instances ?? _itemsData.instances.length;
-      const gc = $('#items-group-count');
-      if (gc) gc.textContent = _itemsData.counts?.groups ?? _itemsData.groups.length;
-      const lc = $('#items-location-count');
-      if (lc) lc.textContent = _itemsData.locations?.length ?? '-';
       const mc = $('#items-movement-count');
       if (mc) mc.textContent = _itemsMovements.length;
-
-      const locSelect = $('#items-location-filter');
-      if (locSelect && locSelect.options.length <= 1 && _itemsData.locations) {
-        _itemsData.locations.sort(function (a, b) {
-          return (a.type + a.id).localeCompare(b.type + b.id);
-        });
-        for (let i = 0; i < _itemsData.locations.length; i++) {
-          const loc = _itemsData.locations[i];
-          const opt = document.createElement('option');
-          opt.value = loc.type + '|' + loc.id;
-          opt.textContent = _formatLocationType(loc.type) + ': ' + _shortenId(loc.id) + ' (' + loc.totalItems + ')';
-          locSelect.appendChild(opt);
-        }
-      }
-
-      const container = $('#items-content');
-      if (!container) return;
-
-      if (view === 'movements') {
-        _renderMovements(container, _itemsMovements);
-      } else if (view === 'instances') {
-        _renderItemTable(container, _itemsData.instances, 'instance');
-      } else if (view === 'groups') {
-        _renderGroupTable(container, _itemsData.groups);
-      } else {
-        _renderCombinedView(container, _itemsData);
-      }
+      _renderRecentMovements();
     } catch (err) {
-      console.error('Failed to load items:', err);
-      const c = $('#items-content');
-      if (c)
-        c.innerHTML =
-          '<div class="text-xs text-horde">' +
-          i18next.t('web:empty_states.failed_to_load_item_data', { defaultValue: 'Failed to load item data' }) +
-          '</div>';
+      if (loadSeq !== _itemsLoadSeq) return;
+      console.error('Failed to load item movements:', err);
+      _renderRecentMovementsError();
     }
+  }
+
+  async function _loadItemPage(opts) {
+    const view = opts.view;
+    const target = $('#items-list');
+    let failed = false;
+    _itemsPageLoading = true;
+    if (!opts.reset) _renderItemsList(view);
+    try {
+      const resp = await apiFetch('/api/panel/items?' + _getItemQueryParams(view).toString());
+      const data = await resp.json();
+      if (opts.loadSeq !== _itemsLoadSeq) return;
+      const instances = data.instances || [];
+      const groups = data.groups || [];
+      _itemsData = {
+        instances: opts.reset ? instances : _itemsData.instances.concat(instances),
+        groups: opts.reset ? groups : _itemsData.groups.concat(groups),
+        locations: _itemsData.locations || [],
+        counts: data.counts || {},
+        pagination: data.pagination || {},
+      };
+      _itemsHasMoreInstances = !!data.pagination?.hasMoreInstances;
+      _itemsHasMoreGroups = !!data.pagination?.hasMoreGroups;
+      _itemsOffset = data.pagination?.nextOffset ?? _itemsOffset + ITEMS_PAGE_SIZE;
+      _updateItemCounters();
+      _renderItemsList(view);
+    } catch (err) {
+      if (opts.loadSeq !== _itemsLoadSeq) return;
+      failed = true;
+      console.error('Failed to load items:', err);
+      if (target)
+        target.innerHTML =
+          '<div class="card"><div class="text-xs text-horde">' +
+          i18next.t('web:empty_states.failed_to_load_item_data', { defaultValue: 'Failed to load item data' }) +
+          '</div></div>';
+    } finally {
+      if (opts.loadSeq === _itemsLoadSeq) {
+        _itemsPageLoading = false;
+        if (view !== 'movements' && !failed) _renderItemsList(view);
+      }
+    }
+  }
+
+  async function _loadLocationOptions() {
+    if (_locationsLoaded || _locationsLoading) return;
+    _locationsLoading = true;
+    try {
+      const resp = await apiFetch('/api/panel/items/locations?limit=' + LOCATIONS_PAGE_SIZE);
+      const data = await resp.json();
+      _itemsData.locations = data.locations || [];
+      _locationsLoaded = true;
+      _populateLocationOptions(data.pagination);
+    } catch (err) {
+      console.error('Failed to load item locations:', err);
+      _renderLocationOptionsError();
+    } finally {
+      _locationsLoading = false;
+    }
+  }
+
+  function _renderLocationOptionsError() {
+    const locSelect = $('#items-location-filter');
+    if (locSelect) {
+      const hasErrorOption = Array.from(locSelect.options || []).some(function (opt) {
+        return opt.dataset && opt.dataset.itemsLoadError === 'true';
+      });
+      if (!hasErrorOption) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.disabled = true;
+        opt.dataset.itemsLoadError = 'true';
+        opt.textContent = i18next.t('web:empty_states.failed_to_load_item_data', {
+          defaultValue: 'Failed to load item data',
+        });
+        locSelect.appendChild(opt);
+      }
+    }
+    const lc = $('#items-location-count');
+    if (lc) lc.textContent = '!';
+  }
+
+  function _populateLocationOptions(pagination) {
+    const locSelect = $('#items-location-filter');
+    if (!locSelect) return;
+    const selected = locSelect.value;
+    locSelect.innerHTML =
+      '<option value="">' + i18next.t('web:items.all_locations', { defaultValue: 'All Locations' }) + '</option>';
+    const locations = (_itemsData.locations || []).slice().sort(function (a, b) {
+      return (a.type + a.id).localeCompare(b.type + b.id);
+    });
+    for (let i = 0; i < locations.length; i++) {
+      const loc = locations[i];
+      const opt = document.createElement('option');
+      opt.value = loc.type + '|' + loc.id;
+      opt.textContent = _formatLocationType(loc.type) + ': ' + _shortenId(loc.id) + ' (' + loc.totalItems + ')';
+      locSelect.appendChild(opt);
+    }
+    if (
+      selected &&
+      !Array.from(locSelect.options).some(function (opt) {
+        return opt.value === selected;
+      })
+    ) {
+      const opt = document.createElement('option');
+      opt.value = selected;
+      opt.textContent = selected;
+      locSelect.appendChild(opt);
+    }
+    locSelect.value = selected || '';
+    const lc = $('#items-location-count');
+    if (lc) lc.textContent = String(locations.length) + (pagination?.hasMore ? '+' : '');
+  }
+
+  function _setItemCountersLoading() {
+    const uc = $('#items-unique-count');
+    if (uc) uc.textContent = '…';
+    const gc = $('#items-group-count');
+    if (gc) gc.textContent = '…';
+    const mc = $('#items-movement-count');
+    if (mc) mc.textContent = '…';
+  }
+
+  function _updateItemCounters() {
+    const uc = $('#items-unique-count');
+    if (uc) uc.textContent = _itemsData.counts?.instances ?? _itemsData.instances.length;
+    const gc = $('#items-group-count');
+    if (gc) gc.textContent = _itemsData.counts?.groups ?? _itemsData.groups.length;
   }
 
   // ── Rendering ───────────────────────────────────────────────────
 
-  function _renderCombinedView(container, data) {
+  function _renderItemsShell(view) {
+    const container = $('#items-content');
+    if (!container) return;
+    container.innerHTML =
+      '<div id="items-recent-movements">' +
+      _buildLoadingCard(
+        'items-recent-loading',
+        i18next.t('web:items.recent_movements', { defaultValue: 'Recent Movements' }),
+      ) +
+      '</div>' +
+      (view === 'movements'
+        ? ''
+        : '<div id="items-list" class="space-y-2">' +
+          _buildLoadingCard('items-loading', i18next.t('web:loading.generic', { defaultValue: 'Loading...' })) +
+          '</div>');
+  }
+
+  function _buildLoadingCard(id, label) {
+    return (
+      '<div id="' +
+      id +
+      '" class="card" role="status" aria-live="polite">' +
+      '<div class="flex items-center gap-2 text-xs text-muted">' +
+      '<span class="inline-block h-3 w-3 rounded-full border-2 border-accent border-t-transparent animate-spin"></span>' +
+      '<span>' +
+      esc(label) +
+      '</span></div>' +
+      '<div class="mt-3 space-y-2">' +
+      '<div class="h-3 w-2/3 rounded bg-surface-50/70"></div>' +
+      '<div class="h-3 w-1/2 rounded bg-surface-50/50"></div>' +
+      '</div></div>'
+    );
+  }
+
+  function _renderRecentMovementsLoading() {
+    const target = $('#items-recent-movements');
+    if (target)
+      target.innerHTML = _buildLoadingCard(
+        'items-recent-loading',
+        i18next.t('web:items.recent_movements', { defaultValue: 'Recent Movements' }),
+      );
+  }
+
+  function _renderRecentMovementsError() {
+    const target = $('#items-recent-movements');
+    if (target)
+      target.innerHTML =
+        '<div class="card"><h3 class="card-title">' +
+        i18next.t('web:items.recent_movements', { defaultValue: 'Recent Movements' }) +
+        '</h3><div class="text-xs text-horde">' +
+        i18next.t('web:empty_states.failed_to_load_item_data', { defaultValue: 'Failed to load item data' }) +
+        '</div></div>';
+  }
+
+  function _renderRecentMovements() {
+    const target = $('#items-recent-movements') || $('#items-content');
+    if (!target) return;
+    if (!_itemsMovements.length) {
+      target.innerHTML =
+        '<div class="card"><h3 class="card-title">' +
+        i18next.t('web:items.recent_movements', { defaultValue: 'Recent Movements' }) +
+        '</h3><div class="text-sm text-muted py-4 text-center">' +
+        i18next.t('web:empty_states.no_movements_recorded_yet') +
+        '</div></div>';
+      return;
+    }
+    target.innerHTML =
+      '<div class="card"><h3 class="card-title">' +
+      i18next.t('web:items.recent_movements', { defaultValue: 'Recent Movements' }) +
+      ' <span class="text-xs text-muted font-normal">(' +
+      i18next.t('web:items.last_n', { count: 50, defaultValue: 'last {{count}}' }) +
+      ')</span></h3>' +
+      _buildMovementList(_itemsMovements) +
+      '</div>';
+  }
+
+  function _renderItemsList(view) {
+    if (view === 'movements') return;
+    const target = $('#items-list');
+    if (!target) return;
     let html = '';
 
-    if (data.groups.length > 0) {
+    if (view !== 'instances' && _itemsData.groups.length > 0) {
       html +=
         '<div class="card"><h3 class="card-title">' +
         i18next.t('web:items.fungible_groups') +
         ' <span class="text-xs text-muted font-normal">(' +
-        data.groups.length +
-        ')</span></h3>';
-      html += '<div class="overflow-x-auto"><table class="w-full text-xs">';
-      html +=
-        '<thead><tr class="text-muted text-left border-b border-border"><th class="px-2 py-1.5">' +
-        i18next.t('web:table.item', { defaultValue: 'Item' }) +
-        '</th><th class="px-2 py-1.5">' +
-        i18next.t('web:table.qty', { defaultValue: 'Qty' }) +
-        '</th><th class="px-2 py-1.5">' +
-        i18next.t('web:table.stack', { defaultValue: 'Stack' }) +
-        '</th><th class="px-2 py-1.5">' +
-        i18next.t('web:table.location', { defaultValue: 'Location' }) +
-        '</th><th class="px-2 py-1.5">' +
-        i18next.t('web:table.fingerprint', { defaultValue: 'Fingerprint' }) +
-        '</th><th class="px-2 py-1.5">' +
-        i18next.t('web:table.last_seen', { defaultValue: 'Last Seen' }) +
-        '</th><th class="px-2 py-1.5"></th></tr></thead><tbody>';
-      for (let i = 0; i < data.groups.length; i++) {
-        const g = data.groups[i];
-        html += '<tr class="border-b border-border/30 hover:bg-surface-50/50">';
-        html += '<td class="px-2 py-1.5 text-white font-medium">' + esc(g.item) + '</td>';
-        html += '<td class="px-2 py-1.5"><span class="text-surge font-mono">' + g.quantity + '×</span></td>';
-        html += '<td class="px-2 py-1.5 text-muted">' + (g.stack_size || 1) + '</td>';
-        html += '<td class="px-2 py-1.5">' + _locationBadge(g.location_type, g.location_id, g.location_slot) + '</td>';
-        html +=
-          '<td class="px-2 py-1.5 font-mono text-[10px]"><span class="text-emerald-400 cursor-pointer hover:underline fp-track-link" data-fp="' +
-          esc(g.fingerprint) +
-          '" data-item="' +
-          esc(g.item) +
-          '" title="' +
-          i18next.t('web:items.track_item', { defaultValue: 'Track this item' }) +
-          '">' +
-          esc(g.fingerprint) +
-          '</span></td>';
-        html += '<td class="px-2 py-1.5 text-muted">' + _timeAgo(g.last_seen) + '</td>';
-        html +=
-          '<td class="px-2 py-1.5"><button class="text-accent hover:text-accent-hover text-[10px] item-grp-detail" data-id="' +
-          g.id +
-          '">' +
-          i18next.t('web:items.history', { defaultValue: 'History' }) +
-          '</button></td>';
-        html += '</tr>';
-      }
-      html += '</tbody></table></div></div>';
+        _itemsData.groups.length +
+        (_itemsHasMoreGroups ? '+' : '') +
+        ')</span></h3>' +
+        _buildGroupTable(_itemsData.groups) +
+        '</div>';
     }
 
-    if (data.instances.length > 0) {
+    if (view !== 'groups' && _itemsData.instances.length > 0) {
       html +=
         '<div class="card"><h3 class="card-title">' +
         i18next.t('web:items.unique_items') +
         ' <span class="text-xs text-muted font-normal">(' +
-        data.instances.length +
-        ')</span></h3>';
-      html += _buildInstanceTable(data.instances);
-      html += '</div>';
+        _itemsData.instances.length +
+        (_itemsHasMoreInstances ? '+' : '') +
+        ')</span></h3>' +
+        _buildInstanceTable(_itemsData.instances) +
+        '</div>';
     }
 
-    if (_itemsMovements.length > 0) {
-      html +=
-        '<div class="card"><h3 class="card-title">' +
-        i18next.t('web:items.recent_movements') +
-        ' <span class="text-xs text-muted font-normal">(' +
-        i18next.t('web:items.last_n', { count: 50, defaultValue: 'last {{count}}' }) +
-        ')</span></h3>';
-      html += _buildMovementList(_itemsMovements);
-      html += '</div>';
-    }
-
-    if (!data.groups.length && !data.instances.length) {
+    if (!_itemsData.groups.length && !_itemsData.instances.length && !_itemsPageLoading) {
       html =
-        '<div class="text-sm text-muted py-8 text-center">' +
+        '<div class="card"><div class="text-sm text-muted py-8 text-center">' +
         i18next.t('web:empty_states.no_tracked_items_found') +
-        '</div>';
+        '</div></div>';
     }
 
-    container.innerHTML = html;
-    _bindItemDetailHandlers();
+    if (_itemsPageLoading) {
+      html += _buildLoadingCard('items-loading', i18next.t('web:loading.generic', { defaultValue: 'Loading...' }));
+    } else if (_shouldShowLoadMore(view)) {
+      html +=
+        '<div class="text-center py-2"><button id="items-load-more" class="btn btn-secondary text-xs" type="button">' +
+        i18next.t('web:activity.load_more', { defaultValue: 'Load More' }) +
+        '</button></div>';
+    }
+
+    target.innerHTML = html;
   }
 
-  function _renderItemTable(container, instances, _type) {
-    if (!instances.length) {
-      container.innerHTML =
-        '<div class="text-sm text-muted py-8 text-center">' +
-        i18next.t('web:empty_states.no_unique_items_found') +
-        '</div>';
-      return;
-    }
-    container.innerHTML = '<div class="card">' + _buildInstanceTable(instances) + '</div>';
-    _bindItemDetailHandlers();
-  }
-
-  function _renderGroupTable(container, groups) {
-    if (!groups.length) {
-      container.innerHTML =
-        '<div class="text-sm text-muted py-8 text-center">' +
-        i18next.t('web:empty_states.no_fungible_groups_found') +
-        '</div>';
-      return;
-    }
-    _renderCombinedView(container, { groups: groups, instances: [], locations: [] });
-  }
-
-  function _renderMovements(container, movements) {
-    if (!movements.length) {
-      container.innerHTML =
-        '<div class="text-sm text-muted py-8 text-center">' +
-        i18next.t('web:empty_states.no_movements_recorded_yet') +
-        '</div>';
-      return;
-    }
-    container.innerHTML =
-      '<div class="card"><h3 class="card-title">' +
-      i18next.t('web:items.movements') +
-      '</h3>' +
-      _buildMovementList(movements) +
-      '</div>';
+  function _shouldShowLoadMore(view) {
+    return (view !== 'instances' && _itemsHasMoreGroups) || (view !== 'groups' && _itemsHasMoreInstances);
   }
 
   function _buildInstanceTable(instances) {
@@ -301,6 +441,52 @@ Panel.tabs = Panel.tabs || {};
       html +=
         '<td class="px-2 py-1.5"><button class="text-accent hover:text-accent-hover text-[10px] item-inst-detail" data-id="' +
         inst.id +
+        '">' +
+        i18next.t('web:items.history', { defaultValue: 'History' }) +
+        '</button></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  function _buildGroupTable(groups) {
+    let html = '<div class="overflow-x-auto"><table class="w-full text-xs">';
+    html +=
+      '<thead><tr class="text-muted text-left border-b border-border"><th class="px-2 py-1.5">' +
+      i18next.t('web:table.item', { defaultValue: 'Item' }) +
+      '</th><th class="px-2 py-1.5">' +
+      i18next.t('web:table.qty', { defaultValue: 'Qty' }) +
+      '</th><th class="px-2 py-1.5">' +
+      i18next.t('web:table.stack', { defaultValue: 'Stack' }) +
+      '</th><th class="px-2 py-1.5">' +
+      i18next.t('web:table.location', { defaultValue: 'Location' }) +
+      '</th><th class="px-2 py-1.5">' +
+      i18next.t('web:table.fingerprint', { defaultValue: 'Fingerprint' }) +
+      '</th><th class="px-2 py-1.5">' +
+      i18next.t('web:table.last_seen', { defaultValue: 'Last Seen' }) +
+      '</th><th class="px-2 py-1.5"></th></tr></thead><tbody>';
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      html += '<tr class="border-b border-border/30 hover:bg-surface-50/50">';
+      html += '<td class="px-2 py-1.5 text-white font-medium">' + esc(g.item) + '</td>';
+      html += '<td class="px-2 py-1.5"><span class="text-surge font-mono">' + g.quantity + '×</span></td>';
+      html += '<td class="px-2 py-1.5 text-muted">' + (g.stack_size || 1) + '</td>';
+      html += '<td class="px-2 py-1.5">' + _locationBadge(g.location_type, g.location_id, g.location_slot) + '</td>';
+      html +=
+        '<td class="px-2 py-1.5 font-mono text-[10px]"><span class="text-emerald-400 cursor-pointer hover:underline fp-track-link" data-fp="' +
+        esc(g.fingerprint) +
+        '" data-item="' +
+        esc(g.item) +
+        '" title="' +
+        i18next.t('web:items.track_item', { defaultValue: 'Track this item' }) +
+        '">' +
+        esc(g.fingerprint) +
+        '</span></td>';
+      html += '<td class="px-2 py-1.5 text-muted">' + _timeAgo(g.last_seen) + '</td>';
+      html +=
+        '<td class="px-2 py-1.5"><button class="text-accent hover:text-accent-hover text-[10px] item-grp-detail" data-id="' +
+        g.id +
         '">' +
         i18next.t('web:items.history', { defaultValue: 'History' }) +
         '</button></td>';
@@ -442,35 +628,39 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Detail Handlers ─────────────────────────────────────────────
 
-  function _bindItemDetailHandlers() {
-    $$('.item-inst-detail').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        _showItemDetail('instance', parseInt(btn.dataset.id, 10));
-      });
-    });
-    $$('.item-grp-detail').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        _showItemDetail('group', parseInt(btn.dataset.id, 10));
-      });
-    });
-    // Fingerprint → Activity tracker navigation
-    $$('.fp-track-link').forEach(function (fpEl) {
-      fpEl.addEventListener('click', function () {
-        const fpHash = fpEl.dataset.fp;
-        const fpItem = fpEl.dataset.item;
-        if (fpHash && fpItem) {
-          const searchEl = $('#activity-search');
-          if (searchEl) searchEl.value = fpItem + '#' + fpHash;
-          S.activitySearchMode = '';
-          S.activitySearchSteamId = '';
-          switchTab('activity');
-          setTimeout(function () {
-            if (Panel.shared.activityFeed) Panel.shared.activityFeed.resetPaging();
-            if (Panel.tabs.activity && Panel.tabs.activity.loadActivity) Panel.tabs.activity.loadActivity();
-          }, 100);
-        }
-      });
-    });
+  function _handleItemsContentClick(e) {
+    const target = e.target;
+    if (!target || !target.closest) return;
+    const loadMore = target.closest('#items-load-more');
+    if (loadMore) {
+      if (_itemsPageLoading) return;
+      _loadItemPage({ reset: false, loadSeq: _itemsLoadSeq, view: _getItemsView() });
+      return;
+    }
+    const instanceBtn = target.closest('.item-inst-detail');
+    if (instanceBtn) {
+      _showItemDetail('instance', parseInt(instanceBtn.dataset.id, 10));
+      return;
+    }
+    const groupBtn = target.closest('.item-grp-detail');
+    if (groupBtn) {
+      _showItemDetail('group', parseInt(groupBtn.dataset.id, 10));
+      return;
+    }
+    const fpEl = target.closest('.fp-track-link');
+    if (!fpEl) return;
+    const fpHash = fpEl.dataset.fp;
+    const fpItem = fpEl.dataset.item;
+    if (!fpHash || !fpItem) return;
+    const searchEl = $('#activity-search');
+    if (searchEl) searchEl.value = fpItem + '#' + fpHash;
+    S.activitySearchMode = '';
+    S.activitySearchSteamId = '';
+    switchTab('activity');
+    setTimeout(function () {
+      if (Panel.shared.activityFeed) Panel.shared.activityFeed.resetPaging();
+      if (Panel.tabs.activity && Panel.tabs.activity.loadActivity) Panel.tabs.activity.loadActivity();
+    }, 100);
   }
 
   async function _showItemDetail(type, id) {

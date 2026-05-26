@@ -369,6 +369,40 @@ interface ItemMovementRow {
   created_at: string;
 }
 
+interface ItemLocationSummaryRow {
+  type: string;
+  id: string;
+  instanceCount: number;
+  groupCount: number;
+  totalItems: number;
+}
+
+type ItemListView = 'all' | 'instances' | 'groups';
+
+function _queryString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : '';
+  return '';
+}
+
+function _parseBoundedPositiveInt(value: unknown, defaultValue: number, max: number): number {
+  const parsed = parseInt(_queryString(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+  return Math.min(parsed, max);
+}
+
+function _parseNonNegativeInt(value: unknown): number {
+  const parsed = parseInt(_queryString(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed;
+}
+
+function _parseItemListView(value: unknown): ItemListView {
+  const view = _queryString(value);
+  if (view === 'instances' || view === 'groups') return view;
+  return 'all';
+}
+
 interface DeathCauseRow {
   id: number;
   victim_name: string;
@@ -2341,82 +2375,84 @@ class WebMapServer {
     // GET /api/panel/items — All tracked items (instances + groups), with filters
     app.get('/api/panel/items', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
       const srv = req.srv;
-      if (!srv.db) return res.json({ instances: [], groups: [], total: 0 });
+      const limit = _parseBoundedPositiveInt(req.query.limit, 100, 500);
+      const offset = _parseNonNegativeInt(req.query.offset);
+      if (!srv.db)
+        return res.json({
+          instances: [],
+          groups: [],
+          locations: [],
+          counts: { instances: 0, groups: 0 },
+          pagination: { limit, offset, nextOffset: offset, hasMoreInstances: false, hasMoreGroups: false },
+        });
       try {
-        const search = (req.query.search as string) || '';
-        const locationType = (req.query.locationType as string) || '';
-        const locationId = (req.query.locationId as string) || '';
-        const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 100, 500);
+        const search = _queryString(req.query.search).trim();
+        const locationType = _queryString(req.query.locationType).trim();
+        const locationId = _queryString(req.query.locationId).trim();
+        const view = _parseItemListView(req.query.view);
+        const includeLocations = _queryString(req.query.includeLocations).toLowerCase() === 'true';
+        const pageOptions = {
+          limit: limit + 1,
+          offset,
+          search,
+          locationType,
+          locationId,
+        };
 
-        let instances: ItemInstanceRow[], groups: ItemGroupRow[];
-
-        if (search) {
-          instances = srv.db.item.searchItemInstances(search, limit) as ItemInstanceRow[];
-          groups = srv.db.item.searchItemGroups(search, limit) as ItemGroupRow[];
-        } else if (locationType && locationId) {
-          instances = srv.db.item.getItemInstancesByLocation(locationType, locationId) as ItemInstanceRow[];
-          groups = srv.db.item.getItemGroupsByLocation(locationType, locationId) as ItemGroupRow[];
-        } else {
-          instances = srv.db.item.getActiveItemInstances() as ItemInstanceRow[];
-          groups = srv.db.item.getActiveItemGroups() as ItemGroupRow[];
-        }
-
-        // Parse attachments JSON
-        for (const inst of instances) {
-          try {
-            inst.attachments = JSON.parse(inst.attachments as string) as string[];
-          } catch {
-            inst.attachments = [];
-          }
-        }
-        for (const grp of groups) {
-          try {
-            grp.attachments = JSON.parse(grp.attachments as string) as string[];
-          } catch {
-            grp.attachments = [];
-          }
-        }
-
-        // Build location summary for sidebar
-        const locationSummary: Record<
-          string,
-          { type: string; id: string; instanceCount: number; groupCount: number; totalItems: number }
-        > = {};
-        for (const inst of instances) {
-          const key = `${inst.location_type}|${inst.location_id}`;
-          if (!locationSummary[key])
-            locationSummary[key] = {
-              type: inst.location_type,
-              id: inst.location_id,
-              instanceCount: 0,
-              groupCount: 0,
-              totalItems: 0,
-            };
-          locationSummary[key].totalItems += inst.amount || 1;
-          locationSummary[key].instanceCount++;
-        }
-        for (const grp of groups) {
-          const key = `${grp.location_type}|${grp.location_id}`;
-          if (!locationSummary[key])
-            locationSummary[key] = {
-              type: grp.location_type,
-              id: grp.location_id,
-              instanceCount: 0,
-              groupCount: 0,
-              totalItems: 0,
-            };
-          locationSummary[key].groupCount++;
-          locationSummary[key].totalItems += grp.quantity;
-        }
+        const instancePage =
+          view === 'groups' ? [] : (srv.db.item.getActiveItemInstancesPage(pageOptions) as ItemInstanceRow[]);
+        const groupPage =
+          view === 'instances' ? [] : (srv.db.item.getActiveItemGroupsPage(pageOptions) as ItemGroupRow[]);
+        const hasMoreInstances = instancePage.length > limit;
+        const hasMoreGroups = groupPage.length > limit;
+        const instances = instancePage.slice(0, limit);
+        const groups = groupPage.slice(0, limit);
+        const locations = includeLocations
+          ? (srv.db.item.getItemLocationSummaryPage({ limit, offset, search }) as ItemLocationSummaryRow[])
+          : [];
 
         res.json({
           instances,
           groups,
-          locations: Object.values(locationSummary),
+          locations,
           counts: {
             instances: srv.db.item.getItemInstanceCount(),
             groups: srv.db.item.getItemGroupCount(),
           },
+          pagination: {
+            limit,
+            offset,
+            nextOffset: offset + limit,
+            hasMoreInstances,
+            hasMoreGroups,
+          },
+        });
+      } catch (err: unknown) {
+        sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));
+      }
+    });
+
+    // GET /api/panel/items/locations — Lazy location summary for item filters
+    app.get('/api/panel/items/locations', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
+      const srv = req.srv;
+      const limit = _parseBoundedPositiveInt(req.query.limit, 100, 500);
+      const offset = _parseNonNegativeInt(req.query.offset);
+      if (!srv.db)
+        return res.json({
+          locations: [],
+          pagination: { limit, offset, nextOffset: offset, hasMore: false },
+        });
+      try {
+        const search = _queryString(req.query.search).trim();
+        const rows = srv.db.item.getItemLocationSummaryPage({
+          limit: limit + 1,
+          offset,
+          search,
+        }) as ItemLocationSummaryRow[];
+        const hasMore = rows.length > limit;
+        res.json({
+          locations: rows.slice(0, limit),
+          pagination: { limit, offset, nextOffset: offset + limit, hasMore },
         });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.INTERNAL_SERVER_ERROR, 500, safeError(err));

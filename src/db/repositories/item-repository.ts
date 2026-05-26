@@ -14,6 +14,42 @@ interface ItemTrackerPurgeResult {
   groupsDeleted: number;
 }
 
+interface ItemListPageOptions {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  locationType?: string;
+  locationId?: string;
+}
+
+interface ItemLocationSummaryOptions {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+const ITEM_INSTANCE_LIST_COLUMNS = `
+  id, fingerprint, item, durability, ammo, cap, max_dur,
+  location_type, location_id, location_slot, pos_x, pos_y, pos_z,
+  amount, group_id, first_seen, last_seen, lost
+`;
+
+const ITEM_GROUP_LIST_COLUMNS = `
+  id, fingerprint, item, durability, ammo, cap, max_dur,
+  location_type, location_id, location_slot, pos_x, pos_y, pos_z,
+  quantity, stack_size, first_seen, last_seen, lost
+`;
+
+function _normalizePageLimit(limit: number | undefined, defaultValue: number): number {
+  if (limit == null || !Number.isFinite(limit) || limit <= 0) return defaultValue;
+  return Math.floor(limit);
+}
+
+function _normalizeOffset(offset: number | undefined): number {
+  if (offset == null || !Number.isFinite(offset) || offset <= 0) return 0;
+  return Math.floor(offset);
+}
+
 export class ItemRepository extends BaseRepository {
   declare private _stmts: {
     // Item instances
@@ -26,10 +62,14 @@ export class ItemRepository extends BaseRepository {
     findItemInstancesByFingerprint: Database.Statement;
     findItemInstanceById: Database.Statement;
     getActiveItemInstances: Database.Statement;
+    getActiveItemInstancesPage: Database.Statement;
+    getActiveItemInstancesPageByLocation: Database.Statement;
     getItemInstancesByItem: Database.Statement;
     getItemInstancesByLocation: Database.Statement;
     getItemInstanceCount: Database.Statement;
     searchItemInstances: Database.Statement;
+    searchItemInstancesPage: Database.Statement;
+    searchItemInstancesPageByLocation: Database.Statement;
     purgeOldLostItems: Database.Statement;
     getItemInstancesByGroup: Database.Statement;
     // Item groups
@@ -43,11 +83,18 @@ export class ItemRepository extends BaseRepository {
     findActiveGroupsByFingerprint: Database.Statement;
     findItemGroupById: Database.Statement;
     getActiveItemGroups: Database.Statement;
+    getActiveItemGroupsPage: Database.Statement;
+    getActiveItemGroupsPageByLocation: Database.Statement;
     getItemGroupsByItem: Database.Statement;
     getItemGroupsByLocation: Database.Statement;
     getItemGroupCount: Database.Statement;
     searchItemGroups: Database.Statement;
+    searchItemGroupsPage: Database.Statement;
+    searchItemGroupsPageByLocation: Database.Statement;
     purgeOldLostGroups: Database.Statement;
+    // Item location summaries
+    getItemLocationSummaryPage: Database.Statement;
+    searchItemLocationSummaryPage: Database.Statement;
     // Item movements
     insertItemMovement: Database.Statement;
     getItemMovements: Database.Statement;
@@ -87,6 +134,20 @@ export class ItemRepository extends BaseRepository {
       getActiveItemInstances: this._handle.prepare(
         'SELECT * FROM item_instances WHERE lost = 0 ORDER BY item, location_type',
       ),
+      getActiveItemInstancesPage: this._handle.prepare(`
+        SELECT ${ITEM_INSTANCE_LIST_COLUMNS}
+        FROM item_instances
+        WHERE lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
+      getActiveItemInstancesPageByLocation: this._handle.prepare(`
+        SELECT ${ITEM_INSTANCE_LIST_COLUMNS}
+        FROM item_instances
+        WHERE location_type = ? AND location_id = ? AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
       getItemInstancesByItem: this._handle.prepare(
         'SELECT * FROM item_instances WHERE item = ? AND lost = 0 ORDER BY location_type',
       ),
@@ -97,6 +158,20 @@ export class ItemRepository extends BaseRepository {
       searchItemInstances: this._handle.prepare(
         'SELECT * FROM item_instances WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
       ),
+      searchItemInstancesPage: this._handle.prepare(`
+        SELECT ${ITEM_INSTANCE_LIST_COLUMNS}
+        FROM item_instances
+        WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
+      searchItemInstancesPageByLocation: this._handle.prepare(`
+        SELECT ${ITEM_INSTANCE_LIST_COLUMNS}
+        FROM item_instances
+        WHERE (item LIKE ? OR fingerprint LIKE ?) AND location_type = ? AND location_id = ? AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
       purgeOldLostItems: this._handle.prepare(`
       DELETE FROM item_instances
       WHERE lost = 1
@@ -138,6 +213,20 @@ export class ItemRepository extends BaseRepository {
       getActiveItemGroups: this._handle.prepare(
         'SELECT * FROM item_groups WHERE lost = 0 ORDER BY item, location_type',
       ),
+      getActiveItemGroupsPage: this._handle.prepare(`
+        SELECT ${ITEM_GROUP_LIST_COLUMNS}
+        FROM item_groups
+        WHERE lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
+      getActiveItemGroupsPageByLocation: this._handle.prepare(`
+        SELECT ${ITEM_GROUP_LIST_COLUMNS}
+        FROM item_groups
+        WHERE location_type = ? AND location_id = ? AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
       getItemGroupsByItem: this._handle.prepare(
         'SELECT * FROM item_groups WHERE item = ? AND lost = 0 ORDER BY location_type',
       ),
@@ -148,6 +237,20 @@ export class ItemRepository extends BaseRepository {
       searchItemGroups: this._handle.prepare(
         'SELECT * FROM item_groups WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0 ORDER BY item LIMIT ?',
       ),
+      searchItemGroupsPage: this._handle.prepare(`
+        SELECT ${ITEM_GROUP_LIST_COLUMNS}
+        FROM item_groups
+        WHERE (item LIKE ? OR fingerprint LIKE ?) AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
+      searchItemGroupsPageByLocation: this._handle.prepare(`
+        SELECT ${ITEM_GROUP_LIST_COLUMNS}
+        FROM item_groups
+        WHERE (item LIKE ? OR fingerprint LIKE ?) AND location_type = ? AND location_id = ? AND lost = 0
+        ORDER BY item, location_type, id
+        LIMIT ? OFFSET ?
+      `),
       purgeOldLostGroups: this._handle.prepare(`
       DELETE FROM item_groups
       WHERE lost = 1
@@ -157,6 +260,72 @@ export class ItemRepository extends BaseRepository {
           WHERE item_movements.group_id = item_groups.id
         )
     `),
+
+      // Location summary for lazy panel filters
+      getItemLocationSummaryPage: this._handle.prepare(`
+        SELECT
+          type,
+          id,
+          SUM(instanceCount) AS instanceCount,
+          SUM(groupCount) AS groupCount,
+          SUM(totalItems) AS totalItems
+        FROM (
+          SELECT
+            location_type AS type,
+            location_id AS id,
+            COUNT(*) AS instanceCount,
+            0 AS groupCount,
+            SUM(COALESCE(amount, 1)) AS totalItems
+          FROM item_instances
+          WHERE lost = 0
+          GROUP BY location_type, location_id
+          UNION ALL
+          SELECT
+            location_type AS type,
+            location_id AS id,
+            0 AS instanceCount,
+            COUNT(*) AS groupCount,
+            SUM(COALESCE(quantity, 1)) AS totalItems
+          FROM item_groups
+          WHERE lost = 0
+          GROUP BY location_type, location_id
+        )
+        GROUP BY type, id
+        ORDER BY totalItems DESC, type, id
+        LIMIT ? OFFSET ?
+      `),
+      searchItemLocationSummaryPage: this._handle.prepare(`
+        SELECT
+          type,
+          id,
+          SUM(instanceCount) AS instanceCount,
+          SUM(groupCount) AS groupCount,
+          SUM(totalItems) AS totalItems
+        FROM (
+          SELECT
+            location_type AS type,
+            location_id AS id,
+            COUNT(*) AS instanceCount,
+            0 AS groupCount,
+            SUM(COALESCE(amount, 1)) AS totalItems
+          FROM item_instances
+          WHERE lost = 0 AND (location_type LIKE ? OR location_id LIKE ?)
+          GROUP BY location_type, location_id
+          UNION ALL
+          SELECT
+            location_type AS type,
+            location_id AS id,
+            0 AS instanceCount,
+            COUNT(*) AS groupCount,
+            SUM(COALESCE(quantity, 1)) AS totalItems
+          FROM item_groups
+          WHERE lost = 0 AND (location_type LIKE ? OR location_id LIKE ?)
+          GROUP BY location_type, location_id
+        )
+        GROUP BY type, id
+        ORDER BY totalItems DESC, type, id
+        LIMIT ? OFFSET ?
+      `),
 
       // Item movements (chain-of-custody)
       insertItemMovement: this._handle.prepare(`
@@ -300,6 +469,26 @@ export class ItemRepository extends BaseRepository {
     return this._stmts.getActiveItemInstances.all();
   }
 
+  getActiveItemInstancesPage(options: ItemListPageOptions = {}) {
+    const limit = _normalizePageLimit(options.limit, 100);
+    const offset = _normalizeOffset(options.offset);
+    const search = options.search?.trim();
+    const locationType = options.locationType?.trim();
+    const locationId = options.locationId?.trim();
+    if (search && locationType && locationId) {
+      const like = `%${search}%`;
+      return this._stmts.searchItemInstancesPageByLocation.all(like, like, locationType, locationId, limit, offset);
+    }
+    if (search) {
+      const like = `%${search}%`;
+      return this._stmts.searchItemInstancesPage.all(like, like, limit, offset);
+    }
+    if (locationType && locationId) {
+      return this._stmts.getActiveItemInstancesPageByLocation.all(locationType, locationId, limit, offset);
+    }
+    return this._stmts.getActiveItemInstancesPage.all(limit, offset);
+  }
+
   getItemInstancesByItem(item: string) {
     return this._stmts.getItemInstancesByItem.all(item);
   }
@@ -415,6 +604,26 @@ export class ItemRepository extends BaseRepository {
     return this._stmts.getActiveItemGroups.all();
   }
 
+  getActiveItemGroupsPage(options: ItemListPageOptions = {}) {
+    const limit = _normalizePageLimit(options.limit, 100);
+    const offset = _normalizeOffset(options.offset);
+    const search = options.search?.trim();
+    const locationType = options.locationType?.trim();
+    const locationId = options.locationId?.trim();
+    if (search && locationType && locationId) {
+      const like = `%${search}%`;
+      return this._stmts.searchItemGroupsPageByLocation.all(like, like, locationType, locationId, limit, offset);
+    }
+    if (search) {
+      const like = `%${search}%`;
+      return this._stmts.searchItemGroupsPage.all(like, like, limit, offset);
+    }
+    if (locationType && locationId) {
+      return this._stmts.getActiveItemGroupsPageByLocation.all(locationType, locationId, limit, offset);
+    }
+    return this._stmts.getActiveItemGroupsPage.all(limit, offset);
+  }
+
   getItemGroupsByItem(item: string) {
     return this._stmts.getItemGroupsByItem.all(item);
   }
@@ -431,6 +640,17 @@ export class ItemRepository extends BaseRepository {
   searchItemGroups(query: string, limit = 50) {
     const like = `%${query}%`;
     return this._stmts.searchItemGroups.all(like, like, limit);
+  }
+
+  getItemLocationSummaryPage(options: ItemLocationSummaryOptions = {}) {
+    const limit = _normalizePageLimit(options.limit, 100);
+    const offset = _normalizeOffset(options.offset);
+    const search = options.search?.trim();
+    if (search) {
+      const like = `%${search}%`;
+      return this._stmts.searchItemLocationSummaryPage.all(like, like, like, like, limit, offset);
+    }
+    return this._stmts.getItemLocationSummaryPage.all(limit, offset);
   }
 
   purgeOldLostGroups(age = '-30 days') {

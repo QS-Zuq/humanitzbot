@@ -1301,6 +1301,32 @@ class HumanitZDB {
         this._log.info('Migration v16→v17: activity recent dedupe index');
       }
 
+      // v17 → v18: item tracker paginated panel indexes
+      if (fromVersion < 18) {
+        this._handle.exec(`
+          CREATE INDEX IF NOT EXISTS idx_item_inst_active_sort ON item_instances(lost, item, location_type, id);
+          CREATE INDEX IF NOT EXISTS idx_item_inst_active_location_sort ON item_instances(lost, location_type, location_id, item, id);
+          CREATE INDEX IF NOT EXISTS idx_item_grp_active_sort ON item_groups(lost, item, location_type, id);
+          CREATE INDEX IF NOT EXISTS idx_item_grp_active_location_sort ON item_groups(lost, location_type, location_id, item, id);
+        `);
+        this._log.info('Migration v17→v18: item tracker paginated panel indexes');
+      }
+
+      // v18 → v20: replace partial sort indexes with composite indexes SQLite reliably uses for ORDER BY
+      if (fromVersion < 20) {
+        this._handle.exec(`
+          DROP INDEX IF EXISTS idx_item_inst_active_sort;
+          DROP INDEX IF EXISTS idx_item_inst_active_location_sort;
+          DROP INDEX IF EXISTS idx_item_grp_active_sort;
+          DROP INDEX IF EXISTS idx_item_grp_active_location_sort;
+          CREATE INDEX IF NOT EXISTS idx_item_inst_active_sort ON item_instances(lost, item, location_type, id);
+          CREATE INDEX IF NOT EXISTS idx_item_inst_active_location_sort ON item_instances(lost, location_type, location_id, item, id);
+          CREATE INDEX IF NOT EXISTS idx_item_grp_active_sort ON item_groups(lost, item, location_type, id);
+          CREATE INDEX IF NOT EXISTS idx_item_grp_active_location_sort ON item_groups(lost, location_type, location_id, item, id);
+        `);
+        this._log.info('Migration v18→v20: item tracker paginated panel composite indexes');
+      }
+
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._handle.exec('COMMIT');
       this._log.info(`Schema migrated to v${SCHEMA_VERSION}`);

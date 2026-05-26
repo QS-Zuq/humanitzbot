@@ -1231,7 +1231,7 @@ describe('Item Tracker', () => {
       assert.equal(countRows('item_movements', 'group_id = ?', [group.id]), 0);
     });
 
-    it('creates purge indexes on fresh schema and migration', () => {
+    it('creates item tracker indexes on fresh schema and migration', () => {
       const indexNames = (table: string) =>
         db.db
           .prepare(`PRAGMA index_list(${table})`)
@@ -1239,13 +1239,21 @@ describe('Item Tracker', () => {
           .map((row: { name: string }) => row.name);
 
       assert.ok(indexNames('item_instances').includes('idx_item_inst_lost_at'));
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_active_sort'));
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_active_location_sort'));
       assert.ok(indexNames('item_groups').includes('idx_item_grp_lost_at'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_active_sort'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_active_location_sort'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
 
       db.db.exec(`
         DROP INDEX IF EXISTS idx_item_inst_lost_at;
+        DROP INDEX IF EXISTS idx_item_inst_active_sort;
+        DROP INDEX IF EXISTS idx_item_inst_active_location_sort;
         DROP INDEX IF EXISTS idx_item_grp_lost_at;
+        DROP INDEX IF EXISTS idx_item_grp_active_sort;
+        DROP INDEX IF EXISTS idx_item_grp_active_location_sort;
         DROP INDEX IF EXISTS idx_item_mov_instance;
         DROP INDEX IF EXISTS idx_item_mov_group;
       `);
@@ -1253,10 +1261,14 @@ describe('Item Tracker', () => {
       db._applySchema();
 
       assert.ok(indexNames('item_instances').includes('idx_item_inst_lost_at'));
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_active_sort'));
+      assert.ok(indexNames('item_instances').includes('idx_item_inst_active_location_sort'));
       assert.ok(indexNames('item_groups').includes('idx_item_grp_lost_at'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_active_sort'));
+      assert.ok(indexNames('item_groups').includes('idx_item_grp_active_location_sort'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
-      assert.equal(db._getMeta('schema_version'), '17');
+      assert.equal(db._getMeta('schema_version'), '20');
     });
   });
 });
