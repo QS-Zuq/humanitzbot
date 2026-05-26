@@ -514,6 +514,41 @@ describe('addAdminMembers', () => {
     assert.equal(JSON.stringify(logs).includes('999888777666555444'), false);
   });
 
+  it('does not log role member IDs when role member add fails', async () => {
+    config.adminUserIds = [];
+    config.adminRoleIds = ['role1'];
+    const logs: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => {
+      logs.push(args);
+    };
+    try {
+      const thread = {
+        members: {
+          add: () => Promise.reject(new Error('permission denied')),
+        },
+      };
+      const roleMembers = new Map([['123123123123123123', {}]]);
+      const guild = {
+        roles: { cache: new Map([['role1', { members: roleMembers }]]) },
+        members: {
+          cache: new Map([
+            ['a', {}],
+            ['b', {}],
+          ]),
+        },
+      };
+
+      await addAdminMembers(thread, guild);
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    assert.equal(logs.length, 1);
+    assert.equal(JSON.stringify(logs).includes('123123123123123123'), false);
+  });
+
   it('combines user IDs and role members', async () => {
     config.adminUserIds = ['explicit1'];
     config.adminRoleIds = ['role1'];

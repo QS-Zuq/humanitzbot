@@ -69,7 +69,7 @@ export async function addAdminMembers(
       if (!role) continue;
       for (const [uid] of role.members) {
         thread.members?.add(uid).catch((addErr: unknown) => {
-          console.debug(`[CONFIG] Failed to add role member ${uid} to thread:`, (addErr as Error).message);
+          console.debug('[CONFIG] Failed to add configured role member to thread:', (addErr as Error).message);
         });
       }
     } catch (e) {
