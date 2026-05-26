@@ -117,11 +117,27 @@ Panel.tabs = Panel.tabs || {};
     return params;
   }
 
+  async function _parseItemResponse(resp) {
+    let data;
+    try {
+      data = await resp.json();
+    } catch (err) {
+      if (resp && resp.ok === false)
+        throw new Error('HTTP ' + (resp.status || 'error') + ': invalid JSON response', { cause: err });
+      throw err;
+    }
+    if (resp && resp.ok === false) {
+      const message = (data && (data.error || data.message || data.code)) || 'HTTP ' + (resp.status || 'error');
+      throw new Error(String(message));
+    }
+    return data || {};
+  }
+
   async function _loadRecentMovements(loadSeq) {
     _renderRecentMovementsLoading();
     try {
       const movResp = await apiFetch('/api/panel/movements?limit=50');
-      const movData = await movResp.json();
+      const movData = await _parseItemResponse(movResp);
       if (loadSeq !== _itemsLoadSeq) return;
       _itemsMovements = movData.movements || [];
       const mc = $('#items-movement-count');
@@ -142,7 +158,7 @@ Panel.tabs = Panel.tabs || {};
     if (!opts.reset) _renderItemsList(view);
     try {
       const resp = await apiFetch('/api/panel/items?' + _getItemQueryParams(view).toString());
-      const data = await resp.json();
+      const data = await _parseItemResponse(resp);
       if (opts.loadSeq !== _itemsLoadSeq) return;
       const instances = data.instances || [];
       const groups = data.groups || [];
@@ -180,7 +196,7 @@ Panel.tabs = Panel.tabs || {};
     _locationsLoading = true;
     try {
       const resp = await apiFetch('/api/panel/items/locations?limit=' + LOCATIONS_PAGE_SIZE);
-      const data = await resp.json();
+      const data = await _parseItemResponse(resp);
       _itemsData.locations = data.locations || [];
       _locationsLoaded = true;
       _populateLocationOptions(data.pagination);
@@ -237,7 +253,8 @@ Panel.tabs = Panel.tabs || {};
     ) {
       const opt = document.createElement('option');
       opt.value = selected;
-      opt.textContent = selected;
+      const parts = selected.split('|');
+      opt.textContent = parts.length === 2 ? _formatLocationType(parts[0]) + ': ' + _shortenId(parts[1]) : selected;
       locSelect.appendChild(opt);
     }
     locSelect.value = selected || '';

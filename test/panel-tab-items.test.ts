@@ -169,11 +169,36 @@ describe('panel items tab', () => {
     });
   });
 
-  it('shows a visible location filter error when lazy location loading fails', async () => {
+  it('shows visible item and movement errors for non-2xx JSON responses', async () => {
     const errors: unknown[][] = [];
     const { itemsTab, elements } = loadItemsTab({
       apiFetch: async (url: string) => {
-        if (url.startsWith('/api/panel/items/locations?')) throw new Error('location lookup failed');
+        if (url.startsWith('/api/panel/movements?')) {
+          return { ok: false, status: 500, json: async () => ({ error: 'movement query failed' }) };
+        }
+        if (url.startsWith('/api/panel/items?')) {
+          return { ok: false, status: 500, json: async () => ({ error: 'item query failed' }) };
+        }
+        throw new Error('Unexpected API call: ' + url);
+      },
+      consoleError: (...args: unknown[]) => errors.push(args),
+    });
+
+    itemsTab.init();
+    await itemsTab.load({ reset: true });
+
+    assert.match(elements.get('items-recent-movements').innerHTML, /web:empty_states\.failed_to_load_item_data/);
+    assert.match(elements.get('items-list').innerHTML, /web:empty_states\.failed_to_load_item_data/);
+    assert.equal(errors.length, 2);
+  });
+
+  it('shows a visible location filter error when lazy location loading returns non-2xx JSON', async () => {
+    const errors: unknown[][] = [];
+    const { itemsTab, elements } = loadItemsTab({
+      apiFetch: async (url: string) => {
+        if (url.startsWith('/api/panel/items/locations?')) {
+          return { ok: false, status: 500, json: async () => ({ error: 'location lookup failed' }) };
+        }
         throw new Error('Unexpected API call: ' + url);
       },
       consoleError: (...args: unknown[]) => errors.push(args),
@@ -189,5 +214,26 @@ describe('panel items tab', () => {
     assert.equal(locFilter.options[0].disabled, true);
     assert.match(locFilter.options[0].textContent, /web:empty_states\.failed_to_load_item_data/);
     assert.equal(errors.length, 1);
+  });
+
+  it('formats a selected fallback location option when it is not in the lazy page', async () => {
+    const { itemsTab, elements } = loadItemsTab({
+      apiFetch: async (url: string) => {
+        if (url.startsWith('/api/panel/items/locations?')) {
+          return { ok: true, json: async () => ({ locations: [], pagination: { hasMore: false } }) };
+        }
+        throw new Error('Unexpected API call: ' + url);
+      },
+    });
+    const locFilter = elements.get('items-location-filter');
+    locFilter.value = 'player|76561198000000001';
+
+    itemsTab.init();
+    locFilter.dispatch('focus', {});
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(locFilter.options.length, 1);
+    assert.equal(locFilter.options[0].value, 'player|76561198000000001');
+    assert.equal(locFilter.options[0].textContent, 'web:location_type.player: …000001');
   });
 });
