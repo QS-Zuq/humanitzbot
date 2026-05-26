@@ -1,0 +1,1847 @@
+import { EmbedBuilder, type Client, type TextChannel, type ThreadChannel } from 'discord.js';
+import SftpClient from 'ssh2-sftp-client';
+import _defaultConfig from '../config/index.js';
+import { cleanName } from '../parsers/ue4-names.js';
+import _defaultPlaytime, { type PlaytimeTracker } from '../tracking/playtime-tracker.js';
+import _defaultPlayerStats, { type PlayerStats } from '../tracking/player-stats.js';
+import { classifyDamageSource, isNpcDamageSource } from '../tracking/damage-classifier.js';
+import { createLogger, type Logger } from '../utils/log.js';
+import { errMsg } from '../utils/error.js';
+import { logRejection } from '../utils/log-rejection.js';
+import type { HumanitZDB } from '../db/database.js';
+import type { PanelApi } from '../server/panel-api.js';
+import * as logWatcherThreads from './log-watcher-threads.js';
+import * as logWatcherEvents from './log-watcher-events.js';
+
+type ConfigType = typeof _defaultConfig;
+
+function runtimeStringValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '';
+}
+
+const STEAM_ID_RE = /^\d{17}$/;
+const SESSION_DEDUPE_WINDOW_MS = 60_000;
+
+interface LogWatcherDeps {
+  config?: ConfigType;
+  playtime?: PlaytimeTracker;
+  playerStats?: PlayerStats;
+  db?: HumanitZDB | null;
+  label?: string;
+  dataDir?: string | null;
+  panelApi?: PanelApi | null;
+}
+
+interface PvpDamageEntry {
+  attacker: string;
+  attackerLower: string;
+  timestamp: number;
+  totalDamage: number;
+}
+
+interface DeathCauseEntry {
+  sourceRaw: string;
+  timestamp: number;
+  totalDamage: number;
+}
+
+interface PvpKillEntry {
+  killer: string;
+  victim: string;
+  damage: number;
+  timestamp: string;
+}
+
+interface DeathLoopEntry {
+  count: number;
+  firstTimestamp: number;
+  lastTimestamp: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+interface ContainerAccessEntry {
+  player: string;
+  steamId: string;
+  ownerSteamId: string;
+  rawType: string;
+  timestamp: number;
+}
+
+interface DayCounts {
+  connects: number;
+  disconnects: number;
+  deaths: number;
+  builds: number;
+  damage: number;
+  loots: number;
+  raidHits: number;
+  destroyed: number;
+  admin: number;
+  cheat: number;
+  pvpKills: number;
+  [key: string]: number;
+}
+
+interface LootBatchEntry {
+  looter: string;
+  looterId: string;
+  ownerSteamId: string;
+  count: number;
+  containers: Set<string>;
+  timestamp: Date;
+}
+
+interface BuildBatchEntry {
+  name: string;
+  items: Record<string, number>;
+  timestamp: Date;
+}
+
+interface RaidBatchEntry {
+  attacker: string;
+  owner: string;
+  hits: number;
+  destroyed: number;
+  buildings: Record<string, number>;
+  timestamp: Date;
+}
+
+interface PollFileOpts {
+  path: string;
+  label: string;
+  getSize: () => number;
+  setSize: (s: number) => void;
+  getInit: () => boolean;
+  setInit: (v: boolean) => void;
+  getPartial: () => string;
+  setPartial: (p: string) => void;
+  processLine: (line: string) => boolean;
+}
+
+interface SavedOffsets {
+  hmzLogSize: number;
+  connectLogSize: number;
+  hmzLogFile: string | null;
+  connectLogFile: string | null;
+  useRotatedLogs: boolean;
+}
+
+export interface LogEventEntry {
+  type: string;
+  category?: string;
+  actorName?: string;
+  steamId?: string;
+  item?: string;
+  amount?: number;
+  details?: Record<string, unknown>;
+  source?: string;
+  targetName?: string;
+  targetSteamId?: string;
+  timestamp?: Date | string;
+}
+
+type LogEventHandler = (entry: LogEventEntry) => void;
+
+/** Safe regex group accessor — returns '' for undefined groups. */
+function _s(match: RegExpMatchArray, idx: number): string {
+  return match[idx] ?? '';
+}
+
+class LogWatcher {
+  // Index signature for mixin methods assigned via Object.assign
+  [key: string]: unknown;
+
+  // ── Mixin method declarations (implemented in log-watcher-threads.ts) ──
+  declare _getOrCreateDailyThread: () => Promise<{ send(options: unknown): Promise<unknown> } | null>;
+  declare _checkDayRollover: () => Promise<void>;
+  declare _postDailySummary: () => Promise<void>;
+  declare _sendToThread: (embed: EmbedBuilder) => Promise<unknown>;
+  declare sendToThread: (embed: EmbedBuilder) => Promise<unknown>;
+  declare getRecentContainerAccess: (
+    actorName: string,
+  ) => { timestamp: number; player?: string; steamId?: string; ownerSteamId?: string } | null;
+  declare sendToDateThread: (embed: EmbedBuilder, date: Date) => Promise<unknown>;
+  declare resetThreadCache: () => void;
+
+  // ── Mixin method declarations (implemented in log-watcher-events.ts) ──
+  declare _onBuild: (playerName: string, steamId: string, itemName: string, timestamp: Date) => void;
+  declare _onDeath: (playerName: string, timestamp: Date) => void;
+  declare _flushDeathLoop: (key: string, playerName: string) => void;
+  declare _onRaid: (
+    attacker: string,
+    attackerSteamId: string | undefined,
+    ownerSteamId: string | undefined,
+    buildingType: string,
+    destroyed: boolean,
+    timestamp: Date,
+  ) => void;
+  declare _batchLoot: (
+    looterName: string,
+    looterId: string,
+    containerType: string,
+    ownerSteamId: string,
+    timestamp: Date,
+  ) => void;
+  declare _flushLootBatch: () => void;
+  declare _flushBuildBatch: () => void;
+  declare _flushRaidBatch: () => void;
+
+  // Typed fields
+  _config: ConfigType;
+  _playtime: PlaytimeTracker;
+  _playerStats: PlayerStats;
+  _db: HumanitZDB | null;
+  _log: Logger;
+  _label: string;
+  _dataDir: string | null;
+  _panelApi: PanelApi | null;
+  client: Client;
+  logChannel: TextChannel | null;
+  _headless: boolean;
+  interval: ReturnType<typeof setInterval> | null;
+  lastSize: number;
+  partialLine: string;
+  initialised: boolean;
+  _connectLastSize: number;
+  _connectPartialLine: string;
+  _connectInitialised: boolean;
+  _useRotatedLogs: boolean;
+  _hmzLogFile: string | null;
+  _connectLogFile: string | null;
+  _ignoreSavedOffsetsOnce: boolean;
+  _dailyThread: ThreadChannel | null;
+  _dailyDate: string | null;
+  _dayRolloverCb: (() => Promise<void>) | null;
+  _nukeActive: boolean;
+  _lootBatch: Record<string, LootBatchEntry>;
+  _lootTimer: ReturnType<typeof setTimeout> | null;
+  _buildBatch: Record<string, BuildBatchEntry>;
+  _buildTimer: ReturnType<typeof setTimeout> | null;
+  _raidBatch: Record<string, RaidBatchEntry>;
+  _raidTimer: ReturnType<typeof setTimeout> | null;
+  _dayCounts: DayCounts;
+  _dayCountsDirty: boolean;
+  _onlinePlayers: Set<string>;
+  _pvpDamageTracker: Map<string, PvpDamageEntry>;
+  _pvpKills: PvpKillEntry[];
+  _pvpKillsDirty: boolean;
+  _deathLoopTracker: Map<string, DeathLoopEntry>;
+  _recentContainerAccess: Map<string, ContainerAccessEntry>;
+  _deathCauseTracker: Map<string, DeathCauseEntry>;
+  _midnightCheckInterval?: ReturnType<typeof setInterval> | null;
+  _polling: boolean;
+
+  constructor(client: Client, deps: LogWatcherDeps = {}) {
+    this._config = deps.config ?? _defaultConfig;
+    this._playtime = deps.playtime ?? _defaultPlaytime;
+    this._playerStats = deps.playerStats ?? _defaultPlayerStats;
+    this._db = deps.db ?? null;
+    this._log = createLogger(deps.label, 'LOGS');
+    this._label = this._log.label;
+    this._dataDir = deps.dataDir ?? null;
+    this._panelApi = deps.panelApi ?? null;
+
+    this.client = client;
+    this.logChannel = null;
+    this._headless = false; // true when running without a Discord channel (web-panel-only data collection)
+    this.interval = null;
+    this._polling = false;
+
+    // HMZLog.log state
+    this.lastSize = 0;
+    this.partialLine = '';
+    this.initialised = false;
+
+    // PlayerConnectedLog.txt state
+    this._connectLastSize = 0;
+    this._connectPartialLine = '';
+    this._connectInitialised = false;
+
+    // Per-restart rotated logs (HZLogs/ directory — game update Feb 28 2026)
+    // When detected, we tail the latest file in HZLogs/ instead of the old monolithic files.
+    // File naming: {D}-{M}_{H}-{m}_HMZLog.log, Chat/{same}_Chat.log, Login/{same}_ConnectLog.txt
+    this._useRotatedLogs = false;
+    this._hmzLogFile = null; // current HMZLog file path being tailed
+    this._connectLogFile = null; // current ConnectLog file path being tailed
+    this._ignoreSavedOffsetsOnce = false;
+
+    // Daily thread
+    this._dailyThread = null;
+    this._dailyDate = null; // 'YYYY-MM-DD'
+    this._dayRolloverCb = null; // callback after daily thread created on rollover
+    this._nukeActive = false; // true during NUKE_BOT — suppresses thread creation
+
+    // Batching (reduces Discord spam)
+    this._lootBatch = {}; // key → { looter, looterId, ownerSteamId, count, containers }
+    this._lootTimer = null;
+    this._buildBatch = {}; // steamId → { name, items: { item: count }, timestamp }
+    this._buildTimer = null;
+    this._raidBatch = {}; // attacker|owner → { attacker, owner, hits, destroyed, buildings, timestamp }
+    this._raidTimer = null;
+
+    // Daily counters for the summary
+    this._dayCounts = {
+      connects: 0,
+      disconnects: 0,
+      deaths: 0,
+      builds: 0,
+      damage: 0,
+      loots: 0,
+      raidHits: 0,
+      destroyed: 0,
+      admin: 0,
+      cheat: 0,
+      pvpKills: 0,
+    };
+    this._dayCountsDirty = false;
+    this._loadDayCounts();
+
+    // Online player tracking (for peak stats)
+    this._onlinePlayers = new Set();
+
+    // PvP damage tracker: Map<victimNameLower, { attacker, attackerLower, timestamp, totalDamage }>
+    // Used to correlate damage → death for PvP kill attribution
+    this._pvpDamageTracker = new Map();
+
+    // PvP kill log: last N kills for the "Last 10 Kills" display
+    // Persisted to bot_state DB table
+    this._pvpKills = [];
+    this._pvpKillsDirty = false;
+    this._loadPvpKills();
+
+    // Death loop detection: Map<playerNameLower, { count, firstTimestamp, lastTimestamp, timer }>
+    this._deathLoopTracker = new Map();
+
+    // Container access tracker: tracks who opened which container type recently.
+    // Used by ActivityLog to attribute container item changes to players.
+    // Map<containerTypeNorm, { player, steamId, ownerSteamId, timestamp }>
+    this._recentContainerAccess = new Map();
+
+    // Death cause tracker: tracks ALL damage sources (NPC, animal, zombie, player)
+    // for death attribution. Same pattern as _pvpDamageTracker but covers everything.
+    // Map<victimNameLower, { source, sourceRaw, timestamp, totalDamage }>
+    this._deathCauseTracker = new Map();
+  }
+
+  // ── Damage source classification (delegated to shared damage-classifier.js) ──
+
+  _classifyDamageSource(source: string) {
+    return classifyDamageSource(source);
+  }
+
+  // ── Day Counts Persistence ─────────────────────────────────
+
+  _loadDayCounts() {
+    try {
+      if (!this._db) return;
+      const raw = this._db.botState.getStateJSON('day_counts', null) as { date?: string; counts?: DayCounts } | null;
+      if (raw?.date === this._config.getToday()) {
+        this._dayCounts = { ...this._dayCounts, ...raw.counts };
+        this._log.info(`Restored day counts for ${raw.date} (DB)`);
+      }
+    } catch (err: unknown) {
+      this._log.warn('Could not load day counts:', errMsg(err));
+    }
+  }
+
+  _saveDayCounts() {
+    if (!this._dayCountsDirty) return;
+    try {
+      if (!this._db) return;
+      const data = { date: this._dailyDate || this._config.getToday(), counts: this._dayCounts };
+      this._db.botState.setStateJSON('day_counts', data);
+      this._dayCountsDirty = false;
+    } catch (err: unknown) {
+      this._log.warn('Could not save day counts:', errMsg(err));
+    }
+  }
+
+  _incDayCount(key: string) {
+    this._dayCounts[key] = (this._dayCounts[key] ?? 0) + 1;
+    this._dayCountsDirty = true;
+  }
+
+  // ── PvP Kill Tracking ──────────────────────────────────────
+
+  _loadPvpKills() {
+    try {
+      if (!this._db) return;
+      const raw = this._db.botState.getStateJSON('pvp_kills', null) as PvpKillEntry[] | null;
+      if (Array.isArray(raw)) {
+        this._pvpKills = raw;
+        this._log.info(`PVP: Loaded ${raw.length} PvP kill(s) from DB`);
+      }
+    } catch (err: unknown) {
+      this._log.warn('PVP: Could not load pvp kills:', errMsg(err));
+      this._pvpKills = [];
+    }
+  }
+
+  _savePvpKills() {
+    if (!this._pvpKillsDirty) return;
+    try {
+      if (!this._db) return;
+      this._db.botState.setStateJSON('pvp_kills', this._pvpKills);
+      this._pvpKillsDirty = false;
+    } catch (err: unknown) {
+      this._log.warn('PVP: Could not save pvp kills:', errMsg(err));
+    }
+  }
+
+  _recordPvpDamage(victim: string, attacker: string, damage: number, timestamp: Date) {
+    const key = victim.toLowerCase();
+    const existing = this._pvpDamageTracker.get(key);
+    const ts = timestamp.getTime();
+
+    if (existing && existing.attackerLower === attacker.toLowerCase()) {
+      // Same attacker — accumulate damage
+      existing.totalDamage += damage;
+      existing.timestamp = ts;
+      existing.attacker = attacker; // keep most recent casing
+    } else {
+      // New/different attacker — replace (last-hit attribution)
+      this._pvpDamageTracker.set(key, {
+        attacker,
+        attackerLower: attacker.toLowerCase(),
+        timestamp: ts,
+        totalDamage: damage,
+      });
+    }
+  }
+
+  _checkPvpKill(victim: string, deathTimestamp: Date) {
+    const key = victim.toLowerCase();
+    const entry = this._pvpDamageTracker.get(key);
+    if (!entry) return null;
+
+    const elapsed = deathTimestamp.getTime() - entry.timestamp;
+    // Use configurable window (default 5 min). Since log timestamps are only
+    // minute-precision (HH:MM), we need a generous window.
+    if (elapsed <= this._config.pvpKillWindow && elapsed >= 0) {
+      // Clean up after attribution
+      this._pvpDamageTracker.delete(key);
+      return { attacker: entry.attacker, totalDamage: entry.totalDamage };
+    }
+
+    // Expired — clean up
+    if (elapsed > this._config.pvpKillWindow) {
+      this._pvpDamageTracker.delete(key);
+    }
+    return null;
+  }
+
+  _isNpcDamageSource(source: string) {
+    return isNpcDamageSource(source);
+  }
+
+  _prunePvpTracker() {
+    const now = Date.now();
+    for (const [key, entry] of this._pvpDamageTracker) {
+      if (now - entry.timestamp > this._config.pvpKillWindow * 2) {
+        this._pvpDamageTracker.delete(key);
+      }
+    }
+    // Also prune death cause tracker
+    for (const [key, entry] of this._deathCauseTracker) {
+      if (now - entry.timestamp > this._config.pvpKillWindow * 2) {
+        this._deathCauseTracker.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Record damage from ANY source for death cause attribution.
+   * Last-hit attribution: the most recent damage source before death is the cause.
+   */
+  _recordDeathCauseDamage(victim: string, source: string, damage: number, timestamp: Date) {
+    const key = victim.toLowerCase();
+    const ts = timestamp.getTime();
+    const existing = this._deathCauseTracker.get(key);
+
+    if (existing && existing.sourceRaw === source) {
+      // Same source — accumulate
+      existing.totalDamage += damage;
+      existing.timestamp = ts;
+    } else {
+      // New/different source — replace (last-hit)
+      this._deathCauseTracker.set(key, {
+        sourceRaw: source,
+        timestamp: ts,
+        totalDamage: damage,
+      });
+    }
+  }
+
+  /**
+   * Check death cause: look up the most recent damage source for a victim.
+   * Returns classified cause or null.
+   */
+  _checkDeathCause(victim: string, deathTimestamp: Date) {
+    const key = victim.toLowerCase();
+    const entry = this._deathCauseTracker.get(key);
+    if (!entry) return null;
+
+    const elapsed = deathTimestamp.getTime() - entry.timestamp;
+    if (elapsed <= this._config.pvpKillWindow && elapsed >= 0) {
+      this._deathCauseTracker.delete(key);
+      const classified = this._classifyDamageSource(entry.sourceRaw);
+      return {
+        ...classified,
+        raw: entry.sourceRaw,
+        totalDamage: entry.totalDamage,
+      };
+    }
+
+    if (elapsed > this._config.pvpKillWindow) {
+      this._deathCauseTracker.delete(key);
+    }
+    return null;
+  }
+
+  getPvpKills(count = 10) {
+    return this._pvpKills.slice(-count);
+  }
+
+  /** @internal Set the day-rollover callback (used by external modules to chain behaviour). */
+  setDayRolloverCallback(cb: (() => Promise<void>) | null): void {
+    this._dayRolloverCb = cb;
+  }
+
+  /** @internal Get the current day-rollover callback. */
+  getDayRolloverCallback(): (() => Promise<void>) | null {
+    return this._dayRolloverCb;
+  }
+
+  /** @internal Get or create the current daily thread (public wrapper over the mixin). */
+  getOrCreateDailyThread(): Promise<{ send(options: unknown): Promise<unknown> } | null> {
+    return this._getOrCreateDailyThread();
+  }
+
+  /** @internal Wrap the _onDeath handler to inject additional behaviour. */
+  wrapOnDeath(
+    wrapper: (orig: (playerName: string, timestamp: Date) => void) => (playerName: string, timestamp: Date) => void,
+  ): void {
+    this._log.info('Wrapping _onDeath handler');
+    const orig = this._onDeath.bind(this);
+    this._onDeath = wrapper(orig);
+  }
+
+  /** @internal Enable or disable nuke suppression mode. */
+  setNukeActive(active: boolean): void {
+    this._nukeActive = active;
+  }
+
+  async start() {
+    // Validate required SFTP config
+    if (!this._config.sftpHost || this._config.sftpHost.startsWith('PASTE_')) {
+      this._log.info('SFTP not configured, skipping log watcher.');
+      return;
+    }
+
+    const channelId = this._config.logChannelId || this._config.adminChannelId;
+    if (!channelId) {
+      // No Discord channel — run in headless mode (DB writes only, no Discord posting).
+      // This is used by multi-server instances that only serve the web panel.
+      this._headless = true;
+      this._log.info('No LOG_CHANNEL_ID — running in headless mode (DB-only, no Discord posting)');
+    }
+
+    if (!this._headless) {
+      try {
+        this.logChannel = (await this.client.channels.fetch(channelId ?? '')) as TextChannel | null;
+        if (!this.logChannel) {
+          this._log.error('Log channel not found! Check LOG_CHANNEL_ID.');
+          return;
+        }
+      } catch (err: unknown) {
+        this._log.error('Failed to fetch log channel:', errMsg(err));
+        return;
+      }
+      this._log.info(
+        `Posting events to ${this._config.useActivityThreads ? 'daily threads in' : ''} #${this.logChannel.name}`,
+      );
+    }
+
+    this._log.info(`Connecting to ${this._config.sftpHost}:${this._config.sftpPort} for log watching...`);
+
+    // First poll — detect HZLogs or legacy, get current file size
+    await this._initSize();
+
+    if (this._useRotatedLogs) {
+      this._log.info('Using rotated logs (HZLogs/ per-restart files)');
+    } else {
+      this._log.info(`Using legacy monolithic logs: ${this._config.sftpLogPath}, ${this._config.sftpConnectLogPath}`);
+    }
+
+    // Initialise today's thread (skip during nuke — phase 2 rebuilds them)
+    if (!this._nukeActive && !this._headless) {
+      await this._getOrCreateDailyThread();
+    }
+
+    // Start polling
+    this.interval = setInterval(() => {
+      logRejection(this._poll(), this._log, `${this._log.label}:poll`);
+    }, this._config.logPollInterval);
+
+    // Proactive midnight rollover check — ensures the daily summary posts
+    // even if no log events happen around midnight in the configured timezone.
+    if (!this._headless) {
+      this._midnightCheckInterval = setInterval(() => {
+        logRejection(this._checkDayRollover(), this._log, `${this._log.label}:day-rollover`);
+      }, 60000);
+    }
+
+    // Send startup notification (skip during nuke and headless — would appear out of order)
+    if (!this._nukeActive && !this._headless) {
+      const thread = await this._getOrCreateDailyThread();
+      const embed = new EmbedBuilder()
+        .setDescription('Log watcher connected. Monitoring game server activity.')
+        .setColor(0x3498db)
+        .setTimestamp();
+      await thread?.send({ embeds: [embed] }).catch(() => {});
+    }
+  }
+
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+    if (this._midnightCheckInterval) {
+      clearInterval(this._midnightCheckInterval);
+      this._midnightCheckInterval = null;
+    }
+    if (this._lootTimer) {
+      clearTimeout(this._lootTimer);
+      this._lootTimer = null;
+    }
+    if (this._buildTimer) {
+      clearTimeout(this._buildTimer);
+      this._buildTimer = null;
+    }
+    if (this._raidTimer) {
+      clearTimeout(this._raidTimer);
+      this._raidTimer = null;
+    }
+    this._flushLootBatch();
+    this._flushBuildBatch();
+    this._flushRaidBatch();
+    this._savePvpKills();
+  }
+
+  reconfigure(options: {
+    logPollInterval?: unknown;
+    enablePvpKillFeed?: unknown;
+    pvpKillWindow?: unknown;
+    enableDeathLoopDetection?: unknown;
+    deathLoopThreshold?: unknown;
+    deathLoopWindow?: unknown;
+  }): void {
+    let clearDeathLoopTracker = false;
+
+    if (Object.hasOwn(options, 'logPollInterval')) {
+      const previousInterval = this._config.logPollInterval;
+      const nextInterval = this._coerceInterval(options.logPollInterval, previousInterval, 10_000);
+      this._config.logPollInterval = nextInterval;
+
+      if (this.interval && nextInterval !== previousInterval) {
+        clearInterval(this.interval);
+        this.interval = setInterval(() => {
+          logRejection(this._poll(), this._log, `${this._log.label}:poll`);
+        }, nextInterval);
+        this._log.info(`Polling logs every ${nextInterval / 1000}s`);
+      }
+    }
+
+    if (Object.hasOwn(options, 'enablePvpKillFeed')) {
+      this._config.enablePvpKillFeed = this._coerceBoolean(options.enablePvpKillFeed, this._config.enablePvpKillFeed);
+    }
+    if (Object.hasOwn(options, 'pvpKillWindow')) {
+      this._config.pvpKillWindow = this._coercePositiveInteger(options.pvpKillWindow, this._config.pvpKillWindow, 1);
+    }
+    if (Object.hasOwn(options, 'enableDeathLoopDetection')) {
+      const previous = this._config.enableDeathLoopDetection;
+      const next = this._coerceBoolean(options.enableDeathLoopDetection, this._config.enableDeathLoopDetection);
+      this._config.enableDeathLoopDetection = next;
+      if (previous && !next) clearDeathLoopTracker = true;
+    }
+    if (Object.hasOwn(options, 'deathLoopThreshold')) {
+      const previous = this._config.deathLoopThreshold;
+      const next = this._coercePositiveInteger(options.deathLoopThreshold, this._config.deathLoopThreshold, 1);
+      this._config.deathLoopThreshold = next;
+      if (next !== previous) clearDeathLoopTracker = true;
+    }
+    if (Object.hasOwn(options, 'deathLoopWindow')) {
+      const previous = this._config.deathLoopWindow;
+      const next = this._coercePositiveInteger(options.deathLoopWindow, this._config.deathLoopWindow, 1);
+      this._config.deathLoopWindow = next;
+      if (next !== previous) clearDeathLoopTracker = true;
+    }
+
+    if (clearDeathLoopTracker) this._clearDeathLoopTracker();
+  }
+
+  async reconfigureSftpLogSource(options: { sftpLogPath?: unknown; sftpConnectLogPath?: unknown }): Promise<void> {
+    if (!Object.hasOwn(options, 'sftpLogPath') && !Object.hasOwn(options, 'sftpConnectLogPath')) return;
+
+    const previous = this._snapshotLogSourceState();
+    const nextLogPath = Object.hasOwn(options, 'sftpLogPath')
+      ? runtimeStringValue(options.sftpLogPath)
+      : previous.sftpLogPath;
+    const nextConnectLogPath = Object.hasOwn(options, 'sftpConnectLogPath')
+      ? runtimeStringValue(options.sftpConnectLogPath)
+      : previous.sftpConnectLogPath;
+
+    this._config.sftpLogPath = nextLogPath;
+    this._config.sftpConnectLogPath = nextConnectLogPath;
+    this._resetLogSourceState();
+
+    if (!this.interval) return;
+
+    this._ignoreSavedOffsetsOnce = true;
+    try {
+      await this._initSize();
+      if (!this.initialised && !this._connectInitialised) {
+        throw new Error('Log source reinitialization failed');
+      }
+    } catch (err) {
+      this._restoreLogSourceState(previous);
+      throw err;
+    } finally {
+      this._ignoreSavedOffsetsOnce = false;
+    }
+  }
+
+  // ─── INTERNAL ─────────────────────────────────────────────
+
+  _loadOffsets(): SavedOffsets | null {
+    try {
+      if (this._db) {
+        const raw = this._db.botState.getStateJSON('log_offsets', null) as Record<string, unknown> | null;
+        if (raw) {
+          return {
+            hmzLogSize: typeof raw.hmzLogSize === 'number' ? raw.hmzLogSize : 0,
+            connectLogSize: typeof raw.connectLogSize === 'number' ? raw.connectLogSize : 0,
+            hmzLogFile: (raw.hmzLogFile as string) || null,
+            connectLogFile: (raw.connectLogFile as string) || null,
+            useRotatedLogs: !!raw.useRotatedLogs,
+          };
+        }
+      }
+    } catch (err: unknown) {
+      this._log.warn('Could not load saved offsets:', errMsg(err));
+    }
+    return null;
+  }
+
+  _saveOffsets() {
+    try {
+      const data = {
+        hmzLogSize: this.lastSize,
+        connectLogSize: this._connectLastSize,
+        useRotatedLogs: this._useRotatedLogs,
+        hmzLogFile: this._hmzLogFile || null,
+        connectLogFile: this._connectLogFile || null,
+        savedAt: new Date().toISOString(),
+      };
+      if (this._db) {
+        this._db.botState.setStateJSON('log_offsets', data);
+      }
+    } catch (err: unknown) {
+      this._log.warn('Could not save offsets:', errMsg(err));
+    }
+  }
+
+  /**
+   * Find the latest (newest) file in a directory matching a suffix.
+   * Game names files as {D}-{M}_{H}-{m}_{suffix}, e.g. "1-3_7-0_HMZLog.log".
+   * We parse the timestamp from the filename to sort. Falls back to alphabetical.
+   * @returns {string|null} Full remote path of the newest file, or null if none found.
+   */
+  async _findLatestFile(sftp: SftpClient, dir: string, suffix: string) {
+    try {
+      const items = await sftp.list(dir);
+      const matching = items.filter(
+        (i: { type: string; name: string; modifyTime?: number }) => i.type !== 'd' && i.name.endsWith(suffix),
+      );
+      if (matching.length === 0) return null;
+
+      // Parse timestamp from filename: D-M_H-m_suffix → sortable date
+      const parsed = matching.map((i: { name: string; modifyTime?: number }) => {
+        const m = i.name.match(/^(\d{1,2})-(\d{1,2})_(\d{1,2})-(\d{1,2})_/);
+        let sortKey = 0;
+        if (m) {
+          // Build sortable int: MMDDHHMM (zero-padded mentally, but int comparison works)
+          sortKey =
+            parseInt(_s(m, 2), 10) * 1000000 +
+            parseInt(_s(m, 1), 10) * 10000 +
+            parseInt(_s(m, 3), 10) * 100 +
+            parseInt(_s(m, 4), 10);
+        }
+        return { name: i.name, sortKey, modifyTime: i.modifyTime };
+      });
+
+      // Sort by parsed timestamp descending; fall back to modifyTime
+      parsed.sort((a: { sortKey: number; modifyTime?: number }, b: { sortKey: number; modifyTime?: number }) => {
+        if (a.sortKey !== b.sortKey) return b.sortKey - a.sortKey;
+        return (b.modifyTime || 0) - (a.modifyTime || 0);
+      });
+
+      return dir.replace(/\/+$/, '') + '/' + (parsed[0] ?? { name: '' }).name;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Detect and resolve the HZLogs rotated log directory.
+   * Returns { hmzLogDir, chatLogDir, loginLogDir } or null if HZLogs doesn't exist.
+   */
+  _resolveLogDirs() {
+    // Derive HZLogs path from the configured ftpLogPath.
+    // Old path: .../HumanitZServer/Saved/Logs/HMZLog.log  →  HZLogs is at .../HumanitZServer/HZLogs
+    // New path: .../HumanitZServer/HMZLog.log              →  HZLogs is at .../HumanitZServer/HZLogs
+    // We need the HumanitZServer/ root, so we walk up from the log file path.
+    const logPath = this._config.sftpLogPath || '/HumanitZServer/HMZLog.log';
+    let serverRoot = logPath.substring(0, logPath.lastIndexOf('/')) || '/HumanitZServer';
+    // If the log is under Saved/Logs/, walk up two levels to get to HumanitZServer/
+    if (serverRoot.endsWith('/Saved/Logs') || serverRoot.endsWith('/Saved/Logs/')) {
+      serverRoot = serverRoot.replace(/\/Saved\/Logs\/?$/, '');
+    }
+    return {
+      hmzLogDir: serverRoot + '/HZLogs',
+      chatLogDir: serverRoot + '/HZLogs/Chat',
+      loginLogDir: serverRoot + '/HZLogs/Login',
+    };
+  }
+
+  _snapshotLogSourceState() {
+    return {
+      sftpLogPath: this._config.sftpLogPath,
+      sftpConnectLogPath: this._config.sftpConnectLogPath,
+      lastSize: this.lastSize,
+      partialLine: this.partialLine,
+      initialised: this.initialised,
+      connectLastSize: this._connectLastSize,
+      connectPartialLine: this._connectPartialLine,
+      connectInitialised: this._connectInitialised,
+      useRotatedLogs: this._useRotatedLogs,
+      hmzLogFile: this._hmzLogFile,
+      connectLogFile: this._connectLogFile,
+      ignoreSavedOffsetsOnce: this._ignoreSavedOffsetsOnce,
+    };
+  }
+
+  _restoreLogSourceState(state: ReturnType<LogWatcher['_snapshotLogSourceState']>): void {
+    this._config.sftpLogPath = state.sftpLogPath;
+    this._config.sftpConnectLogPath = state.sftpConnectLogPath;
+    this.lastSize = state.lastSize;
+    this.partialLine = state.partialLine;
+    this.initialised = state.initialised;
+    this._connectLastSize = state.connectLastSize;
+    this._connectPartialLine = state.connectPartialLine;
+    this._connectInitialised = state.connectInitialised;
+    this._useRotatedLogs = state.useRotatedLogs;
+    this._hmzLogFile = state.hmzLogFile;
+    this._connectLogFile = state.connectLogFile;
+    this._ignoreSavedOffsetsOnce = state.ignoreSavedOffsetsOnce;
+  }
+
+  _resetLogSourceState(): void {
+    this.lastSize = 0;
+    this.partialLine = '';
+    this.initialised = false;
+    this._connectLastSize = 0;
+    this._connectPartialLine = '';
+    this._connectInitialised = false;
+    this._useRotatedLogs = false;
+    this._hmzLogFile = null;
+    this._connectLogFile = null;
+  }
+
+  async _initSize() {
+    const saved = this._ignoreSavedOffsetsOnce ? null : this._loadOffsets();
+    this._ignoreSavedOffsetsOnce = false;
+    const sftp = new SftpClient();
+    try {
+      await sftp.connect(this._config.sftpConnectConfig());
+
+      // ── Detect HZLogs rotated log directory (game update Feb 28 2026) ──
+      const dirs = this._resolveLogDirs();
+      let rotatedHmz = null;
+      let rotatedConnect = null;
+      try {
+        await sftp.stat(dirs.hmzLogDir);
+        rotatedHmz = await this._findLatestFile(sftp, dirs.hmzLogDir, '_HMZLog.log');
+        rotatedConnect = await this._findLatestFile(sftp, dirs.loginLogDir, '_ConnectLog.txt');
+      } catch {
+        // HZLogs directory doesn't exist — old-style monolithic logs
+      }
+
+      if (rotatedHmz) {
+        // ── Per-restart rotated logs mode ──
+        this._useRotatedLogs = true;
+        this._hmzLogFile = rotatedHmz;
+        this._connectLogFile = rotatedConnect;
+        this._log.info('Detected HZLogs directory — using per-restart log files');
+        this._log.info(`  HMZLog: ${rotatedHmz}`);
+        if (rotatedConnect) this._log.info(`  ConnectLog: ${rotatedConnect}`);
+
+        // If saved offsets match the same file, resume; otherwise start fresh
+        try {
+          const stat = await sftp.stat(rotatedHmz);
+          if (saved && saved.hmzLogFile === rotatedHmz && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
+            this.lastSize = saved.hmzLogSize;
+            this.initialised = true;
+            this._log.info(
+              `HMZLog: resuming from saved offset ${this.lastSize} (${stat.size - this.lastSize} bytes to catch up)`,
+            );
+          } else {
+            this.lastSize = stat.size;
+            this.initialised = true;
+            this._log.info(`HMZLog: tailing from ${this.lastSize} bytes`);
+          }
+        } catch {
+          this.lastSize = 0;
+          this.initialised = false;
+        }
+
+        if (rotatedConnect) {
+          try {
+            const stat2 = await sftp.stat(rotatedConnect);
+            if (
+              saved &&
+              saved.connectLogFile === rotatedConnect &&
+              saved.connectLogSize > 0 &&
+              saved.connectLogSize <= stat2.size
+            ) {
+              this._connectLastSize = saved.connectLogSize;
+              this._connectInitialised = true;
+              this._log.info(
+                `ConnectLog: resuming from saved offset ${this._connectLastSize} (${stat2.size - this._connectLastSize} bytes to catch up)`,
+              );
+            } else {
+              this._connectLastSize = stat2.size;
+              this._connectInitialised = true;
+              this._log.info(`ConnectLog: tailing from ${this._connectLastSize} bytes`);
+            }
+          } catch {
+            this._connectLastSize = 0;
+            this._connectInitialised = false;
+          }
+        }
+      } else {
+        // ── Legacy monolithic log mode ──
+        try {
+          const stat = await sftp.stat(this._config.sftpLogPath);
+          if (saved && saved.hmzLogSize > 0 && saved.hmzLogSize <= stat.size) {
+            this.lastSize = saved.hmzLogSize;
+            this.initialised = true;
+            const behind = stat.size - saved.hmzLogSize;
+            this._log.info(`HMZLog: resuming from saved offset ${this.lastSize} (${behind} bytes to catch up)`);
+          } else {
+            this.lastSize = stat.size;
+            this.initialised = true;
+            this._log.info(`HMZLog size: ${this.lastSize} bytes — tailing from here`);
+          }
+        } catch (err: unknown) {
+          this._log.warn('HMZLog.log not found, will retry:', errMsg(err));
+          this.lastSize = 0;
+          this.initialised = false;
+        }
+
+        // PlayerConnectedLog.txt
+        try {
+          const stat2 = await sftp.stat(this._config.sftpConnectLogPath);
+          if (saved && saved.connectLogSize > 0 && saved.connectLogSize <= stat2.size) {
+            this._connectLastSize = saved.connectLogSize;
+            this._connectInitialised = true;
+            const behind = stat2.size - saved.connectLogSize;
+            this._log.info(
+              `ConnectLog: resuming from saved offset ${this._connectLastSize} (${behind} bytes to catch up)`,
+            );
+          } else {
+            this._connectLastSize = stat2.size;
+            this._connectInitialised = true;
+            this._log.info(`ConnectLog size: ${this._connectLastSize} bytes — tailing from here`);
+          }
+        } catch (err: unknown) {
+          this._log.warn('PlayerConnectedLog.txt not found, will retry:', errMsg(err));
+          this._connectLastSize = 0;
+          this._connectInitialised = false;
+        }
+      }
+    } catch (err: unknown) {
+      this._log.error('SFTP init failed:', errMsg(err));
+      this.lastSize = 0;
+      this.initialised = false;
+      this._connectLastSize = 0;
+      this._connectInitialised = false;
+    } finally {
+      await sftp.end().catch(() => {});
+    }
+  }
+
+  /** Returns the display name for this server (from SERVER_NAME env or servers.json name). */
+  _getServerLabel() {
+    return this._config.serverName || '';
+  }
+
+  private _coerceInterval(value: unknown, fallback: number, minMs: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    const interval = Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+    return Math.max(interval || fallback, minMs);
+  }
+
+  private _coercePositiveInteger(value: unknown, fallback: number, minValue: number): number {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : Number.NaN;
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(Math.trunc(parsed), minValue);
+  }
+
+  private _coerceBoolean(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value !== 'string') return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    return fallback;
+  }
+
+  private _clearDeathLoopTracker(): void {
+    for (const entry of this._deathLoopTracker.values()) {
+      if (entry.timer) clearTimeout(entry.timer);
+    }
+    this._deathLoopTracker.clear();
+  }
+
+  async _poll() {
+    if (this._polling) {
+      // Previous SFTP poll still running — skip this tick to avoid
+      // overlapping connections and duplicate reads on the same offset.
+      return;
+    }
+    this._polling = true;
+    try {
+      await this._pollInner();
+    } finally {
+      this._polling = false;
+    }
+  }
+
+  async _pollInner() {
+    const sftp = new SftpClient();
+    try {
+      await sftp.connect(this._config.sftpConnectConfig());
+
+      // ── Resolve current log file paths ──────────────
+      let hmzPath, connectPath;
+      if (this._useRotatedLogs) {
+        const dirs = this._resolveLogDirs();
+
+        // Check for new rotated file (server restart → new file appeared)
+        const latestHmz = await this._findLatestFile(sftp, dirs.hmzLogDir, '_HMZLog.log');
+        const latestConnect = await this._findLatestFile(sftp, dirs.loginLogDir, '_ConnectLog.txt');
+
+        if (latestHmz && latestHmz !== this._hmzLogFile) {
+          // Server restarted — new log file. Read remaining from old, then switch.
+          if (this._hmzLogFile) {
+            this._log.info(`HMZLog rotated: ${this._hmzLogFile} → ${latestHmz}`);
+            // Flush remaining bytes from old file first
+            await this._pollFile(sftp, {
+              path: this._hmzLogFile,
+              label: 'HMZLog(old)',
+              getSize: () => this.lastSize,
+              setSize: (s: number) => {
+                this.lastSize = s;
+              },
+              getInit: () => this.initialised,
+              setInit: (v: boolean) => {
+                this.initialised = v;
+              },
+              getPartial: () => this.partialLine,
+              setPartial: (p: string) => {
+                this.partialLine = p;
+              },
+              processLine: (line: string) => this._processLine(line),
+            });
+          }
+          this._hmzLogFile = latestHmz;
+          this.lastSize = 0;
+          this.partialLine = '';
+          this.initialised = true; // Read from byte 0, don't skip
+        }
+
+        if (latestConnect && latestConnect !== this._connectLogFile) {
+          if (this._connectLogFile) {
+            this._log.info(`ConnectLog rotated: ${this._connectLogFile} → ${latestConnect}`);
+            await this._pollFile(sftp, {
+              path: this._connectLogFile,
+              label: 'ConnectLog(old)',
+              getSize: () => this._connectLastSize,
+              setSize: (s: number) => {
+                this._connectLastSize = s;
+              },
+              getInit: () => this._connectInitialised,
+              setInit: (v: boolean) => {
+                this._connectInitialised = v;
+              },
+              getPartial: () => this._connectPartialLine,
+              setPartial: (p: string) => {
+                this._connectPartialLine = p;
+              },
+              processLine: (line: string) => this._processConnectLine(line),
+            });
+          }
+          this._connectLogFile = latestConnect;
+          this._connectLastSize = 0;
+          this._connectPartialLine = '';
+          this._connectInitialised = true;
+        }
+
+        hmzPath = this._hmzLogFile;
+        connectPath = this._connectLogFile;
+      } else {
+        hmzPath = this._config.sftpLogPath;
+        connectPath = this._config.sftpConnectLogPath;
+      }
+
+      // ── HMZLog ──────────────────────────────────────
+      if (hmzPath) {
+        await this._pollFile(sftp, {
+          path: hmzPath,
+          label: 'HMZLog',
+          getSize: () => this.lastSize,
+          setSize: (s: number) => {
+            this.lastSize = s;
+          },
+          getInit: () => this.initialised,
+          setInit: (v: boolean) => {
+            this.initialised = v;
+          },
+          getPartial: () => this.partialLine,
+          setPartial: (p: string) => {
+            this.partialLine = p;
+          },
+          processLine: (line: string) => this._processLine(line),
+        });
+      }
+
+      // ── ConnectLog ──────────────────────────────────
+      if (connectPath) {
+        await this._pollFile(sftp, {
+          path: connectPath,
+          label: 'ConnectLog',
+          getSize: () => this._connectLastSize,
+          setSize: (s: number) => {
+            this._connectLastSize = s;
+          },
+          getInit: () => this._connectInitialised,
+          setInit: (v: boolean) => {
+            this._connectInitialised = v;
+          },
+          getPartial: () => this._connectPartialLine,
+          setPartial: (p: string) => {
+            this._connectPartialLine = p;
+          },
+          processLine: (line: string) => this._processConnectLine(line),
+        });
+      }
+
+      // Persist offsets so next restart catches up from here
+      this._saveOffsets();
+
+      // Prune stale PvP damage entries + persist kill log
+      this._prunePvpTracker();
+      this._savePvpKills();
+
+      // Persist day counts
+      this._saveDayCounts();
+    } catch (err: unknown) {
+      this._log.error('Poll error:', errMsg(err));
+    } finally {
+      await sftp.end().catch(() => {});
+    }
+  }
+
+  async _pollFile(sftp: SftpClient, opts: PollFileOpts) {
+    try {
+      const stat = await sftp.stat(opts.path);
+      const currentSize = stat.size;
+      const lastSize = opts.getSize();
+
+      // File was truncated/rotated (server restart)
+      if (currentSize < lastSize) {
+        this._log.info(`${opts.label} rotated — resetting`);
+        opts.setSize(0);
+        opts.setPartial('');
+      }
+
+      if (currentSize === lastSize) return;
+
+      // First poll — skip old data
+      if (!opts.getInit()) {
+        opts.setSize(currentSize);
+        opts.setInit(true);
+        this._log.info(`${opts.label} initialised at ${currentSize} bytes`);
+        return;
+      }
+
+      const bytesNew = currentSize - opts.getSize();
+      this._log.info(`${opts.label}: ${bytesNew} new bytes`);
+
+      const newBytes = await this._downloadFrom(sftp, opts.path, opts.getSize(), currentSize);
+      opts.setSize(currentSize);
+
+      if (newBytes.length > 0) {
+        const text = opts.getPartial() + newBytes;
+        const lines = text.split('\n');
+        opts.setPartial(lines.pop() || '');
+
+        let totalLines = 0;
+        let eventLines = 0;
+        for (const line of lines) {
+          const trimmed = line.replace(/^\uFEFF/, '').trim();
+          if (!trimmed) continue;
+          totalLines++;
+          if (opts.processLine(trimmed)) eventLines++;
+        }
+        this._log.info(`${opts.label}: ${totalLines} lines (${eventLines} events)`);
+      }
+    } catch (err: unknown) {
+      // File may not exist yet — that's OK
+      if ((err as { code?: number }).code === 2 || errMsg(err).includes('No such file')) {
+        return; // silently skip missing files
+      }
+      this._log.warn(`${opts.label} poll error:`, errMsg(err));
+    }
+  }
+
+  async _downloadFrom(sftpClient: SftpClient, remotePath: string, startAt: number, endAt: number): Promise<string> {
+    const bytesToRead = endAt - startAt;
+    if (bytesToRead <= 0) return '';
+
+    // Use the underlying sftp session to create a read stream with offset
+    return new Promise<string>((resolve, reject) => {
+      const sftpSession = (
+        sftpClient as unknown as {
+          // SAFETY: ssh2-sftp-client exposes underlying sftp session not in type defs
+          sftp?: { createReadStream(path: string, opts: Record<string, unknown>): import('stream').Readable };
+        }
+      ).sftp;
+      if (!sftpSession) {
+        reject(new Error('No underlying SFTP session available'));
+        return;
+      }
+
+      const readStream = sftpSession.createReadStream(remotePath, {
+        start: startAt,
+        end: endAt - 1,
+        encoding: 'utf8',
+      });
+
+      const chunks: string[] = [];
+      readStream.on('data', (chunk: string) => {
+        chunks.push(chunk);
+      });
+      readStream.on('end', () => {
+        resolve(chunks.join(''));
+      });
+      readStream.on('error', (streamErr: unknown) => {
+        this._log.warn('Stream read failed, trying full download:', errMsg(streamErr));
+        // Fallback: download full file and slice
+        sftpClient
+          .get(remotePath)
+          .then((buf) => {
+            resolve(
+              Buffer.from(buf as Buffer)
+                .subarray(startAt, endAt)
+                .toString('utf8'),
+            );
+          })
+          .catch(reject);
+      });
+    });
+  }
+
+  _processLine(line: string) {
+    // Extract timestamp and message body
+    // Format: (13/2/2026 12:35) message here  — also handles :SS seconds, - . separators, and comma in year (2,026)
+    const lineMatch = line.match(
+      /^\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)\s+(.+)$/,
+    );
+    if (!lineMatch) return false;
+
+    const day = _s(lineMatch, 1);
+    const month = _s(lineMatch, 2);
+    const rawYear = _s(lineMatch, 3);
+    const hour = _s(lineMatch, 4);
+    const min = _s(lineMatch, 5);
+    const body = _s(lineMatch, 6);
+    const year = rawYear.replace(',', '');
+    const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
+
+    // ── Player death ───────────────────────────────────────
+    // Player died (PlayerName)
+    const deathMatch = body.match(/^Player died \((.+)\)$/);
+    if (deathMatch) {
+      this._onDeath(_s(deathMatch, 1).trim(), timestamp);
+      return true;
+    }
+
+    // ── Building completed ─────────────────────────────────
+    // PlayerName(SteamID) finished building ItemName
+    // [ClanTag] PlayerName(SteamID) finished building ItemName
+    const buildMatch = body.match(/^(.+?)\((\d{17})[^)]*\)\s*finished building\s+(.+)$/);
+    if (buildMatch) {
+      this._onBuild(_s(buildMatch, 1).trim(), _s(buildMatch, 2), _s(buildMatch, 3).trim(), timestamp);
+      return true;
+    }
+
+    // ── Player damage taken ────────────────────────────────
+    // PlayerName took X damage from Source
+    // Tracked for stats; not posted to Discord individually (too spammy)
+    const dmgMatch = body.match(/^(.+?)\s+took\s+([\d.]+)\s+damage from\s+(.+)$/);
+    if (dmgMatch) {
+      const dmgVictim = _s(dmgMatch, 1).trim();
+      const dmgAmount = parseFloat(_s(dmgMatch, 2));
+      const dmgSource = _s(dmgMatch, 3).trim();
+      if (dmgAmount > 0) {
+        this._playerStats.recordDamageTaken(dmgVictim, dmgSource, timestamp);
+        this._incDayCount('damage');
+
+        // DB: log damage event (classify source for clean display)
+        const dmgClassified = this._classifyDamageSource(dmgSource);
+        this._logEvent({
+          type: 'damage_taken',
+          category: 'combat',
+          actorName: dmgVictim,
+          item: dmgClassified.name,
+          amount: Math.round(dmgAmount),
+          timestamp,
+        });
+
+        // Track PvP damage for kill attribution.
+        // NPC damage sources always start with BP_ (e.g. BP_Zombie_C_123) — already
+        // excluded above.  The secondary regex is a safety net that catches any edge
+        // cases where the game might log an NPC name without the BP_ prefix.  We use
+        // start-of-string anchors (^) and underscores to avoid false positives on
+        // player names that happen to contain words like "Human" or "Bear".
+        if (this._config.enablePvpKillFeed && !dmgSource.startsWith('BP_') && !this._isNpcDamageSource(dmgSource)) {
+          this._recordPvpDamage(dmgVictim, dmgSource, dmgAmount, timestamp);
+        }
+
+        // Track ALL damage for death cause attribution (PvE, PvP, everything)
+        this._recordDeathCauseDamage(dmgVictim, dmgSource, dmgAmount, timestamp);
+      }
+      return true;
+    }
+
+    // ── Container looted ───────────────────────────────────
+    // [ClanTag] PlayerName (SteamID) looted a container (Type) owner by OwnerSteamID
+    const lootMatch = body.match(/^(.+?)\s*\((\d{17})[^)]*\)\s*looted a container\s*\(([^)]+)\)\s*owner by\s*(\d{17})/);
+    if (lootMatch) {
+      const looterName = _s(lootMatch, 1).trim();
+      const looterId = _s(lootMatch, 2);
+      const containerType = _s(lootMatch, 3);
+      const ownerSteamId = _s(lootMatch, 4);
+      const isClanAccess = looterId !== ownerSteamId && this._db?.clan.areClanmates(looterId, ownerSteamId);
+      this._playerStats.recordLoot(looterName, looterId, ownerSteamId, timestamp);
+      this._incDayCount('loots');
+      // Only batch for Discord if it's not a clanmate accessing shared containers
+      if (!isClanAccess) {
+        this._batchLoot(looterName, looterId, containerType, ownerSteamId, timestamp);
+      }
+
+      // DB: always log — tag clan access separately so the web panel can filter
+      this._logEvent({
+        type: isClanAccess ? 'clan_container_access' : 'container_loot',
+        category: isClanAccess ? 'clan' : 'loot',
+        actorName: looterName,
+        steamId: looterId,
+        item: this._simplifyContainerName(containerType),
+        targetSteamId: ownerSteamId,
+        timestamp,
+      });
+
+      // Track container access for attribution in activity log
+      const cleanType = this._simplifyContainerName(containerType).toLowerCase();
+      this._recentContainerAccess.set(cleanType, {
+        player: looterName,
+        steamId: looterId,
+        ownerSteamId,
+        rawType: containerType,
+        timestamp: Date.now(),
+      });
+      // Expire old entries (older than 5 min)
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      for (const [k, v] of this._recentContainerAccess) {
+        if (v.timestamp < cutoff) this._recentContainerAccess.delete(k);
+      }
+      return true;
+    }
+
+    // ── Building damaged by player (raiding) ───────────────
+    // Building (Type) owned by (OwnerSteamID) damaged (X) by AttackerName(SteamID)
+    // Building (Type) owned by (OwnerSteamID) damaged (X) by AttackerName(SteamID) (Destroyed)
+    // Skip: Decayfalse, Zeek (NPC), unowned buildings (empty owner)
+    const raidMatch = body.match(
+      /^Building \(([^)]+)\) owned by \((\d{17}[^)]*)\) damaged \([\d.]+\) by (.+?)(?:\((\d{17})[^)]*\))?(\s*\(Destroyed\))?$/,
+    );
+    if (raidMatch) {
+      const buildingType = _s(raidMatch, 1);
+      const ownerSteamId = _s(raidMatch, 2).match(/^(\d{17})/)?.[1];
+      const attackerRaw = _s(raidMatch, 3).trim();
+      const attackerSteamId = _s(raidMatch, 4);
+      const destroyed = !!_s(raidMatch, 5);
+
+      // Skip decay damage and NPC damage
+      if (attackerRaw === 'Decayfalse' || attackerRaw === 'Zeek') return false;
+      // Skip self-damage (player damaging their own building)
+      if (attackerSteamId && ownerSteamId && attackerSteamId === ownerSteamId) return false;
+      // Skip clanmates hitting clan buildings — not a raid, just building/upgrading.
+      // Still logged to DB via _logEvent for the web panel.
+      if (attackerSteamId && ownerSteamId && this._db?.clan.areClanmates(attackerSteamId, ownerSteamId)) {
+        this._logEvent({
+          type: 'clan_building_damage',
+          category: 'clan',
+          actorName: attackerRaw,
+          steamId: attackerSteamId,
+          targetSteamId: ownerSteamId,
+          item: this._simplifyBlueprintName(buildingType),
+          amount: destroyed ? 1 : 0,
+          details: { destroyed },
+          timestamp,
+        });
+        return true;
+      }
+
+      this._onRaid(attackerRaw, attackerSteamId, ownerSteamId, buildingType, destroyed, timestamp);
+      return true;
+    }
+
+    // ── Building damaged (unowned) ─────────────────────
+    // Building (Type) owned by () damaged (X) by AttackerName(SteamID) (Destroyed)
+    // Only post if destroyed by a player (not Zeek/Decay)
+    const unownedMatch = body.match(
+      /^Building \(([^)]+)\) owned by \(\) damaged \([\d.]+\) by (.+?)(?:\((\d{17})[^)]*\))?(\s*\(Destroyed\))?$/,
+    );
+    if (unownedMatch) {
+      const buildingType = _s(unownedMatch, 1);
+      const attackerRaw = _s(unownedMatch, 2).trim();
+      const destroyed = !!_s(unownedMatch, 4);
+      if (attackerRaw !== 'Zeek' && attackerRaw !== 'Decayfalse' && destroyed) {
+        this._incDayCount('destroyed');
+        const cleanBuilding = this._simplifyBlueprintName(buildingType);
+
+        // DB: log building destroyed event
+        this._logEvent({
+          type: 'building_destroyed',
+          category: 'raid',
+          actorName: attackerRaw,
+          item: cleanBuilding,
+          timestamp,
+        });
+
+        const embed = new EmbedBuilder()
+          .setAuthor({ name: '🏠 Building Destroyed' })
+          .setDescription(`**${attackerRaw}** destroyed **${cleanBuilding}**`)
+          .setColor(0x95a5a6)
+          .setFooter({ text: this._formatTime(timestamp) });
+        logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:building-destroyed`);
+      }
+      return true;
+    }
+
+    // ── Admin access granted ───────────────────────────────
+    // PlayerName gained admin access!
+    const adminMatch = body.match(/^(.+?)\s+gained admin access!$/);
+    if (adminMatch) {
+      const playerName = _s(adminMatch, 1).trim();
+      this._playerStats.recordAdminAccess(playerName, timestamp);
+      this._incDayCount('admin');
+
+      // DB: log admin access event
+      this._logEvent({ type: 'admin_access', category: 'admin', actorName: playerName, timestamp });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '🔑 Admin Access' })
+        .setDescription(`**${playerName}** gained admin access`)
+        .setColor(0x9b59b6)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:admin-access`);
+      return true;
+    }
+
+    // ── Anti-cheat flags ───────────────────────────────────
+    // Item manipulation (with SteamID):
+    //   Stack limit detected in drop function (PlayerName - SteamID)
+    //   Odd behavior Drop amount Cheat (PlayerName - SteamID)
+    const cheatMatch = body.match(
+      /^(Stack limit detected in drop function|Odd behavior.*?Cheat)\s*\((.+?)\s*-\s*(\d{17})/,
+    );
+    if (cheatMatch) {
+      const type = _s(cheatMatch, 1).trim();
+      const playerName = _s(cheatMatch, 2).trim();
+      const steamId = _s(cheatMatch, 3);
+      this._playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
+      this._incDayCount('cheat');
+      this._logEvent({
+        type: 'anticheat_flag',
+        category: 'admin',
+        actorName: playerName,
+        steamId,
+        item: type,
+        timestamp,
+      });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '🚨 Anti-Cheat Alert' })
+        .setDescription(`**${playerName}**\n\`${type}\``)
+        .setColor(0xe74c3c)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:anticheat-alert`);
+      return true;
+    }
+
+    // Client drop mismatch (no SteamID in log):
+    //   Client drop request count mismatch (Potential cheat) (PlayerName - amount X)
+    const dropMismatch = body.match(/^Client drop request count mismatch\s*\([^)]*\)\s*\((.+?)\s*-\s*amount\s*(\d+)/i);
+    if (dropMismatch) {
+      const playerName = _s(dropMismatch, 1).trim();
+      const amount = _s(dropMismatch, 2);
+      const type = `Client drop mismatch (amount ${amount})`;
+      this._incDayCount('cheat');
+      this._logEvent({ type: 'anticheat_flag', category: 'admin', actorName: playerName, item: type, timestamp });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '🚨 Anti-Cheat Alert' })
+        .setDescription(`**${playerName}**\n\`${type}\``)
+        .setColor(0xe74c3c)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:anticheat-alert-2`);
+      return true;
+    }
+
+    // Speed hack detection:
+    //   PlayerName suspected of speed hacking Warn => 2/3
+    const speedWarnMatch = body.match(/^(.+?)\s+suspected of speed hacking\s+Warn\s*=>\s*(\d+)\/(\d+)/);
+    if (speedWarnMatch) {
+      const playerName = _s(speedWarnMatch, 1).trim();
+      const current = _s(speedWarnMatch, 2);
+      const max = _s(speedWarnMatch, 3);
+      const type = `Speed hack warning ${current}/${max}`;
+      this._incDayCount('cheat');
+      this._logEvent({ type: 'anticheat_flag', category: 'admin', actorName: playerName, item: type, timestamp });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '⚡ Speed Hack Warning' })
+        .setDescription(`**${playerName}** — Warn ${current}/${max}`)
+        .setColor(0xf39c12)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:speed-hack-warning`);
+      return true;
+    }
+
+    // Speed hack kick:
+    //   PlayerName will be kicked for speed-hack strong suspicion ID = SteamID
+    const speedKickMatch = body.match(/^(.+?)\s+will be kicked for speed-hack strong suspicion\s+ID\s*=\s*(\d{17})/);
+    if (speedKickMatch) {
+      const playerName = _s(speedKickMatch, 1).trim();
+      const steamId = _s(speedKickMatch, 2);
+      const type = 'Speed hack kick';
+      this._playerStats.recordCheatFlag(playerName, steamId, type, timestamp);
+      this._incDayCount('cheat');
+      this._logEvent({
+        type: 'anticheat_flag',
+        category: 'admin',
+        actorName: playerName,
+        steamId,
+        item: type,
+        timestamp,
+      });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '🚫 Speed Hack Kick' })
+        .setDescription(`**${playerName}** kicked for speed hacking`)
+        .setColor(0xe74c3c)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:speed-hack-kick`);
+      return true;
+    }
+
+    // Admin abuse kicks:
+    //   Kicked for executing unauthorised command
+    //   Kicked for opening admin panel with no admin privilege...
+    //   Kicked player for trying to send a system message when not admin...
+    //   Kicked player for suspicious behavior
+    const adminKickMatch = body.match(/^(Kicked (?:for|player for)\s+.+?)(?:\.\s*|$)/);
+    if (adminKickMatch && /unauthoris|admin panel|system message|suspicious behavior/i.test(body)) {
+      const type = _s(adminKickMatch, 1).trim();
+      this._incDayCount('cheat');
+      this._logEvent({ type: 'anticheat_flag', category: 'admin', item: type, timestamp });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '🔒 Security Kick' })
+        .setDescription(`\`${type}\``)
+        .setColor(0xe74c3c)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:security-kick`);
+      return true;
+    }
+
+    // Bad spawn detection:
+    //   Detected bad spawn location, adjusting to coast spawn...
+    //   Bad spawn location, forcing default coast spawn location
+    if (/^(?:Detected )?[Bb]ad spawn location/i.test(body)) {
+      this._incDayCount('cheat');
+      this._logEvent({ type: 'anticheat_flag', category: 'admin', item: 'Bad spawn location', timestamp });
+      return true; // log silently — not worth an embed, it auto-corrects
+    }
+
+    return false;
+  }
+
+  _processConnectLine(line: string) {
+    // Flexible: handles optional seconds, - . separators, and comma in year (2,026)
+    const connectMatch = line.match(
+      /^Player (Connected|Disconnected)\s+(.+?)\s+NetID\((\d{17})[^)]*\)\s*\((\d{1,2})[/\-.](\d{1,2})[/\-.](\d{1,2},?\d{3})\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?\)/,
+    );
+    if (!connectMatch) return false;
+
+    const action = _s(connectMatch, 1);
+    const name = _s(connectMatch, 2);
+    const steamId = _s(connectMatch, 3);
+    const day = _s(connectMatch, 4);
+    const month = _s(connectMatch, 5);
+    const rawYear = _s(connectMatch, 6);
+    const hour = _s(connectMatch, 7);
+    const min = _s(connectMatch, 8);
+    const year = rawYear.replace(',', '');
+    const timestamp = this._config.parseLogTimestamp(year, month, day, hour, min);
+
+    if (action === 'Connected') {
+      this._playerStats.recordConnect(name, steamId, timestamp);
+      this._playtime.playerJoin(steamId, name, timestamp);
+      this._incDayCount('connects');
+
+      // DB: log connect event
+      this._logEvent({ type: 'player_connect', category: 'session', actorName: name, steamId, timestamp });
+
+      // Track online players for peak stats
+      this._onlinePlayers.add(steamId);
+      this._playtime.recordPlayerCount(this._onlinePlayers.size);
+      this._playtime.recordUniqueToday(steamId);
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '📥 Player Connected' })
+        .setDescription(`**${name}** joined the server`)
+        .setColor(0x2ecc71)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:player-connect`);
+    } else {
+      this._playerStats.recordDisconnect(name, steamId, timestamp);
+      this._playtime.playerLeave(steamId, timestamp);
+      this._incDayCount('disconnects');
+
+      // DB: log disconnect event
+      this._logEvent({ type: 'player_disconnect', category: 'session', actorName: name, steamId, timestamp });
+
+      // Update online tracking
+      this._onlinePlayers.delete(steamId);
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: '📤 Player Disconnected' })
+        .setDescription(`**${name}** left the server`)
+        .setColor(0x95a5a6)
+        .setFooter({ text: this._formatTime(timestamp) });
+      logRejection(this._sendToThread(embed), this._log, `${this._log.label}:send-thread:player-disconnect`);
+    }
+
+    return true;
+  }
+
+  // ─── DB EVENT LOGGING ─────────────────────────────────────
+
+  /**
+   * Log an event to the activity_log database table.
+   * Silently no-ops if no DB is available.
+   * @param {object} entry - { type, category, actorName, steamId, item, amount, details, targetName, targetSteamId, timestamp }
+   */
+  _logEvent(entry: LogEventEntry) {
+    if (!this._db) return;
+    try {
+      const steamId = this._resolveLogSteamId(entry.actorName, entry.steamId);
+      const targetSteamId = this._resolveLogSteamId(entry.targetName, entry.targetSteamId);
+      const actorName = this._resolveLogPlayerName(steamId, entry.actorName);
+      const targetName = this._resolveLogPlayerName(targetSteamId, entry.targetName);
+      const category = this._canonicalLogCategory(entry);
+      const actor = steamId || actorName || '';
+      const source = entry.source || 'log';
+      const details = entry.details || {};
+
+      if (this._shouldSkipPresenceDuplicate(entry.type, category, steamId, source, entry.timestamp)) return;
+
+      if (entry.timestamp) {
+        this._db.activityLog.insertActivitiesAt([
+          {
+            type: entry.type,
+            category,
+            actor,
+            actorName,
+            steamId,
+            item: entry.item || '',
+            amount: entry.amount || 0,
+            details,
+            source,
+            targetName,
+            targetSteamId,
+            createdAt: entry.timestamp instanceof Date ? entry.timestamp.toISOString() : entry.timestamp,
+          },
+        ]);
+      } else {
+        this._db.activityLog.insertActivity({
+          type: entry.type,
+          category,
+          actor,
+          actorName,
+          steamId,
+          item: entry.item || '',
+          amount: entry.amount || 0,
+          details,
+          source,
+          targetName,
+          targetSteamId,
+        });
+      }
+    } catch (err: unknown) {
+      // DB errors should never disrupt event processing
+      this._log.warn(`Failed to log event ${entry.type}:`, errMsg(err));
+    }
+  }
+
+  private _resolveLogSteamId(name: string | undefined, steamId: string | undefined): string {
+    if (steamId && STEAM_ID_RE.test(steamId)) return steamId;
+    if (name && STEAM_ID_RE.test(name)) return name;
+    if (!name) return '';
+
+    try {
+      const fromStats = this._playerStats.getSteamId(name);
+      if (fromStats && STEAM_ID_RE.test(fromStats)) return fromStats;
+    } catch {
+      /* best-effort */
+    }
+
+    try {
+      const fromDb = this._db?.player.resolveNameToSteamId(name);
+      const fromDbSteamId = typeof fromDb?.steamId === 'string' ? fromDb.steamId : '';
+      if (fromDbSteamId && STEAM_ID_RE.test(fromDbSteamId)) return fromDbSteamId;
+    } catch {
+      /* best-effort */
+    }
+
+    return '';
+  }
+
+  private _resolveLogPlayerName(steamId: string, fallbackName: string | undefined): string {
+    if (fallbackName) return fallbackName;
+    if (!steamId) return '';
+    try {
+      const name = this._db?.player.resolveSteamIdToName(steamId);
+      return name || steamId;
+    } catch {
+      return steamId;
+    }
+  }
+
+  private _canonicalLogCategory(entry: LogEventEntry): string {
+    const category = entry.category || '';
+    if (category === 'session' || entry.type === 'player_connect' || entry.type === 'player_disconnect') {
+      return 'session';
+    }
+    if (
+      category === 'combat' ||
+      category === 'death' ||
+      entry.type === 'damage_taken' ||
+      entry.type === 'player_death' ||
+      entry.type === 'player_death_pvp'
+    ) {
+      return 'combat';
+    }
+    if (
+      category === 'build' ||
+      category === 'building' ||
+      category === 'raid' ||
+      category === 'structure' ||
+      entry.type === 'player_build' ||
+      entry.type === 'raid_damage' ||
+      entry.type === 'building_destroyed' ||
+      entry.type === 'clan_building_damage'
+    ) {
+      return 'structure';
+    }
+    if (
+      category === 'loot' ||
+      category === 'clan' ||
+      category === 'container' ||
+      entry.type === 'container_loot' ||
+      entry.type === 'clan_container_access'
+    ) {
+      return 'container';
+    }
+    if (category === 'admin' || entry.type === 'admin_access' || entry.type === 'anticheat_flag') return 'admin';
+    return category;
+  }
+
+  private _shouldSkipPresenceDuplicate(
+    type: string,
+    category: string,
+    steamId: string,
+    source: string,
+    timestamp: Date | string | undefined,
+  ): boolean {
+    if (
+      source !== 'log' ||
+      category !== 'session' ||
+      (type !== 'player_connect' && type !== 'player_disconnect') ||
+      !steamId
+    ) {
+      return false;
+    }
+
+    const eventTime = timestamp instanceof Date ? timestamp : timestamp ? new Date(timestamp) : new Date();
+    const now = Number.isNaN(eventTime.getTime()) ? new Date() : eventTime;
+    try {
+      return this._db?.activityLog.hasRecentActivity(type, steamId, 'presence', SESSION_DEDUPE_WINDOW_MS, now) ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  wrapLogEvent(wrapper: (handler: LogEventHandler) => LogEventHandler): void {
+    const original = this._logEvent.bind(this);
+    this._logEvent = wrapper(original);
+  }
+
+  _simplifyContainerName(rawName: string) {
+    return cleanName(rawName);
+  }
+
+  _simplifyBlueprintName(rawName: string) {
+    return cleanName(rawName);
+  }
+
+  _formatTime(date: Date) {
+    return this._config.formatTime(date);
+  }
+}
+
+Object.assign(LogWatcher.prototype, logWatcherThreads);
+
+Object.assign(LogWatcher.prototype, logWatcherEvents);
+
+export default LogWatcher;
+export { LogWatcher };

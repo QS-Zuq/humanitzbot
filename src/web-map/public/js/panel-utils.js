@@ -17,11 +17,34 @@ Panel.core = Panel.core || {};
     return m > 0 ? h + 'h ' + m + 'm' : h + 'h';
   }
 
-  function fmtDateTime(value) {
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-    if (window.fmtDate && window.fmtTime) return window.fmtDate(date) + ' ' + window.fmtTime(date);
-    return date.toLocaleString();
+  function parseDbTimestamp(value) {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const sqliteUtc = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?$/);
+    const parsed = new Date(sqliteUtc ? sqliteUtc[1] + 'T' + sqliteUtc[2] + (sqliteUtc[3] || '') + 'Z' : raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function resolvePanelTimeZone(timeZone) {
+    const S = Panel.core && Panel.core.S ? Panel.core.S : {};
+    const explicit = String(timeZone || '').trim();
+    const resolved = explicit || S.timezone || '';
+    return String(resolved || '').trim();
+  }
+
+  function fmtDateTime(value, timeZone) {
+    const date = parseDbTimestamp(value);
+    const tz = resolvePanelTimeZone(timeZone);
+    if (!date) return '';
+    if (window.fmtDate && window.fmtTime)
+      return window.fmtDate(date, tz || undefined) + ' ' + window.fmtTime(date, tz || undefined);
+    try {
+      return tz ? date.toLocaleString(undefined, { timeZone: tz }) : date.toLocaleString();
+    } catch (_e) {
+      return date.toLocaleString();
+    }
   }
 
   function humanizeSettingKey(key) {
@@ -105,6 +128,8 @@ Panel.core = Panel.core || {};
 
   Panel.core.utils = {
     toI18nSnakeCase: Panel.core.toI18nSnakeCase,
+    parseDbTimestamp: parseDbTimestamp,
+    resolvePanelTimeZone: resolvePanelTimeZone,
     fmtDateTime: fmtDateTime,
     formatPlaytime: formatPlaytime,
     humanizeSettingKey: humanizeSettingKey,

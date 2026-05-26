@@ -1,3 +1,4 @@
+/* exported selectPlayer, closePlayerPanel, refreshPlayers, kickPlayer, banPlayer, sendMessage */
 // ── Map setup ──────────────────────────────────────────────
 const MAP_SIZE = 4096;
 const mapBounds = [
@@ -375,7 +376,6 @@ function renderPlayerList() {
   content.innerHTML = html;
 }
 
-// eslint-disable-next-line no-unused-vars
 function selectPlayer(steamId) {
   const p = playerData.find((x) => x.steamId === steamId);
   if (!p) return;
@@ -412,7 +412,6 @@ function showPlayerList() {
   renderPlayerList();
 }
 
-// eslint-disable-next-line no-unused-vars
 function closePlayerPanel() {
   // Panel is always visible now — go back to list
   showPlayerList();
@@ -447,7 +446,6 @@ async function fetchPlayersQuick() {
 }
 
 // ── Full refresh via SSE (downloads from SFTP with progress) ──
-// eslint-disable-next-line no-unused-vars
 function refreshPlayers() {
   const btn = document.getElementById('btn-refresh');
   const progressEl = document.getElementById('refresh-progress');
@@ -580,7 +578,6 @@ function renderMarkers() {
 }
 
 // ── Admin actions ──────────────────────────────────────────
-// eslint-disable-next-line no-unused-vars
 async function kickPlayer(steamId, name) {
   if (!window.uiConfirm('web:dialog.confirm_kick', { name, steamId })) return;
   try {
@@ -596,7 +593,6 @@ async function kickPlayer(steamId, name) {
   }
 }
 
-// eslint-disable-next-line no-unused-vars
 async function banPlayer(steamId, name) {
   if (!window.uiConfirm('web:dialog.confirm_ban', { name, steamId })) return;
   if (!window.uiConfirm('web:dialog.confirm_ban_double', { name })) return;
@@ -613,7 +609,6 @@ async function banPlayer(steamId, name) {
   }
 }
 
-// eslint-disable-next-line no-unused-vars
 async function sendMessage(steamId, name) {
   const msg = window.uiPrompt('web:dialog.message_prompt', { name });
   if (!msg) return;

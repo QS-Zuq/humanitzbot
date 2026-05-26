@@ -1,0 +1,265 @@
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+
+import _database from '../src/db/database.js';
+const HumanitZDB = _database as any;
+
+import _config_repository from '../src/db/config-repository.js';
+const ConfigRepository = _config_repository as any;
+
+import * as _config_migration from '../src/db/config-migration.js';
+const { BOOTSTRAP_KEYS, buildMigrationMap, migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings, _coerce } =
+  _config_migration as any;
+
+describe('config-migration', () => {
+  let db: any;
+  let repo: any;
+
+  beforeEach(() => {
+    db = new HumanitZDB({ memory: true, label: 'MigrationTest' });
+    db.init();
+    repo = new ConfigRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  // ── 1. Migration map coverage ───────────────────────────────
+
+  it('buildMigrationMap() covers all ENV_CATEGORIES fields except bootstrap', () => {
+    const map = buildMigrationMap();
+    const keys = Object.keys(map);
+
+    // Should have a reasonable number of mapped keys
+    assert.ok(keys.length > 50, `Expected >50 mapped keys, got ${keys.length}`);
+
+    // No bootstrap keys should be in the map
+    for (const bk of BOOTSTRAP_KEYS) {
+      assert.ok(!map[bk], `Bootstrap key ${bk} should not be in migration map`);
+    }
+
+    // Known keys should exist
+    assert.ok(map['RCON_HOST'], 'RCON_HOST should be in map');
+    assert.ok(map['SHOW_VITALS'], 'SHOW_VITALS should be in map');
+    assert.ok(map['ENABLE_CHAT_RELAY'], 'ENABLE_CHAT_RELAY should be in map');
+  });
+
+  it('buildMigrationMap() does not migrate removed GitHub Tracker env keys', () => {
+    const map = buildMigrationMap();
+    for (const key of [
+      'ENABLE_GITHUB_TRACKER',
+      'GITHUB_TOKEN',
+      'GITHUB_REPOS',
+      'GITHUB_CHANNEL_ID',
+      'GITHUB_POLL_INTERVAL',
+    ]) {
+      assert.equal(map[key], undefined, `${key} must not be migrated after GitHub Tracker removal`);
+    }
+  });
+
+  // ── 2. Scope assignment ─────────────────────────────────────
+
+  it('assigns RCON/SFTP/channel keys to server:primary, others to app', () => {
+    const map = buildMigrationMap();
+
+    // Server-scoped
+    assert.equal(map['RCON_HOST'].scope, 'server:primary');
+    assert.equal(map['RCON_PORT'].scope, 'server:primary');
+    assert.equal(map['SFTP_HOST'].scope, 'server:primary');
+    assert.equal(map['SFTP_PORT'].scope, 'server:primary');
+    assert.equal(map['CHAT_CHANNEL_ID'].scope, 'server:primary');
+    assert.equal(map['ADMIN_CHANNEL_ID'].scope, 'server:primary');
+
+    // App-scoped
+    assert.equal(map['SHOW_VITALS'].scope, 'app');
+    assert.equal(map['ENABLE_CHAT_RELAY'].scope, 'app');
+    assert.equal(map['SERVER_STATUS_INTERVAL'].scope, 'app');
+  });
+
+  // ── 3. Type coercion ────────────────────────────────────────
+
+  it('migrateEnvToDb() coerces types: bool→boolean, int→number', () => {
+    migrateEnvToDb(
+      {
+        SHOW_VITALS: 'true',
+        ENABLE_CHAT_RELAY: 'false',
+        SERVER_STATUS_INTERVAL: '5000',
+        SERVER_NAME: 'MyServer',
+        RCON_HOST: '192.168.1.100',
+        RCON_PORT: '27015',
+      },
+      repo,
+    );
+
+    const app = repo.get('app');
+    assert.equal(app.showVitals, true);
+    assert.equal(app.enableChatRelay, false);
+    assert.equal(app.serverStatusInterval, 5000);
+    assert.equal(app.serverName, 'MyServer');
+
+    const srv = repo.get('server:primary');
+    assert.equal(srv.rconHost, '192.168.1.100');
+    assert.equal(srv.rconPort, 27015);
+  });
+
+  // ── 4. NESTED serverDef preserved ───────────────────────────
+
+  it('migrateServersJsonToDb() stores NESTED serverDef as-is', () => {
+    const serverDefs = [
+      {
+        id: 'srv_001',
+        name: 'Test Server',
+        rcon: { host: '10.0.0.1', port: 27015, password: 'secret' },
+        sftp: { host: '10.0.0.1', port: 22, user: 'admin', password: 'pass' },
+        channels: { chat: '123', log: '456' },
+      },
+      {
+        id: 'srv_002',
+        name: 'Server 2',
+        rcon: { host: '10.0.0.2', port: 27016 },
+      },
+    ];
+
+    const count = migrateServersJsonToDb(serverDefs, repo);
+    assert.equal(count, 2);
+
+    const srv1 = repo.get('server:srv_001');
+    assert.equal(srv1.id, 'srv_001');
+    assert.equal(srv1.rcon.host, '10.0.0.1');
+    assert.equal(srv1.rcon.port, 27015);
+    assert.equal(srv1.sftp.user, 'admin');
+    assert.deepStrictEqual(srv1.channels, { chat: '123', log: '456' });
+
+    const srv2 = repo.get('server:srv_002');
+    assert.equal(srv2.name, 'Server 2');
+    assert.equal(srv2.rcon.host, '10.0.0.2');
+  });
+
+  // ── 5. displaySettings merge ────────────────────────────────
+
+  it('migrateDisplaySettings() merges bot_state.display_settings into app', () => {
+    // Pre-populate app scope
+    repo.set('app', { serverName: 'Existing', enableChatRelay: true });
+
+    // Set display_settings in bot_state
+    db.botState.setStateJSON('display_settings', {
+      showVitals: false,
+      showInventory: true,
+    });
+
+    const count = migrateDisplaySettings(db, repo);
+    assert.equal(count, 2);
+
+    const app = repo.get('app');
+    // Merged values
+    assert.equal(app.showVitals, false);
+    assert.equal(app.showInventory, true);
+    // Existing values preserved
+    assert.equal(app.serverName, 'Existing');
+    assert.equal(app.enableChatRelay, true);
+  });
+
+  // ── 6. Idempotent migration ─────────────────────────────────
+
+  it('migrateEnvToDb() is idempotent — repeated calls produce same result', () => {
+    const envValues = {
+      SHOW_VITALS: 'true',
+      SERVER_NAME: 'Test',
+      RCON_HOST: '10.0.0.1',
+    };
+
+    migrateEnvToDb(envValues, repo);
+    const firstApp = repo.get('app');
+    const firstSrv = repo.get('server:primary');
+
+    migrateEnvToDb(envValues, repo);
+    const secondApp = repo.get('app');
+    const secondSrv = repo.get('server:primary');
+
+    assert.deepStrictEqual(firstApp, secondApp);
+    assert.deepStrictEqual(firstSrv, secondSrv);
+  });
+
+  // ── 7. Empty values skipped ─────────────────────────────────
+
+  it('migrateEnvToDb() skips empty/null values', () => {
+    const result = migrateEnvToDb(
+      {
+        SHOW_VITALS: '',
+        SERVER_NAME: '',
+        RCON_HOST: '10.0.0.1',
+        UNKNOWN_KEY: 'ignored',
+      },
+      repo,
+    );
+
+    // Only RCON_HOST should be written
+    assert.equal(result.serverKeys, 1);
+    assert.equal(result.appKeys, 0);
+    assert.ok(result.skipped >= 2, 'Empty values + unknown keys should be skipped');
+
+    assert.equal(repo.get('app'), null);
+    assert.deepStrictEqual(repo.get('server:primary'), { rconHost: '10.0.0.1' });
+  });
+
+  // ── 8. _coerce helper ──────────────────────────────────────
+
+  it('_coerce handles bool, int, and string types', () => {
+    assert.equal(_coerce('true', 'bool'), true);
+    assert.equal(_coerce('false', 'bool'), false);
+    assert.equal(_coerce('5000', 'int'), 5000);
+    assert.equal(_coerce('abc', 'int'), 'abc'); // NaN fallback
+    assert.equal(_coerce('hello', 'string'), 'hello');
+    assert.equal(_coerce('hello', undefined), 'hello'); // default = string
+  });
+
+  // ── 9. Stage 5 seal: migrateDisplaySettings deletes bot_state row ──
+
+  it('S6 regression: migrateDisplaySettings deletes display_settings row after migration', () => {
+    db.botState.setStateJSON('display_settings', { showVitals: true });
+    migrateDisplaySettings(db, repo);
+    // Row must be deleted after migration (seal)
+    assert.equal(
+      db.botState.getState('display_settings'),
+      null,
+      'display_settings row must be deleted after migration',
+    );
+  });
+
+  it('S6 regression: saveDisplaySetting fallback does NOT throw when config_migration_done is unset', async () => {
+    // migration not done → fallback is legit usage
+    const { default: config } = await import('../src/config/index.js');
+    // Build a minimal db stub without config_migration_done
+    const stubDb = {
+      botState: {
+        getState: (_key: string) => null,
+        getStateJSON: (_key: string, def: unknown) => def,
+        setStateJSON: () => {},
+      },
+    };
+    assert.doesNotThrow(() => {
+      config.saveDisplaySetting(stubDb, 'showVitals', true);
+    });
+  });
+
+  it('S6 regression: saveDisplaySetting fallback throws when config_migration_done = true', async () => {
+    const { default: config } = await import('../src/config/index.js');
+    // Build a stub where migration is done
+    const stubDb = {
+      botState: {
+        getState: (key: string) => (key === 'config_migration_done' ? 'true' : null),
+        getStateJSON: (_key: string, def: unknown) => def,
+        setStateJSON: () => {},
+      },
+    };
+    // Seal check is now OUTSIDE try/catch — it propagates to the caller (P1-4 fix).
+    assert.throws(
+      () => {
+        config.saveDisplaySetting(stubDb, 'showVitals', true);
+      },
+      /legacy display_settings write/,
+      'saveDisplaySetting must throw seal error when config_migration_done = true',
+    );
+  });
+});

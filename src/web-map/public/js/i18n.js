@@ -115,18 +115,52 @@
 
   // ── Intl Formatters ──────────────────────────────────────
 
-  function fmtDate(date, timeZone) {
+  function normalizeTimeZone(timeZone) {
+    return timeZone == null ? '' : String(timeZone).trim();
+  }
+
+  function timeZoneFallbacks(timeZone) {
+    // Some embedded/extended browser runtimes reject canonical IANA names even
+    // when the server setting is valid. Taiwan has no DST, so this fixed-offset
+    // alias preserves the intended display time before falling back to local.
+    if (timeZone === 'Asia/Taipei') return ['Etc/GMT-8'];
+    return [];
+  }
+
+  function formatIntlDateTime(date, baseOptions, timeZone) {
     var lang = i18next.resolvedLanguage || 'en';
-    var opts = { dateStyle: 'medium' };
-    if (timeZone) opts.timeZone = timeZone;
-    return new Intl.DateTimeFormat(lang, opts).format(date instanceof Date ? date : new Date(date));
+    var value = date instanceof Date ? date : new Date(date);
+    var normalizedTimeZone = normalizeTimeZone(timeZone);
+    if (normalizedTimeZone) {
+      try {
+        return new Intl.DateTimeFormat(lang, Object.assign({}, baseOptions, { timeZone: normalizedTimeZone })).format(
+          value,
+        );
+      } catch (err) {
+        if (console && console.warn) {
+          console.warn('[i18n] Browser rejected timezone, trying fallback timezone:', normalizedTimeZone, err);
+        }
+      }
+      var fallbacks = timeZoneFallbacks(normalizedTimeZone);
+      for (var i = 0; i < fallbacks.length; i++) {
+        try {
+          return new Intl.DateTimeFormat(lang, Object.assign({}, baseOptions, { timeZone: fallbacks[i] })).format(
+            value,
+          );
+        } catch (_err) {
+          // Try the next fallback, then browser-local time below.
+        }
+      }
+    }
+    return new Intl.DateTimeFormat(lang, baseOptions).format(value);
+  }
+
+  function fmtDate(date, timeZone) {
+    return formatIntlDateTime(date, { dateStyle: 'medium' }, timeZone);
   }
 
   function fmtTime(date, timeZone) {
-    var lang = i18next.resolvedLanguage || 'en';
-    var opts = { timeStyle: 'short' };
-    if (timeZone) opts.timeZone = timeZone;
-    return new Intl.DateTimeFormat(lang, opts).format(date instanceof Date ? date : new Date(date));
+    return formatIntlDateTime(date, { timeStyle: 'short' }, timeZone);
   }
 
   function fmtNumber(num) {

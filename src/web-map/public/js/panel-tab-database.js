@@ -71,6 +71,23 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Table Rendering ─────────────────────────────────────────────
 
+  function isTimestampColumn(col) {
+    const name = String(col || '').toLowerCase();
+    return (
+      name === 'timestamp' ||
+      name.endsWith('_at') ||
+      name.endsWith('_time') ||
+      name.endsWith('_timestamp') ||
+      name === 'first_seen' ||
+      name === 'last_seen' ||
+      name === 'last_login' ||
+      name === 'last_event' ||
+      name === 'tracking_since' ||
+      name === 'all_time_peak_date' ||
+      name === 'unique_day_peak_date'
+    );
+  }
+
   function renderDbTable(container, rows, columns) {
     if (!rows || !rows.length) {
       container.innerHTML = '<div class="feed-empty">' + i18next.t('web:empty_states.no_data') + '</div>';
@@ -121,14 +138,7 @@ Panel.tabs = Panel.tabs || {};
         let val = row[col];
         if (val == null) val = '';
         else if (typeof val === 'object') val = JSON.stringify(val);
-        if (
-          (col === 'created_at' ||
-            col === 'updated_at' ||
-            col === 'first_seen' ||
-            col === 'last_seen' ||
-            col === 'timestamp') &&
-          val
-        ) {
+        if (isTimestampColumn(col) && val) {
           try {
             val = fmtDateTime(val) || val;
           } catch (_e) {}

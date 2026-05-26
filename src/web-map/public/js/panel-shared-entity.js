@@ -63,6 +63,7 @@ Panel.shared = Panel.shared || {};
     game_animals: 'animal',
     companions: 'animal',
     game_recipes: 'recipe',
+    game_professions: 'profession',
     game_afflictions: 'affliction',
     game_skills: 'skill',
     activity_log: 'item',

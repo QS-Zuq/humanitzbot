@@ -26,6 +26,70 @@ Panel.tabs = Panel.tabs || {};
 
   // ── Activity Loading ────────────────────────────────────────────
 
+  function activityRangePreset() {
+    const el = $('#activity-range-preset');
+    return (el && el.value) || S.activityRangePreset || 'today';
+  }
+
+  function applyActivityRangeParams(params) {
+    const preset = activityRangePreset();
+    params.set('range', preset || 'today');
+    if (preset === 'custom') {
+      const from = $('#activity-date-from') ? $('#activity-date-from').value : '';
+      const to = $('#activity-date-to') ? $('#activity-date-to').value : '';
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+    }
+    return params;
+  }
+
+  function updateRangeControls() {
+    const preset = activityRangePreset();
+    const showCustom = preset === 'custom';
+    const fromEl = $('#activity-date-from');
+    const toEl = $('#activity-date-to');
+    const sepEl = $('#activity-date-separator');
+    if (fromEl) fromEl.classList.toggle('hidden', !showCustom);
+    if (toEl) toEl.classList.toggle('hidden', !showCustom);
+    if (sepEl) sepEl.classList.toggle('hidden', !showCustom);
+  }
+
+  function activityLoadErrorMessage(err) {
+    if (!err) return '';
+    if (err.message) return String(err.message);
+    return String(err);
+  }
+
+  async function parseActivityResponse(response) {
+    let body;
+    try {
+      body = await response.json();
+    } catch (err) {
+      if (response && response.ok === false) {
+        throw new Error('HTTP ' + (response.status || 'error') + ': invalid JSON response', { cause: err });
+      }
+      throw err;
+    }
+
+    if (response && response.ok === false) {
+      const message = (body && (body.error || body.message || body.code)) || 'HTTP ' + (response.status || 'error');
+      throw new Error(String(message));
+    }
+    if (!body || !Array.isArray(body.events)) {
+      throw new Error('Invalid activity response: missing events array');
+    }
+    return body;
+  }
+
+  function renderActivityLoadError(container, err) {
+    const detail = activityLoadErrorMessage(err);
+    container.innerHTML =
+      '<div class="feed-empty">' +
+      i18next.t('web:empty_states.failed_to_load_activity') +
+      (detail ? '<div class="text-[10px] text-muted mt-1">' + esc(detail) + '</div>' : '') +
+      '</div>';
+  }
+
   async function loadActivity(append) {
     Panel.core.utils.setTabUnavailable('tab-activity', S.currentServer === 'all');
     if (S.currentServer === 'all') return;
@@ -34,7 +98,9 @@ Panel.tabs = Panel.tabs || {};
     const category = S.activityCategory || '';
     const rawSearch = $('#activity-search') ? $('#activity-search').value : '';
     let search = rawSearch.toLowerCase();
-    const date = $('#activity-date') ? $('#activity-date').value : '';
+    let querySearch = rawSearch.trim();
+    const searchMode = S.activitySearchMode || '';
+    const searchSteamId = S.activitySearchSteamId || '';
 
     const paging = Panel.shared.activityFeed;
 
@@ -46,34 +112,42 @@ Panel.tabs = Panel.tabs || {};
       showFingerprintTracker(fpItem, fpHash);
       // Also load normal activity filtered by item name
       search = fpItem.toLowerCase();
+      querySearch = fpItem;
     } else {
       hideFingerprintTracker();
     }
 
-    if (!append) {
+    if (!append && paging.setOffset) {
       paging.setOffset(0);
     }
-    const pageSize = paging.getPageSize();
-    const params = new URLSearchParams({ limit: String(pageSize), offset: String(paging.getOffset()) });
+    const pageSize = paging.getPageSize ? paging.getPageSize() : 100;
+    const offset = paging.getOffset ? paging.getOffset() : 0;
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
+    applyActivityRangeParams(params);
     if (category) params.set('type', category);
-    if (search) params.set('actor', search);
+    if (searchMode === 'player' && searchSteamId) {
+      params.set('mode', 'player');
+      params.set('steamId', searchSteamId);
+    } else if ((searchMode === 'item' || searchMode === 'container' || searchMode === 'text') && querySearch) {
+      params.set('mode', searchMode);
+      params.set('q', querySearch);
+    } else if (search) {
+      params.set('actor', search);
+    }
     try {
       const r = await apiFetch('/api/panel/activity?' + params);
-      const d = await r.json();
-      let events = d.events || [];
-      if (date)
-        events = events.filter(function (e) {
-          return (e.created_at || '').startsWith(date);
-        });
-      paging.setHasMore(events.length >= pageSize);
-      paging.setOffset(paging.getOffset() + events.length);
+      const d = await parseActivityResponse(r);
+      const events = d.events;
+      S.activityTimeZone = d.timezone || (d.range && d.range.timezone) || S.activityTimeZone || '';
+      S.activitySelectedRange = d.range || S.activitySelectedRange || null;
+      if (paging.setHasMore) paging.setHasMore(events.length >= pageSize);
+      if (paging.setOffset) paging.setOffset(offset + events.length);
       renderActivityFeed(container, events, false, append);
       const btn = $('#activity-load-more');
       if (btn) btn.classList.toggle('hidden', !paging.getHasMore());
-    } catch (_e) {
-      if (!append)
-        container.innerHTML =
-          '<div class="feed-empty">' + i18next.t('web:empty_states.failed_to_load_activity') + '</div>';
+    } catch (err) {
+      console.error('[Activity] failed to load activity feed:', err);
+      if (!append) renderActivityLoadError(container, err);
     }
   }
 
@@ -247,7 +321,7 @@ Panel.tabs = Panel.tabs || {};
       if (movementsEl)
         movementsEl.innerHTML =
           '<div class="text-xs text-red-400 text-center py-2">' +
-          i18next.t('web:activity.loading_tracker_data') +
+          i18next.t('web:activity.failed_to_load_tracker_data') +
           '</div>';
     }
   }
@@ -350,9 +424,12 @@ Panel.tabs = Panel.tabs || {};
 
   async function loadActivityStats() {
     try {
-      const r = await apiFetch('/api/panel/activity-stats');
+      const params = applyActivityRangeParams(new URLSearchParams());
+      const r = await apiFetch('/api/panel/activity-stats?' + params);
       const d = await r.json();
       S.activityStats = d;
+      S.activityTimeZone = d.timezone || (d.selectedRange && d.selectedRange.timezone) || S.activityTimeZone || '';
+      S.activitySelectedRange = d.selectedRange || S.activitySelectedRange || null;
 
       // Populate stat cards
       const totalEl = $('#act-total');
@@ -360,14 +437,25 @@ Panel.tabs = Panel.tabs || {};
       const typesEl = $('#act-types-count');
       if (typesEl) typesEl.textContent = Object.keys(d.types || {}).length;
       const rangeEl = $('#act-date-range');
-      if (rangeEl && d.dateRange) {
-        const e0 = d.dateRange.earliest ? d.dateRange.earliest.split('T')[0] : '?';
-        const e1 = d.dateRange.latest ? d.dateRange.latest.split('T')[0] : '?';
+      if (rangeEl) {
+        const selected = d.selectedRange || null;
+        const e0 = selected && selected.from ? selected.from : formatActivityDate(d.dateRange && d.dateRange.earliest);
+        const e1 = selected && selected.to ? selected.to : formatActivityDate(d.dateRange && d.dateRange.latest);
         rangeEl.textContent = e0 + ' \u2014 ' + e1;
+        rangeEl.title = [
+          selected && selected.timezone ? selected.timezone : '',
+          selected && selected.dateFrom ? selected.dateFrom : d.dateRange && d.dateRange.earliest,
+          selected && selected.dateTo ? selected.dateTo : d.dateRange && d.dateRange.latest,
+        ]
+          .filter(Boolean)
+          .join(' | ');
       }
       const topEl = $('#act-top-actor');
-      if (topEl && d.topActors && d.topActors.length) {
-        topEl.textContent = d.topActors[0].actor + ' (' + d.topActors[0].count.toLocaleString() + ')';
+      if (topEl) {
+        const topPlayers = d.topPlayers || [];
+        topEl.textContent = topPlayers.length
+          ? topPlayers[0].actor + ' (' + topPlayers[0].count.toLocaleString() + ')'
+          : '-';
       }
 
       // Update pill counts
@@ -393,7 +481,7 @@ Panel.tabs = Panel.tabs || {};
       renderDailyChart(d.daily || []);
       renderHourlyChart(d.hourly || []);
       renderCategoryChart(d.categories || {});
-      renderTopActorsChart(d.topActors || []);
+      renderTopActorsChart(d.topPlayers || []);
     } catch (e) {
       console.error('Failed to load activity stats:', e);
     }
@@ -403,6 +491,19 @@ Panel.tabs = Panel.tabs || {};
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
     if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
     return String(n);
+  }
+
+  function formatActivityDate(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '?';
+
+    const isoLike = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (isoLike) return isoLike[1];
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+
+    return raw.split(/[T\s]/)[0] || raw;
   }
 
   function destroyChart(key) {
@@ -612,15 +713,15 @@ Panel.tabs = Panel.tabs || {};
   Panel.tabs.activity = {
     init: init,
     load: function () {
+      updateRangeControls();
       loadActivity();
-      if (!S.activityChartsLoaded) {
-        loadActivityStats();
-        S.activityChartsLoaded = true;
-      }
+      loadActivityStats();
+      S.activityChartsLoaded = true;
     },
     reset: reset,
     loadActivity: loadActivity,
     loadActivityStats: loadActivityStats,
+    updateRangeControls: updateRangeControls,
     resetPaging: Panel.shared.activityFeed.resetPaging,
     showFingerprintTracker: showFingerprintTracker,
     hideFingerprintTracker: hideFingerprintTracker,

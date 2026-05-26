@@ -5,6 +5,7 @@ const { defineConfig, globalIgnores } = require('eslint/config');
 const js = require('@eslint/js');
 const globals = require('globals');
 const prettierConfig = require('eslint-config-prettier/flat');
+const tseslint = require('typescript-eslint');
 
 // ── Shared rule presets ─────────────────────────────────────
 const sharedRules = {
@@ -31,8 +32,10 @@ module.exports = defineConfig([
   globalIgnores([
     'node_modules/',
     'data/',
+    'dist/',
     'src/web-map/public/tailwind.css',
     'src/web-map/public/tiles/',
+    'src/game-server/humanitz-agent.js',
     'qs-anticheat/',
     '.dev/',
     '_*.js',
@@ -40,7 +43,7 @@ module.exports = defineConfig([
     'temp/',
   ]),
 
-  // ── Backend: Node.js CommonJS ───────────────────────────────
+  // ── Backend: Node.js CommonJS (.js) ─────────────────────────
   {
     name: 'backend/node-cjs',
     files: ['src/**/*.js', 'setup.js', 'eslint.config.js'],
@@ -61,7 +64,102 @@ module.exports = defineConfig([
     },
   },
 
-  // ── Tests: node:test framework ──────────────────────────────
+  // ── Backend TypeScript config ─────────────────────────────────
+  {
+    name: 'backend/node-ts',
+    files: ['src/**/*.ts'],
+    ignores: ['src/web-map/public/**'],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
+      'no-var': 'error',
+      'prefer-const': 'error',
+    },
+  },
+
+  // ── Backend TypeScript: raw DB access guard ────────────────────────────────
+  {
+    name: 'backend/no-raw-prepare-outside-db',
+    files: ['src/**/*.ts'],
+    ignores: ['src/db/**', 'src/web-map/session-stores/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name='prepare']",
+          message:
+            'Use db.rawQuery() or a repository method; direct .prepare() is banned outside src/db/. See temp/raw-db-inventory.md.',
+        },
+      ],
+    },
+  },
+
+  // ── Test TypeScript config ──────────────────────────────────
+  {
+    name: 'tests/node-test-ts',
+    files: ['test/**/*.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
+      'no-var': 'error',
+      'prefer-const': 'error',
+      // Tests use mocks with partial interfaces — unsafe-* rules are too strict for test code
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      // node:test describe/it callbacks return promises that are managed by the test runner
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
+
+  // ── Tests: node:test framework (JS) ────────────────────────
   {
     name: 'tests/node-test',
     files: ['test/**/*.js'],
@@ -108,6 +206,13 @@ module.exports = defineConfig([
         simplifyName: 'readonly', // app.js — UE4 name simplifier
         Panel: 'writable', // panel-core.js — modular panel namespace
         switchTab: 'writable', // panel-nav.js — global tab switcher
+        // app.js — functions called from HTML onclick attributes
+        selectPlayer: 'writable',
+        closePlayerPanel: 'writable',
+        refreshPlayers: 'writable',
+        kickPlayer: 'writable',
+        banPlayer: 'writable',
+        sendMessage: 'writable',
       },
     },
     rules: {

@@ -2,30 +2,33 @@
   "name": "humanitz-discord-bot",
   "version": "1.0.0",
   "description": "Discord bot for HumanitZ game server - player stats, server stats, and chat relay",
-  "main": "src/index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "node src/index.js",
-    "setup": "node setup.js",
-    "setup:local": "node setup.js --local",
-    "setup:find": "node setup.js --find",
-    "setup:validate": "node setup.js --validate",
-    "deploy-commands": "node src/deploy-commands.js",
-    "dev": "node --watch src/index.js",
-    "test": "node --test test/*.test.js",
+    "start": "node --require tsx/cjs --import tsx/esm src/index.ts",
+    "build": "tsc",
+    "build:check": "tsc --noEmit",
+    "setup": "node --require tsx/cjs --import tsx/esm setup.js",
+    "setup:local": "node --require tsx/cjs --import tsx/esm setup.js --local",
+    "setup:find": "node --require tsx/cjs --import tsx/esm setup.js --find",
+    "setup:validate": "node --require tsx/cjs --import tsx/esm setup.js --validate",
+    "deploy-commands": "node --require tsx/cjs --import tsx/esm src/deploy-commands.ts",
+    "dev": "tsx --watch src/index.ts",
+    "test": "node --require tsx/cjs --import tsx/esm --require ./test/setup.ts --test test/*.test.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write \"src/**/*.{js,json}\" \"test/**/*.js\" \"locales/**/*.json\" \"*.{js,json,md}\"",
-    "format:check": "prettier --check \"src/**/*.{js,json}\" \"test/**/*.js\" \"locales/**/*.json\" \"*.{js,json,md}\"",
+    "format": "prettier --write \"src/**/*.{js,ts,json}\" \"test/**/*.{js,ts}\" \"locales/**/*.json\" \"*.{js,ts,json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{js,ts,json}\" \"test/**/*.{js,ts}\" \"locales/**/*.json\" \"*.{js,ts,json,md}\"",
     "prepare": "husky",
     "build:css": "tailwindcss -i src/web-map/public/tailwind-input.css -o src/web-map/public/tailwind.css --minify",
     "dev:css": "tailwindcss -i src/web-map/public/tailwind-input.css -o src/web-map/public/tailwind.css --watch",
-    "build:template": "node src/db/build-template-db.js",
+    "build:template": "node --require tsx/cjs --import tsx/esm src/db/build-template-db.ts",
     "changelog": "node tools/generate-changelog.js --output README.md",
     "changelog:json": "node tools/generate-changelog.js --output CHANGELOG.json --format json"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "cookie-parser": "^1.4.7",
+    "csrf-csrf": "^4.0.3",
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -33,30 +36,47 @@
     "express-session": "^1.19.0",
     "i18next": "^25.8.18",
     "ssh2-sftp-client": "^12.1.0",
-    "csrf-csrf": "^4.0.3",
     "ws": "^8.19.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/cli": "^4.2.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.18.2",
+    "@types/node": "^22.19.15",
+    "@types/ssh2": "^1.15.5",
+    "@types/ssh2-sftp-client": "^9.0.6",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/parser": "^8.58.0",
+    "esbuild": "^0.28.0",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.0"
   },
   "lint-staged": {
-    "*.js": [
+    "*.{js,ts}": [
       "eslint --fix",
       "prettier --write"
     ],
     "*.{json,md}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.6",
+    "flatted": "^3.4.2",
+    "yaml": "^2.8.3"
   }
 }

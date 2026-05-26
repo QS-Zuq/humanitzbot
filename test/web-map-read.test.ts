@@ -1,0 +1,1443 @@
+'use strict';
+
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+
+import _webMapServer from '../src/web-map/server.js';
+const WebMapServer = _webMapServer as any;
+import serverResources from '../src/server/server-resources.js';
+
+import * as _route_helpers from './helpers/route-helpers.js';
+const { extractHandler } = _route_helpers as any;
+
+/** Create a mock response that captures status code and JSON body. */
+function mockRes() {
+  let _status = 200;
+  let _body: unknown = null;
+  const res = {
+    status(code: number) {
+      _status = code;
+      return res;
+    },
+    json(data: unknown) {
+      _body = data;
+    },
+    type() {
+      return res;
+    },
+    send() {},
+    sendFile() {},
+    setHeader() {
+      return res;
+    },
+    removeHeader() {},
+    getHeader() {},
+    get statusCode() {
+      return _status;
+    },
+    get body() {
+      return _body;
+    },
+    headersSent: false,
+  };
+  return res;
+}
+
+/** Create a mock server context (req.srv). */
+function makeSrv(overrides: Record<string, unknown> = {}) {
+  return {
+    serverId: 'primary',
+    isPrimary: true,
+    db: null,
+    rcon: null,
+    config: { botTimezone: 'UTC', serverName: 'Test' },
+    playerStats: { getStats: () => null, getStatsByName: () => null },
+    playtime: { getPlaytime: () => null },
+    playerNameMap: {},
+    dataDir: '/tmp/hmztest',
+    getPlayerList: async () => ({ players: [] }),
+    getServerInfo: async () => null,
+    scheduler: null,
+    ...overrides,
+  };
+}
+
+function makeMockDb(overrides: Record<string, unknown> = {}) {
+  const defaults: Record<string, unknown> = {
+    getAllClans: () => [],
+    getRecentActivity: () => [],
+    getActivityByCategory: () => [],
+    getActivityByActor: () => [],
+    searchActivity: () => [],
+    searchActivityByPlayer: () => [],
+    searchActivityByItem: () => [],
+    searchActivityByContainer: () => [],
+    getActivitySince: () => [],
+    countByTextSearch: () => 0,
+    topPlayers: () => [],
+    topContainers: () => [],
+    getRecentChat: () => [],
+    searchChat: () => [],
+    getChatSince: () => [],
+    getTimelineBounds: () => ({ earliest: null, latest: null, count: 0 }),
+    getTimelineSnapshots: () => [],
+    getTimelineSnapshotRange: () => [],
+    getTimelineSnapshotFull: () => null,
+    getPlayerPositionHistory: () => [],
+    getAIPopulationHistory: () => [],
+    getDeathCauses: () => [],
+    getDeathCausesByPlayer: () => [],
+    getDeathCauseStats: () => [],
+    db: { prepare: () => ({ all: () => [], get: () => null }) },
+  };
+  const merged = { ...defaults, ...overrides } as Record<string, any>;
+  // Build repository getters from merged flat methods
+  const clanOvr = (overrides.clan || {}) as Record<string, unknown>;
+  const actOvr = (overrides.activityLog || {}) as Record<string, unknown>;
+  const chatOvr = (overrides.chatLog || {}) as Record<string, unknown>;
+  const tlOvr = (overrides.timeline || {}) as Record<string, unknown>;
+  const dcOvr = (overrides.deathCause || {}) as Record<string, unknown>;
+  merged.clan = { getAllClans: merged.getAllClans, ...clanOvr };
+  merged.player = {
+    countAllPlayers: () => 0,
+    listAllPlayerNames: () => [],
+    listAllPlayerDisplayNames: () => [],
+    listNamedPlayers: () => [],
+    resolveSteamIdToName: (steamId: string) => steamId,
+    resolveNameToSteamId: () => null,
+    ...((overrides.player || {}) as Record<string, unknown>),
+  };
+  if (!('listAllPlayerDisplayNames' in ((overrides.player || {}) as Record<string, unknown>))) {
+    merged.player.listAllPlayerDisplayNames = () =>
+      merged.player
+        .listAllPlayerNames()
+        .map((row: { steam_id: string; name: string }) => ({ ...row, display_name: row.name }));
+  }
+  merged.activityLog = {
+    getRecentActivity: merged.getRecentActivity,
+    getActivityByCategory: merged.getActivityByCategory,
+    getActivityByActor: merged.getActivityByActor,
+    searchActivity: merged.searchActivity,
+    searchActivityByPlayer: merged.searchActivityByPlayer,
+    searchActivityByItem: merged.searchActivityByItem,
+    searchActivityByContainer: merged.searchActivityByContainer,
+    getActivitySince: merged.getActivitySince,
+    countByTextSearch: merged.countByTextSearch,
+    topPlayers: merged.topPlayers,
+    topContainers: merged.topContainers,
+    ...actOvr,
+  };
+  merged.chatLog = {
+    getRecentChat: merged.getRecentChat,
+    searchChat: merged.searchChat,
+    getChatSince: merged.getChatSince,
+    ...chatOvr,
+  };
+  merged.timeline = {
+    getTimelineBounds: merged.getTimelineBounds,
+    getTimelineSnapshots: merged.getTimelineSnapshots,
+    getTimelineSnapshotRange: merged.getTimelineSnapshotRange,
+    getTimelineSnapshotFull: merged.getTimelineSnapshotFull,
+    getPlayerPositionHistory: merged.getPlayerPositionHistory,
+    getAIPopulationHistory: merged.getAIPopulationHistory,
+    ...tlOvr,
+  };
+  merged.deathCause = {
+    getDeathCauses: merged.getDeathCauses,
+    getDeathCausesByPlayer: merged.getDeathCausesByPlayer,
+    getDeathCauseStats: merged.getDeathCauseStats,
+    ...dcOvr,
+  };
+  merged.rawQuery = (sql: string, params: unknown[] = [], opts: { mode?: string } = {}) => {
+    type MockStatement = {
+      all?: (...args: unknown[]) => unknown;
+      get?: (...args: unknown[]) => unknown;
+      run?: (...args: unknown[]) => unknown;
+    };
+    const db = merged.db as { prepare?: (query: string) => MockStatement } | undefined;
+    const stmt = db?.prepare?.(sql);
+    if (!stmt) return opts.mode === 'get' ? undefined : [];
+    if (opts.mode === 'run') return stmt.run?.(...params);
+    if (opts.mode === 'get') return stmt.get?.(...params);
+    return stmt.all?.(...params) ?? [];
+  };
+  return merged;
+}
+
+function makeSqlMock(tables: Record<string, unknown[]> = {}) {
+  return {
+    prepare: (sql: string) => {
+      if (sql.includes('sqlite_master')) {
+        return { all: () => Object.keys(tables).map((name) => ({ name })) };
+      }
+      if (/COUNT\(\*\)/i.test(sql)) {
+        const m = sql.match(/FROM\s+"?(\w+)"?/i);
+        const rows = tables[m?.[1] ?? ''] || [];
+        return { get: () => ({ c: rows.length, cnt: rows.length, total: rows.length }) };
+      }
+      if (/PRAGMA\s+table_info/i.test(sql)) {
+        const m = sql.match(/"(\w+)"/);
+        const rows = tables[m?.[1] ?? ''] || [];
+        if (!rows.length) return { all: () => [] };
+        return {
+          all: () =>
+            Object.keys(rows[0] as Record<string, unknown>).map((name, i) => ({
+              name,
+              type: 'TEXT',
+              pk: i === 0 ? 1 : 0,
+              notnull: 0,
+            })),
+        };
+      }
+      // Default SELECT
+      const m = sql.match(/FROM\s+"?(\w+)"?/i);
+      const t = m?.[1];
+      return {
+        all: () => (t ? tables[t] || [] : []),
+        get: () => (t ? (tables[t] || [])[0] || null : null),
+      };
+    },
+  };
+}
+
+// ── Server instance (no HTTP listen) ─────────────────────────────────────────
+
+const client = { channels: { cache: new Map() } };
+const server = new WebMapServer(client, {});
+const app = server._app;
+const GET = (routePath: string) => extractHandler(app, 'get', routePath);
+const originalGetResources = serverResources.getResources.bind(serverResources);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Tests
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('Web Map Read Endpoints', () => {
+  afterEach(() => {
+    serverResources.getResources = originalGetResources;
+  });
+
+  beforeEach(() => {
+    server._responseCache.clear();
+    server._playerCache = new Map();
+    server._lastParse = 0;
+    // Restore any instance-level overrides back to prototype
+    delete server._parseSaveData;
+    delete server._buildLandingData;
+    delete server._buildStatusCache;
+    delete server._buildStatsCache;
+    server._plugins = [];
+  });
+
+  // ── GET /api/players ─────────────────────────────────────
+
+  describe('GET /api/players', () => {
+    it('returns players from pre-populated cache', async () => {
+      server._playerCache = new Map([['76561198000000001', { x: 1000, y: -2000, z: 50, male: true }]]);
+      server._lastParse = Date.now();
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler({ srv: makeSrv({ playerNameMap: { '76561198000000001': 'Alice' } }), query: {} }, res);
+
+      assert.ok(res.body);
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).players));
+      assert.equal(((res.body as Record<string, unknown>).players as unknown[]).length, 1);
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      const p0 = players[0];
+      assert.ok(p0, 'should have first player');
+      assert.equal(p0.steamId, '76561198000000001');
+      assert.equal(p0.name, 'Alice');
+      assert.equal((res.body as Record<string, unknown>).server, 'primary');
+      assert.ok('worldBounds' in (res.body as Record<string, unknown>));
+      assert.ok('toggles' in (res.body as Record<string, unknown>));
+      assert.ok('lastUpdated' in (res.body as Record<string, unknown>));
+    });
+
+    it('returns empty players array when no save data', async () => {
+      server._parseSaveData = () => new Map();
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.ok(res.body);
+      assert.deepEqual((res.body as Record<string, unknown>).players, []);
+    });
+
+    it('uses SQLite player names when save data has no player name', async () => {
+      const steamId = '76561198000000002';
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Db Alice' }],
+        },
+      });
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler({ srv: makeSrv({ db, playerNameMap: { [steamId]: 'Db Alice' } }), query: {} }, res);
+
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      assert.equal(players[0]?.name, 'Db Alice');
+    });
+
+    it('loads SQLite display names without per-player alias lookups', async () => {
+      const steamId = '76561198000000005';
+      let displayListCalls = 0;
+      let resolveCalls = 0;
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerDisplayNames: () => {
+            displayListCalls++;
+            return [{ steam_id: steamId, name: 'Old Db Name', display_name: 'Alias Alice' }];
+          },
+          resolveSteamIdToName: () => {
+            resolveCalls++;
+            return 'Alias Alice';
+          },
+        },
+      });
+
+      const map = server._loadDbPlayerNameMap(db);
+
+      assert.equal(map[steamId], 'Alias Alice');
+      assert.equal(displayListCalls, 1);
+      assert.equal(resolveCalls, 0);
+    });
+
+    it('uses live RCON names for online players before SQLite names', async () => {
+      const steamId = '76561198000000003';
+      server._parseSaveData = () => new Map([[steamId, { x: 100, y: 200, z: 0, male: true }]]);
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Old Db Alice' }],
+        },
+      });
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler(
+        {
+          srv: makeSrv({
+            db,
+            getPlayerList: async () => ({ players: [{ steamId, name: 'Live Alice' }] }),
+          }),
+          query: {},
+        },
+        res,
+      );
+
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      const p0 = players[0];
+      assert.ok(p0, 'should have first player');
+      assert.equal(p0.name, 'Live Alice');
+      assert.equal(p0.isOnline, true);
+    });
+  });
+
+  // ── GET /api/players/:steamId ────────────────────────────
+
+  describe('GET /api/players/:steamId', () => {
+    it('returns player detail when steamId found', () => {
+      server._playerCache = new Map([['76561198000000001', { x: 500, y: -1000, z: 10, male: false }]]);
+      server._lastParse = Date.now();
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ playerNameMap: { '76561198000000001': 'Bob' } }),
+          params: { steamId: '76561198000000001' },
+          query: {},
+        },
+        res,
+      );
+
+      assert.ok(res.body);
+      assert.equal((res.body as Record<string, unknown>).steamId, '76561198000000001');
+      assert.equal((res.body as Record<string, unknown>).name, 'Bob');
+      assert.ok('toggles' in (res.body as Record<string, unknown>));
+      assert.ok('profession' in (res.body as Record<string, unknown>));
+    });
+
+    it('returns 404 for unknown steamId', () => {
+      server._parseSaveData = () => new Map();
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler({ srv: makeSrv(), params: { steamId: '76561198999999999' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 404);
+      assert.equal((res.body as Record<string, unknown>).code, 'PLAYER_NOT_FOUND');
+    });
+
+    it('uses SQLite player names for player detail when save data has no name', () => {
+      const steamId = '76561198000000004';
+      server._playerCache = new Map([[steamId, { x: 500, y: -1000, z: 10, male: false }]]);
+      server._lastParse = Date.now();
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Db Bob' }],
+        },
+      });
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db, playerNameMap: { [steamId]: 'Db Bob' } }), params: { steamId }, query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).steamId, steamId);
+      assert.equal((res.body as Record<string, unknown>).name, 'Db Bob');
+    });
+  });
+
+  // ── GET /api/online ──────────────────────────────────────
+
+  describe('GET /api/online', () => {
+    it('returns cached online data when available', async () => {
+      const onlineData = [{ steamId: '76561198000000001', name: 'Alice' }];
+      server._setCache('online', 'primary', onlineData);
+
+      const handler = GET('/api/online');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { players: onlineData });
+    });
+
+    it('falls back to getPlayerList on cache miss', async () => {
+      const mockList = [{ steamId: '76561198000000002', name: 'Carol' }];
+
+      const handler = GET('/api/online');
+      const res = mockRes();
+      await handler({ srv: makeSrv({ getPlayerList: async () => mockList }), query: {} }, res);
+
+      assert.deepEqual(res.body, { players: mockList });
+    });
+  });
+
+  // ── GET /api/landing ─────────────────────────────────────
+
+  describe('GET /api/landing', () => {
+    it('returns cached landing data', async () => {
+      const landingData = { primary: { name: 'TestServer', status: 'online' }, servers: [] };
+      server._setCache('landing', 'global', landingData);
+
+      const handler = GET('/api/landing');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, landingData);
+    });
+
+    it('returns fallback structure on cache miss', async () => {
+      server._buildLandingData = async () => {}; // no-op to avoid RCON/file reads
+
+      const handler = GET('/api/landing');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.ok((res.body as Record<string, unknown>).primary);
+      assert.equal(((res.body as Record<string, unknown>).primary as Record<string, unknown>).status, 'unknown');
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).servers));
+    });
+  });
+
+  // ── GET /api/panel/status ────────────────────────────────
+
+  describe('GET /api/panel/status', () => {
+    it('returns cached status data', async () => {
+      const statusData = { serverState: 'online', onlineCount: 5, timezone: 'UTC' };
+      server._setCache('status', 'primary', statusData);
+
+      const handler = GET('/api/panel/status');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, statusData);
+    });
+
+    it('returns fallback when no cache', async () => {
+      server._buildStatusCache = async () => {}; // no-op
+
+      const handler = GET('/api/panel/status');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).serverState, 'unknown');
+      assert.equal((res.body as Record<string, unknown>).onlineCount, 0);
+    });
+
+    it('includes stale resource metadata when building status on cache miss', async () => {
+      serverResources.getResources = async () => ({
+        cpu: 55,
+        memUsed: 1024,
+        memTotal: 2048,
+        memPercent: 50,
+        diskUsed: null,
+        diskTotal: null,
+        diskPercent: null,
+        uptime: 120,
+        source: 'pterodactyl',
+        stale: true,
+        cacheAgeMs: 45_000,
+      });
+
+      const handler = GET('/api/panel/status');
+      const res = mockRes();
+      await handler(
+        {
+          srv: makeSrv({
+            getServerInfo: async () => ({ fps: 60, day: 3, maxPlayers: 8 }),
+            getPlayerList: async () => ({ players: [] }),
+          }),
+          query: {},
+        },
+        res,
+      );
+
+      const body = res.body as Record<string, unknown>;
+      const resources = body.resources as Record<string, unknown>;
+      assert.equal(resources.cpu, 55);
+      assert.equal(resources.memPercent, 50);
+      assert.equal(resources.memFormatted, '1.0 KB / 2.0 KB');
+      assert.equal(resources.stale, true);
+      assert.equal(resources.cacheAgeMs, 45_000);
+      assert.equal(body.uptime, '2m');
+    });
+  });
+
+  // ── GET /api/panel/stats ─────────────────────────────────
+
+  describe('GET /api/panel/stats', () => {
+    it('returns cached stats data', async () => {
+      const statsData = { totalPlayers: 42, onlinePlayers: 3, eventsToday: 100, chatsToday: 20 };
+      server._setCache('stats', 'primary', statsData);
+
+      const handler = GET('/api/panel/stats');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, statsData);
+    });
+
+    it('returns fallback when no cache', async () => {
+      server._buildStatsCache = async () => {}; // no-op
+
+      const handler = GET('/api/panel/stats');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).totalPlayers, 0);
+      assert.equal((res.body as Record<string, unknown>).onlinePlayers, 0);
+    });
+  });
+
+  // ── GET /api/panel/capabilities ──────────────────────────
+
+  describe('GET /api/panel/capabilities', () => {
+    it('returns capabilities reflecting db presence', () => {
+      const handler = GET('/api/panel/capabilities');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db: makeMockDb() }), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).db, true);
+      assert.equal((res.body as Record<string, unknown>).isPrimary, true);
+      assert.equal((res.body as Record<string, unknown>).serverId, 'primary');
+    });
+
+    it('returns db=false when no database', () => {
+      const handler = GET('/api/panel/capabilities');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db: null }), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).db, false);
+    });
+
+    it('refreshes HZMod capability routing after plugin metadata reconfigure', () => {
+      server.registerPlugin({ name: 'hzmod', serverId: 'old-server' });
+      const handler = GET('/api/panel/capabilities');
+
+      const oldRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, oldRes);
+      assert.equal((oldRes.body as Record<string, unknown>).hzmod, true);
+
+      const undo = server.reconfigurePlugin('hzmod', { serverId: 'new-server' });
+
+      const refreshedOldRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, refreshedOldRes);
+      assert.equal((refreshedOldRes.body as Record<string, unknown>).hzmod, undefined);
+
+      const newRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'new-server', isPrimary: false }), query: {} }, newRes);
+      assert.equal((newRes.body as Record<string, unknown>).hzmod, true);
+
+      undo?.();
+
+      const restoredRes = mockRes();
+      handler({ srv: makeSrv({ serverId: 'old-server', isPrimary: false }), query: {} }, restoredRes);
+      assert.equal((restoredRes.body as Record<string, unknown>).hzmod, true);
+    });
+
+    it('clears cached landing data after plugin metadata reconfigure', async () => {
+      const plugin = {
+        name: 'hzmod',
+        serverId: 'old-server',
+        getLandingData() {
+          return { hzmodServerId: plugin.serverId };
+        },
+      };
+      server.registerPlugin(plugin);
+      server._setCache('landing', 'global', { primary: {}, servers: [], hzmodServerId: 'old-server' });
+      server._buildLandingData = async () => {
+        server._setCache('landing', 'global', {
+          primary: {},
+          servers: [],
+          ...(plugin.getLandingData() as Record<string, unknown>),
+        });
+      };
+
+      server.reconfigurePlugin('hzmod', { serverId: 'new-server' });
+
+      const handler = GET('/api/landing');
+      const res = mockRes();
+      await handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).hzmodServerId, 'new-server');
+    });
+
+    it('leaves plugin metadata unchanged when reconfiguring an unknown plugin', () => {
+      const plugin = { name: 'hzmod', serverId: 'old-server' };
+      server.registerPlugin(plugin);
+
+      const undo = server.reconfigurePlugin('missing', { serverId: 'new-server' });
+
+      assert.equal(undo, null);
+      assert.equal(plugin.serverId, 'old-server');
+    });
+  });
+
+  // ── GET /api/panel/activity ──────────────────────────────
+
+  describe('GET /api/panel/activity', () => {
+    it('returns events from db', () => {
+      const events = [
+        { type: 'player_connect', steam_id: '76561198000000001', timestamp: '2026-01-01T00:00:00Z' },
+        { type: 'player_death', steam_id: '76561198000000002', timestamp: '2026-01-01T01:00:00Z' },
+      ];
+      const db = makeMockDb({ getRecentActivity: () => events });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).events));
+      assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 2);
+      assert.equal(
+        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.type,
+        'player_connect',
+      );
+    });
+
+    it('returns empty events when no db', () => {
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { events: [] });
+    });
+
+    it('filters by type query param', () => {
+      const db = makeMockDb({
+        getActivityByCategory: (type: string) => [{ type, steam_id: '123', timestamp: 'now' }],
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { type: 'player_connect' } }, res);
+
+      assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 1);
+      assert.equal(
+        ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.type,
+        'player_connect',
+      );
+    });
+
+    it('searches by actor query param', () => {
+      const db = makeMockDb({
+        searchActivity: (actor: string) => [{ type: 'player_build', actor, timestamp: 'now' }],
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { actor: 'Alice' } }, res);
+
+      assert.equal(((res.body as Record<string, unknown>).events as unknown[]).length, 1);
+      assert.equal(((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.actor, 'Alice');
+    });
+
+    it('scopes actor search by type query param', () => {
+      const calls: Array<{ actor: string; category?: string; limit?: number; offset?: number }> = [];
+      const db = makeMockDb({
+        searchActivity: (actor: string, opts: { category?: string; limit?: number; offset?: number }) => {
+          calls.push({ actor, ...opts });
+          return [
+            {
+              type: 'container_item_added',
+              category: opts.category,
+              actor: 'House_Chest_1',
+              actor_name: 'House Chest',
+              steam_id: '76561198000000001',
+              item: 'Rope',
+              timestamp: 'now',
+            },
+          ];
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { type: 'container', actor: 'Alice', limit: '25', offset: '5' } }, res);
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.actor, 'Alice');
+      assert.equal(call.category, 'container');
+      assert.equal(call.limit, 25);
+      assert.equal(call.offset, 5);
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.category, 'container');
+      assert.equal(event.actor_name, 'House Chest');
+      assert.equal(event.attributed_name, 'Alice');
+    });
+
+    it('resolves owner from activity details when the event has no direct steam_id', () => {
+      const db = makeMockDb({
+        getRecentActivity: () => [
+          {
+            type: 'horse_appeared',
+            category: 'horse',
+            actor: 'Horse_A::76561198000000001',
+            actor_name: 'Horse',
+            details: { owner: '76561198000000001' },
+            pos_x: 1000,
+            pos_y: -2000,
+            timestamp: 'now',
+          },
+        ],
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.steam_id, '76561198000000001');
+      assert.equal(event.attributed_name, 'Alice');
+      assert.equal(event.pos_x, 1000);
+      assert.equal(event.pos_y, -2000);
+    });
+
+    it('supports explicit player activity mode', () => {
+      const calls: Array<{ steamId: string; category?: string; limit?: number; offset?: number }> = [];
+      const db = makeMockDb({
+        activityLog: {
+          searchActivityByPlayer: (steamId: string, opts: { category?: string; limit?: number; offset?: number }) => {
+            calls.push({ steamId, ...opts });
+            return [
+              {
+                type: 'inventory_item_added',
+                category: 'inventory',
+                actor: steamId,
+                steam_id: steamId,
+                item: 'Fork',
+                timestamp: 'now',
+              },
+            ];
+          },
+          searchActivityByItem: () => {
+            throw new Error('wrong mode');
+          },
+          searchActivityByContainer: () => {
+            throw new Error('wrong mode');
+          },
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db }),
+          query: { mode: 'player', steamId: '76561198000000001', type: 'inventory', limit: '25', offset: '5' },
+        },
+        res,
+      );
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.steamId, '76561198000000001');
+      assert.equal(call.category, 'inventory');
+      assert.equal(call.limit, 25);
+      assert.equal(call.offset, 5);
+      const event = ((res.body as Record<string, unknown>).events as Record<string, unknown>[])[0];
+      assert.ok(event);
+      assert.equal(event.actor_name, 'Alice');
+      assert.equal(event.item, 'Fork');
+    });
+
+    it('supports explicit item and container activity modes', () => {
+      const calls: Array<{ mode: string; q: string; category?: string }> = [];
+      const db = makeMockDb({
+        activityLog: {
+          searchActivityByItem: (q: string, opts: { category?: string }) => {
+            calls.push({ mode: 'item', q, category: opts.category });
+            return [
+              { type: 'inventory_item_added', category: 'inventory', actor: 'player', item: q, timestamp: 'now' },
+            ];
+          },
+          searchActivityByContainer: (q: string, opts: { category?: string }) => {
+            calls.push({ mode: 'container', q, category: opts.category });
+            return [{ type: 'container_item_added', category: 'container', actor: q, item: 'Fork', timestamp: 'now' }];
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+
+      const itemRes = mockRes();
+      handler({ srv: makeSrv({ db }), query: { mode: 'item', q: 'Fork' } }, itemRes);
+      assert.equal(((itemRes.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.item, 'Fork');
+
+      const containerRes = mockRes();
+      handler({ srv: makeSrv({ db }), query: { mode: 'container', q: 'BuildContainer_1134' } }, containerRes);
+      assert.equal(
+        ((containerRes.body as Record<string, unknown>).events as Record<string, unknown>[])[0]?.actor,
+        'BuildContainer_1134',
+      );
+
+      assert.equal(calls.length, 2);
+      assert.deepEqual(
+        calls.map(({ mode, q, category }) => ({ mode, q, category })),
+        [
+          { mode: 'item', q: 'Fork', category: '' },
+          { mode: 'container', q: 'BuildContainer_1134', category: '' },
+        ],
+      );
+    });
+
+    it('converts custom activity date range to bot-timezone UTC query bounds', () => {
+      const calls: Array<{ limit?: number; offset?: number; dateFrom?: string; dateTo?: string }> = [];
+      const db = makeMockDb({
+        getRecentActivity: (limit: number, offset: number, opts: { dateFrom?: string; dateTo?: string }) => {
+          calls.push({ limit, offset, ...opts });
+          return [];
+        },
+      });
+
+      const handler = GET('/api/panel/activity');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db, config: { botTimezone: 'Asia/Taipei', serverName: 'Test' } }),
+          query: { range: 'custom', from: '2026-05-24', to: '2026-05-24' },
+        },
+        res,
+      );
+
+      assert.equal(calls.length, 1);
+      const call = calls[0];
+      assert.ok(call);
+      assert.equal(call.dateFrom, '2026-05-23 16:00:00');
+      assert.equal(call.dateTo, '2026-05-24 16:00:00');
+      assert.deepEqual((res.body as Record<string, unknown>).range, {
+        preset: 'custom',
+        timezone: 'Asia/Taipei',
+        from: '2026-05-24',
+        to: '2026-05-24',
+        dateFrom: '2026-05-23 16:00:00',
+        dateTo: '2026-05-24 16:00:00',
+      });
+    });
+  });
+
+  describe('GET /api/panel/activity-stats', () => {
+    it('returns canonical category keys for activity stats', () => {
+      const db = makeMockDb({
+        activityLog: {
+          getActivityCount: () => 9,
+          countByType: () => [
+            { type: 'player_build', count: 2 },
+            { type: 'raid_damage', count: 1 },
+            { type: 'container_loot', count: 3 },
+            { type: 'player_death', count: 1 },
+            { type: 'player_connect', count: 2 },
+          ],
+          hourlyDistribution: () => [],
+          dailyCount: () => [],
+          dailyByType: () => [],
+          topPlayers: () => [{ steam_id: '76561198000000001', count: 2 }],
+          topContainers: () => [{ actor: 'BuildContainer_1134', actor_name: 'BuildContainer_1134', count: 3 }],
+          dateRange: () => ({ earliest: null, latest: null }),
+        },
+        player: {
+          resolveSteamIdToName: (steamId: string) => (steamId === '76561198000000001' ? 'Alice' : steamId),
+        },
+      });
+
+      const handler = GET('/api/panel/activity-stats');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      const body = res.body as {
+        categories: Record<string, number>;
+        total: number;
+        topPlayers: Array<{ actor: string; count: number }>;
+        topContainers: Array<{ actor: string; count: number }>;
+        topActors: Array<{ actor: string; count: number }>;
+      };
+      assert.equal(body.total, 9);
+      assert.equal(body.categories.structure, 3);
+      assert.equal(body.categories.container, 3);
+      assert.equal(body.categories.combat, 1);
+      assert.equal(body.categories.session, 2);
+      assert.equal(Object.hasOwn(body.categories, 'building'), false);
+      assert.deepEqual(body.topPlayers, [{ actor: 'Alice', steam_id: '76561198000000001', count: 2 }]);
+      assert.deepEqual(body.topActors, body.topPlayers);
+      assert.deepEqual(body.topContainers, [
+        { actor: 'BuildContainer_1134', actor_name: 'BuildContainer_1134', count: 3 },
+      ]);
+    });
+
+    it('scopes activity stats to the selected bot-timezone range', () => {
+      const calls: Array<{ method: string; dateFrom?: string; dateTo?: string }> = [];
+      const capture = (method: string) => (arg?: { dateFrom?: string; dateTo?: string }) => {
+        calls.push({ method, ...(arg || {}) });
+        return method === 'count' ? 2 : [];
+      };
+      const db = makeMockDb({
+        activityLog: {
+          getActivityCount: capture('count'),
+          countByType: capture('types'),
+          hourlyDistribution: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'hourly', ...opts });
+            return [];
+          },
+          dailyCount: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'daily', ...opts });
+            return [];
+          },
+          dailyByType: (_days: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'dailyByType', ...opts });
+            return [];
+          },
+          topPlayers: (_days: number, _limit: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'topPlayers', ...opts });
+            return [];
+          },
+          topContainers: (_days: number, _limit: number, opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'topContainers', ...opts });
+            return [];
+          },
+          dateRange: (opts: { dateFrom?: string; dateTo?: string }) => {
+            calls.push({ method: 'dateRange', ...opts });
+            return { earliest: null, latest: null };
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/activity-stats');
+      const res = mockRes();
+      handler(
+        {
+          srv: makeSrv({ db, config: { botTimezone: 'Asia/Taipei', serverName: 'Test' } }),
+          query: { range: 'custom', from: '2026-05-24', to: '2026-05-25' },
+        },
+        res,
+      );
+
+      assert.ok(calls.length >= 8);
+      for (const call of calls) {
+        assert.equal(call.dateFrom, '2026-05-23 16:00:00');
+        assert.equal(call.dateTo, '2026-05-25 16:00:00');
+      }
+      assert.deepEqual((res.body as Record<string, unknown>).selectedRange, {
+        preset: 'custom',
+        timezone: 'Asia/Taipei',
+        from: '2026-05-24',
+        to: '2026-05-25',
+        dateFrom: '2026-05-23 16:00:00',
+        dateTo: '2026-05-25 16:00:00',
+      });
+    });
+  });
+
+  // ── GET /api/panel/lookup/:type/:name ─────────────────────
+
+  describe('GET /api/panel/lookup/:type/:name', () => {
+    it('looks up professions through game_professions', () => {
+      const calls: Array<{ table: string; name: string }> = [];
+      const db = makeMockDb({
+        gameData: {
+          findByName: (table: string, name: string) => {
+            calls.push({ table, name });
+            return table === 'game_professions' && name === 'Farmer'
+              ? { id: 'Farmer', perk: 'Grow food faster' }
+              : null;
+          },
+        },
+      });
+
+      const handler = GET('/api/panel/lookup/:type/:name');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { type: 'profession', name: 'Farmer' }, query: {} }, res);
+
+      assert.deepEqual(calls, [{ table: 'game_professions', name: 'Farmer' }]);
+      assert.equal((res.body as Record<string, unknown>).found, true);
+      assert.equal((res.body as Record<string, unknown>).refTable, 'game_professions');
+    });
+  });
+
+  // ── GET /api/panel/clans ─────────────────────────────────
+
+  describe('GET /api/panel/clans', () => {
+    it('returns clans from db', () => {
+      const clans = [{ name: 'TestClan', members: [{ steam_id: '123', rank: 'leader' }] }];
+      const db = makeMockDb({ getAllClans: () => clans });
+
+      const handler = GET('/api/panel/clans');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.deepEqual(res.body, { clans });
+    });
+
+    it('returns empty clans when no db', () => {
+      const handler = GET('/api/panel/clans');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { clans: [] });
+    });
+  });
+
+  // ── GET /api/panel/chat ──────────────────────────────────
+
+  describe('GET /api/panel/chat', () => {
+    it('returns messages from db', () => {
+      const messages = [{ id: 1, player_name: 'Alice', message: 'hello', timestamp: 'now' }];
+      const db = makeMockDb({ getRecentChat: () => messages });
+
+      const handler = GET('/api/panel/chat');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.deepEqual(res.body, { messages });
+    });
+
+    it('returns empty messages when no db', () => {
+      const handler = GET('/api/panel/chat');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { messages: [] });
+    });
+
+    it('uses searchChat when search param provided', () => {
+      let searchedTerm: string | null = null;
+      const db = makeMockDb({
+        searchChat: (term: string) => {
+          searchedTerm = term;
+          return [{ id: 2, message: 'found it' }];
+        },
+      });
+
+      const handler = GET('/api/panel/chat');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { search: 'hello' } }, res);
+
+      assert.equal(searchedTerm, 'hello');
+      assert.equal(((res.body as Record<string, unknown>).messages as unknown[]).length, 1);
+    });
+  });
+
+  // ── GET /api/panel/db/tables ─────────────────────────────
+
+  describe('GET /api/panel/db/tables', () => {
+    it('returns whitelisted tables with row counts', () => {
+      const rawDb = makeSqlMock({
+        players: [{ steam_id: '123', name: 'Alice' }],
+        clans: [{ id: 1, name: 'TestClan' }],
+        secret_internal: [{ x: 1 }], // not in whitelist — should be filtered out
+      });
+      const db = makeMockDb({ db: rawDb });
+
+      const handler = GET('/api/panel/db/tables');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).tables));
+      const names = ((res.body as Record<string, unknown>).tables as Record<string, unknown>[]).map((t) => t.name);
+      assert.ok(names.includes('players'));
+      assert.ok(names.includes('clans'));
+      assert.ok(!names.includes('secret_internal'), 'non-whitelisted table should be filtered');
+      const playersTable = ((res.body as Record<string, unknown>).tables as Record<string, unknown>[]).find(
+        (t) => t.name === 'players',
+      );
+      assert.equal((playersTable as Record<string, unknown>).rowCount, 1);
+      assert.ok(Array.isArray((playersTable as Record<string, unknown>).columns));
+    });
+
+    it('returns empty tables when no db', () => {
+      const handler = GET('/api/panel/db/tables');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { tables: [] });
+    });
+  });
+
+  // ── GET /api/panel/db/:table ─────────────────────────────
+
+  describe('GET /api/panel/db/:table', () => {
+    it('returns rows from a whitelisted table', () => {
+      const rawDb = makeSqlMock({
+        players: [
+          { steam_id: '76561198000000001', name: 'Alice' },
+          { steam_id: '76561198000000002', name: 'Bob' },
+        ],
+      });
+      const db = makeMockDb({ db: rawDb });
+
+      const handler = GET('/api/panel/db/:table');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { table: 'players' }, query: {} }, res);
+
+      assert.equal((res.body as Record<string, unknown>).table, 'players');
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).rows));
+      assert.ok(Array.isArray((res.body as Record<string, unknown>).columns));
+      assert.equal(((res.body as Record<string, unknown>).rows as unknown[]).length, 2);
+    });
+
+    it('rejects non-whitelisted table name', () => {
+      const db = makeMockDb();
+
+      const handler = GET('/api/panel/db/:table');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { table: 'secret_data' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as Record<string, unknown>).code, 'TABLE_NOT_QUERYABLE');
+    });
+
+    it('rejects table name with SQL injection characters', () => {
+      const db = makeMockDb();
+
+      const handler = GET('/api/panel/db/:table');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { table: "'; DROP TABLE--" }, query: {} }, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as Record<string, unknown>).code, 'INVALID_TABLE_NAME');
+    });
+
+    it('returns empty when no db', () => {
+      const handler = GET('/api/panel/db/:table');
+      const res = mockRes();
+      handler({ srv: makeSrv(), params: { table: 'players' }, query: {} }, res);
+
+      assert.deepEqual(res.body, { rows: [], columns: [] });
+    });
+  });
+
+  // ── GET /api/timeline/bounds ─────────────────────────────
+
+  describe('GET /api/timeline/bounds', () => {
+    it('returns bounds from db', () => {
+      const bounds = { earliest: '2026-01-01T00:00:00Z', latest: '2026-03-01T00:00:00Z', count: 100 };
+      const db = makeMockDb({ getTimelineBounds: () => bounds });
+
+      const handler = GET('/api/timeline/bounds');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.deepEqual(res.body, bounds);
+    });
+
+    it('returns empty bounds when no db', () => {
+      const handler = GET('/api/timeline/bounds');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { earliest: null, latest: null, count: 0 });
+    });
+  });
+
+  // ── GET /api/timeline/snapshots ──────────────────────────
+
+  describe('GET /api/timeline/snapshots', () => {
+    it('returns snapshot list from db', () => {
+      const snapshots = [
+        { id: 1, created_at: '2026-01-01T00:00:00Z', player_count: 5 },
+        { id: 2, created_at: '2026-01-01T01:00:00Z', player_count: 8 },
+      ];
+      const db = makeMockDb({ getTimelineSnapshots: () => snapshots });
+
+      const handler = GET('/api/timeline/snapshots');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.deepEqual(res.body, snapshots);
+    });
+
+    it('returns empty array when no db', () => {
+      const handler = GET('/api/timeline/snapshots');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, []);
+    });
+
+    it('uses range query when from and to provided', () => {
+      let calledFrom: string | null = null;
+      let calledTo: string | null = null;
+      const db = makeMockDb({
+        getTimelineSnapshotRange: (from: string, to: string) => {
+          calledFrom = from;
+          calledTo = to;
+          return [{ id: 3 }];
+        },
+      });
+
+      const handler = GET('/api/timeline/snapshots');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { from: '2026-01-01', to: '2026-01-31' } }, res);
+
+      assert.equal(calledFrom, '2026-01-01');
+      assert.equal(calledTo, '2026-01-31');
+      assert.deepEqual(res.body, [{ id: 3 }]);
+    });
+  });
+
+  // ── GET /api/timeline/snapshot/:id ───────────────────────
+
+  describe('GET /api/timeline/snapshot/:id', () => {
+    it('returns full snapshot data with map coordinates', () => {
+      const rawDb = makeSqlMock({ players: [{ steam_id: '123', name: 'Alice' }] });
+      const full = {
+        id: 1,
+        players: [{ steam_id: '123', pos_x: 1000, pos_y: -2000 }],
+        ai: [],
+        vehicles: [],
+        structures: [],
+        companions: [],
+        backpacks: [],
+      };
+      const db = makeMockDb({ getTimelineSnapshotFull: () => full, db: rawDb });
+
+      const handler = GET('/api/timeline/snapshot/:id');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { id: '1' }, query: {} }, res);
+
+      assert.ok(res.body);
+      const players = (res.body as { players: Record<string, unknown>[] }).players;
+      const firstPlayer = players[0] as Record<string, unknown>;
+      assert.ok('lat' in firstPlayer, 'should have lat coordinate');
+      assert.ok('lng' in firstPlayer, 'should have lng coordinate');
+      assert.ok((res.body as Record<string, unknown>).nameMap, 'should include nameMap');
+    });
+
+    it('returns 400 for non-numeric snapshot id', () => {
+      const db = makeMockDb();
+
+      const handler = GET('/api/timeline/snapshot/:id');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { id: 'abc' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as Record<string, unknown>).code, 'INVALID_SNAPSHOT_ID');
+    });
+
+    it('returns 404 when snapshot not found', () => {
+      const db = makeMockDb({ getTimelineSnapshotFull: () => null });
+
+      const handler = GET('/api/timeline/snapshot/:id');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { id: '999' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 404);
+      assert.equal((res.body as Record<string, unknown>).code, 'SNAPSHOT_NOT_FOUND');
+    });
+
+    it('returns 404 when no db', () => {
+      const handler = GET('/api/timeline/snapshot/:id');
+      const res = mockRes();
+      handler({ srv: makeSrv(), params: { id: '1' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 404);
+      assert.equal((res.body as Record<string, unknown>).code, 'DATABASE_NOT_AVAILABLE');
+    });
+  });
+
+  // ── GET /api/timeline/player/:steamId/trail ──────────────
+
+  describe('GET /api/timeline/player/:steamId/trail', () => {
+    it('returns trail positions with map coordinates', () => {
+      const positions = [{ pos_x: 1000, pos_y: -2000, health: 100, online: 1, created_at: '2026-01-01', game_day: 5 }];
+      const db = makeMockDb({ getPlayerPositionHistory: () => positions });
+
+      const handler = GET('/api/timeline/player/:steamId/trail');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { steamId: '76561198000000001' }, query: { from: 'a', to: 'b' } }, res);
+
+      assert.ok(Array.isArray(res.body));
+      assert.equal((res.body as unknown[]).length, 1);
+      assert.ok('lat' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+      assert.ok('lng' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+    });
+
+    it('returns 400 when from/to params missing', () => {
+      const db = makeMockDb();
+
+      const handler = GET('/api/timeline/player/:steamId/trail');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { steamId: '123' }, query: {} }, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as Record<string, unknown>).code, 'FROM_AND_TO_REQUIRED');
+    });
+  });
+
+  // ── GET /api/timeline/ai/population ──────────────────────
+
+  describe('GET /api/timeline/ai/population', () => {
+    it('returns population data from db', () => {
+      const data = [{ time: '2026-01-01', count: 50 }];
+      const db = makeMockDb({ getAIPopulationHistory: () => data });
+
+      const handler = GET('/api/timeline/ai/population');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { from: 'a', to: 'b' } }, res);
+
+      assert.deepEqual(res.body, data);
+    });
+
+    it('returns 400 when from/to params missing', () => {
+      const db = makeMockDb();
+
+      const handler = GET('/api/timeline/ai/population');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.body as Record<string, unknown>).code, 'FROM_AND_TO_REQUIRED');
+    });
+  });
+
+  // ── GET /api/timeline/deaths ─────────────────────────────
+
+  describe('GET /api/timeline/deaths', () => {
+    it('returns deaths from db', () => {
+      const deaths = [{ steam_id: '123', cause: 'zombie', pos_x: 1000, pos_y: -2000 }];
+      const db = makeMockDb({ getDeathCauses: () => deaths });
+
+      const handler = GET('/api/timeline/deaths');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.ok(Array.isArray(res.body));
+      assert.equal((res.body as unknown[]).length, 1);
+      // Should have map coordinates added
+      assert.ok('lat' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+      assert.ok('lng' in ((res.body as Record<string, unknown>[])[0] ?? {}));
+    });
+
+    it('returns empty array when no db', () => {
+      const handler = GET('/api/timeline/deaths');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, []);
+    });
+
+    it('filters by player query param', () => {
+      let calledPlayer: string | null = null;
+      const db = makeMockDb({
+        getDeathCausesByPlayer: (player: string) => {
+          calledPlayer = player;
+          return [{ steam_id: player, cause: 'fall' }];
+        },
+      });
+
+      const handler = GET('/api/timeline/deaths');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: { player: '76561198000000001' } }, res);
+
+      assert.equal(calledPlayer, '76561198000000001');
+      assert.equal((res.body as unknown[]).length, 1);
+    });
+  });
+
+  // ── GET /api/timeline/deaths/stats ───────────────────────
+
+  describe('GET /api/timeline/deaths/stats', () => {
+    it('returns death cause stats from db', () => {
+      const stats = [
+        { cause: 'zombie', count: 50 },
+        { cause: 'fall', count: 10 },
+      ];
+      const db = makeMockDb({ getDeathCauseStats: () => stats });
+
+      const handler = GET('/api/timeline/deaths/stats');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), query: {} }, res);
+
+      assert.deepEqual(res.body, stats);
+    });
+
+    it('returns empty array when no db', () => {
+      const handler = GET('/api/timeline/deaths/stats');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, []);
+    });
+  });
+
+  // ── GET /api/panel/scheduler ─────────────────────────────
+
+  describe('GET /api/panel/scheduler', () => {
+    it('returns scheduler status when scheduler exists', () => {
+      const status = { active: true, nextRestart: '2026-01-01T12:00:00Z', profile: 'default' };
+      const srv = makeSrv({ scheduler: { getStatus: () => status } });
+
+      const handler = GET('/api/panel/scheduler');
+      const res = mockRes();
+      handler({ srv, query: {} }, res);
+
+      assert.deepEqual(res.body, status);
+    });
+
+    it('returns inactive when no scheduler', () => {
+      const handler = GET('/api/panel/scheduler');
+      const res = mockRes();
+      handler({ srv: makeSrv(), query: {} }, res);
+
+      assert.deepEqual(res.body, { active: false });
+    });
+  });
+});

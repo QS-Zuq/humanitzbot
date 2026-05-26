@@ -12,18 +12,18 @@
   <!-- Tailwind CSS (compiled) -->
   <link rel="stylesheet" href="tailwind.css">
   <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
   <!-- Lucide Icons -->
-  <script defer src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+  <script defer src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js" integrity="sha384-tTkFttkBclaU1cloKwOi9xk3pbao3VZxTjLNBt8iFABWDBQibbAbWpVmO28zMuxq" crossorigin="anonymous"></script>
   <!-- Tippy.js -->
-  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css">
-  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/translucent.css">
-  <script defer src="https://unpkg.com/@popperjs/core@2"></script>
-  <script defer src="https://unpkg.com/tippy.js@6"></script>
+  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6.3.7/dist/tippy.css" integrity="sha384-IBgYl+I5X6ZDZXI5zv1vsSE3VopDomz4BxSu/GlxaPHfFtcrJ3uj70z1w6srO9zU" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6.3.7/themes/translucent.css" integrity="sha384-8lO1UDQS5Hbl/El+VHHZ0tZMx2DZq1huGGgZ55K/9tqXK6SAAnetxZeqYSo5chIs" crossorigin="anonymous">
+  <script defer src="https://unpkg.com/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+  <script defer src="https://unpkg.com/tippy.js@6.3.7/dist/tippy.umd.min.js" integrity="sha384-pjtv4LzKGI/lGxchW/wd/upB/HsGOP/Q2iPYyDU8qo2bp4JLbN34hQkdAArvidZX" crossorigin="anonymous"></script>
   <!-- Chart.js -->
-  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
   <!-- GSAP -->
-  <script defer src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js" integrity="sha384-XmJ9SoHtVOHoQUcKvFAzVXwdkKo1Ie3bhmSoIAkcdsHGaIrVJIkmozyq0FJeb/Ly" crossorigin="anonymous"></script>
   <!-- Panel Styles -->
   <link rel="stylesheet" href="panel.css">
 </head>
@@ -508,7 +508,19 @@
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"></i>
                 <input type="text" id="activity-search" placeholder="Player or Item#fingerprint..." class="input-field has-icon w-48" data-i18n-attr='{"placeholder":"web:activity.search_placeholder"}'>
               </div>
-              <input type="date" id="activity-date" class="input-field w-36">
+              <div class="activity-range-control flex items-center gap-1.5">
+                <select id="activity-range-preset" class="input-field w-32" aria-label="Activity date range" data-i18n-attr='{"aria-label":"web:activity.range_label"}'>
+                  <option value="today" data-i18n="web:activity.range_today">Today</option>
+                  <option value="yesterday" data-i18n="web:activity.range_yesterday">Yesterday</option>
+                  <option value="7d" data-i18n="web:activity.range_7d">7 days</option>
+                  <option value="30d" data-i18n="web:activity.range_30d">30 days</option>
+                  <option value="all" data-i18n="web:activity.range_all">All</option>
+                  <option value="custom" data-i18n="web:activity.range_custom">Custom</option>
+                </select>
+                <input type="date" id="activity-date-from" class="input-field w-36 hidden" aria-label="Activity from date" data-i18n-attr='{"aria-label":"web:activity.range_from"}'>
+                <span id="activity-date-separator" class="text-muted text-xs hidden">—</span>
+                <input type="date" id="activity-date-to" class="input-field w-36 hidden" aria-label="Activity to date" data-i18n-attr='{"aria-label":"web:activity.range_to"}'>
+              </div>
               <button id="activity-toggle-charts" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5" title="Toggle charts" data-i18n-attr='{"title":"web:activity.toggle_charts"}'>
                 <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> <span data-i18n="web:activity.charts">Charts</span>
               </button>
@@ -519,8 +531,8 @@
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="activity-stat-cards">
             <div class="stat-card"><div class="stat-label" data-i18n="web:activity.total_events">Total Events</div><div id="act-total" class="stat-value">-</div></div>
             <div class="stat-card"><div class="stat-label" data-i18n="web:activity.event_types">Event Types</div><div id="act-types-count" class="stat-value">-</div></div>
-            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.date_range">Date Range</div><div id="act-date-range" class="stat-value text-sm">-</div></div>
-            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.top_actor">Top Actor</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.showing_range">Showing Range</div><div id="act-date-range" class="stat-value stat-value-range text-sm">-</div></div>
+            <div class="stat-card"><div class="stat-label" data-i18n="web:activity.top_player">Top Player</div><div id="act-top-actor" class="stat-value text-sm">-</div></div>
           </div>
 
           <!-- Charts panel (collapsible) -->
@@ -528,14 +540,14 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <!-- Daily activity trend -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.daily_activity_30_days">Daily Activity (30 days)</div>
+                <div class="card-title" data-i18n="web:activity.daily_activity_selected_range">Daily Activity</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-daily-activity"></canvas>
                 </div>
               </div>
               <!-- Hourly distribution -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.hourly_distribution_7_days">Hourly Distribution (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.hourly_distribution_selected_range">Hourly Distribution</div>
                 <div style="height: 200px; position: relative;">
                   <canvas id="chart-hourly-activity"></canvas>
                 </div>
@@ -551,7 +563,7 @@
               </div>
               <!-- Top actors -->
               <div class="card">
-                <div class="card-title" data-i18n="web:activity.most_active_players_7_days">Most Active Players (7 days)</div>
+                <div class="card-title" data-i18n="web:activity.most_active_players_selected_range">Most Active Players</div>
                 <div style="height: 220px; position: relative;">
                   <canvas id="chart-top-actors"></canvas>
                 </div>
@@ -1033,11 +1045,11 @@
     </div>
   </div>
 
-  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
   <!-- i18n -->
-  <script defer src="https://unpkg.com/i18next@25/dist/umd/i18next.min.js"></script>
-  <script defer src="https://unpkg.com/i18next-http-backend@3/i18nextHttpBackend.min.js"></script>
-  <script defer src="https://unpkg.com/i18next-browser-languagedetector@8/i18nextBrowserLanguageDetector.min.js"></script>
+  <script defer src="https://unpkg.com/i18next@25.10.10/dist/umd/i18next.min.js" integrity="sha384-CPOR7VJzAchCUtnavaW0+CAjFaJChzAMxZh2tSjxLzEQYqINtbuHr8rkVvEnjClf" crossorigin="anonymous"></script>
+  <script defer src="https://unpkg.com/i18next-http-backend@3.0.6/i18nextHttpBackend.min.js" integrity="sha384-GpVx5pFae80ZItGSyNt8KfaECfOcJS0SqI6aNRlIdEkoVdktqSbULCegUayjZWBv" crossorigin="anonymous"></script>
+  <script defer src="https://unpkg.com/i18next-browser-languagedetector@8.2.1/i18nextBrowserLanguageDetector.min.js" integrity="sha384-Z89+IAWmIe+m7bvvlN4ws9W4/FSQ4DYvQu4JMJPdaw8ShRlvcVcaLi9vsQrz8gRp" crossorigin="anonymous"></script>
   <script defer src="/js/i18n.js"></script>
   <!-- Panel modules -->
   <script defer src="/js/panel-core.js"></script>

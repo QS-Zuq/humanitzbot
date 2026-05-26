@@ -266,9 +266,10 @@ Panel.tabs = Panel.tabs || {};
       info.textContent = i18next.t('web:timeline.no_data');
       return;
     }
-    const d = new Date(s.created_at + (s.created_at.endsWith('Z') ? '' : 'Z'));
-    const time = window.fmtTime ? window.fmtTime(d) : d.toLocaleTimeString();
-    const date = window.fmtDate ? window.fmtDate(d) : d.toLocaleDateString();
+    const d = Panel.core.utils.parseDbTimestamp ? Panel.core.utils.parseDbTimestamp(s.created_at) : null;
+    const timezone = Panel.core.utils.resolvePanelTimeZone ? Panel.core.utils.resolvePanelTimeZone() : '';
+    const time = d ? (window.fmtTime ? window.fmtTime(d, timezone || undefined) : d.toLocaleTimeString()) : '';
+    const date = d ? (window.fmtDate ? window.fmtDate(d, timezone || undefined) : d.toLocaleDateString()) : '';
     const w = s.weather_type || '';
     const sn = s.season || '';
     const day = s.game_day ? i18next.t('web:dashboard.day') + ' ' + s.game_day : '';

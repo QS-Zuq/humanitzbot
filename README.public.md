@@ -11,12 +11,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+" />
+  <img src="https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22+" />
   <img src="https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white" alt="discord.js v14" />
   <img src="https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Express-v5-000000?logo=express&logoColor=white" alt="Express v5" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
-  <img src="https://img.shields.io/badge/Tests-1426_passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-1936_passing-brightgreen" alt="Tests" />
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@ Connects to your HumanitZ game server via RCON and SFTP, tracks everything that 
 
 ## Requirements
 
-- **Node.js 18+** (22 recommended)
+- **Node.js 22+**
 - A Discord bot token ([Developer Portal](https://discord.com/developers/applications))
 - A HumanitZ dedicated server with RCON enabled
 
@@ -142,7 +142,7 @@ Requires `DISCORD_OAUTH_SECRET` and `WEB_MAP_PORT` in `.env`.
 
 ```bash
 npm run dev         # Start with --watch (auto-restart on changes)
-npm test            # Run all 1426 tests
+npm test            # Run all 1936 tests
 npm run setup       # First-run import (SFTP auto-discovery + data import)
 npm run build:css   # Build Tailwind CSS for web panel
 ```
