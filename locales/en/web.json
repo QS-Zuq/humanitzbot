@@ -433,6 +433,7 @@
     "item_tracker": "Item Tracker",
     "chain_of_custody": "CHAIN OF CUSTODY",
     "loading_tracker_data": "Loading tracker data…",
+    "failed_to_load_tracker_data": "Failed to load tracker data.",
     "no_movements_recorded_for_item": "No movements recorded for this item.",
     "load_more": "Load More",
     "close_tracker": "Close tracker",
@@ -1330,6 +1331,16 @@
     "last_seen": "Last seen",
     "qty_tracked": "Qty tracked",
     "ownership_chain": "Ownership chain"
+  },
+  "activity_item_popover": {
+    "close": "Close",
+    "title": "Item actions",
+    "track_item": "Track this item",
+    "track_unavailable": "Precise tracking unavailable",
+    "filter_same_item": "Filter same item activity",
+    "view_database": "View in DB",
+    "fingerprint_label": "Fingerprint",
+    "no_fingerprint_old_event": "This activity has no fingerprint metadata."
   },
   "location_type": {
     "player": "Player",

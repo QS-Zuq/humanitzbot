@@ -10,6 +10,8 @@
  * @module diff-engine
  */
 
+import { generateFingerprint } from './item-fingerprint.js';
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface DiffItem {
@@ -17,6 +19,12 @@ interface DiffItem {
   amount: number;
   durability?: number;
   ammo?: number;
+  attachments?: string[];
+  cap?: number;
+  maxDur?: number;
+  weight?: number;
+  wetness?: number;
+  fingerprint?: string;
 }
 
 interface ActivityEvent {
@@ -168,7 +176,7 @@ function diffContainers(oldContainers: EntityRecord[], newContainers: EntityReco
         actorName: name,
         item: item.item,
         amount: item.amount,
-        details: { durability: item.durability, ammo: item.ammo },
+        details: { durability: item.durability, ammo: item.ammo, ..._itemFingerprintDetails(item) },
         x: newC.x ?? newC.pos_x,
         y: newC.y ?? newC.pos_y,
         z: newC.z ?? newC.pos_z,
@@ -183,7 +191,7 @@ function diffContainers(oldContainers: EntityRecord[], newContainers: EntityReco
         actorName: name,
         item: item.item,
         amount: item.amount,
-        details: { durability: item.durability, ammo: item.ammo },
+        details: { durability: item.durability, ammo: item.ammo, ..._itemFingerprintDetails(item) },
         x: newC.x ?? newC.pos_x,
         y: newC.y ?? newC.pos_y,
         z: newC.z ?? newC.pos_z,
@@ -366,7 +374,7 @@ function diffPlayerInventories(
           actorName: playerName,
           item: item.item,
           amount: item.amount,
-          details: { slot: slot.label, durability: item.durability },
+          details: { slot: slot.label, durability: item.durability, ..._itemFingerprintDetails(item) },
           x: newP.x ?? newP.pos_x,
           y: newP.y ?? newP.pos_y,
           z: newP.z ?? newP.pos_z,
@@ -381,7 +389,7 @@ function diffPlayerInventories(
           actorName: playerName,
           item: item.item,
           amount: item.amount,
-          details: { slot: slot.label, durability: item.durability },
+          details: { slot: slot.label, durability: item.durability, ..._itemFingerprintDetails(item) },
           x: newP.x ?? newP.pos_x,
           y: newP.y ?? newP.pos_y,
           z: newP.z ?? newP.pos_z,
@@ -485,7 +493,7 @@ function diffVehicleInventories(oldVehicles: EntityRecord[], newVehicles: Entity
         actorName: vName,
         item: item.item,
         amount: item.amount,
-        details: { durability: item.durability },
+        details: { durability: item.durability, ..._itemFingerprintDetails(item) },
         x: newV.x ?? newV.pos_x,
         y: newV.y ?? newV.pos_y,
         z: newV.z ?? newV.pos_z,
@@ -500,7 +508,7 @@ function diffVehicleInventories(oldVehicles: EntityRecord[], newVehicles: Entity
         actorName: vName,
         item: item.item,
         amount: item.amount,
-        details: { durability: item.durability },
+        details: { durability: item.durability, ..._itemFingerprintDetails(item) },
         x: newV.x ?? newV.pos_x,
         y: newV.y ?? newV.pos_y,
         z: newV.z ?? newV.pos_z,
@@ -711,10 +719,17 @@ function _normalizeItems(items: unknown): DiffItem[] {
     }
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter((i): i is DiffItem => {
-    const rec = i as DiffItem | null | undefined;
-    return !!rec && !!rec.item && rec.item !== 'None' && rec.item !== 'Empty';
-  });
+  const normalized: DiffItem[] = [];
+  for (const item of parsed) {
+    const rec = item as DiffItem | null | undefined;
+    if (!rec || !rec.item || rec.item === 'None' || rec.item === 'Empty') continue;
+
+    const next: DiffItem = { ...rec };
+    const fingerprint = _readFingerprint(next) || generateFingerprint(next);
+    if (fingerprint) next.fingerprint = fingerprint;
+    normalized.push(next);
+  }
+  return normalized;
 }
 
 function _diffItemLists(oldItems: DiffItem[], newItems: DiffItem[]): { added: DiffItem[]; removed: DiffItem[] } {
@@ -731,13 +746,85 @@ function _diffItemLists(oldItems: DiffItem[], newItems: DiffItem[]): { added: Di
     const newCount = _sumAmounts(newBag.get(itemName) ?? []);
 
     if (newCount > oldCount) {
-      added.push({ item: itemName, amount: newCount - oldCount });
+      added.push(
+        _buildDeltaItem(itemName, newCount - oldCount, oldBag.get(itemName) ?? [], newBag.get(itemName) ?? []),
+      );
     } else if (oldCount > newCount) {
-      removed.push({ item: itemName, amount: oldCount - newCount });
+      removed.push(
+        _buildDeltaItem(itemName, oldCount - newCount, newBag.get(itemName) ?? [], oldBag.get(itemName) ?? []),
+      );
     }
   }
 
   return { added, removed };
+}
+
+function _buildDeltaItem(
+  itemName: string,
+  amount: number,
+  stableEntries: DiffItem[],
+  changedEntries: DiffItem[],
+): DiffItem {
+  return {
+    item: itemName,
+    amount,
+    ..._resolveUnambiguousDeltaMetadata(amount, stableEntries, changedEntries),
+  };
+}
+
+function _resolveUnambiguousDeltaMetadata(
+  amount: number,
+  stableEntries: DiffItem[],
+  changedEntries: DiffItem[],
+): Partial<DiffItem> {
+  const changedByFingerprint = _buildFingerprintBag(changedEntries);
+  if (changedByFingerprint.size === 0) return {};
+
+  const candidates: Array<{ fingerprint: string; amount: number; sample: DiffItem }> = [];
+
+  for (const [fingerprint, entries] of changedByFingerprint) {
+    const changedAmount = _sumAmounts(entries);
+    const stableAmount = _sumAmounts(stableEntries.filter((entry) => _readFingerprint(entry) === fingerprint));
+    const delta = changedAmount - stableAmount;
+    if (delta > 0) {
+      const sample = entries[0];
+      if (sample) candidates.push({ fingerprint, amount: delta, sample });
+    }
+  }
+
+  const candidate = candidates[0];
+  if (candidates.length !== 1 || !candidate || candidate.amount !== amount) return {};
+
+  const { fingerprint, sample } = candidate;
+  return {
+    fingerprint,
+    durability: sample.durability,
+    ammo: sample.ammo,
+  };
+}
+
+function _buildFingerprintBag(items: DiffItem[]): Map<string, DiffItem[]> {
+  const bag = new Map<string, DiffItem[]>();
+  for (const item of items) {
+    const fingerprint = _readFingerprint(item);
+    if (!fingerprint) continue;
+    let list = bag.get(fingerprint);
+    if (!list) {
+      list = [];
+      bag.set(fingerprint, list);
+    }
+    list.push(item);
+  }
+  return bag;
+}
+
+function _readFingerprint(item: DiffItem): string {
+  return typeof item.fingerprint === 'string' ? item.fingerprint.trim() : '';
+}
+
+function _itemFingerprintDetails(item: DiffItem): { fingerprint?: string } {
+  const fingerprint = _readFingerprint(item);
+  return fingerprint ? { fingerprint } : {};
 }
 
 function _buildItemBag(items: DiffItem[]): Map<string, DiffItem[]> {

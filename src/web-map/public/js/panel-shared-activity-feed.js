@@ -40,13 +40,26 @@ Panel.shared = Panel.shared || {};
     if (!name) return '';
     opts = opts || {};
     const escaped = esc(name);
+    const activitySearchValue = opts.activitySearch || opts.search || name;
     const activityAttrs = opts.activityMode
-      ? ' data-mode="' +
-        esc(opts.activityMode) +
-        '" data-search="' +
-        esc(opts.activitySearch || opts.search || name) +
-        '"'
+      ? ' data-mode="' + esc(opts.activityMode) + '" data-search="' + esc(activitySearchValue) + '"'
       : '';
+    if (type === 'item' && opts.activityMode === 'item') {
+      const fingerprint = opts.fingerprint ? String(opts.fingerprint).trim() : '';
+      return (
+        '<span class="activity-item-action cursor-pointer hover:underline ' +
+        (opts.cls || 'text-accent') +
+        '" data-mode="item" data-search="' +
+        esc(activitySearchValue) +
+        '" data-item-name="' +
+        esc(name) +
+        '"' +
+        (fingerprint ? ' data-fingerprint="' + esc(fingerprint) + '"' : '') +
+        '">' +
+        escaped +
+        '</span>'
+      );
+    }
     // Players — use player-link with steam ID
     if (type === 'player') {
       return (
@@ -91,6 +104,165 @@ Panel.shared = Panel.shared || {};
       escaped +
       '</span>'
     );
+  }
+
+  function activityItemPopoverLabel(key, fallback, vars) {
+    return i18next.t('web:activity_item_popover.' + key, { defaultValue: fallback, ...(vars || {}) });
+  }
+
+  const ACTIVITY_ITEM_POPOVER_ACTION_CLASS =
+    'activity-item-popover-action text-[10px] text-accent hover:underline cursor-pointer';
+
+  function buildActivityItemPopoverHtml(itemName, fingerprint) {
+    const canTrack = !!fingerprint;
+    const isAdmin = S.tier >= 3;
+    let html =
+      '<div class="item-popup activity-item-popover rounded-lg border border-border bg-surface shadow-xl p-3 min-w-[220px] max-w-[280px] z-[9999]">' +
+      '<button type="button" class="item-popup-close float-right text-muted hover:text-primary" aria-label="' +
+      esc(activityItemPopoverLabel('close', 'Close')) +
+      '">\u00d7</button>' +
+      '<div class="text-xs text-muted uppercase tracking-wide mb-1">' +
+      esc(activityItemPopoverLabel('title', 'Item actions')) +
+      '</div>' +
+      '<div class="font-semibold text-primary mb-2 break-words">' +
+      esc(itemName) +
+      '</div>';
+
+    if (canTrack) {
+      html +=
+        '<button type="button" class="' +
+        ACTIVITY_ITEM_POPOVER_ACTION_CLASS +
+        '" data-action="track" data-item-name="' +
+        esc(itemName) +
+        '" data-fingerprint="' +
+        esc(fingerprint) +
+        '">' +
+        esc(activityItemPopoverLabel('track_item', 'Track this item')) +
+        ' \u2192' +
+        '</button>' +
+        '<div class="text-[10px] text-muted mb-1 break-all">' +
+        esc(activityItemPopoverLabel('fingerprint_label', 'Fingerprint')) +
+        ': #' +
+        esc(fingerprint) +
+        '</div>';
+    } else {
+      html +=
+        '<button type="button" class="w-full text-left rounded px-2 py-1.5 text-muted opacity-60 cursor-not-allowed" disabled>' +
+        esc(activityItemPopoverLabel('track_unavailable', 'Precise tracking unavailable')) +
+        '</button>' +
+        '<div class="text-[10px] text-muted mb-1">' +
+        esc(activityItemPopoverLabel('no_fingerprint_old_event', 'This activity has no fingerprint metadata.')) +
+        '</div>';
+    }
+
+    html +=
+      '<button type="button" class="' +
+      ACTIVITY_ITEM_POPOVER_ACTION_CLASS +
+      '" data-action="filter" data-item-name="' +
+      esc(itemName) +
+      '">' +
+      esc(activityItemPopoverLabel('filter_same_item', 'Filter same item activity')) +
+      ' \u2192' +
+      '</button>';
+
+    if (isAdmin) {
+      html +=
+        '<div class="mt-2 pt-2 border-t border-border">' +
+        '<span class="db-link text-[10px] text-accent hover:underline cursor-pointer" data-table="item_instances" data-search="' +
+        esc(fingerprint || itemName) +
+        '">' +
+        esc(activityItemPopoverLabel('view_database', 'View in DB')) +
+        ' \u2192</span>' +
+        '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function placeActivityItemPopover(anchor, popup) {
+    if (!anchor || !popup || !anchor.getBoundingClientRect) return;
+    const rect = anchor.getBoundingClientRect();
+    const top = rect.bottom + (window.scrollY || 0) + 6;
+    const left = Math.min(rect.left + (window.scrollX || 0), Math.max(8, window.innerWidth - 300));
+    popup.style.position = 'absolute';
+    popup.style.top = top + 'px';
+    popup.style.left = Math.max(8, left) + 'px';
+  }
+
+  function openActivityItemPopover(anchor) {
+    const itemName = anchor.dataset.itemName || anchor.dataset.search || anchor.textContent || '';
+    if (!itemName) return;
+    const fingerprint = (anchor.dataset.fingerprint || '').trim();
+    const existing = document.querySelector('.item-popup');
+    if (existing) existing.remove();
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = buildActivityItemPopoverHtml(itemName, fingerprint);
+    const popup = wrapper.firstElementChild;
+    if (!popup) return;
+    document.body.appendChild(popup);
+    placeActivityItemPopover(anchor, popup);
+  }
+
+  function closestActivityElement(target, selector) {
+    return target && typeof target.closest === 'function' ? target.closest(selector) : null;
+  }
+
+  function setActivityItemSearch(itemName, fingerprint) {
+    const search = fingerprint ? itemName + '#' + fingerprint : itemName;
+    S.activitySearchMode = 'item';
+    S.activitySearchSteamId = '';
+    S.activityCategory = '';
+    const applyFilters = function () {
+      const input = $('#activity-search');
+      if (input) input.value = search;
+      const filter = $('#activity-filter');
+      if (filter) filter.value = '';
+    };
+    applyFilters();
+    if (Panel.nav && Panel.nav.switchTab) Panel.nav.switchTab('activity');
+    else if (window.switchTab) window.switchTab('activity');
+    setTimeout(function () {
+      applyFilters();
+      if (Panel.shared.activityFeed && Panel.shared.activityFeed.resetPaging) Panel.shared.activityFeed.resetPaging();
+      if (Panel.tabs && Panel.tabs.activity && Panel.tabs.activity.load) Panel.tabs.activity.load();
+    }, 100);
+  }
+
+  function initActivityItemPopoverDelegation() {
+    if (typeof document === 'undefined' || initActivityItemPopoverDelegation._done) return;
+    initActivityItemPopoverDelegation._done = true;
+    document.addEventListener('click', function (e) {
+      const itemAction = closestActivityElement(e.target, '.activity-item-action');
+      if (itemAction) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openActivityItemPopover(itemAction);
+        return;
+      }
+
+      const popoverAction = closestActivityElement(e.target, '.activity-item-popover-action');
+      if (popoverAction) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const itemName = popoverAction.dataset.itemName || '';
+        const action = popoverAction.dataset.action || '';
+        const fingerprint = popoverAction.dataset.fingerprint || '';
+        const popup = popoverAction.closest('.item-popup');
+        if (popup) popup.remove();
+        if (action === 'track') setActivityItemSearch(itemName, fingerprint);
+        else if (action === 'filter') setActivityItemSearch(itemName, '');
+        return;
+      }
+
+      const existing = document.querySelector('.activity-item-popover');
+      if (existing && !closestActivityElement(e.target, '.activity-item-popover')) existing.remove();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const existing = document.querySelector('.activity-item-popover');
+      if (existing) existing.remove();
+    });
   }
 
   function tryParseDetails(details, key) {
@@ -240,7 +412,13 @@ Panel.shared = Panel.shared || {};
     return Number.isFinite(n) ? n : null;
   }
 
+  function eventItemFingerprint(event) {
+    const details = parseDetails(event && event.details);
+    return typeof details.fingerprint === 'string' ? details.fingerprint.trim() : '';
+  }
+
   function formatActivityEvent(e) {
+    const details = parseDetails(e.details);
     const rawActor = e.actor || '';
     const actorIsSteamId = /^\d{17}$/.test(String(rawActor));
     const actor = stripRconTags(e.actor_name || rawActor || e.steam_id || 'Unknown');
@@ -257,8 +435,8 @@ Panel.shared = Panel.shared || {};
       ? '<span class="player-link" data-steam-id="' + esc(e.target_steam_id || '') + '">' + esc(target) + '</span>'
       : '';
     const itemName = stripRconTags(e.item || '');
-    const attributedName = stripRconTags(e.attributed_name || tryParseDetails(e.details, 'attributedPlayer') || '');
-    const attributedSteamId = e.steam_id || tryParseDetails(e.details, 'attributedSteamId') || '';
+    const attributedName = stripRconTags(e.attributed_name || details.attributedPlayer || '');
+    const attributedSteamId = e.steam_id || details.attributedSteamId || '';
     const attributedHtml = attributedName ? entityLink(attributedName, 'player', { steamId: attributedSteamId }) : '';
 
     let _itype = 'item';
@@ -287,7 +465,10 @@ Panel.shared = Panel.shared || {};
     )
       _itype = 'item';
     else if (e.type === 'raid_damage') _itype = 'structure';
-    const itemHtml = itemName ? entityLink(itemName, _itype, _itype === 'item' ? { activityMode: 'item' } : {}) : '';
+    const itemFingerprint = eventItemFingerprint(e);
+    const itemHtml = itemName
+      ? entityLink(itemName, _itype, _itype === 'item' ? { activityMode: 'item', fingerprint: itemFingerprint } : {})
+      : '';
 
     const _a = function (k) {
       return i18next.t('web:activity.' + k);
@@ -295,12 +476,7 @@ Panel.shared = Panel.shared || {};
     const attributionSuffix = attributedHtml ? ' ' + _a('by') + ' ' + attributedHtml : '';
     const attributionStateSuffix = attributedHtml ? '' : attributionBadge(e.details);
     const ownerSteamId =
-      String(
-        tryParseDetails(e.details, 'owner') ||
-          tryParseDetails(e.details, 'newOwner') ||
-          tryParseDetails(e.details, 'ownerSteamId') ||
-          '',
-      ) ||
+      String(details.owner || details.newOwner || details.ownerSteamId || '') ||
       ((actorType === 'structure' || actorType === 'animal') && attributedSteamId ? String(attributedSteamId) : '');
     const ownerName =
       actorType === 'structure' || actorType === 'animal' ? stripRconTags(e.owner_name || attributedName || '') : '';
@@ -618,14 +794,21 @@ Panel.shared = Panel.shared || {};
           for (let k = 0; k < group.events.length; k++) {
             const ev = group.events[k];
             const name = stripRconTags(ev.item || ev.type);
-            items[name] = (items[name] || 0) + (ev.amount || 1);
+            const existing = items[name] || { amount: 0, fingerprint: '', fingerprints: {} };
+            existing.amount += ev.amount || 1;
+            const fingerprint = eventItemFingerprint(ev);
+            if (fingerprint) existing.fingerprints[fingerprint] = true;
+            items[name] = existing;
           }
           const summary = Object.keys(items)
             .map(function (n) {
               const t = /built|placed|destroyed/.test(e.type) ? 'structure' : 'item';
+              const meta = items[n];
+              const fingerprints = Object.keys(meta.fingerprints || {});
+              const fingerprint = fingerprints.length === 1 ? fingerprints[0] : '';
               return (
-                entityLink(n, t, t === 'item' ? { activityMode: 'item' } : {}) +
-                (items[n] > 1 ? ' \u00d7' + items[n] : '')
+                entityLink(n, t, t === 'item' ? { activityMode: 'item', fingerprint: fingerprint } : {}) +
+                (meta.amount > 1 ? ' \u00d7' + meta.amount : '')
               );
             })
             .join(', ');
@@ -737,10 +920,13 @@ Panel.shared = Panel.shared || {};
       loadMore();
     });
 
+  initActivityItemPopoverDelegation();
+
   Panel.shared.activityFeed = {
     render: renderActivityFeed,
     group: groupActivityEvents,
     format: formatActivityEvent,
+    buildItemPopoverHtml: buildActivityItemPopoverHtml,
     loadMore: loadMore,
     resetPaging: resetActivityPaging,
     // Expose paging state getters/setters for the activity tab

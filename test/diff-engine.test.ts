@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { generateFingerprint } from '../src/db/item-fingerprint.js';
 import * as _diff_engine from '../src/db/diff-engine.js';
 const {
   diffContainers,
@@ -41,9 +42,15 @@ describe('_normalizeItems', () => {
     assert.deepEqual(_normalizeItems('{bad json'), []);
   });
 
-  it('passes through plain arrays', () => {
-    const items = [{ item: 'Sword', amount: 1 }];
-    assert.deepEqual(_normalizeItems(items), items);
+  it('normalizes plain arrays with generated fingerprints', () => {
+    const item = { item: 'Sword', amount: 1, durability: 75 };
+    const items = [item];
+    const result = _normalizeItems(items);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].item, 'Sword');
+    assert.equal(result[0].amount, 1);
+    assert.equal(result[0].fingerprint, generateFingerprint(item));
+    assert.equal(Object.hasOwn(item, 'fingerprint'), false);
   });
 
   it('filters out None and Empty items', () => {
@@ -64,6 +71,13 @@ describe('_normalizeItems', () => {
     const result = _normalizeItems(items);
     assert.equal(result.length, 1);
     assert.equal(result[0].item, 'Bandage');
+  });
+
+  it('preserves an existing fingerprint from parsed cache items', () => {
+    const items = [{ item: 'Axe', amount: 1, durability: 50, fingerprint: 'existing12345' }];
+    const result = _normalizeItems(items);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].fingerprint, 'existing12345');
   });
 
   it('returns empty array for empty string', () => {
@@ -195,6 +209,34 @@ describe('_diffItemLists', () => {
     assert.equal(added.length, 1);
     assert.equal(added[0].amount, 1);
   });
+
+  it('carries fingerprint metadata when the net delta has one changed fingerprint', () => {
+    const old = [{ item: 'Rope', amount: 1, fingerprint: 'stable000001' }];
+    const now = [
+      { item: 'Rope', amount: 1, fingerprint: 'stable000001' },
+      { item: 'Rope', amount: 1, fingerprint: 'added0000001', durability: 88, ammo: 0 },
+    ];
+    const { added, removed } = _diffItemLists(old, now);
+    assert.equal(added.length, 1);
+    assert.equal(added[0].item, 'Rope');
+    assert.equal(added[0].amount, 1);
+    assert.equal(added[0].fingerprint, 'added0000001');
+    assert.equal(added[0].durability, 88);
+    assert.equal(removed.length, 0);
+  });
+
+  it('omits fingerprint metadata when a same-name net delta has multiple changed fingerprints', () => {
+    const now = [
+      { item: 'Nail', amount: 1, fingerprint: 'nail00000001' },
+      { item: 'Nail', amount: 1, fingerprint: 'nail00000002' },
+    ];
+    const { added, removed } = _diffItemLists([], now);
+    assert.equal(added.length, 1);
+    assert.equal(added[0].item, 'Nail');
+    assert.equal(added[0].amount, 2);
+    assert.equal(added[0].fingerprint, undefined);
+    assert.equal(removed.length, 0);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -218,6 +260,25 @@ describe('diffContainers', () => {
     assert.equal(events[0].actor, 'Box1');
     assert.equal(events[0].item, 'Rope');
     assert.equal(events[0].amount, 2);
+  });
+
+  it('adds fingerprint details for a single fingerprinted container delta', () => {
+    const old = [{ actor_name: 'Box1', items: [] }];
+    const now = [{ actorName: 'Box1', items: [{ item: 'Rope', amount: 1, fingerprint: 'abc123def456' }] }];
+    const events = diffContainers(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'container_item_added');
+    assert.equal(events[0].details.fingerprint, 'abc123def456');
+  });
+
+  it('generates fingerprint details for cache items without fingerprint metadata', () => {
+    const item = { item: 'Fork', amount: 1, durability: 88 };
+    const old = [{ actor_name: 'Box1', items: [] }];
+    const now = [{ actorName: 'Box1', items: [item] }];
+    const events = diffContainers(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'container_item_added');
+    assert.equal(events[0].details.fingerprint, generateFingerprint(item));
   });
 
   it('detects item removed from container', () => {
@@ -481,6 +542,71 @@ describe('diffPlayerInventories', () => {
     assert.equal(events[0].details.slot, 'inventory');
   });
 
+  it('adds fingerprint details for a single fingerprinted player inventory removal', () => {
+    const old = new Map([
+      [
+        'steam1',
+        {
+          name: 'Player1',
+          inventory: [{ item: 'Helmet', amount: 1, fingerprint: 'fff111aaa222' }],
+          equipment: [],
+          quick_slots: [],
+          backpack_items: [],
+        },
+      ],
+    ]);
+    const now = new Map([
+      [
+        'steam1',
+        {
+          name: 'Player1',
+          inventory: [],
+          equipment: [],
+          quickSlots: [],
+          backpackItems: [],
+        },
+      ],
+    ]);
+    const events = diffPlayerInventories(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'inventory_item_removed');
+    assert.equal(events[0].item, 'Helmet');
+    assert.equal(events[0].details.slot, 'inventory');
+    assert.equal(events[0].details.fingerprint, 'fff111aaa222');
+  });
+
+  it('generates fingerprint details for player inventory deltas from cache items', () => {
+    const oldItem = { item: 'Fork', amount: 1, durability: 88 };
+    const old = new Map([
+      [
+        'steam1',
+        {
+          name: 'Player1',
+          inventory: [oldItem],
+          equipment: [],
+          quick_slots: [],
+          backpack_items: [],
+        },
+      ],
+    ]);
+    const now = new Map([
+      [
+        'steam1',
+        {
+          name: 'Player1',
+          inventory: [],
+          equipment: [],
+          quickSlots: [],
+          backpackItems: [],
+        },
+      ],
+    ]);
+    const events = diffPlayerInventories(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'inventory_item_removed');
+    assert.equal(events[0].details.fingerprint, generateFingerprint(oldItem));
+  });
+
   it('detects item removed from equipment', () => {
     const old = new Map([
       [
@@ -559,6 +685,25 @@ describe('diffVehicleInventories', () => {
     assert.equal(events[0].type, 'vehicle_item_added');
     assert.equal(events[0].category, 'vehicle');
   });
+
+  it('adds fingerprint details for a single fingerprinted vehicle inventory delta', () => {
+    const old = [{ id: 'v1', inventory: [] }];
+    const now = [{ id: 'v1', inventory: [{ item: 'Fuel', amount: 1, fingerprint: 'fuel11122233' }] }];
+    const events = diffVehicleInventories(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'vehicle_item_added');
+    assert.equal(events[0].details.fingerprint, 'fuel11122233');
+  });
+
+  it('generates fingerprint details for vehicle inventory deltas from cache items', () => {
+    const item = { item: 'Fuel', amount: 1, durability: 100, cap: 70 };
+    const old = [{ id: 'v1', inventory: [] }];
+    const now = [{ id: 'v1', inventory: [item] }];
+    const events = diffVehicleInventories(old, now);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'vehicle_item_added');
+    assert.equal(events[0].details.fingerprint, generateFingerprint(item));
+  });
 });
 
 describe('container attribution cross-reference', () => {
@@ -594,6 +739,7 @@ describe('container attribution cross-reference', () => {
     assert.deepEqual(containerEvent.details, {
       durability: undefined,
       ammo: undefined,
+      fingerprint: generateFingerprint({ item: 'Nails', amount: 4 }),
       attributionSource: 'save-diff-inventory-crossref',
       matchAmount: 4,
       ambiguous: false,

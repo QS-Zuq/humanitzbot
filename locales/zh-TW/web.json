@@ -433,6 +433,7 @@
     "item_tracker": "物品追蹤",
     "chain_of_custody": "保管鏈",
     "loading_tracker_data": "正在載入追蹤資料...",
+    "failed_to_load_tracker_data": "追蹤資料載入失敗。",
     "no_movements_recorded_for_item": "此物品沒有移動記錄。",
     "load_more": "載入更多",
     "close_tracker": "關閉追蹤器",
@@ -1330,6 +1331,16 @@
     "last_seen": "最後出現",
     "qty_tracked": "追蹤數量",
     "ownership_chain": "持有鏈"
+  },
+  "activity_item_popover": {
+    "close": "關閉",
+    "title": "物品動作",
+    "track_item": "追蹤這個物品",
+    "track_unavailable": "無法精準追蹤",
+    "filter_same_item": "篩選同名活動",
+    "view_database": "查看資料庫",
+    "fingerprint_label": "指紋",
+    "no_fingerprint_old_event": "這筆活動沒有指紋中繼資料。"
   },
   "location_type": {
     "player": "玩家",

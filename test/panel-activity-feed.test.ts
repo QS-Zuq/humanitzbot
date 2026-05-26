@@ -12,7 +12,15 @@ function esc(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-function loadActivityFeed(options: { t?: (key: string) => string; consoleError?: (...args: unknown[]) => void } = {}) {
+function loadActivityFeed(
+  options: {
+    t?: (key: string) => string;
+    consoleError?: (...args: unknown[]) => void;
+    tier?: number;
+    document?: any;
+    elements?: Record<string, any>;
+  } = {},
+) {
   const children: Array<Record<string, string>> = [];
   const context: Record<string, any> = {
     console: { ...console, error: options.consoleError || console.error },
@@ -23,11 +31,31 @@ function loadActivityFeed(options: { t?: (key: string) => string; consoleError?:
   };
   context.__children = children;
   context.window = context;
+  context.scrollX = 0;
+  context.scrollY = 0;
+  context.innerWidth = 1024;
+  context.setTimeout = (fn: () => void) => {
+    fn();
+    return 0;
+  };
+  if (options.document) context.document = options.document;
   context.Panel = {
     core: {
-      S: { activityTimeZone: 'Asia/Taipei' },
-      $: () => null,
-      el: () => ({ innerHTML: '', appendChild: () => undefined }),
+      S: { activityTimeZone: 'Asia/Taipei', tier: options.tier ?? 1 },
+      $: (selector: string) => (options.elements ? options.elements[selector] || null : null),
+      el: () => ({
+        innerHTML: '',
+        title: '',
+        style: {},
+        classList: {
+          add: () => undefined,
+          remove: () => undefined,
+          contains: () => false,
+        },
+        addEventListener: () => undefined,
+        appendChild: () => undefined,
+        remove: () => undefined,
+      }),
       esc,
       utils: {},
     },
@@ -62,6 +90,325 @@ describe('panel shared activity feed formatter', () => {
     assert.match(formatted.text, /data-steam-id="76561198000000001">Alice/);
     assert.match(formatted.text, /data-mode="item"[^>]*>Rope/);
     assert.doesNotMatch(formatted.text, /data-steam-id="76561198000000001">House Chest/);
+  });
+
+  it('renders item action metadata when an activity event has a fingerprint', () => {
+    const { feed } = loadActivityFeed();
+
+    const formatted = feed.format({
+      type: 'inventory_item_added',
+      actor: 'Alice',
+      actor_name: 'Alice',
+      steam_id: '76561198000000001',
+      item: 'Fork',
+      amount: 1,
+      details: { fingerprint: 'abc123def456' },
+    });
+
+    assert.match(formatted.text, /activity-item-action/);
+    assert.match(formatted.text, /data-mode="item"/);
+    assert.match(formatted.text, /data-item-name="Fork"/);
+    assert.match(formatted.text, /data-fingerprint="abc123def456"/);
+    assert.match(formatted.text, /data-search="Fork"/);
+    assert.doesNotMatch(formatted.text, /activity-item-action entity-link/);
+    assert.doesNotMatch(formatted.text, /data-entity-table="item_instances"/);
+  });
+
+  it('keeps unambiguous item fingerprints on grouped activity summaries', () => {
+    const { feed } = loadActivityFeed();
+    const rows: Array<{ innerHTML: string }> = [];
+    const container = {
+      innerHTML: '',
+      appendChild: (item: { innerHTML: string }) => rows.push(item),
+    };
+
+    feed.render(
+      container,
+      [
+        {
+          type: 'inventory_item_removed',
+          actor: 'Alice',
+          actor_name: 'Alice',
+          steam_id: '76561198000000001',
+          item: 'Spoon',
+          amount: 1,
+          details: { fingerprint: 'spoonhash1234' },
+          created_at: '2026-05-25 17:02:12',
+        },
+        {
+          type: 'inventory_item_removed',
+          actor: 'Alice',
+          actor_name: 'Alice',
+          steam_id: '76561198000000001',
+          item: 'Fork',
+          amount: 1,
+          details: { fingerprint: 'forkhash12345' },
+          created_at: '2026-05-25 17:02:12',
+        },
+      ],
+      false,
+      false,
+    );
+
+    assert.equal(rows.length, 1);
+    assert.match(rows[0]?.innerHTML || '', /data-item-name="Spoon"[^>]*data-fingerprint="spoonhash1234"/);
+    assert.match(rows[0]?.innerHTML || '', /data-item-name="Fork"[^>]*data-fingerprint="forkhash12345"/);
+  });
+
+  it('leaves grouped same-name items untracked when their fingerprints are ambiguous', () => {
+    const { feed } = loadActivityFeed();
+    const rows: Array<{ innerHTML: string }> = [];
+    const container = {
+      innerHTML: '',
+      appendChild: (item: { innerHTML: string }) => rows.push(item),
+    };
+
+    feed.render(
+      container,
+      [
+        {
+          type: 'inventory_item_removed',
+          actor: 'Alice',
+          actor_name: 'Alice',
+          steam_id: '76561198000000001',
+          item: 'Spoon',
+          amount: 1,
+          details: { fingerprint: 'spoonhash1234' },
+          created_at: '2026-05-25 17:02:12',
+        },
+        {
+          type: 'inventory_item_removed',
+          actor: 'Alice',
+          actor_name: 'Alice',
+          steam_id: '76561198000000001',
+          item: 'Spoon',
+          amount: 1,
+          details: { fingerprint: 'otherspoon567' },
+          created_at: '2026-05-25 17:02:12',
+        },
+      ],
+      false,
+      false,
+    );
+
+    assert.equal(rows.length, 1);
+    assert.match(rows[0]?.innerHTML || '', /data-item-name="Spoon"/);
+    assert.doesNotMatch(rows[0]?.innerHTML || '', /data-fingerprint=/);
+    assert.match(rows[0]?.innerHTML || '', /Spoon<\/span> ×2/);
+  });
+
+  it('keeps item action/filter metadata without faking fingerprint for old activity events', () => {
+    const { feed } = loadActivityFeed();
+
+    const formatted = feed.format({
+      type: 'inventory_item_added',
+      actor: 'Alice',
+      actor_name: 'Alice',
+      steam_id: '76561198000000001',
+      item: 'Fork',
+      amount: 1,
+      details: {},
+    });
+
+    assert.match(formatted.text, /activity-item-action/);
+    assert.match(formatted.text, /data-mode="item"/);
+    assert.match(formatted.text, /data-item-name="Fork"/);
+    assert.doesNotMatch(formatted.text, /data-fingerprint=/);
+  });
+
+  it('gates the activity item DB action to admins', () => {
+    const admin = loadActivityFeed({ tier: 3 }).feed.buildItemPopoverHtml('Fork', 'abc123def456');
+    const survivor = loadActivityFeed({ tier: 1 }).feed.buildItemPopoverHtml('Fork', 'abc123def456');
+
+    assert.match(admin, /db-link/);
+    assert.match(admin, /data-table="item_instances"/);
+    assert.match(admin, /data-search="abc123def456"/);
+    assert.match(admin, /activity-item-popover-action text-\[10px\] text-accent hover:underline cursor-pointer/);
+    assert.match(admin, /track_item →/);
+    assert.match(admin, /filter_same_item →/);
+    assert.doesNotMatch(admin, /hover:bg-panel/);
+    assert.doesNotMatch(admin, /hover:bg-accent\/30/);
+    assert.doesNotMatch(survivor, /db-link/);
+  });
+
+  it('shows a disabled no-fingerprint state in the activity item popover', () => {
+    const { feed } = loadActivityFeed();
+    const html = feed.buildItemPopoverHtml('Fork', '');
+
+    assert.match(html, /disabled/);
+    assert.match(html, /track_unavailable/);
+    assert.match(html, /hover:underline cursor-pointer" data-action="filter"/);
+    assert.match(html, /filter_same_item →/);
+    assert.doesNotMatch(html, /data-action="track"/);
+  });
+
+  it('stops same-click propagation after opening the activity item popover', () => {
+    const listeners: Partial<Record<string, Array<(event: any) => void>>> = { click: [], keydown: [] };
+    let popup: any = null;
+    const fakeDocument = {
+      body: {
+        appendChild: (node: any) => {
+          popup = node;
+        },
+      },
+      addEventListener: (type: string, handler: (event: any) => void) => {
+        (listeners[type] ??= []).push(handler);
+      },
+      createElement: () => ({
+        innerHTML: '',
+        get firstElementChild() {
+          return {
+            style: {},
+            remove: () => undefined,
+          };
+        },
+      }),
+      querySelector: () => null,
+    };
+    loadActivityFeed({ document: fakeDocument });
+
+    let stopped = false;
+    let prevented = false;
+    const anchor = {
+      dataset: { itemName: 'Fork', search: 'Fork', fingerprint: 'abc123def456' },
+      textContent: 'Fork',
+      getBoundingClientRect: () => ({ bottom: 10, left: 20 }),
+      closest: (selector: string) => (selector === '.activity-item-action' ? anchor : null),
+    };
+
+    const clickHandler = listeners.click?.[0];
+    if (!clickHandler) throw new Error('Expected click handler registration');
+    clickHandler({
+      target: anchor,
+      preventDefault: () => {
+        prevented = true;
+      },
+      stopImmediatePropagation: () => {
+        stopped = true;
+      },
+    });
+
+    assert.equal(prevented, true);
+    assert.equal(stopped, true);
+    assert.ok(popup);
+  });
+
+  it('applies track and filter actions from the activity item popover', () => {
+    const listeners: Partial<Record<string, Array<(event: any) => void>>> = { click: [], keydown: [] };
+    const searchInput = { value: '' };
+    const filterInput = { value: 'inventory' };
+    const fakeDocument = {
+      body: { appendChild: () => undefined },
+      addEventListener: (type: string, handler: (event: any) => void) => {
+        (listeners[type] ??= []).push(handler);
+      },
+      createElement: () => ({ innerHTML: '', firstElementChild: null }),
+      querySelector: () => null,
+    };
+    const { context } = loadActivityFeed({
+      document: fakeDocument,
+      elements: {
+        '#activity-search': searchInput,
+        '#activity-filter': filterInput,
+      },
+    });
+
+    let switchedTab = '';
+    let resetCount = 0;
+    let loadCount = 0;
+    let popupRemoved = 0;
+    context.Panel.nav = { switchTab: (tab: string) => (switchedTab = tab) };
+    context.Panel.tabs = { activity: { load: () => loadCount++ } };
+    context.Panel.shared.activityFeed.resetPaging = () => resetCount++;
+
+    const clickHandler = listeners.click?.[0];
+    if (!clickHandler) throw new Error('Expected click handler registration');
+    const popup = { remove: () => popupRemoved++ };
+    const actionEl = {
+      dataset: { itemName: 'Fork', action: 'track', fingerprint: 'abc123def456' },
+      closest: (selector: string) => {
+        if (selector === '.activity-item-popover-action') return actionEl;
+        if (selector === '.item-popup') return popup;
+        return null;
+      },
+    };
+
+    clickHandler({
+      target: actionEl,
+      preventDefault: () => undefined,
+      stopImmediatePropagation: () => undefined,
+    });
+
+    assert.equal(context.Panel.core.S.activitySearchMode, 'item');
+    assert.equal(context.Panel.core.S.activityCategory, '');
+    assert.equal(searchInput.value, 'Fork#abc123def456');
+    assert.equal(filterInput.value, '');
+    assert.equal(switchedTab, 'activity');
+    assert.equal(resetCount, 1);
+    assert.equal(loadCount, 1);
+    assert.equal(popupRemoved, 1);
+
+    actionEl.dataset.action = 'filter';
+    filterInput.value = 'inventory';
+    clickHandler({
+      target: actionEl,
+      preventDefault: () => undefined,
+      stopImmediatePropagation: () => undefined,
+    });
+
+    assert.equal(searchInput.value, 'Fork');
+    assert.equal(filterInput.value, '');
+    assert.equal(resetCount, 2);
+    assert.equal(loadCount, 2);
+  });
+
+  it('closes the activity item popover on outside click and Escape', () => {
+    const listeners: Partial<Record<string, Array<(event: any) => void>>> = { click: [], keydown: [] };
+    let removeCount = 0;
+    const popup = { remove: () => removeCount++ };
+    const fakeDocument = {
+      body: { appendChild: () => undefined },
+      addEventListener: (type: string, handler: (event: any) => void) => {
+        (listeners[type] ??= []).push(handler);
+      },
+      createElement: () => ({ innerHTML: '', firstElementChild: null }),
+      querySelector: (selector: string) => (selector === '.activity-item-popover' ? popup : null),
+    };
+    loadActivityFeed({ document: fakeDocument });
+
+    const clickHandler = listeners.click?.[0];
+    const keydownHandler = listeners.keydown?.[0];
+    if (!clickHandler || !keydownHandler) throw new Error('Expected popover handlers');
+
+    const outside = { closest: () => null };
+    clickHandler({ target: outside });
+    assert.equal(removeCount, 1);
+
+    keydownHandler({ key: 'Escape' });
+    assert.equal(removeCount, 2);
+  });
+
+  it('ignores non-element click targets without breaking global activity item delegation', () => {
+    const listeners: Partial<Record<string, Array<(event: any) => void>>> = { click: [], keydown: [] };
+    let removeCount = 0;
+    const popup = { remove: () => removeCount++ };
+    const fakeDocument = {
+      body: { appendChild: () => undefined },
+      addEventListener: (type: string, handler: (event: any) => void) => {
+        (listeners[type] ??= []).push(handler);
+      },
+      createElement: () => ({ innerHTML: '', firstElementChild: null }),
+      querySelector: (selector: string) => (selector === '.activity-item-popover' ? popup : null),
+    };
+    loadActivityFeed({ document: fakeDocument });
+
+    const clickHandler = listeners.click?.[0];
+    if (!clickHandler) throw new Error('Expected popover click handler');
+
+    assert.doesNotThrow(() => {
+      clickHandler({ target: {} });
+    });
+    assert.equal(removeCount, 1);
   });
 
   it('shows attribution status badges without creating fake player links', () => {
