@@ -43,7 +43,7 @@ export async function addAdminMembers(
   }
   for (const uid of adminUserIds) {
     thread.members?.add(uid).catch((err: unknown) => {
-      console.debug(`[CONFIG] Failed to add admin user ${uid} to thread:`, (err as Error).message);
+      console.debug('[CONFIG] Failed to add configured admin user to thread:', (err as Error).message);
     });
   }
   // Role-based — requires GuildMembers privileged intent
@@ -79,7 +79,7 @@ export async function addAdminMembers(
           `[CONFIG] ADMIN_ROLE_IDS requires the "Server Members Intent" to be enabled in the Discord Developer Portal (Bot → Privileged Gateway Intents).`,
         );
       } else {
-        console.warn(`[CONFIG] Could not resolve role ${roleId}:`, err.message);
+        console.warn('[CONFIG] Could not resolve configured admin role:', err.message);
       }
     }
   }

@@ -450,6 +450,70 @@ describe('addAdminMembers', () => {
     assert.deepEqual(added, []);
   });
 
+  it('does not log admin user IDs when thread member add fails', async () => {
+    config.adminUserIds = ['111222333444555666'];
+    config.adminRoleIds = [];
+    const logs: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => {
+      logs.push(args);
+    };
+    try {
+      const thread = {
+        members: {
+          add: () => Promise.reject(new Error('permission denied')),
+        },
+      };
+      const guild = {};
+
+      await addAdminMembers(thread, guild);
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    assert.equal(logs.length, 1);
+    assert.equal(JSON.stringify(logs).includes('111222333444555666'), false);
+  });
+
+  it('does not log admin role IDs when role resolution fails', async () => {
+    config.adminUserIds = [];
+    config.adminRoleIds = ['999888777666555444'];
+    const logs: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      logs.push(args);
+    };
+    try {
+      const thread = {
+        members: {
+          add: () => Promise.resolve(),
+        },
+      };
+      const guild = {
+        roles: {
+          cache: new Map(),
+          fetch: async () => {
+            throw new Error('permission denied');
+          },
+        },
+        members: {
+          cache: new Map([
+            ['a', {}],
+            ['b', {}],
+          ]),
+        },
+      };
+
+      await addAdminMembers(thread, guild);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(logs.length, 1);
+    assert.equal(JSON.stringify(logs).includes('999888777666555444'), false);
+  });
+
   it('combines user IDs and role members', async () => {
     config.adminUserIds = ['explicit1'];
     config.adminRoleIds = ['role1'];
