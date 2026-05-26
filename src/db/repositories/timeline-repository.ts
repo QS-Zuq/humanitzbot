@@ -121,7 +121,7 @@ export class TimelineRepository extends BaseRepository {
 
   /**
    * Record a complete world snapshot (one timeline tick).
-   * All entity arrays are written inside a single transaction for consistency.
+   * The snapshot row and all entity arrays are written inside a single transaction for consistency.
    *
    * @param {object} data
    * @param {object} data.snapshot - { gameDay, gameTime, playerCount, onlineCount, aiCount, ... }
@@ -135,28 +135,28 @@ export class TimelineRepository extends BaseRepository {
    * @returns {number} The snapshot ID
    */
   insertTimelineSnapshot(data: Record<string, unknown>): number {
-    const s = (data.snapshot || {}) as Record<string, unknown>;
-    const result = this._stmts.insertTimelineSnapshot.run(
-      s.gameDay || 0,
-      s.gameTime || 0,
-      s.playerCount || 0,
-      s.onlineCount || 0,
-      s.aiCount || 0,
-      s.structureCount || 0,
-      s.vehicleCount || 0,
-      s.containerCount || 0,
-      s.worldItemCount || 0,
-      s.weatherType || '',
-      s.season || '',
-      s.airdropActive ? 1 : 0,
-      s.airdropX ?? null,
-      s.airdropY ?? null,
-      s.airdropAiAlive || 0,
-      JSON.stringify(s.summary || {}),
-    );
-    const snapId = result.lastInsertRowid;
-
     const tx = this._handle.transaction(() => {
+      const s = (data.snapshot || {}) as Record<string, unknown>;
+      const result = this._stmts.insertTimelineSnapshot.run(
+        s.gameDay || 0,
+        s.gameTime || 0,
+        s.playerCount || 0,
+        s.onlineCount || 0,
+        s.aiCount || 0,
+        s.structureCount || 0,
+        s.vehicleCount || 0,
+        s.containerCount || 0,
+        s.worldItemCount || 0,
+        s.weatherType || '',
+        s.season || '',
+        s.airdropActive ? 1 : 0,
+        s.airdropX ?? null,
+        s.airdropY ?? null,
+        s.airdropAiAlive || 0,
+        JSON.stringify(s.summary || {}),
+      );
+      const snapId = result.lastInsertRowid;
+
       // Players
       if (data.players) {
         for (const p of data.players as Array<Record<string, unknown>>) {
@@ -288,10 +288,11 @@ export class TimelineRepository extends BaseRepository {
           );
         }
       }
+
+      return Number(snapId);
     });
 
-    tx();
-    return Number(snapId);
+    return tx();
   }
 
   /** Get recent timeline snapshots (metadata only). */

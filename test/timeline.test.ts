@@ -80,6 +80,8 @@ describe('Schema v11 — Timeline tables', () => {
 
 describe('DB — insertTimelineSnapshot + queries', () => {
   let snapId: number;
+  const snapshotCount = () =>
+    (db.db.prepare('SELECT COUNT(*) AS count FROM timeline_snapshots').get() as { count: number }).count;
 
   it('inserts a timeline snapshot with entities', () => {
     snapId = db.timeline.insertTimelineSnapshot({
@@ -213,6 +215,21 @@ describe('DB — insertTimelineSnapshot + queries', () => {
 
     assert.ok(typeof snapId === 'number');
     assert.ok(snapId > 0);
+  });
+
+  it('rolls back the snapshot row when a child insert fails', () => {
+    const before = snapshotCount();
+
+    assert.throws(
+      () =>
+        db.timeline.insertTimelineSnapshot({
+          snapshot: { gameDay: 99, playerCount: 1 },
+          players: [{ name: 'MissingSteamId' }],
+        }),
+      /NOT NULL constraint failed: timeline_players\.steam_id/,
+    );
+
+    assert.equal(snapshotCount(), before);
   });
 
   it('getTimelineSnapshots returns snapshot metadata', () => {

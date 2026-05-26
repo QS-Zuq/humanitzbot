@@ -1,5 +1,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import _database from '../src/db/database.js';
 const HumanitZDB = _database as any;
@@ -1269,6 +1272,86 @@ describe('Item Tracker', () => {
       assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
       assert.equal(db._getMeta('schema_version'), '20');
+    });
+
+    it('repairs legacy item_movements instance_id NOT NULL during migration', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'humanitz-item-migration-'));
+      const dbPath = path.join(tempDir, 'humanitz.db');
+      let legacyDb: any = null;
+      let migratedDb: any = null;
+
+      try {
+        legacyDb = new HumanitZDB({ dbPath, label: 'legacy-item-migration' });
+        legacyDb.init();
+        legacyDb.db.exec(`
+          DROP TABLE item_movements;
+          CREATE TABLE item_movements (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id     INTEGER NOT NULL REFERENCES item_instances(id),
+            group_id        INTEGER DEFAULT NULL,
+            move_type       TEXT DEFAULT 'move',
+            item            TEXT NOT NULL,
+            from_type       TEXT DEFAULT '',
+            from_id         TEXT DEFAULT '',
+            from_slot       TEXT DEFAULT '',
+            to_type         TEXT NOT NULL,
+            to_id           TEXT NOT NULL,
+            to_slot         TEXT DEFAULT '',
+            amount          INTEGER DEFAULT 1,
+            attributed_steam_id TEXT DEFAULT '',
+            attributed_name TEXT DEFAULT '',
+            pos_x           REAL,
+            pos_y           REAL,
+            pos_z           REAL,
+            created_at      TEXT DEFAULT (datetime('now'))
+          );
+        `);
+        legacyDb._setMeta('schema_version', '15');
+
+        const legacyColumn = legacyDb.db
+          .prepare('PRAGMA table_info(item_movements)')
+          .all()
+          .find((column: { name: string }) => column.name === 'instance_id') as { notnull: number };
+        assert.equal(legacyColumn.notnull, 1);
+
+        legacyDb.close();
+        legacyDb = null;
+
+        migratedDb = new HumanitZDB({ dbPath, label: 'legacy-item-migration' });
+        migratedDb.init();
+
+        const migratedColumn = migratedDb.db
+          .prepare('PRAGMA table_info(item_movements)')
+          .all()
+          .find((column: { name: string }) => column.name === 'instance_id') as { notnull: number };
+        assert.equal(migratedColumn.notnull, 0);
+
+        const group = migratedDb.item.upsertItemGroup({
+          fingerprint: 'fp-legacy-group',
+          item: 'Nails',
+          locationType: 'player',
+          locationId: 'steam1',
+          locationSlot: 'inventory',
+          quantity: 10,
+        });
+
+        migratedDb.item.recordGroupMovement({
+          groupId: group.id,
+          moveType: 'group_transfer',
+          item: 'Nails',
+          from: { type: 'player', id: 'steam1', slot: 'inventory' },
+          to: { type: 'container', id: 'crate1', slot: 'items' },
+          amount: 3,
+        });
+
+        const movement = migratedDb.item.getItemMovementsByGroup(group.id)[0];
+        assert.equal(movement.instance_id, null);
+        assert.equal(movement.group_id, group.id);
+      } finally {
+        if (legacyDb) legacyDb.close();
+        if (migratedDb) migratedDb.close();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 });

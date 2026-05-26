@@ -759,10 +759,6 @@ class HumanitZDB {
           /* already exists */
         }
 
-        // Make instance_id nullable (group-level movements don't have an instance)
-        // SQLite doesn't support ALTER COLUMN, but the column already allows NULL values
-        // since the NOT NULL constraint is only enforced on INSERT
-
         this._log.info('Migration v7→v8: added item_groups, group_id columns');
       }
 
@@ -1327,9 +1323,95 @@ class HumanitZDB {
         this._log.info('Migration v18→v20: item tracker paginated panel composite indexes');
       }
 
+      this._ensureItemMovementsInstanceIdNullable();
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._handle.exec('COMMIT');
       this._log.info(`Schema migrated to v${SCHEMA_VERSION}`);
+    } else {
+      this._ensureItemMovementsInstanceIdNullable();
+    }
+  }
+
+  _ensureItemMovementsInstanceIdNullable() {
+    const rebuildIfNeeded = () => {
+      const exists = this._handle
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'item_movements'")
+        .get();
+      if (!exists) return;
+
+      const columns = this._handle.prepare('PRAGMA table_info(item_movements)').all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      const instanceId = columns.find((column) => column.name === 'instance_id');
+      if (!instanceId || instanceId.notnull === 0) return;
+
+      const columnNames = new Set(columns.map((column) => column.name));
+      if (!columnNames.has('group_id')) {
+        this._handle.exec('ALTER TABLE item_movements ADD COLUMN group_id INTEGER DEFAULT NULL');
+      }
+      if (!columnNames.has('move_type')) {
+        this._handle.exec("ALTER TABLE item_movements ADD COLUMN move_type TEXT DEFAULT 'move'");
+      }
+
+      this._handle.exec(`
+        ALTER TABLE item_movements RENAME TO item_movements_legacy_instance_notnull;
+
+        DROP INDEX IF EXISTS idx_item_mov_instance;
+        DROP INDEX IF EXISTS idx_item_mov_group;
+        DROP INDEX IF EXISTS idx_item_mov_item;
+        DROP INDEX IF EXISTS idx_item_mov_created;
+        DROP INDEX IF EXISTS idx_item_mov_attributed;
+
+        CREATE TABLE item_movements (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          instance_id     INTEGER REFERENCES item_instances(id),
+          group_id        INTEGER REFERENCES item_groups(id),
+          move_type       TEXT DEFAULT 'move',
+          item            TEXT NOT NULL,
+          from_type       TEXT DEFAULT '',
+          from_id         TEXT DEFAULT '',
+          from_slot       TEXT DEFAULT '',
+          to_type         TEXT NOT NULL,
+          to_id           TEXT NOT NULL,
+          to_slot         TEXT DEFAULT '',
+          amount          INTEGER DEFAULT 1,
+          attributed_steam_id TEXT DEFAULT '',
+          attributed_name TEXT DEFAULT '',
+          pos_x           REAL,
+          pos_y           REAL,
+          pos_z           REAL,
+          created_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO item_movements (
+          id, instance_id, group_id, move_type, item, from_type, from_id, from_slot, to_type, to_id, to_slot,
+          amount, attributed_steam_id, attributed_name, pos_x, pos_y, pos_z, created_at
+        )
+        SELECT
+          id, instance_id, group_id, COALESCE(move_type, 'move'), item,
+          COALESCE(from_type, ''), COALESCE(from_id, ''), COALESCE(from_slot, ''),
+          to_type, to_id, COALESCE(to_slot, ''), COALESCE(amount, 1),
+          COALESCE(attributed_steam_id, ''), COALESCE(attributed_name, ''),
+          pos_x, pos_y, pos_z, COALESCE(created_at, datetime('now'))
+        FROM item_movements_legacy_instance_notnull;
+
+        DROP TABLE item_movements_legacy_instance_notnull;
+
+        CREATE INDEX IF NOT EXISTS idx_item_mov_instance ON item_movements(instance_id);
+        CREATE INDEX IF NOT EXISTS idx_item_mov_group ON item_movements(group_id);
+        CREATE INDEX IF NOT EXISTS idx_item_mov_item ON item_movements(item);
+        CREATE INDEX IF NOT EXISTS idx_item_mov_created ON item_movements(created_at);
+        CREATE INDEX IF NOT EXISTS idx_item_mov_attributed ON item_movements(attributed_steam_id);
+      `);
+
+      this._log.info('Rebuilt legacy item_movements table with nullable instance_id');
+    };
+
+    if (this._handle.inTransaction) {
+      rebuildIfNeeded();
+    } else {
+      this._handle.transaction(rebuildIfNeeded)();
     }
   }
 
