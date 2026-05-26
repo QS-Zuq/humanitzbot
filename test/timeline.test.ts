@@ -26,8 +26,8 @@ after(() => {
 });
 
 describe('Schema v11 — Timeline tables', () => {
-  it('schema version is 17', () => {
-    assert.equal(SCHEMA_VERSION, 17);
+  it('schema version is 20', () => {
+    assert.equal(SCHEMA_VERSION, 20);
   });
 
   it('ALL_TABLES includes timeline table definitions', () => {
