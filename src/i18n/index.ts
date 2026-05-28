@@ -37,11 +37,11 @@ const I18N_OPTIONS = {
   defaultNS: 'common',
   resources,
   interpolation: { escapeValue: false },
-  initImmediate: false,
+  initAsync: false,
 } as const;
 
 /**
- * Initialize i18next. Safe to await at startup; initImmediate:false also
+ * Initialize i18next. Safe to await at startup; initAsync:false also
  * means the first call completes synchronously, so modules that import and
  * use t() before awaiting this function will still get translations.
  */
