@@ -722,6 +722,77 @@ describe('buildScheduleField', () => {
       }
     }
   });
+
+  it('falls back when schedule timezone is invalid', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    process.env.RESTART_PROFILE_NORMAL = '{}';
+
+    try {
+      assert.doesNotThrow(() => {
+        const field = buildScheduleField(
+          {
+            enableServerScheduler: true,
+            restartTimes: '00:00,12:00',
+            restartProfiles: 'normal,normal',
+            restartRotateDaily: true,
+            botTimezone: 'Fake/Zone',
+          },
+          'zh-TW',
+        );
+        assert.ok(field);
+      });
+    } finally {
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
+  });
+
+  it('uses the Taipei fixed-offset fallback when Intl rejects Asia/Taipei', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    const intlRef = Intl as unknown as { DateTimeFormat: typeof Intl.DateTimeFormat };
+
+    const rejectingDateTimeFormat = function (
+      this: Intl.DateTimeFormat,
+      locales?: Intl.LocalesArgument,
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      if (options?.timeZone === 'Asia/Taipei') {
+        throw new RangeError('Invalid time zone specified: Asia/Taipei');
+      }
+      return new originalDateTimeFormat(locales, options);
+    } as typeof Intl.DateTimeFormat;
+    Object.setPrototypeOf(rejectingDateTimeFormat, originalDateTimeFormat);
+
+    process.env.RESTART_PROFILE_NORMAL = '{}';
+    intlRef.DateTimeFormat = rejectingDateTimeFormat;
+
+    try {
+      assert.doesNotThrow(() => {
+        const field = buildScheduleField(
+          {
+            enableServerScheduler: true,
+            restartTimes: '00:00,12:00',
+            restartProfiles: 'normal,normal',
+            restartRotateDaily: true,
+            botTimezone: 'Asia/Taipei',
+          },
+          'zh-TW',
+        );
+        assert.ok(field);
+      });
+    } finally {
+      intlRef.DateTimeFormat = originalDateTimeFormat;
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
+  });
 });
 
 describe('modalTitle', () => {

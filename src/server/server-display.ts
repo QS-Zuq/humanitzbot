@@ -46,7 +46,42 @@ function displayLocale(locale: DisplayLocale): string {
 
 function displayTimeZone(timeZone: unknown): string {
   const normalized = typeof timeZone === 'string' ? timeZone.trim() : '';
-  return normalized || 'UTC';
+  for (const candidate of displayTimeZoneCandidates(normalized)) {
+    if (isSupportedTimeZone(candidate)) return candidate;
+  }
+  return 'UTC';
+}
+
+function displayTimeZoneCandidates(timeZone: string): string[] {
+  const candidates = timeZone ? [timeZone] : [];
+  if (timeZone === 'Asia/Taipei') {
+    candidates.push('Etc/GMT-8');
+  }
+  candidates.push('UTC');
+  return candidates;
+}
+
+function isSupportedTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(0));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatScheduleClockTime(now: Date, timeZone: string): string {
+  const options: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone,
+  };
+  try {
+    return now.toLocaleTimeString('en-GB', options);
+  } catch {
+    return now.toLocaleTimeString('en-GB', { ...options, timeZone: 'UTC' });
+  }
 }
 
 function sd(locale: DisplayLocale, key: string, vars: Record<string, unknown> = {}): string {
@@ -453,12 +488,7 @@ function buildScheduleField(cfgInput: unknown, locale: DisplayLocale = 'en'): { 
 
   // Determine active time slot
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone,
-  });
+  const timeStr = formatScheduleClockTime(now, timeZone);
   const [h, m] = timeStr.split(':').map(Number);
   const nowMin = (h ?? 0) * 60 + (m ?? 0);
   const timeMins = times.map((t: string) => {
