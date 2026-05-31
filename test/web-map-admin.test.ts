@@ -13,6 +13,7 @@ import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
 
 import RuntimeConfigApplier from '../src/config/runtime-config-applier.js';
+import { registerDisplayRuntimeHandlers } from '../src/config/display-runtime.js';
 import { registerExternalSourceRuntimeHandlers } from '../src/config/external-source-runtime.js';
 import config from '../src/config/index.js';
 
@@ -794,6 +795,8 @@ describe('Web Map Admin — POST endpoints', () => {
         enablePvpKillFeed: config.enablePvpKillFeed,
         pvpKillWindow: config.pvpKillWindow,
         deathLoopThreshold: config.deathLoopThreshold,
+        botTimezone: config.botTimezone,
+        logTimezone: config.logTimezone,
         botLocale: config.botLocale,
         panelServerUrl: config.panelServerUrl,
         panelApiKey: config.panelApiKey,
@@ -833,6 +836,8 @@ describe('Web Map Admin — POST endpoints', () => {
       config.enablePvpKillFeed = true;
       config.pvpKillWindow = 60_000;
       config.deathLoopThreshold = 3;
+      config.botTimezone = 'UTC';
+      config.logTimezone = 'UTC';
       config.botLocale = 'en';
       config.panelServerUrl = 'https://panel.before.test/server/before';
       config.panelApiKey = 'before-secret';
@@ -874,6 +879,8 @@ describe('Web Map Admin — POST endpoints', () => {
       config.enablePvpKillFeed = savedConfig.enablePvpKillFeed as boolean;
       config.pvpKillWindow = savedConfig.pvpKillWindow as number;
       config.deathLoopThreshold = savedConfig.deathLoopThreshold as number;
+      config.botTimezone = savedConfig.botTimezone as string;
+      config.logTimezone = savedConfig.logTimezone as string;
       config.botLocale = savedConfig.botLocale as string;
       config.panelServerUrl = savedConfig.panelServerUrl as string;
       config.panelApiKey = savedConfig.panelApiKey as string;
@@ -928,6 +935,16 @@ describe('Web Map Admin — POST endpoints', () => {
         config,
         getSaveService: () => options.saveService,
         reconfigureHzmod: options.reconfigureHzmod as any,
+      });
+      return applier;
+    }
+
+    function makeDisplayApplier(onApplied?: (envKey: string) => void): RuntimeConfigApplier {
+      const applier = new RuntimeConfigApplier();
+      registerDisplayRuntimeHandlers({
+        runtimeConfigApplier: applier,
+        config,
+        onApplied: (context) => onApplied?.(context.envKey),
       });
       return applier;
     }
@@ -1064,6 +1081,65 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.deepEqual((res._json as Record<string, unknown>).pendingReconnect, ['RCON_HOST']);
       assert.equal(config.rconHost, '127.0.0.1');
       assert.equal(repo.docs['server:primary']?.rconHost, '10.0.0.99');
+    });
+
+    it('stores normalized validated bot-config values instead of raw input', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const pendingHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: { changes: { BOT_TIMEZONE: ' Asia/Taipei ', LOG_TIMEZONE: ' UTC ', BOT_LOCALE: ' zh-TW ' } },
+      });
+      const res = mockRes();
+
+      await pendingHandler(req, res);
+
+      assert.equal(res._status, 200);
+      const appDoc = repo.docs.app;
+      assert.ok(appDoc);
+      assert.equal(appDoc.botTimezone, 'Asia/Taipei');
+      assert.equal(appDoc.logTimezone, 'UTC');
+      assert.equal(appDoc.botLocale, 'zh-TW');
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, [
+        'BOT_TIMEZONE',
+        'LOG_TIMEZONE',
+        'BOT_LOCALE',
+      ]);
+      assert.equal(config.botTimezone, 'UTC');
+      assert.equal(config.logTimezone, 'UTC');
+      assert.equal(config.botLocale, 'en');
+    });
+
+    it('applies registered locale and timezone settings to active config without restartRequired', async () => {
+      const repo = mockConfigRepo();
+      const applied: string[] = [];
+      const applier = makeDisplayApplier((envKey) => applied.push(envKey));
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo, runtimeConfigApplier: applier });
+      const displayHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: { changes: { BOT_TIMEZONE: ' Asia/Taipei ', LOG_TIMEZONE: ' Europe/London ', BOT_LOCALE: ' zh-TW ' } },
+      });
+      const res = mockRes();
+
+      await displayHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.equal((res._json as Record<string, unknown>).restartRequired, false);
+      assert.deepEqual((res._json as Record<string, unknown>).appliedModuleReconfigure, [
+        'BOT_TIMEZONE',
+        'LOG_TIMEZONE',
+        'BOT_LOCALE',
+      ]);
+      assert.deepEqual((res._json as Record<string, unknown>).pendingModuleReconfigure, []);
+      assert.deepEqual(applied, ['BOT_TIMEZONE', 'LOG_TIMEZONE', 'BOT_LOCALE']);
+      assert.equal(config.botTimezone, 'Asia/Taipei');
+      assert.equal(config.logTimezone, 'Europe/London');
+      assert.equal(config.botLocale, 'zh-TW');
+      const appDoc = repo.docs.app;
+      assert.ok(appDoc);
+      assert.equal(appDoc.botTimezone, 'Asia/Taipei');
+      assert.equal(appDoc.logTimezone, 'Europe/London');
+      assert.equal(appDoc.botLocale, 'zh-TW');
     });
 
     it('applies registered RCON reconnect settings as appliedReconnect without leaking secrets', async () => {

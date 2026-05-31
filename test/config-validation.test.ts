@@ -40,6 +40,10 @@ describe('FIELD_VALIDATORS.timezone', () => {
     assert.strictEqual(tz('Europe/London').valid, true);
   });
 
+  it('trims timezone values before returning them', () => {
+    assert.deepStrictEqual(tz(' Asia/Taipei '), { valid: true, value: 'Asia/Taipei' });
+  });
+
   it('rejects invalid timezones', () => {
     assert.strictEqual(tz('NotATimezone').valid, false);
     assert.strictEqual(tz('').valid, false);

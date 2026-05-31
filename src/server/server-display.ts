@@ -11,6 +11,7 @@
 
 import { getDayOffset, getRotatedProfileIndex } from '../modules/schedule-utils.js';
 import { formatBytes as _fmtBytes } from './server-resources.js';
+import { t } from '../i18n/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Label constants
@@ -21,6 +22,52 @@ const SCARCITY_LABELS = ['Scarce', 'Low', 'Default', 'Plentiful', 'Abundant'];
 const ON_DEATH_LABELS = ['Lose Nothing', 'Backpack + Weapon', 'Pockets + Backpack', 'Everything'];
 const VITAL_DRAIN_LABELS = ['Slow', 'Normal', 'Fast'];
 const AI_EVENT_LABELS = ['Off', 'Low', 'Default', 'High', 'Insane'];
+
+type DisplayLocale = string | undefined;
+
+const DIFFICULTY_KEYS = [
+  'values.very_easy',
+  'values.easy',
+  'values.default',
+  'values.hard',
+  'values.very_hard',
+  'values.nightmare',
+];
+const SCARCITY_KEYS = ['values.scarce', 'values.low', 'values.default', 'values.plentiful', 'values.abundant'];
+const ON_DEATH_KEYS = ['values.lose_nothing', 'values.backpack_weapon', 'values.pockets_backpack', 'values.everything'];
+const VITAL_DRAIN_KEYS = ['values.slow', 'values.normal', 'values.fast'];
+const AI_EVENT_KEYS = ['values.off', 'values.low', 'values.default', 'values.high', 'values.insane'];
+const SEASON_KEYS = ['values.summer', 'values.autumn', 'values.winter', 'values.spring'];
+const COMPANION_LEVEL_KEYS = ['values.low', 'values.default', 'values.high'];
+
+function displayLocale(locale: DisplayLocale): string {
+  return typeof locale === 'string' && locale.trim() ? locale.trim() : 'en';
+}
+
+function displayTimeZone(timeZone: unknown): string {
+  const normalized = typeof timeZone === 'string' ? timeZone.trim() : '';
+  return normalized || 'UTC';
+}
+
+function sd(locale: DisplayLocale, key: string, vars: Record<string, unknown> = {}): string {
+  return t(`discord:server_display.${key}`, displayLocale(locale), vars);
+}
+
+function minutesLabel(val: unknown, locale: DisplayLocale): string | null {
+  if (val === undefined || val === null) return null;
+  return sd(locale, 'formats.minutes', { count: _valStr(val) });
+}
+
+function daysLabel(val: unknown, locale: DisplayLocale): string | null {
+  if (val === undefined || val === null) return null;
+  return sd(locale, 'formats.days', { count: _valStr(val) });
+}
+
+function everyDaysLabel(val: unknown, locale: DisplayLocale): string | null {
+  if (val === undefined || val === null) return null;
+  const count = _valStr(val);
+  return sd(locale, count === '1' ? 'formats.every_day' : 'formats.every_days', { count });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Value formatters
@@ -39,67 +86,74 @@ function _valStr(val: unknown): string {
   return '';
 }
 
-function spawnLabel(val: unknown): string | null {
+function spawnLabel(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const num = parseFloat(_valStr(val));
   if (isNaN(num)) return _valStr(val);
-  if (num === 0) return 'None';
-  if (num === 1) return 'x1 (Default)';
+  if (num === 0) return sd(locale, 'values.none');
+  if (num === 1) return sd(locale, 'formats.multiplier_default');
   return `x${String(num)}`;
 }
 
-function difficultyLabel(val: unknown): string | null {
+function difficultyLabel(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const idx = Math.round(parseFloat(_valStr(val)));
   if (isNaN(idx)) return _valStr(val);
-  return DIFFICULTY_LABELS[idx] || _valStr(val);
+  return DIFFICULTY_KEYS[idx] ? sd(locale, DIFFICULTY_KEYS[idx]) : DIFFICULTY_LABELS[idx] || _valStr(val);
 }
 
-function difficultyBar(val: unknown): string | null {
+function difficultyBar(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const idx = Math.round(parseFloat(_valStr(val)));
   if (isNaN(idx)) return _valStr(val);
-  const label = DIFFICULTY_LABELS[idx] || _valStr(val);
+  const label = DIFFICULTY_KEYS[idx] ? sd(locale, DIFFICULTY_KEYS[idx]) : DIFFICULTY_LABELS[idx] || _valStr(val);
   const bar = progressBar((idx + 1) / DIFFICULTY_LABELS.length, 5);
   return `${bar} ${label}`;
 }
 
-function settingBool(val: unknown): string | null {
+function settingBool(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
-  return val === '1' || _valStr(val).toLowerCase() === 'true' ? 'On' : 'Off';
+  return val === '1' || _valStr(val).toLowerCase() === 'true' ? sd(locale, 'values.on') : sd(locale, 'values.off');
 }
 
-function settingLabel(val: unknown, labels: string[]): string | null {
+function settingLabel(
+  val: unknown,
+  labels: string[],
+  locale: DisplayLocale = 'en',
+  labelKeys?: readonly string[],
+): string | null {
   if (val === undefined || val === null) return null;
   const num = parseFloat(_valStr(val));
   if (isNaN(num)) return _valStr(val);
   const idx = Math.round(num);
+  if (labelKeys?.[idx]) return sd(locale, labelKeys[idx]);
   return labels[idx] || _valStr(val);
 }
 
-function settingMultiplier(val: unknown): string | null {
+function settingMultiplier(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const num = parseFloat(_valStr(val));
   if (isNaN(num)) return _valStr(val);
-  if (num === 0) return 'Off';
-  if (num === 1) return 'Default';
+  if (num === 0) return sd(locale, 'values.off');
+  if (num === 1) return sd(locale, 'values.default');
   return `${String(num)}x`;
 }
 
-function settingDays(val: unknown, unit = 'days'): string | null {
+function settingDays(val: unknown, unit = 'days', locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const num = parseFloat(_valStr(val));
   if (isNaN(num)) return _valStr(val);
-  if (num === 0) return 'Off';
+  if (num === 0) return sd(locale, 'values.off');
+  if (unit === 'days') return sd(locale, 'formats.days', { count: String(num) });
   return `${String(num)} ${unit}`;
 }
 
-function settingPermaDeath(val: unknown): string | null {
+function settingPermaDeath(val: unknown, locale: DisplayLocale = 'en'): string | null {
   if (val === undefined || val === null) return null;
   const s = _valStr(val).toLowerCase();
-  if (s === 'true') return 'On';
-  if (s === 'false') return 'Off';
-  return settingLabel(val, ['Off', 'Individual', 'All']);
+  if (s === 'true') return sd(locale, 'values.on');
+  if (s === 'false') return sd(locale, 'values.off');
+  return settingLabel(val, ['Off', 'Individual', 'All'], locale, ['values.off', 'values.individual', 'values.all']);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -166,7 +220,11 @@ interface FieldEntry {
   inline: boolean;
 }
 
-function buildSettingsFields(s: Record<string, unknown>, cfgInput: unknown = {}): FieldEntry[] {
+function buildSettingsFields(
+  s: Record<string, unknown>,
+  cfgInput: unknown = {},
+  locale: DisplayLocale = 'en',
+): FieldEntry[] {
   const cfg = (cfgInput && typeof cfgInput === 'object' ? cfgInput : {}) as Record<string, unknown>;
   const fields: FieldEntry[] = [];
 
@@ -179,102 +237,110 @@ function buildSettingsFields(s: Record<string, unknown>, cfgInput: unknown = {})
 
   // ── General ──
   if (cfg.showSettingsGeneral !== false) {
-    section('\u2694\uFE0F', 'General', [
-      ['PvP', settingBool(s.PVP)],
-      ['Max Players', s.MaxPlayers as string | null],
-      ['On Death', settingLabel(s.OnDeath, ON_DEATH_LABELS)],
-      ['Perma Death', settingPermaDeath(s.PermaDeath)],
-      ['Vital Drain', settingLabel(s.VitalDrain, VITAL_DRAIN_LABELS)],
-      ['XP Multiplier', s.XpMultiplier != null ? `${s.XpMultiplier as string}x` : null],
+    section('\u2694\uFE0F', sd(locale, 'sections.general'), [
+      [sd(locale, 'labels.pvp'), settingBool(s.PVP, locale)],
+      [sd(locale, 'labels.max_players'), s.MaxPlayers as string | null],
+      [sd(locale, 'labels.on_death'), settingLabel(s.OnDeath, ON_DEATH_LABELS, locale, ON_DEATH_KEYS)],
+      [sd(locale, 'labels.perma_death'), settingPermaDeath(s.PermaDeath, locale)],
+      [sd(locale, 'labels.vital_drain'), settingLabel(s.VitalDrain, VITAL_DRAIN_LABELS, locale, VITAL_DRAIN_KEYS)],
+      [sd(locale, 'labels.xp_multiplier'), s.XpMultiplier != null ? `${s.XpMultiplier as string}x` : null],
     ]);
   }
 
   // ── Time & Seasons ──
   if (cfg.showSettingsTime !== false) {
-    section('\uD83D\uDD50', 'Time & Seasons', [
-      ['Day Length', s.DayDur != null ? `${s.DayDur as string} min` : null],
-      ['Night Length', s.NightDur != null ? `${s.NightDur as string} min` : null],
-      ['Season Length', s.DaysPerSeason != null ? `${s.DaysPerSeason as string} days` : null],
-      ['Start Season', settingLabel(s.StartingSeason, ['Summer', 'Autumn', 'Winter', 'Spring'])],
+    section('\uD83D\uDD50', sd(locale, 'sections.time_seasons'), [
+      [sd(locale, 'labels.day_length'), minutesLabel(s.DayDur, locale)],
+      [sd(locale, 'labels.night_length'), minutesLabel(s.NightDur, locale)],
+      [sd(locale, 'labels.season_length'), daysLabel(s.DaysPerSeason, locale)],
+      [
+        sd(locale, 'labels.start_season'),
+        settingLabel(s.StartingSeason, ['Summer', 'Autumn', 'Winter', 'Spring'], locale, SEASON_KEYS),
+      ],
     ]);
   }
 
   // ── Zombies ──
   if (cfg.showSettingsZombies !== false) {
-    section('\uD83E\uDDDF', 'Zombies', [
-      ['Health', difficultyLabel(s.ZombieDiffHealth)],
-      ['Speed', difficultyLabel(s.ZombieDiffSpeed)],
-      ['Damage', difficultyLabel(s.ZombieDiffDamage)],
-      ['Spawns', spawnLabel(s.ZombieAmountMulti)],
-      ['Respawn', s.ZombieRespawnTimer != null ? `${s.ZombieRespawnTimer as string} min` : null],
-      ['Dogs', spawnLabel(s.ZombieDogMulti)],
+    section('\uD83E\uDDDF', sd(locale, 'sections.zombies'), [
+      [sd(locale, 'labels.health'), difficultyLabel(s.ZombieDiffHealth, locale)],
+      [sd(locale, 'labels.speed'), difficultyLabel(s.ZombieDiffSpeed, locale)],
+      [sd(locale, 'labels.damage'), difficultyLabel(s.ZombieDiffDamage, locale)],
+      [sd(locale, 'labels.spawns'), spawnLabel(s.ZombieAmountMulti, locale)],
+      [sd(locale, 'labels.respawn'), minutesLabel(s.ZombieRespawnTimer, locale)],
+      [sd(locale, 'labels.dogs'), spawnLabel(s.ZombieDogMulti, locale)],
     ]);
   }
 
   // ── Items ──
   if (cfg.showSettingsItems !== false) {
     const itemEntries: [string, string | null][] = [
-      ['Weapon Break', settingBool(s.WeaponBreak)],
-      ['Food Decay', settingMultiplier(s.FoodDecay)],
-      ['Loot Respawn', s.LootRespawnTimer != null ? `${s.LootRespawnTimer as string} min` : null],
-      ['Air Drops', settingBool(s.AirDrop)],
+      [sd(locale, 'labels.weapon_break'), settingBool(s.WeaponBreak, locale)],
+      [sd(locale, 'labels.food_decay'), settingMultiplier(s.FoodDecay, locale)],
+      [sd(locale, 'labels.loot_respawn'), minutesLabel(s.LootRespawnTimer, locale)],
+      [sd(locale, 'labels.air_drops'), settingBool(s.AirDrop, locale)],
     ];
     if (s.AirDrop === '1' || s.AirDrop === 'true') {
-      itemEntries.push([
-        '  Interval',
-        s.AirDropInterval != null
-          ? `Every ${s.AirDropInterval as string} day${s.AirDropInterval === '1' ? '' : 's'}`
-          : null,
-      ]);
+      itemEntries.push([`  ${sd(locale, 'labels.interval')}`, everyDaysLabel(s.AirDropInterval, locale)]);
     }
-    section('\uD83C\uDF92', 'Items', itemEntries);
+    section('\uD83C\uDF92', sd(locale, 'sections.items'), itemEntries);
   }
 
   // ── Extended settings (toggled) ──
   if (cfg.showExtendedSettings !== false) {
     if (cfg.showSettingsBandits !== false) {
-      section('\uD83D\uDD2B', 'Bandits', [
-        ['Health', difficultyLabel(s.HumanHealth)],
-        ['Speed', difficultyLabel(s.HumanSpeed)],
-        ['Damage', difficultyLabel(s.HumanDamage)],
-        ['Spawns', spawnLabel(s.HumanAmountMulti)],
-        ['Respawn', s.HumanRespawnTimer != null ? `${s.HumanRespawnTimer as string} min` : null],
-        ['AI Events', settingLabel(s.AIEvent, AI_EVENT_LABELS)],
+      section('\uD83D\uDD2B', sd(locale, 'sections.bandits'), [
+        [sd(locale, 'labels.health'), difficultyLabel(s.HumanHealth, locale)],
+        [sd(locale, 'labels.speed'), difficultyLabel(s.HumanSpeed, locale)],
+        [sd(locale, 'labels.damage'), difficultyLabel(s.HumanDamage, locale)],
+        [sd(locale, 'labels.spawns'), spawnLabel(s.HumanAmountMulti, locale)],
+        [sd(locale, 'labels.respawn'), minutesLabel(s.HumanRespawnTimer, locale)],
+        [sd(locale, 'labels.ai_events'), settingLabel(s.AIEvent, AI_EVENT_LABELS, locale, AI_EVENT_KEYS)],
       ]);
     }
 
     if (cfg.showSettingsCompanions !== false) {
-      section('\uD83D\uDC15', 'Companions', [
-        ['Dog Companion', settingBool(s.DogEnabled)],
-        ['Companion HP', settingLabel(s.CompanionHealth, ['Low', 'Default', 'High'])],
-        ['Companion Dmg', settingLabel(s.CompanionDmg, ['Low', 'Default', 'High'])],
+      section('\uD83D\uDC15', sd(locale, 'sections.companions'), [
+        [sd(locale, 'labels.dog_companion'), settingBool(s.DogEnabled, locale)],
+        [
+          sd(locale, 'labels.companion_hp'),
+          settingLabel(s.CompanionHealth, ['Low', 'Default', 'High'], locale, COMPANION_LEVEL_KEYS),
+        ],
+        [
+          sd(locale, 'labels.companion_dmg'),
+          settingLabel(s.CompanionDmg, ['Low', 'Default', 'High'], locale, COMPANION_LEVEL_KEYS),
+        ],
       ]);
     }
 
     if (cfg.showSettingsBuilding !== false) {
-      section('\uD83C\uDFD7\uFE0F', 'Building', [
-        ['Building HP', settingMultiplier(s.BuildingHealth)],
-        ['Building Decay', settingDays(s.BuildingDecay)],
-        ['Gen Fuel Rate', s.GenFuel != null ? `${s.GenFuel as string}x` : null],
-        ['Territory', settingBool(s.Territory)],
-        ['Dismantle Own', settingBool(s.AllowDismantle)],
-        ['Dismantle House', settingBool(s.AllowHouseDismantle)],
+      section('\uD83C\uDFD7\uFE0F', sd(locale, 'sections.building'), [
+        [sd(locale, 'labels.building_hp'), settingMultiplier(s.BuildingHealth, locale)],
+        [sd(locale, 'labels.building_decay'), settingDays(s.BuildingDecay, 'days', locale)],
+        [sd(locale, 'labels.gen_fuel_rate'), s.GenFuel != null ? `${s.GenFuel as string}x` : null],
+        [sd(locale, 'labels.territory'), settingBool(s.Territory, locale)],
+        [sd(locale, 'labels.dismantle_own'), settingBool(s.AllowDismantle, locale)],
+        [sd(locale, 'labels.dismantle_house'), settingBool(s.AllowHouseDismantle, locale)],
       ]);
     }
 
     if (cfg.showSettingsVehicles !== false) {
-      section('\uD83D\uDE97', 'Vehicles', [
+      section('\uD83D\uDE97', sd(locale, 'sections.vehicles'), [
         [
-          'Max Cars',
-          s.MaxOwnedCars != null ? (s.MaxOwnedCars === '0' ? 'Disabled' : (s.MaxOwnedCars as string)) : null,
+          sd(locale, 'labels.max_cars'),
+          s.MaxOwnedCars != null
+            ? s.MaxOwnedCars === '0'
+              ? sd(locale, 'values.disabled')
+              : (s.MaxOwnedCars as string)
+            : null,
         ],
       ]);
     }
 
     if (cfg.showSettingsAnimals !== false) {
-      section('\uD83E\uDD8C', 'Animals', [
-        ['Animal Spawns', spawnLabel(s.AnimalMulti)],
-        ['Animal Respawn', s.AnimalRespawnTimer != null ? `${s.AnimalRespawnTimer as string} min` : null],
+      section('\uD83E\uDD8C', sd(locale, 'sections.animals'), [
+        [sd(locale, 'labels.animal_spawns'), spawnLabel(s.AnimalMulti, locale)],
+        [sd(locale, 'labels.animal_respawn'), minutesLabel(s.AnimalRespawnTimer, locale)],
       ]);
     }
   }
@@ -282,55 +348,61 @@ function buildSettingsFields(s: Record<string, unknown>, cfgInput: unknown = {})
   return fields;
 }
 
-function buildLootScarcity(s: Record<string, unknown>): string | null {
+function buildLootScarcity(s: Record<string, unknown>, locale: DisplayLocale = 'en'): string | null {
   const fb = s.LootRarity ?? undefined;
   const map: [string, string, unknown][] = [
-    ['\uD83C\uDF56', 'Food', s.RarityFood ?? fb],
-    ['\uD83E\uDD64', 'Drink', s.RarityDrink ?? fb],
-    ['\uD83D\uDD2A', 'Melee', s.RarityMelee ?? fb],
-    ['\uD83D\uDD2B', 'Ranged', s.RarityRanged ?? fb],
-    ['\uD83D\uDEE1\uFE0F', 'Armor', s.RarityArmor ?? fb],
-    ['\uD83E\uDDF1', 'Resources', s.RarityResources ?? fb],
-    ['\uD83C\uDFAF', 'Ammo', s.RarityAmmo ?? fb],
-    ['\uD83D\uDCE6', 'Other', s.RarityOther ?? fb],
+    ['\uD83C\uDF56', 'labels.food', s.RarityFood ?? fb],
+    ['\uD83E\uDD64', 'labels.drink', s.RarityDrink ?? fb],
+    ['\uD83D\uDD2A', 'labels.melee', s.RarityMelee ?? fb],
+    ['\uD83D\uDD2B', 'labels.ranged', s.RarityRanged ?? fb],
+    ['\uD83D\uDEE1\uFE0F', 'labels.armor', s.RarityArmor ?? fb],
+    ['\uD83E\uDDF1', 'labels.resources', s.RarityResources ?? fb],
+    ['\uD83C\uDFAF', 'labels.ammo', s.RarityAmmo ?? fb],
+    ['\uD83D\uDCE6', 'labels.other', s.RarityOther ?? fb],
   ];
 
   const rows = map
     .filter(([, , val]) => val != null)
-    .map(([emoji, label, val]) => {
+    .map(([emoji, labelKey, val]) => {
       const idx = Math.round(parseFloat(String(val))) || 0;
-      const name = SCARCITY_LABELS[idx] || String(val);
+      const name = SCARCITY_KEYS[idx] ? sd(locale, SCARCITY_KEYS[idx]) : SCARCITY_LABELS[idx] || String(val);
+      const label = sd(locale, labelKey);
       return `${emoji} **${label}:** ${name}`;
     });
 
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-function buildWeatherOdds(s: Record<string, unknown>): string | null {
+function buildWeatherOdds(s: Record<string, unknown>, locale: DisplayLocale = 'en'): string | null {
   const weatherKeys: [string, string, unknown][] = [
-    ['\u2600\uFE0F', 'Clear Sky', s.Weather_ClearSky],
-    ['\u2601\uFE0F', 'Cloudy', s.Weather_Cloudy],
-    ['\uD83C\uDF2B\uFE0F', 'Foggy', s.Weather_Foggy],
-    ['\uD83C\uDF26\uFE0F', 'Light Rain', s.Weather_LightRain],
-    ['\uD83C\uDF27\uFE0F', 'Rain', s.Weather_Rain],
-    ['\u26C8\uFE0F', 'Thunderstorm', s.Weather_Thunderstorm],
-    ['\uD83C\uDF28\uFE0F', 'Light Snow', s.Weather_LightSnow],
-    ['\u2744\uFE0F', 'Snow', s.Weather_Snow],
-    ['\uD83C\uDF2A\uFE0F', 'Blizzard', s.Weather_Blizzard],
+    ['\u2600\uFE0F', 'labels.clear_sky', s.Weather_ClearSky],
+    ['\u2601\uFE0F', 'labels.cloudy', s.Weather_Cloudy],
+    ['\uD83C\uDF2B\uFE0F', 'labels.foggy', s.Weather_Foggy],
+    ['\uD83C\uDF26\uFE0F', 'labels.light_rain', s.Weather_LightRain],
+    ['\uD83C\uDF27\uFE0F', 'labels.rain', s.Weather_Rain],
+    ['\u26C8\uFE0F', 'labels.thunderstorm', s.Weather_Thunderstorm],
+    ['\uD83C\uDF28\uFE0F', 'labels.light_snow', s.Weather_LightSnow],
+    ['\u2744\uFE0F', 'labels.snow', s.Weather_Snow],
+    ['\uD83C\uDF2A\uFE0F', 'labels.blizzard', s.Weather_Blizzard],
   ];
 
   const rows = weatherKeys
     .filter(([, , val]) => val != null)
-    .map(([emoji, label, val]) => {
+    .map(([emoji, labelKey, val]) => {
       const num = parseFloat(String(val));
       const pct = isNaN(num) ? String(val) : `${String(Math.round(num * 100))}%`;
+      const label = sd(locale, labelKey);
       return `${emoji} **${label}:** ${pct}`;
     });
 
   return rows.length > 0 ? rows.join('\n') : null;
 }
 
-function buildResourceField(res: Record<string, unknown>, fmtBytes?: (v: number) => string): FieldEntry[] {
+function buildResourceField(
+  res: Record<string, unknown>,
+  fmtBytes?: (v: number) => string,
+  locale: DisplayLocale = 'en',
+): FieldEntry[] {
   if (!fmtBytes) {
     try {
       fmtBytes = _fmtBytes;
@@ -339,26 +411,26 @@ function buildResourceField(res: Record<string, unknown>, fmtBytes?: (v: number)
     }
   }
   const parts: string[] = [];
-  if (res.cpu != null) parts.push(`\uD83D\uDDA5\uFE0F CPU: **${res.cpu as number}%**`);
+  if (res.cpu != null) parts.push(`\uD83D\uDDA5\uFE0F ${sd(locale, 'labels.cpu')}: **${res.cpu as number}%**`);
   if (res.memUsed != null && res.memTotal != null) {
     parts.push(
-      `\uD83E\uDDE0 RAM: **${fmtBytes(res.memUsed as number)}** / ${fmtBytes(res.memTotal as number)} (${(res.memPercent as number | undefined) ?? '?'}%)`,
+      `\uD83E\uDDE0 ${sd(locale, 'labels.ram')}: **${fmtBytes(res.memUsed as number)}** / ${fmtBytes(res.memTotal as number)} (${(res.memPercent as number | undefined) ?? '?'}%)`,
     );
   } else if (res.memPercent != null) {
-    parts.push(`\uD83E\uDDE0 RAM: **${res.memPercent as number}%**`);
+    parts.push(`\uD83E\uDDE0 ${sd(locale, 'labels.ram')}: **${res.memPercent as number}%**`);
   }
   if (res.diskUsed != null && res.diskTotal != null) {
     parts.push(
-      `\uD83D\uDCBE Disk: **${fmtBytes(res.diskUsed as number)}** / ${fmtBytes(res.diskTotal as number)} (${(res.diskPercent as number | undefined) ?? '?'}%)`,
+      `\uD83D\uDCBE ${sd(locale, 'labels.disk')}: **${fmtBytes(res.diskUsed as number)}** / ${fmtBytes(res.diskTotal as number)} (${(res.diskPercent as number | undefined) ?? '?'}%)`,
     );
   } else if (res.diskPercent != null) {
-    parts.push(`\uD83D\uDCBE Disk: **${res.diskPercent as number}%**`);
+    parts.push(`\uD83D\uDCBE ${sd(locale, 'labels.disk')}: **${res.diskPercent as number}%**`);
   }
   if (parts.length === 0) return [];
-  return [{ name: '\uD83D\uDCE1 Host Resources', value: parts.join('\n'), inline: false }];
+  return [{ name: `\uD83D\uDCE1 ${sd(locale, 'sections.host_resources')}`, value: parts.join('\n'), inline: false }];
 }
 
-function buildScheduleField(cfgInput: unknown): { name: string; value: string } | null {
+function buildScheduleField(cfgInput: unknown, locale: DisplayLocale = 'en'): { name: string; value: string } | null {
   if (!cfgInput || typeof cfgInput !== 'object') return null;
   const cfg = cfgInput as Record<string, unknown>;
   if (!cfg.enableServerScheduler) return null;
@@ -374,8 +446,10 @@ function buildScheduleField(cfgInput: unknown): { name: string; value: string } 
     .filter(Boolean);
   if (times.length === 0 || profiles.length === 0) return null;
 
+  const timeZone = displayTimeZone(cfg.botTimezone);
+
   // Daily rotation offset
-  const dayOffset = getDayOffset(cfg.botTimezone as string, profiles.length, cfg.restartRotateDaily as boolean);
+  const dayOffset = getDayOffset(timeZone, profiles.length, cfg.restartRotateDaily as boolean);
 
   // Determine active time slot
   const now = new Date();
@@ -383,7 +457,7 @@ function buildScheduleField(cfgInput: unknown): { name: string; value: string } 
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-    timeZone: cfg.botTimezone as string,
+    timeZone,
   });
   const [h, m] = timeStr.split(':').map(Number);
   const nowMin = (h ?? 0) * 60 + (m ?? 0);
@@ -414,16 +488,16 @@ function buildScheduleField(cfgInput: unknown): { name: string; value: string } 
     const desc: string[] = [];
     const zombieAmt = parseFloat(settings.ZombieAmountMulti ?? '');
     const xp = parseFloat(settings.XpMultiplier ?? '');
-    if (!isNaN(zombieAmt)) desc.push(`${String(zombieAmt)}x zombies`);
-    if (!isNaN(xp) && xp > 1) desc.push(`${String(xp)}x XP`);
+    if (!isNaN(zombieAmt)) desc.push(sd(locale, 'formats.profile_zombies', { count: String(zombieAmt) }));
+    if (!isNaN(xp) && xp > 1) desc.push(sd(locale, 'formats.profile_xp', { count: String(xp) }));
     const loot = parseInt(settings.RarityMelee || settings.RarityFood || '', 10);
-    if (!isNaN(loot) && loot > 2) desc.push('better loot');
+    if (!isNaN(loot) && loot > 2) desc.push(sd(locale, 'formats.better_loot'));
     const displayName = name.charAt(0).toUpperCase() + name.slice(1);
     const marker = slotIdx === activeSlot ? ' \u25C0' : '';
     return `${startTime}\u2013${endTime as string} \u00B7 **${displayName}**${desc.length ? ' \u2014 ' + desc.join(', ') : ''}${marker}`;
   });
 
-  return { name: '\uD83D\uDD04 Difficulty Schedule', value: lines.join('\n') };
+  return { name: `\uD83D\uDD04 ${sd(locale, 'sections.difficulty_schedule')}`, value: lines.join('\n') };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
