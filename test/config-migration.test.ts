@@ -103,6 +103,38 @@ describe('config-migration', () => {
     assert.equal(srv.rconPort, 27015);
   });
 
+  it('migrateEnvToDb() normalizes locale and timezone strings at the config boundary', () => {
+    migrateEnvToDb(
+      {
+        BOT_TIMEZONE: ' Asia/Taipei ',
+        LOG_TIMEZONE: ' UTC ',
+        BOT_LOCALE: ' zh-TW ',
+      },
+      repo,
+    );
+
+    const app = repo.get('app');
+    assert.equal(app.botTimezone, 'Asia/Taipei');
+    assert.equal(app.logTimezone, 'UTC');
+    assert.equal(app.botLocale, 'zh-TW');
+  });
+
+  it('migrateEnvToDb() falls back for whitespace-only locale and timezone strings', () => {
+    migrateEnvToDb(
+      {
+        BOT_TIMEZONE: '   ',
+        LOG_TIMEZONE: '\t',
+        BOT_LOCALE: '   ',
+      },
+      repo,
+    );
+
+    const app = repo.get('app');
+    assert.equal(app.botTimezone, 'UTC');
+    assert.equal(app.logTimezone, 'UTC');
+    assert.equal(app.botLocale, 'en');
+  });
+
   // ── 4. NESTED serverDef preserved ───────────────────────────
 
   it('migrateServersJsonToDb() stores NESTED serverDef as-is', () => {

@@ -29,7 +29,10 @@ const {
   timeEmoji,
   buildSettingsFields,
   buildLootScarcity,
-} = _server_display as any;
+  buildWeatherOdds,
+  buildResourceField,
+  buildScheduleField,
+} = _server_display;
 
 import * as _discord_utils from '../src/modules/discord-utils.js';
 const { modalTitle } = _discord_utils as any;
@@ -362,11 +365,13 @@ describe('difficultyBar', () => {
 
   it('includes label text', () => {
     const bar = difficultyBar('2');
+    assert.ok(bar);
     assert.ok(bar.includes('Default'));
   });
 
   it('uses ▓ and ░ characters', () => {
     const bar = difficultyBar('0');
+    assert.ok(bar);
     assert.ok(bar.includes('▓'));
     assert.ok(bar.includes('░'));
   });
@@ -548,6 +553,56 @@ describe('buildSettingsFields', () => {
     const general = fields.find((f: { name: string }) => f.name.includes('General'));
     assert.equal(general, undefined, 'General section should be hidden');
   });
+
+  it('localizes server setting sections, labels, values, and units', () => {
+    const fields = buildSettingsFields(
+      {
+        PVP: 'true',
+        MaxPlayers: '21',
+        OnDeath: '0',
+        PermaDeath: 'false',
+        VitalDrain: '0',
+        DayDur: '40',
+        NightDur: '20',
+        DaysPerSeason: '5',
+        StartingSeason: '3',
+        ZombieDiffHealth: '2',
+        ZombieAmountMulti: '1',
+        WeaponBreak: 'false',
+        AirDrop: 'true',
+        AirDropInterval: '2',
+        BuildingDecay: '1',
+      },
+      { showExtendedSettings: true },
+      'zh-TW',
+    );
+
+    const general = fields.find((f: { name: string }) => f.name.includes('一般'));
+    assert.ok(general);
+    assert.ok(general.value.includes('**PvP:** 開啟'));
+    assert.ok(general.value.includes('**死亡懲罰:** 不掉落'));
+    assert.ok(general.value.includes('**永久死亡:** 關閉'));
+
+    const time = fields.find((f: { name: string }) => f.name.includes('時間與季節'));
+    assert.ok(time);
+    assert.ok(time.value.includes('**白天長度:** 40 分鐘'));
+    assert.ok(time.value.includes('**季節長度:** 5 天'));
+    assert.ok(time.value.includes('**起始季節:** 春季'));
+
+    const zombies = fields.find((f: { name: string }) => f.name.includes('殭屍'));
+    assert.ok(zombies);
+    assert.ok(zombies.value.includes('**生命值:** 預設'));
+    assert.ok(zombies.value.includes('**生成數量:** x1（預設）'));
+
+    const items = fields.find((f: { name: string }) => f.name.includes('物品'));
+    assert.ok(items);
+    assert.ok(items.value.includes('**空投:** 開啟'));
+    assert.ok(items.value.includes('**  間隔:** 每 2 天'));
+
+    const building = fields.find((f: { name: string }) => f.name.includes('建築'));
+    assert.ok(building);
+    assert.ok(building.value.includes('**建築腐朽:** 1 天'));
+  });
 });
 
 describe('buildLootScarcity', () => {
@@ -558,6 +613,7 @@ describe('buildLootScarcity', () => {
   it('formats per-category keys', () => {
     const s = { RarityFood: '2', RarityMelee: '3' };
     const result = buildLootScarcity(s);
+    assert.ok(result);
     assert.ok(result.includes('Default'), 'RarityFood=2 → Default');
     assert.ok(result.includes('Plentiful'), 'RarityMelee=3 → Plentiful');
   });
@@ -574,7 +630,168 @@ describe('buildLootScarcity', () => {
   it('per-category overrides LootRarity', () => {
     const s = { LootRarity: '1', RarityFood: '4' };
     const result = buildLootScarcity(s);
+    assert.ok(result);
     assert.ok(result.includes('Abundant'), 'RarityFood=4 → Abundant (overrides LootRarity)');
+  });
+
+  it('localizes scarcity categories and labels', () => {
+    const result = buildLootScarcity({ RarityFood: '2', RarityMelee: '3' }, 'zh-TW');
+    assert.ok(result);
+    assert.ok(result.includes('**食物:** 預設'));
+    assert.ok(result.includes('**近戰:** 豐富'));
+  });
+});
+
+describe('buildWeatherOdds', () => {
+  it('localizes weather odds labels', () => {
+    const result = buildWeatherOdds({ Weather_ClearSky: '0.5', Weather_Thunderstorm: '0.2' }, 'zh-TW');
+    assert.ok(result);
+    assert.ok(result.includes('**晴空:** 50%'));
+    assert.ok(result.includes('**雷雨:** 20%'));
+  });
+});
+
+describe('buildResourceField', () => {
+  it('localizes host resource labels', () => {
+    const [field] = buildResourceField({ cpu: 60, diskPercent: 80 }, undefined, 'zh-TW');
+    assert.ok(field);
+    assert.equal(field.name, '📡 主機資源');
+    assert.ok(field.value.includes('CPU: **60%**'));
+    assert.ok(field.value.includes('磁碟: **80%**'));
+  });
+});
+
+describe('buildScheduleField', () => {
+  it('localizes schedule title and profile descriptors', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    process.env.RESTART_PROFILE_NORMAL = JSON.stringify({
+      ZombieAmountMulti: '2',
+      XpMultiplier: '3',
+      RarityFood: '4',
+    });
+
+    try {
+      const field = buildScheduleField(
+        {
+          enableServerScheduler: true,
+          restartTimes: '00:00,12:00',
+          restartProfiles: 'normal,normal',
+          restartRotateDaily: false,
+          botTimezone: 'UTC',
+        },
+        'zh-TW',
+      );
+
+      assert.ok(field);
+      assert.equal(field.name, '🔄 難度排程');
+      assert.ok(field.value.includes('2x 殭屍'));
+      assert.ok(field.value.includes('3x XP'));
+      assert.ok(field.value.includes('較佳戰利品'));
+    } finally {
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
+  });
+
+  it('trims schedule timezone before formatting the active marker', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    process.env.RESTART_PROFILE_NORMAL = '{}';
+
+    try {
+      assert.doesNotThrow(() => {
+        const field = buildScheduleField(
+          {
+            enableServerScheduler: true,
+            restartTimes: '00:00,12:00',
+            restartProfiles: 'normal,normal',
+            restartRotateDaily: false,
+            botTimezone: ' Asia/Taipei ',
+          },
+          'zh-TW',
+        );
+        assert.ok(field);
+      });
+    } finally {
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
+  });
+
+  it('falls back when schedule timezone is invalid', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    process.env.RESTART_PROFILE_NORMAL = '{}';
+
+    try {
+      assert.doesNotThrow(() => {
+        const field = buildScheduleField(
+          {
+            enableServerScheduler: true,
+            restartTimes: '00:00,12:00',
+            restartProfiles: 'normal,normal',
+            restartRotateDaily: true,
+            botTimezone: 'Fake/Zone',
+          },
+          'zh-TW',
+        );
+        assert.ok(field);
+      });
+    } finally {
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
+  });
+
+  it('uses the Taipei fixed-offset fallback when Intl rejects Asia/Taipei', () => {
+    const oldProfile = process.env.RESTART_PROFILE_NORMAL;
+    const originalDateTimeFormat = Intl.DateTimeFormat;
+    const intlRef = Intl as unknown as { DateTimeFormat: typeof Intl.DateTimeFormat };
+
+    const rejectingDateTimeFormat = function (
+      this: Intl.DateTimeFormat,
+      locales?: Intl.LocalesArgument,
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      if (options?.timeZone === 'Asia/Taipei') {
+        throw new RangeError('Invalid time zone specified: Asia/Taipei');
+      }
+      return new originalDateTimeFormat(locales, options);
+    } as typeof Intl.DateTimeFormat;
+    Object.setPrototypeOf(rejectingDateTimeFormat, originalDateTimeFormat);
+
+    process.env.RESTART_PROFILE_NORMAL = '{}';
+    intlRef.DateTimeFormat = rejectingDateTimeFormat;
+
+    try {
+      assert.doesNotThrow(() => {
+        const field = buildScheduleField(
+          {
+            enableServerScheduler: true,
+            restartTimes: '00:00,12:00',
+            restartProfiles: 'normal,normal',
+            restartRotateDaily: true,
+            botTimezone: 'Asia/Taipei',
+          },
+          'zh-TW',
+        );
+        assert.ok(field);
+      });
+    } finally {
+      intlRef.DateTimeFormat = originalDateTimeFormat;
+      if (oldProfile === undefined) {
+        delete process.env.RESTART_PROFILE_NORMAL;
+      } else {
+        process.env.RESTART_PROFILE_NORMAL = oldProfile;
+      }
+    }
   });
 });
 

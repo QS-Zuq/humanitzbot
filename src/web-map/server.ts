@@ -52,6 +52,9 @@ import { getDirname } from '../utils/paths.js';
 const __dirname = getDirname(import.meta.url);
 
 const BOT_CONFIG_RUNTIME_VALIDATION_KEYS = new Set([
+  'BOT_LOCALE',
+  'BOT_TIMEZONE',
+  'LOG_TIMEZONE',
   'RCON_HOST',
   'RCON_PORT',
   'SFTP_HOST',
@@ -3835,8 +3838,9 @@ class WebMapServer {
         return;
       }
 
-      // Validate values — no newlines, reasonable length
+      // Validate and normalize values: generic string guards first, then field-level validators where configured.
       const validationMigrationMap = buildMigrationMap();
+      const normalizedChanges: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(changes)) {
         const v = String(value);
         if (/[\r\n]/.test(v)) {
@@ -3854,6 +3858,9 @@ class WebMapServer {
             sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, { key, reason: validation.error });
             return;
           }
+          normalizedChanges[key] = validation.value;
+        } else {
+          normalizedChanges[key] = value;
         }
       }
 
@@ -3863,7 +3870,7 @@ class WebMapServer {
           const serverId = req.srv.serverId;
           const updated = new Set<string>();
           const ok = _saveServerDef(serverId, (serverDef) => {
-            for (const [envKey, value] of Object.entries(changes)) {
+            for (const [envKey, value] of Object.entries(normalizedChanges)) {
               const mapping = ENV_TO_SERVERDEF[envKey];
               if (!mapping) continue; // ignore keys not in the mapping
               const val = String(value);
@@ -3939,7 +3946,7 @@ class WebMapServer {
           const updated = new Set<string>();
           const runtimeConfigValues = new Map<string, { cfgKey: string; value: unknown }>();
 
-          for (const [envKey, rawValue] of Object.entries(changes)) {
+          for (const [envKey, rawValue] of Object.entries(normalizedChanges)) {
             // Skip bootstrap keys — they live in .env and can't be changed via web panel
             if (BOOTSTRAP_KEYS.has(envKey)) continue;
 

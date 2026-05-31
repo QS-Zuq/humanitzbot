@@ -42,6 +42,13 @@ if (!fs.existsSync(_envPath)) {
 
 dotenv.config();
 
+function envTrimmed(key: string, fallback: string): string {
+  const value = process.env[key];
+  if (value === undefined || value === '') return fallback;
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
 // ── Deprecation: ENABLE_AUTO_MESSAGES → individual sub-toggles ──
 // If the old master toggle is explicitly set to 'false', cascade to sub-toggles
 // unless they have been explicitly set by the user.
@@ -413,14 +420,14 @@ const config = {
   serverName: process.env.SERVER_NAME || '',
 
   // Timezone for daily threads / summaries (IANA format, e.g. 'America/New_York', 'US/Eastern')
-  botTimezone: process.env.BOT_TIMEZONE || 'UTC',
+  botTimezone: envTrimmed('BOT_TIMEZONE', 'UTC'),
 
   // Timezone the game server writes log timestamps in (IANA format, default UTC).
   // Most dedicated-server hosts (Bisect, Nitrado, etc.) run in UTC.
-  logTimezone: process.env.LOG_TIMEZONE || 'UTC',
+  logTimezone: envTrimmed('LOG_TIMEZONE', 'UTC'),
 
   // Bot display language (en, zh-TW, zh-CN)
-  botLocale: process.env.BOT_LOCALE || 'en',
+  botLocale: envTrimmed('BOT_LOCALE', 'en'),
 
   // Behavior
   chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL ?? '', 10) || 10000, 5000),

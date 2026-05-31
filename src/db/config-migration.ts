@@ -176,6 +176,22 @@ function _coerce(value: string, type: string): boolean | number | string {
   return value;
 }
 
+const TRIMMED_STRING_DEFAULTS: Record<string, string> = {
+  BOT_LOCALE: 'en',
+  BOT_TIMEZONE: 'UTC',
+  LOG_TIMEZONE: 'UTC',
+};
+
+function _normalizeMigratedValue(envKey: string, value: boolean | number | string): boolean | number | string {
+  if (typeof value !== 'string') return value;
+  const fallback = TRIMMED_STRING_DEFAULTS[envKey];
+  if (fallback != null) {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+  return value;
+}
+
 // ── Migration functions ──────────────────────────────────────
 
 function migrateEnvToDb(
@@ -201,7 +217,7 @@ function migrateEnvToDb(
 
     const { cfgKey, scope, type } = mapping;
     const targetKey = cfgKey || envKey;
-    const coerced = _coerce(rawValue, type);
+    const coerced = _normalizeMigratedValue(envKey, _coerce(rawValue, type));
 
     if (scope === 'server:primary') {
       serverPatch[targetKey] = coerced;

@@ -52,6 +52,7 @@ import { migrateEnvToDb, migrateServersJsonToDb, migrateDisplaySettings } from '
 import RuntimeConfigApplier from './config/runtime-config-applier.js';
 import { registerSaveServiceRuntimeHandlers } from './config/save-service-runtime.js';
 import { registerCoreConnectionRuntimeHandlers } from './config/core-connection-runtime.js';
+import { registerDisplayRuntimeHandlers } from './config/display-runtime.js';
 import {
   registerExternalSourceRuntimeHandlers,
   type HzmodSourceRuntimeSnapshot,
@@ -356,6 +357,8 @@ let saveService: InstanceType<typeof SaveService> | undefined;
 let unregisterCoreConnectionRuntimeHandlers: (() => void) | undefined;
 let unregisterSaveServiceRuntimeHandlers: (() => void) | undefined;
 let unregisterExternalSourceRuntimeHandlers: (() => void) | undefined;
+let unregisterDisplayRuntimeHandlers: (() => void) | undefined;
+let displayRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 let playtimeFlushTimer: ReturnType<typeof setInterval> | undefined; // periodic playtime → DB flush
 let snapshotService: InstanceType<typeof SnapshotService> | undefined;
 let activityLog: InstanceType<typeof ActivityLog> | undefined;
@@ -415,6 +418,24 @@ function enqueuePlayerStatsRestart(operation: () => Promise<void>): Promise<void
   const next = playerStatsRestartQueue.catch(() => undefined).then(operation);
   playerStatsRestartQueue = next.catch(() => undefined);
   return next;
+}
+
+function scheduleDiscordDisplayRefresh(): void {
+  if (displayRefreshTimer) return;
+
+  displayRefreshTimer = setTimeout(() => {
+    displayRefreshTimer = undefined;
+    if (serverStatus) {
+      void serverStatus._update().catch((err: unknown) => {
+        console.warn('[BOT] Failed to refresh server status after display config change:', errMsg(err));
+      });
+    }
+    if (playerStatsChannel) {
+      void playerStatsChannel._updateEmbed().catch((err: unknown) => {
+        console.warn('[BOT] Failed to refresh player stats after display config change:', errMsg(err));
+      });
+    }
+  }, 0);
 }
 
 async function startStatusChannelsModule(readyClient: Client): Promise<void> {
@@ -765,6 +786,11 @@ client.once(Events.ClientReady, (readyClient) => {
       rcon,
       getSaveService: () => saveService,
       getLogWatcher: () => logWatcher,
+    });
+    unregisterDisplayRuntimeHandlers = registerDisplayRuntimeHandlers({
+      runtimeConfigApplier,
+      config,
+      onApplied: scheduleDiscordDisplayRefresh,
     });
     unregisterExternalSourceRuntimeHandlers = registerExternalSourceRuntimeHandlers({
       runtimeConfigApplier,
@@ -1698,6 +1724,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (activityLog) activityLog.stop();
   if (anticheatIntegration) await anticheatIntegration.stop();
   if (howyagarnManager) howyagarnManager.shutdown();
+  if (displayRefreshTimer) {
+    clearTimeout(displayRefreshTimer);
+    displayRefreshTimer = undefined;
+  }
   if (unregisterCoreConnectionRuntimeHandlers) {
     unregisterCoreConnectionRuntimeHandlers();
     unregisterCoreConnectionRuntimeHandlers = undefined;
@@ -1709,6 +1739,10 @@ async function shutdown(reason = 'Manual shutdown'): Promise<void> {
   if (unregisterExternalSourceRuntimeHandlers) {
     unregisterExternalSourceRuntimeHandlers();
     unregisterExternalSourceRuntimeHandlers = undefined;
+  }
+  if (unregisterDisplayRuntimeHandlers) {
+    unregisterDisplayRuntimeHandlers();
+    unregisterDisplayRuntimeHandlers = undefined;
   }
   if (saveService) saveService.stop();
   if (multiServerManager) await multiServerManager.stopAll();
