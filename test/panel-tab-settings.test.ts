@@ -160,7 +160,6 @@ describe('panel settings tab bot-config helpers', () => {
       freeform: 'true',
     });
 
-    assert.equal(Intl.supportedValuesOf('timeZone').includes('US/Eastern'), false);
     assert.doesNotThrow(() => new Intl.DateTimeFormat(undefined, { timeZone: 'US/Eastern' }));
     assert.equal(helpers.validateBotConfigControl(alias), true);
     assert.equal(alias.classList.contains('invalid'), false);
@@ -205,6 +204,24 @@ describe('panel settings tab bot-config helpers', () => {
     const values = Array.from(options, (option: unknown) => (option as { value: string }).value);
 
     assert.deepEqual(values, ['UTC', 'Asia/Taipei']);
+  });
+
+  it('caches timezone options without retaining one-off current values', () => {
+    const helpers = loadSettingsTab();
+    const dataset = {
+      validator: 'timezone',
+      options: JSON.stringify(['UTC', 'Asia/Taipei']),
+      freeform: 'true',
+    };
+    const withAlias = makeTimezoneComboboxInput('US/Eastern', dataset);
+    const withoutAlias = makeTimezoneComboboxInput('', dataset);
+
+    const first = helpers.getTimezoneComboboxOptions(withAlias);
+    const second = helpers.getTimezoneComboboxOptions(withoutAlias);
+
+    assert.equal(first[0].value, 'US/Eastern');
+    assert.equal(JSON.stringify(second.map((option: { value: string }) => option.value)), '["UTC","Asia/Taipei"]');
+    assert.notEqual(first, second);
   });
 
   it('closes an already open timezone dropdown before opening another one', () => {

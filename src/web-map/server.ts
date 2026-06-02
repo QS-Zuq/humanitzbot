@@ -3624,31 +3624,62 @@ class WebMapServer {
     const BOT_CONFIG_TYPED_RUNTIME_KEYS = new Set(['PVP_START_TIME', 'PVP_END_TIME', 'PVP_SETTINGS_OVERRIDES']);
     const BOT_CONFIG_REQUIRED_RUNTIME_KEYS = new Set(['PVP_START_TIME', 'PVP_END_TIME']);
 
+    function _serializeBotConfigInputValue(value: unknown): string | undefined {
+      switch (typeof value) {
+        case 'string':
+          return value;
+        case 'number':
+        case 'boolean':
+        case 'bigint':
+          return String(value);
+        case 'symbol':
+          return value.toString();
+        case 'object':
+          return JSON.stringify(value);
+        case 'function':
+        case 'undefined':
+          return undefined;
+      }
+    }
+
     function _parseBotConfigTimeMinutes(value: unknown): number | undefined {
+      if (typeof value === 'number') {
+        if (Number.isFinite(value) && value >= 0 && value < 1440) return value;
+        throw new Error('Invalid time minutes value');
+      }
       const raw = safeUnknownString(value).trim();
       if (!raw) return undefined;
       const match = raw.match(/^(\d{2}):(\d{2})$/);
       if (!match) throw new Error('Time must be in HH:MM format');
       const hours = parseInt(match[1] ?? '0', 10);
       const minutes = parseInt(match[2] ?? '0', 10);
+      if (hours > 23 || minutes > 59) throw new Error('Time hours must be under 24 and minutes under 60');
       return hours * 60 + minutes;
     }
 
-    function _parseBotConfigJsonObject(value: unknown): Record<string, string> | null {
-      const raw = typeof value === 'string' ? value.trim() : safeUnknownString(value).trim();
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('JSON value must be an object');
-      }
+    function _normalizeBotConfigJsonObject(value: Record<string, unknown>): Record<string, string> {
       const normalized: Record<string, string> = {};
-      for (const [key, entryValue] of Object.entries(parsed as Record<string, unknown>)) {
+      for (const [key, entryValue] of Object.entries(value)) {
         if (typeof entryValue !== 'string' && typeof entryValue !== 'number' && typeof entryValue !== 'boolean') {
           throw new Error('JSON object values must be strings, numbers, or booleans');
         }
         normalized[key] = String(entryValue);
       }
       return normalized;
+    }
+
+    function _parseBotConfigJsonObject(value: unknown): Record<string, string> | null {
+      if (value == null) return null;
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        return _normalizeBotConfigJsonObject(value as Record<string, unknown>);
+      }
+      const raw = typeof value === 'string' ? value.trim() : safeUnknownString(value).trim();
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('JSON value must be an object');
+      }
+      return _normalizeBotConfigJsonObject(parsed as Record<string, unknown>);
     }
 
     function _normalizeBotConfigTypedValue(envKey: string, value: unknown): unknown {
@@ -4108,7 +4139,24 @@ class WebMapServer {
       const validationMigrationMap = buildMigrationMap();
       const normalizedChanges: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(changes)) {
-        const v = String(value);
+        let v: string;
+        try {
+          const serialized = _serializeBotConfigInputValue(value);
+          if (typeof serialized !== 'string') {
+            sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
+              key,
+              reason: 'Value must be serializable to a string',
+            });
+            return;
+          }
+          v = serialized;
+        } catch {
+          sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
+            key,
+            reason: 'Value must be JSON-serializable',
+          });
+          return;
+        }
         if (BOT_CONFIG_REQUIRED_RUNTIME_KEYS.has(key) && (value == null || !v.trim())) {
           sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
             key,
@@ -4126,7 +4174,7 @@ class WebMapServer {
         }
         if (ENV_KEY_VALIDATORS[key] || BOT_CONFIG_RUNTIME_VALIDATION_KEYS.has(key)) {
           const mapping = validationMigrationMap[key];
-          const validation = validateField(key, value as string | number | boolean | null | undefined, mapping);
+          const validation = validateField(key, value, mapping);
           if (!validation.valid) {
             sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, { key, reason: validation.error });
             return;

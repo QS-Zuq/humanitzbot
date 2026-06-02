@@ -1197,6 +1197,7 @@ describe('Web Map Admin — POST endpoints', () => {
         ['PVP_SETTINGS_OVERRIDES', '{bad}'],
         ['PVP_SETTINGS_OVERRIDES', '[]'],
         ['PVP_SETTINGS_OVERRIDES', '{"OnDeath":{"nested":"0"}}'],
+        ['PVP_SETTINGS_OVERRIDES', { OnDeath: { nested: '0' } }],
       ];
 
       for (const [key, value] of cases) {
@@ -1242,6 +1243,30 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.ok(repo.docs.app);
       assert.equal(repo.docs.app.sessionStore, '');
       assert.equal(repo.docs.app.pvpSettingsOverrides, null);
+    });
+
+    it('stores already-parsed PvP override objects in runtime-compatible DB types', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            PVP_SETTINGS_OVERRIDES: { OnDeath: '0', VitalDrain: 1, EnableRaid: false },
+          },
+        },
+      });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.ok(repo.docs.app);
+      assert.deepEqual(repo.docs.app.pvpSettingsOverrides, {
+        OnDeath: '0',
+        VitalDrain: '1',
+        EnableRaid: 'false',
+      });
     });
 
     it('stores valid PvP bot-config values in runtime-compatible DB types', async () => {

@@ -1397,9 +1397,15 @@ Panel.tabs = Panel.tabs || {};
     }
   }
 
+  var timezoneComboboxOptionsCache = {};
+
   function getTimezoneComboboxOptions(input) {
     var optionValues = getBotConfigControlOptions(input);
-    var options = buildTimezoneOptions(optionValues);
+    var cacheKey = optionValues.join('\u0000');
+    if (!timezoneComboboxOptionsCache[cacheKey]) {
+      timezoneComboboxOptionsCache[cacheKey] = buildTimezoneOptions(optionValues);
+    }
+    var options = timezoneComboboxOptionsCache[cacheKey].slice();
     var current = getBotConfigControlValue(input).trim();
     if (
       current &&
@@ -2712,6 +2718,7 @@ Panel.tabs = Panel.tabs || {};
       buildTimezoneOption: buildTimezoneOption,
       buildTimezoneOptions: buildTimezoneOptions,
       formatUtcOffset: formatUtcOffset,
+      getTimezoneComboboxOptions: getTimezoneComboboxOptions,
       getTimezoneOffsetMinutes: getTimezoneOffsetMinutes,
       timezoneOptionMatchesQuery: timezoneOptionMatchesQuery,
       validateBotConfigControl: validateBotConfigControl,

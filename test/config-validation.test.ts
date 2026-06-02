@@ -295,7 +295,9 @@ describe('validateField', () => {
 
   it('applies json validator for PVP_SETTINGS_OVERRIDES', () => {
     assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', '{"OnDeath":"0"}').valid, true);
+    assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', { OnDeath: '0' }).valid, true);
     assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', '{bad}').valid, false);
+    assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', ['OnDeath']).valid, false);
   });
 
   it('applies interval validator with clamping for CHAT_POLL_INTERVAL', () => {
