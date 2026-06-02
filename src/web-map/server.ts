@@ -4068,13 +4068,14 @@ class WebMapServer {
             const entryValue = (entry as EnvEntry).value as string;
             const field = ENV_FIELD_BY_KEY.get(entryKey);
             const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey) || Boolean(field?.sensitive);
+            const isReadOnly = ENV_READONLY_KEYS.has(entryKey);
             const value = _botConfigDisplayValue(entryKey, entryValue);
             currentSection.keys.push({
               key: entryKey,
               value: isSensitive ? '' : value,
               sensitive: isSensitive,
-              readOnly: false,
-              ..._botConfigItemMetadata(entryKey, field, { sensitive: isSensitive, readOnly: false }),
+              readOnly: isReadOnly,
+              ..._botConfigItemMetadata(entryKey, field, { sensitive: isSensitive, readOnly: isReadOnly }),
               hasValue: false,
               commented: true,
             });
