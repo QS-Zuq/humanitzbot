@@ -196,6 +196,7 @@ const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
   AGENT_MODE: { type: 'enum', options: ['auto', 'agent', 'direct', 'cache'] },
   AGENT_TRIGGER: { type: 'enum', options: ['auto', 'rcon', 'panel', 'ssh', 'none'] },
   BOT_LOCALE: { type: 'enum', options: ['en', 'zh-TW', 'zh-CN'] },
+  SESSION_STORE: { type: 'enum', options: ['memory', 'sqlite', 'redis'] },
 
   // Time (HH:MM)
   PVP_START_TIME: { type: 'time' },

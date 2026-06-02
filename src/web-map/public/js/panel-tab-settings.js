@@ -24,6 +24,10 @@ Panel.tabs = Panel.tabs || {};
 
   let _inited = false;
 
+  function attrEsc(value) {
+    return esc(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   const RELOAD_STRATEGY_BADGE_STYLES = {
     live: 'color:var(--color-calm, #6dba82);border-color:rgba(109,186,130,0.2);background:rgba(109,186,130,0.08)',
     'module-reconfigure':
@@ -36,6 +40,165 @@ Panel.tabs = Panel.tabs || {};
     'game-restart':
       'color:var(--color-horde, #c45a4a);border-color:rgba(196,90,74,0.2);background:rgba(196,90,74,0.08)',
   };
+
+  const COMMON_TIMEZONE_VALUES = [
+    'UTC',
+    'Etc/UTC',
+    'Asia/Taipei',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Asia/Hong_Kong',
+    'Asia/Singapore',
+    'Asia/Shanghai',
+    'Asia/Bangkok',
+    'Asia/Jakarta',
+    'Asia/Kolkata',
+    'Australia/Sydney',
+    'Europe/London',
+    'Europe/Berlin',
+    'Europe/Paris',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Sao_Paulo',
+  ];
+
+  function normalizeTimezoneSearch(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[_/,-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function compactTimezoneSearch(value) {
+    return normalizeTimezoneSearch(value).replace(/[\s:]+/g, '');
+  }
+
+  function getTimezoneOffsetMinutes(zone, date) {
+    if (!zone || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return null;
+    try {
+      var at = date instanceof Date ? date : new Date();
+      var parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: zone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(at);
+      var getPart = function (type, fallback) {
+        var part = parts.find(function (p) {
+          return p.type === type;
+        });
+        return part ? part.value : fallback;
+      };
+      var hour = getPart('hour', '00');
+      if (hour === '24') hour = '00';
+      var asUtc = Date.UTC(
+        parseInt(getPart('year', '1970'), 10),
+        parseInt(getPart('month', '01'), 10) - 1,
+        parseInt(getPart('day', '01'), 10),
+        parseInt(hour, 10),
+        parseInt(getPart('minute', '00'), 10),
+        parseInt(getPart('second', '00'), 10),
+      );
+      return Math.round((asUtc - at.getTime()) / 60000);
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function formatUtcOffset(minutes) {
+    if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return '';
+    var sign = minutes >= 0 ? '+' : '-';
+    var abs = Math.abs(minutes);
+    var hours = Math.floor(abs / 60);
+    var mins = abs % 60;
+    return 'UTC' + sign + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
+  }
+
+  function timezoneOffsetAliases(offsetLabel) {
+    var aliases = [offsetLabel];
+    var match = String(offsetLabel || '').match(/^UTC([+-])(\d{2}):(\d{2})$/);
+    if (!match) return aliases;
+    var sign = match[1];
+    var hours = match[2];
+    var minutes = match[3];
+    var hourNumber = String(parseInt(hours, 10));
+    aliases.push('GMT' + sign + hours + ':' + minutes);
+    aliases.push('UTC' + sign + hours + minutes);
+    aliases.push('GMT' + sign + hours + minutes);
+    aliases.push(sign + hours + ':' + minutes);
+    aliases.push(sign + hours + minutes);
+    if (minutes === '00') {
+      aliases.push('UTC' + sign + hourNumber);
+      aliases.push('GMT' + sign + hourNumber);
+      aliases.push(sign + hourNumber);
+    }
+    return aliases;
+  }
+
+  function buildTimezoneOption(value, date) {
+    var zone = String(value || '').trim();
+    var pieces = zone.split('/');
+    var city = (pieces[pieces.length - 1] || zone).replace(/_/g, ' ');
+    var region = pieces.length > 1 ? pieces[0] : 'UTC';
+    var offset = formatUtcOffset(getTimezoneOffsetMinutes(zone, date));
+    var label = offset ? zone + ' — ' + offset : zone;
+    var searchParts = [zone, zone.replace(/_/g, ' '), city, region, label].concat(timezoneOffsetAliases(offset));
+    var searchText = normalizeTimezoneSearch(searchParts.join(' '));
+    return {
+      value: zone,
+      label: label,
+      city: city,
+      region: region,
+      offset: offset,
+      searchText: searchText,
+      searchCompact: searchText.replace(/[\s:]+/g, ''),
+    };
+  }
+
+  function buildTimezoneOptions(values, date) {
+    var seen = {};
+    var entries = [];
+    var source = Array.isArray(values) ? values : [];
+    for (var i = 0; i < source.length; i++) {
+      var zone = String(source[i] || '').trim();
+      if (!zone || seen[zone]) continue;
+      seen[zone] = true;
+      entries.push(buildTimezoneOption(zone, date));
+    }
+    return entries;
+  }
+
+  function sortTimezoneOptionsForQuery(options, query) {
+    var q = normalizeTimezoneSearch(query);
+    var commonRank = {};
+    for (var i = 0; i < COMMON_TIMEZONE_VALUES.length; i++) commonRank[COMMON_TIMEZONE_VALUES[i]] = i + 1;
+    return options.slice().sort(function (a, b) {
+      if (q) {
+        var aExact = normalizeTimezoneSearch(a.value) === q || normalizeTimezoneSearch(a.city) === q ? 0 : 1;
+        var bExact = normalizeTimezoneSearch(b.value) === q || normalizeTimezoneSearch(b.city) === q ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+      } else {
+        var ar = commonRank[a.value] || 9999;
+        var br = commonRank[b.value] || 9999;
+        if (ar !== br) return ar - br;
+      }
+      return a.value.localeCompare(b.value);
+    });
+  }
+
+  function timezoneOptionMatchesQuery(option, query) {
+    var q = normalizeTimezoneSearch(query);
+    if (!q) return true;
+    var compact = compactTimezoneSearch(query);
+    return option.searchText.includes(q) || (compact && option.searchCompact.includes(compact));
+  }
 
   function init() {
     if (_inited) return;
@@ -373,6 +536,7 @@ Panel.tabs = Panel.tabs || {};
       }
 
       S.botConfigGroups = d.groups || [];
+      S.botConfigOptionSets = d.optionSets || {};
       S.botConfigSections = sections;
       S.botConfigOriginal = {};
       S.botConfigChanged = {};
@@ -398,12 +562,13 @@ Panel.tabs = Panel.tabs || {};
         container.appendChild(banner);
       }
 
-      renderBotConfig(container, S.botConfigSections, S.botConfigGroups);
+      renderBotConfig(container, S.botConfigSections, S.botConfigGroups, S.botConfigOptionSets);
       var countEl = $('#settings-count');
       var total = S.botConfigSections.reduce(function (sum, s) {
         return sum + s.keys.length;
       }, 0);
       if (countEl) countEl.textContent = total + ' settings';
+      if (S.botConfigFilterRefresh) S.botConfigFilterRefresh();
       var btn = $('#settings-save-btn');
       if (btn) {
         btn.disabled = true;
@@ -423,7 +588,7 @@ Panel.tabs = Panel.tabs || {};
     }
   }
 
-  function renderBotConfig(container, sections, groups) {
+  function renderBotConfig(container, sections, groups, optionSets) {
     // Keep existing banner if any, else clear
     var banner = container.querySelector('.bg-accent\\/5');
     container.innerHTML = '';
@@ -433,6 +598,8 @@ Panel.tabs = Panel.tabs || {};
 
     // ── 2. Group Sections ──
     groups = groups || [];
+    optionSets = optionSets || {};
+    var activeFilters = {};
     var sectionById = {};
     for (var i = 0; i < sections.length; i++) {
       if (sections[i].id) sectionById[sections[i].id] = sections[i];
@@ -451,19 +618,225 @@ Panel.tabs = Panel.tabs || {};
       var style = RELOAD_STRATEGY_BADGE_STYLES[strategy] || RELOAD_STRATEGY_BADGE_STYLES['bot-restart'];
       return (
         ' <span class="setting-sensitive-badge" data-reload-strategy="' +
-        esc(strategy) +
+        attrEsc(strategy) +
         '" style="' +
-        style +
+        attrEsc(style) +
         '"' +
-        (title ? ' title="' + esc(title) + '"' : '') +
+        (title ? ' title="' + attrEsc(title) + '"' : '') +
         '>' +
         esc(label) +
         '</span>'
       );
     }
 
+    function controlAttrs(item, extraAttrs) {
+      var optionValues = Array.isArray(item.options)
+        ? item.options.map(function (option) {
+            return typeof option === 'string' ? option : option.value;
+          })
+        : [];
+      var attrs =
+        ' class="setting-input bot-config-input bot-config-control" data-key="' +
+        attrEsc(item.key) +
+        '" data-original="' +
+        attrEsc(item.value || '') +
+        '" data-control="' +
+        attrEsc(item.control || 'text') +
+        '"';
+      if (item.validator) attrs += ' data-validator="' + attrEsc(item.validator) + '"';
+      if (item.valueType) attrs += ' data-value-type="' + attrEsc(item.valueType) + '"';
+      if (item.singleLine) attrs += ' data-single-line="true"';
+      if (item.sensitive) attrs += ' data-sensitive="true"';
+      if (item.required) attrs += ' data-required="true"';
+      if (item.freeform) attrs += ' data-freeform="true"';
+      if (optionValues.length) attrs += ' data-options="' + attrEsc(JSON.stringify(optionValues)) + '"';
+      return attrs + (extraAttrs || '');
+    }
+
+    function renderSelectControl(item) {
+      var options = Array.isArray(item.options) ? item.options : [];
+      var html = '<select' + controlAttrs(item, '') + '>';
+      var current = item.value == null ? '' : String(item.value);
+      var hasCurrent = false;
+      html +=
+        '<option value=""' +
+        (current === '' ? ' selected' : '') +
+        '>' +
+        esc(i18next.t('web:settings.empty_option', { defaultValue: 'Not set' })) +
+        '</option>';
+      for (var oi = 0; oi < options.length; oi++) {
+        var opt = options[oi];
+        var value = typeof opt === 'string' ? opt : opt.value;
+        var label = typeof opt === 'string' ? opt : opt.label || opt.value;
+        if (value === current) hasCurrent = true;
+        html +=
+          '<option value="' +
+          attrEsc(value) +
+          '"' +
+          (value === current ? ' selected' : '') +
+          (opt && opt.deprecated ? ' data-deprecated="true"' : '') +
+          '>' +
+          esc(label) +
+          '</option>';
+      }
+      if (current && !hasCurrent) {
+        html += '<option value="' + attrEsc(current) + '" selected>' + esc(current) + '</option>';
+      }
+      html += '</select>';
+      return html;
+    }
+
+    function renderComboboxControl(item) {
+      var setName = item.optionSet || '';
+      var values = optionSets[setName] || [];
+      if (item.validator === 'timezone') return renderTimezoneComboboxControl(item, values);
+      var listId = 'bot-config-options-' + item.key;
+      var controlItem = Object.assign({}, item, { options: values });
+      var html =
+        '<input type="text" list="' +
+        attrEsc(listId) +
+        '"' +
+        controlAttrs(controlItem, ' value="' + attrEsc(item.value || '') + '" autocomplete="off"') +
+        '>';
+      html += '<datalist id="' + attrEsc(listId) + '">';
+      for (var zi = 0; zi < values.length; zi++) {
+        html += '<option value="' + attrEsc(values[zi]) + '"></option>';
+      }
+      html += '</datalist>';
+      return html;
+    }
+
+    function renderTimezoneComboboxControl(item, values) {
+      var listId = 'bot-config-options-' + item.key;
+      var controlItem = Object.assign({}, item, { options: values });
+      var placeholder = i18next.t('web:settings.timezone_placeholder', {
+        defaultValue: 'Search city, region, or UTC offset...',
+      });
+      var showOptions = i18next.t('web:settings.timezone_show_options', {
+        defaultValue: 'Show timezone options',
+      });
+      return (
+        '<div class="bot-config-combobox" data-key="' +
+        attrEsc(item.key) +
+        '">' +
+        '<div class="bot-config-combobox-shell">' +
+        '<input type="text"' +
+        controlAttrs(
+          controlItem,
+          ' value="' +
+            attrEsc(item.value || '') +
+            '" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' +
+            attrEsc(listId) +
+            '" placeholder="' +
+            attrEsc(placeholder) +
+            '"',
+        ) +
+        '>' +
+        '<button type="button" class="bot-config-combobox-toggle" aria-label="' +
+        attrEsc(showOptions) +
+        '" title="' +
+        attrEsc(showOptions) +
+        '"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>' +
+        '</div>' +
+        '<div id="' +
+        attrEsc(listId) +
+        '" class="bot-config-combobox-list hidden" role="listbox"></div>' +
+        '<div class="setting-help text-xs text-muted mt-1">' +
+        esc(
+          i18next.t('web:settings.timezone_hint', {
+            defaultValue: 'Stores IANA names; search by city, region, or UTC offset.',
+          }),
+        ) +
+        '</div>' +
+        '</div>'
+      );
+    }
+
+    function renderBotConfigControl(item) {
+      var control = item.control || (ENV_BOOLEANS.has(item.key) ? 'toggle' : 'text');
+      var supportedControls = {
+        readonly: true,
+        password: true,
+        toggle: true,
+        select: true,
+        combobox: true,
+        textarea: true,
+        time: true,
+        number: true,
+        url: true,
+        text: true,
+      };
+      if (!supportedControls[control]) {
+        console.warn('[SETTINGS] Unknown bot-config control type:', control, item.key);
+        control = 'text';
+      }
+      if (item.readOnly || control === 'readonly') {
+        return '<span class="text-xs text-muted font-mono">' + esc(item.value || '-') + '</span>';
+      }
+      if (item.sensitive || control === 'password') {
+        var secretHtml = '<div class="flex items-center gap-2">';
+        if (item.hasValue)
+          secretHtml +=
+            '<span class="text-xs text-calm font-mono">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 <i data-lucide="check" class="w-3 h-3 inline"></i> ' +
+            esc(i18next.t('web:settings.secret_set')) +
+            '</span>';
+        else
+          secretHtml +=
+            '<span class="text-xs text-red-400/70">' + esc(i18next.t('web:settings.secret_not_set')) + '</span>';
+        secretHtml +=
+          '<input type="password"' +
+          controlAttrs(
+            Object.assign({}, item, { control: 'password', value: '' }),
+            ' style="width:180px" placeholder="Enter new value..." autocomplete="off"',
+          ) +
+          '>';
+        return secretHtml + '</div>';
+      }
+      if (control === 'toggle') {
+        var isOn = item.value === 'true';
+        return (
+          '<label class="setting-toggle"><input type="checkbox" class="bot-config-toggle bot-config-control" data-key="' +
+          attrEsc(item.key) +
+          '" data-original="' +
+          attrEsc(item.value) +
+          '" data-control="toggle"' +
+          (isOn ? ' checked' : '') +
+          '><span class="toggle-track"></span><span class="toggle-thumb"></span></label>'
+        );
+      }
+      if (control === 'select') return renderSelectControl(item);
+      if (control === 'combobox') return renderComboboxControl(item);
+      if (control === 'textarea') {
+        var hint = item.singleLine
+          ? '<div class="setting-help text-xs text-muted mt-1">' +
+            esc(
+              i18next.t('web:settings.validation.single_line_json_hint', { defaultValue: 'Single-line JSON only.' }),
+            ) +
+            '</div>'
+          : '';
+        return (
+          '<textarea' +
+          controlAttrs(item, ' rows="' + attrEsc(item.rows || 3) + '"') +
+          '>' +
+          esc(item.value || '') +
+          '</textarea>' +
+          hint
+        );
+      }
+      var inputType =
+        control === 'time' ? 'time' : control === 'number' ? 'number' : control === 'url' ? 'url' : 'text';
+      var extra =
+        ' value="' +
+        attrEsc(item.value || '') +
+        '"' +
+        (item.inputMode ? ' inputmode="' + attrEsc(item.inputMode) + '"' : '') +
+        (item.min != null ? ' min="' + attrEsc(item.min) + '"' : '') +
+        (item.max != null ? ' max="' + attrEsc(item.max) + '"' : '');
+      return '<input type="' + attrEsc(inputType) + '"' + controlAttrs(item, extra) + '>';
+    }
+
     // Helper to render a single section (category)
-    function renderSection(sec) {
+    function renderSection(sec, groupId) {
       if (!sec || !sec.keys.length) return null;
       var sectionEl = el('div', 'settings-category mb-2');
       sectionEl.dataset.sectionId = sec.id || '';
@@ -482,10 +855,17 @@ Panel.tabs = Panel.tabs || {};
         var row = el('div', 'setting-row' + (item.commented ? ' setting-commented' : ''));
         row.dataset.key = item.key;
         row.dataset.reloadStrategy = item.reloadStrategy || '';
+        row.dataset.control = item.control || '';
+        row.dataset.validator = item.validator || '';
+        row.dataset.sensitive = item.sensitive ? 'true' : 'false';
+        row.dataset.groupId = groupId || '';
+        row.dataset.advanced =
+          groupId === 'advanced' || (sec.id && (sec.id.indexOf('advanced') >= 0 || sec.id === 'intervals'))
+            ? 'true'
+            : 'false';
         var desc = envDescs[item.key] || '';
         row.dataset.desc = desc.toLowerCase();
 
-        var isBool = ENV_BOOLEANS.has(item.key);
         var nameHtml = '<div class="setting-name">' + esc(humanizeEnvKey(item.key));
         if (item.sensitive) nameHtml += ' <span class="setting-sensitive-badge">secret</span>';
         if (item.readOnly)
@@ -496,46 +876,13 @@ Panel.tabs = Panel.tabs || {};
         nameHtml += reloadStrategyBadge(item.reloadStrategy, item.reloadStrategyReasonKey);
         nameHtml += '<div class="setting-env-key">' + esc(item.key) + '</div></div>';
 
-        var inputHtml;
-        if (item.readOnly) {
-          inputHtml = '<span class="text-xs text-muted font-mono">' + esc(item.value || '-') + '</span>';
-        } else if (item.sensitive) {
-          inputHtml = '<div class="flex items-center gap-2">';
-          if (item.hasValue)
-            inputHtml +=
-              '<span class="text-xs text-calm font-mono">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 <i data-lucide="check" class="w-3 h-3 inline"></i> ' +
-              esc(i18next.t('web:settings.secret_set')) +
-              '</span>';
-          else
-            inputHtml +=
-              '<span class="text-xs text-red-400/70">' + esc(i18next.t('web:settings.secret_not_set')) + '</span>';
-          inputHtml +=
-            '<input type="password" class="setting-input bot-config-input" style="width:180px" placeholder="Enter new value..." data-key="' +
-            esc(item.key) +
-            '" data-original="" data-sensitive="true" autocomplete="off">';
-          inputHtml += '</div>';
-        } else if (isBool) {
-          var isOn = item.value === 'true';
-          inputHtml =
-            '<label class="setting-toggle"><input type="checkbox" class="bot-config-toggle" data-key="' +
-            esc(item.key) +
-            '" data-original="' +
-            esc(item.value) +
-            '"' +
-            (isOn ? ' checked' : '') +
-            '><span class="toggle-track"></span><span class="toggle-thumb"></span></label>';
-        } else {
-          inputHtml =
-            '<input type="text" class="setting-input bot-config-input" value="' +
-            esc(item.value) +
-            '" data-key="' +
-            esc(item.key) +
-            '" data-original="' +
-            esc(item.value) +
-            '">';
-        }
+        var inputHtml = renderBotConfigControl(item);
 
-        row.innerHTML = nameHtml + (desc ? '<div class="setting-desc">' + esc(desc) + '</div>' : '') + inputHtml;
+        row.innerHTML =
+          nameHtml +
+          (desc ? '<div class="setting-desc">' + esc(desc) + '</div>' : '') +
+          inputHtml +
+          '<div class="setting-error text-xs text-horde mt-1 hidden"></div>';
         body.appendChild(row);
       }
 
@@ -626,6 +973,36 @@ Panel.tabs = Panel.tabs || {};
       return sectionEl;
     }
 
+    var filterBar = el('div', 'bot-config-filterbar flex flex-wrap items-center gap-2 mb-3');
+    var filterDefs = [
+      { id: 'changed', label: i18next.t('web:settings.filters.changed', { defaultValue: 'Changed' }) },
+      { id: 'invalid', label: i18next.t('web:settings.filters.invalid', { defaultValue: 'Invalid' }) },
+      { id: 'live', label: i18next.t('web:settings.filters.live', { defaultValue: 'Live' }) },
+      {
+        id: 'restart',
+        label: i18next.t('web:settings.filters.restart_required', { defaultValue: 'Restart required' }),
+      },
+      { id: 'secrets', label: i18next.t('web:settings.filters.secrets', { defaultValue: 'Secrets' }) },
+      { id: 'advanced', label: i18next.t('web:settings.filters.advanced', { defaultValue: 'Advanced' }) },
+    ];
+    filterBar.innerHTML =
+      '<span class="text-xs text-muted mr-1">' +
+      esc(i18next.t('web:settings.filters.label', { defaultValue: 'Quick filters' })) +
+      '</span>';
+    for (var fdi = 0; fdi < filterDefs.length; fdi++) {
+      var filterBtn = el(
+        'button',
+        'bot-config-filter-chip text-xs px-2 py-1 rounded-full border border-border text-muted hover:text-accent hover:border-accent/40 transition-colors',
+      );
+      filterBtn.type = 'button';
+      filterBtn.dataset.filter = filterDefs[fdi].id;
+      filterBtn.textContent = filterDefs[fdi].label;
+      filterBar.appendChild(filterBtn);
+    }
+    var filterCount = el('span', 'bot-config-filter-count text-xs text-muted ml-1');
+    filterBar.appendChild(filterCount);
+    container.appendChild(filterBar);
+
     // Render groups
     var hasGroups = groups && groups.length > 0;
     if (hasGroups) {
@@ -672,7 +1049,7 @@ Panel.tabs = Panel.tabs || {};
         var groupBody = el('div', 'bot-config-group-body p-3 hidden');
 
         for (var gsi = 0; gsi < groupSecs.length; gsi++) {
-          var secEl = renderSection(groupSecs[gsi]);
+          var secEl = renderSection(groupSecs[gsi], group.id);
           if (secEl) groupBody.appendChild(secEl);
         }
 
@@ -752,7 +1129,7 @@ Panel.tabs = Panel.tabs || {};
       }
 
       for (var oi = 0; oi < orphans.length; oi++) {
-        var secEl = renderSection(orphans[oi]);
+        var secEl = renderSection(orphans[oi], '');
         if (secEl) {
           // Body already has 'open' class by default from renderSection
           orphanContainer.appendChild(secEl);
@@ -762,115 +1139,115 @@ Panel.tabs = Panel.tabs || {};
 
     // Re-initialize icons
     if (window.lucide) window.lucide.createIcons();
+    initializeTimezoneComboboxes(container);
 
     // ── 3. Wire Events ──
 
-    // Search logic
+    // Search + quick filter logic
     var searchInput = $('#settings-search');
     var searchClear = null; // header search has no dedicated clear button
+    function hasActiveBotConfigFilters() {
+      for (var filterId in activeFilters) {
+        if (activeFilters[filterId]) return true;
+      }
+      return false;
+    }
+
+    function rowMatchesQuickFilters(row) {
+      if (activeFilters.changed && !row.classList.contains('setting-changed')) return false;
+      if (activeFilters.invalid && !row.classList.contains('setting-invalid')) return false;
+      if (activeFilters.live && row.dataset.reloadStrategy !== 'live') return false;
+      if (activeFilters.restart && (!row.dataset.reloadStrategy || row.dataset.reloadStrategy === 'live')) return false;
+      if (activeFilters.secrets && row.dataset.sensitive !== 'true') return false;
+      if (activeFilters.advanced && row.dataset.advanced !== 'true') return false;
+      return true;
+    }
+
+    function applyBotConfigFilters() {
+      var q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+      var hasFilters = hasActiveBotConfigFilters();
+      var hasConditions = Boolean(q || hasFilters);
+      var groups = container.querySelectorAll('.bot-config-group');
+      var categories = container.querySelectorAll('.settings-category');
+      var totalRows = 0;
+      var visibleRows = 0;
+
+      categories.forEach(function (c) {
+        var catLabel = c.dataset.sectionLabel || '';
+        var rows = c.querySelectorAll('.setting-row');
+        var catHasVisible = false;
+
+        rows.forEach(function (r) {
+          totalRows++;
+          var key = (r.dataset.key || '').toLowerCase();
+          var nameEl = r.querySelector('.setting-name');
+          var name = nameEl ? nameEl.textContent.toLowerCase() : '';
+          var desc = r.dataset.desc || '';
+          var textMatches = !q || catLabel.includes(q) || key.includes(q) || name.includes(q) || desc.includes(q);
+          var visible = textMatches && rowMatchesQuickFilters(r);
+          r.style.display = visible ? '' : 'none';
+          if (visible) {
+            visibleRows++;
+            catHasVisible = true;
+          }
+        });
+
+        c.style.display = catHasVisible ? '' : 'none';
+        if (catHasVisible && hasConditions) {
+          var items = c.querySelector('.settings-category-items');
+          if (items) items.classList.add('open');
+        }
+      });
+
+      groups.forEach(function (g) {
+        var groupHasVisible = false;
+        var cats = g.querySelectorAll('.settings-category');
+        cats.forEach(function (c) {
+          if (c.style.display !== 'none') groupHasVisible = true;
+        });
+        g.style.display = groupHasVisible ? '' : 'none';
+        if (groupHasVisible && hasConditions) {
+          var body = g.querySelector('.bot-config-group-body');
+          if (body) body.classList.remove('hidden');
+          var chev = g.querySelector('.group-chevron');
+          if (chev) chev.style.transform = 'rotate(180deg)';
+        }
+      });
+
+      var countEl = $('#settings-count');
+      if (countEl) {
+        countEl.textContent = hasConditions ? visibleRows + ' / ' + totalRows + ' settings' : totalRows + ' settings';
+      }
+      filterCount.textContent = hasConditions
+        ? i18next.t('web:settings.filters.result_count', {
+            count: visibleRows,
+            total: totalRows,
+            defaultValue: visibleRows + ' matching',
+          })
+        : '';
+    }
+
+    filterBar.addEventListener('click', function (e) {
+      var btn = e.target.closest('.bot-config-filter-chip');
+      if (!btn) return;
+      var id = btn.dataset.filter;
+      activeFilters[id] = !activeFilters[id];
+      btn.classList.toggle('text-accent', Boolean(activeFilters[id]));
+      btn.classList.toggle('border-accent/40', Boolean(activeFilters[id]));
+      btn.classList.toggle('bg-accent/10', Boolean(activeFilters[id]));
+      applyBotConfigFilters();
+    });
+
     if (searchInput) {
-      searchInput.addEventListener('input', function () {
+      searchInput.oninput = function () {
         var q = this.value.toLowerCase().trim();
         if (q) {
           if (searchClear) searchClear.classList.remove('hidden');
         } else {
           if (searchClear) searchClear.classList.add('hidden');
         }
-
-        var groups = container.querySelectorAll('.bot-config-group');
-        var categories = container.querySelectorAll('.settings-category');
-
-        if (!q) {
-          // Reset view
-          categories.forEach(function (c) {
-            c.style.display = '';
-            var rows = c.querySelectorAll('.setting-row');
-            rows.forEach(function (r) {
-              r.style.display = '';
-            });
-          });
-          groups.forEach(function (g) {
-            g.style.display = '';
-          });
-          return;
-        }
-
-        if (groups.length > 0) {
-          groups.forEach(function (g) {
-            var hasVisible = false;
-            var cats = g.querySelectorAll('.settings-category');
-            cats.forEach(function (c) {
-              var catLabel = c.dataset.sectionLabel || '';
-              var rows = c.querySelectorAll('.setting-row');
-              var catHasVisible = false;
-
-              rows.forEach(function (r) {
-                var key = (r.dataset.key || '').toLowerCase();
-                var nameEl = r.querySelector('.setting-name');
-                var name = nameEl ? nameEl.textContent.toLowerCase() : '';
-                var desc = r.dataset.desc || '';
-
-                if (catLabel.includes(q) || key.includes(q) || name.includes(q) || desc.includes(q)) {
-                  r.style.display = '';
-                  catHasVisible = true;
-                  hasVisible = true;
-                } else {
-                  r.style.display = 'none';
-                }
-              });
-
-              if (catHasVisible) {
-                c.style.display = '';
-                // Expand category
-                var items = c.querySelector('.settings-category-items');
-                if (items) items.classList.add('open');
-              } else {
-                c.style.display = 'none';
-              }
-            });
-
-            if (hasVisible) {
-              g.style.display = '';
-              // Expand group
-              var body = g.querySelector('.bot-config-group-body');
-              if (body) body.classList.remove('hidden');
-              var chev = g.querySelector('.group-chevron');
-              if (chev) chev.style.transform = 'rotate(180deg)';
-            } else {
-              g.style.display = 'none';
-            }
-          });
-        } else {
-          categories.forEach(function (c) {
-            var catLabel = c.dataset.sectionLabel || '';
-            var rows = c.querySelectorAll('.setting-row');
-            var catHasVisible = false;
-
-            rows.forEach(function (r) {
-              var key = (r.dataset.key || '').toLowerCase();
-              var nameEl = r.querySelector('.setting-name');
-              var name = nameEl ? nameEl.textContent.toLowerCase() : '';
-              var desc = r.dataset.desc || '';
-
-              if (catLabel.includes(q) || key.includes(q) || name.includes(q) || desc.includes(q)) {
-                r.style.display = '';
-                catHasVisible = true;
-              } else {
-                r.style.display = 'none';
-              }
-            });
-
-            if (catHasVisible) {
-              c.style.display = '';
-              // Expand category
-              var items = c.querySelector('.settings-category-items');
-              if (items) items.classList.add('open');
-            } else {
-              c.style.display = 'none';
-            }
-          });
-        }
-      });
+        applyBotConfigFilters();
+      };
 
       if (searchClear) {
         searchClear.addEventListener('click', function () {
@@ -880,63 +1257,367 @@ Panel.tabs = Panel.tabs || {};
         });
       }
     }
+    S.botConfigFilterRefresh = applyBotConfigFilters;
+    applyBotConfigFilters();
 
-    // Input changes
-    container.addEventListener('input', function (e) {
-      if (!e.target.classList.contains('bot-config-input')) return;
-      var key = e.target.dataset.key;
-      var orig = e.target.dataset.original;
-      var val = e.target.value;
-      var isSensitive = e.target.dataset.sensitive === 'true';
+    if (container.dataset.botConfigEventsWired !== 'true') {
+      // Input changes
+      container.addEventListener('input', function (e) {
+        if (!e.target.classList.contains('bot-config-input')) return;
+        markBotConfigControlChanged(e.target);
+      });
 
-      if (isSensitive) {
-        if (val.length > 0) {
-          S.botConfigChanged[key] = val;
-          e.target.classList.add('changed');
-        } else {
-          delete S.botConfigChanged[key];
-          e.target.classList.remove('changed');
+      // Selects + toggles
+      container.addEventListener('change', function (e) {
+        if (!e.target.classList.contains('bot-config-toggle') && !e.target.classList.contains('bot-config-input'))
+          return;
+        markBotConfigControlChanged(e.target);
+      });
+      container.dataset.botConfigEventsWired = 'true';
+    }
+  }
+
+  function getBotConfigControlValue(control) {
+    if (!control) return '';
+    if (control.type === 'checkbox') return control.checked ? 'true' : 'false';
+    return control.value || '';
+  }
+
+  function setBotConfigControlValue(control, value) {
+    if (!control) return;
+    if (control.type === 'checkbox') control.checked = String(value) === 'true';
+    else control.value = value || '';
+  }
+
+  function findBotConfigControl(key) {
+    return (
+      $('#settings-grid .bot-config-input[data-key="' + key + '"]') ||
+      $('#settings-grid .bot-config-toggle[data-key="' + key + '"]')
+    );
+  }
+
+  function getBotConfigControlOptions(control) {
+    if (!control || !control.dataset.options) return [];
+    try {
+      var parsed = JSON.parse(control.dataset.options);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_e) {
+      return [];
+    }
+  }
+
+  function setBotConfigControlError(control, message) {
+    var row = control ? control.closest('.setting-row') : null;
+    if (!row) return;
+    var errorEl = row.querySelector('.setting-error');
+    row.classList.toggle('setting-invalid', Boolean(message));
+    control.classList.toggle('invalid', Boolean(message));
+    if (errorEl) {
+      errorEl.textContent = message || '';
+      errorEl.classList.toggle('hidden', !message);
+    }
+  }
+
+  function validateBotConfigControl(control) {
+    var value = getBotConfigControlValue(control);
+    var validator = control.dataset.validator || '';
+    var options = getBotConfigControlOptions(control);
+    var message = '';
+    if (control.dataset.required === 'true' && !String(value).trim()) {
+      message = i18next.t('web:settings.validation.required', { defaultValue: 'This setting is required.' });
+    } else if (value) {
+      if (control.dataset.singleLine === 'true' && /[\r\n]/.test(value)) {
+        message = i18next.t('web:settings.validation.single_line_json', {
+          defaultValue: 'Use single-line JSON here; line breaks are rejected.',
+        });
+      } else if (validator === 'enum' && options.length && options.indexOf(value) === -1) {
+        message = i18next.t('web:settings.validation.invalid_option', { defaultValue: 'Choose a listed option.' });
+      } else if (
+        validator === 'timezone' &&
+        !isBotConfigTimezoneValueValid(value, options, control.dataset.freeform === 'true')
+      ) {
+        message = i18next.t('web:settings.validation.invalid_timezone', {
+          defaultValue: 'Choose a listed IANA timezone.',
+        });
+      } else if (validator === 'time' && !/^\d{2}:\d{2}$/.test(value)) {
+        message = i18next.t('web:settings.validation.invalid_time', { defaultValue: 'Use HH:MM, for example 08:30.' });
+      } else if (validator === 'time') {
+        var parts = value.split(':');
+        var hours = parseInt(parts[0], 10);
+        var minutes = parseInt(parts[1], 10);
+        if (hours > 23 || minutes > 59) {
+          message = i18next.t('web:settings.validation.invalid_time', {
+            defaultValue: 'Use HH:MM, for example 08:30.',
+          });
         }
-      } else {
-        if (val !== orig) {
-          S.botConfigChanged[key] = val;
-          e.target.classList.add('changed');
-        } else {
-          delete S.botConfigChanged[key];
-          e.target.classList.remove('changed');
+      } else if (validator === 'json') {
+        try {
+          var parsed = JSON.parse(value);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('JSON value must be an object');
+          }
+          for (var jsonKey in parsed) {
+            if (!Object.prototype.hasOwnProperty.call(parsed, jsonKey)) continue;
+            var jsonValue = parsed[jsonKey];
+            if (typeof jsonValue !== 'string' && typeof jsonValue !== 'number' && typeof jsonValue !== 'boolean') {
+              message = i18next.t('web:settings.validation.invalid_json_object', {
+                defaultValue: 'Use a JSON object with string, number, or boolean values.',
+              });
+              break;
+            }
+          }
+        } catch (_jsonErr) {
+          if (!message) {
+            message = i18next.t('web:settings.validation.invalid_json', { defaultValue: 'Enter valid JSON.' });
+          }
         }
+      } else if ((control.type === 'number' || control.dataset.valueType === 'integer') && !/^-?\d+$/.test(value)) {
+        message = i18next.t('web:settings.validation.invalid_number', { defaultValue: 'Enter a whole number.' });
       }
-      updateBotConfigBadges();
+    }
+    setBotConfigControlError(control, message);
+    return !message;
+  }
+
+  function isBotConfigTimezoneValueValid(value, options, freeform) {
+    if (!value) return true;
+    if (options.indexOf(value) !== -1) return true;
+    if (isIntlTimezoneValueValid(value)) return true;
+    if (typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function') return false;
+    return freeform || options.length === 0;
+  }
+
+  function isIntlTimezoneValueValid(value) {
+    if (!value || typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') return false;
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: value });
+      return true;
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function getTimezoneComboboxOptions(input) {
+    var optionValues = getBotConfigControlOptions(input);
+    var options = buildTimezoneOptions(optionValues);
+    var current = getBotConfigControlValue(input).trim();
+    if (
+      current &&
+      isIntlTimezoneValueValid(current) &&
+      options.every(function (option) {
+        return option.value !== current;
+      })
+    ) {
+      options.unshift(buildTimezoneOption(current));
+    }
+    return options;
+  }
+
+  function closeTimezoneCombobox(input) {
+    var wrapper = input ? input.closest('.bot-config-combobox') : null;
+    if (!wrapper) return;
+    var list = wrapper.querySelector('.bot-config-combobox-list');
+    var row = input.closest('.setting-row');
+    var group = input.closest('.bot-config-group');
+    if (list) list.classList.add('hidden');
+    input.setAttribute('aria-expanded', 'false');
+    wrapper.classList.remove('open');
+    if (row) row.classList.remove('setting-combobox-open');
+    if (group) group.classList.remove('bot-config-group-open-dropdown');
+  }
+
+  function closeOtherTimezoneComboboxes(activeInput) {
+    $$('.bot-config-input[data-validator="timezone"]').forEach(function (input) {
+      if (input !== activeInput) closeTimezoneCombobox(input);
+    });
+  }
+
+  function renderTimezoneComboboxList(input, showAll) {
+    var wrapper = input.closest('.bot-config-combobox');
+    var list = wrapper ? wrapper.querySelector('.bot-config-combobox-list') : null;
+    if (!list) return;
+    var query = showAll ? '' : input.value;
+    var current = getBotConfigControlValue(input).trim();
+    var options = sortTimezoneOptionsForQuery(
+      getTimezoneComboboxOptions(input).filter(function (option) {
+        return timezoneOptionMatchesQuery(option, query);
+      }),
+      query,
+    );
+
+    if (!options.length) {
+      list.innerHTML =
+        '<div class="bot-config-combobox-empty">' +
+        esc(i18next.t('web:settings.timezone_no_results', { defaultValue: 'No matching timezone.' })) +
+        '</div>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < options.length; i++) {
+      var option = options[i];
+      var selected = option.value === current;
+      html +=
+        '<button type="button" class="bot-config-combobox-option' +
+        (selected ? ' selected' : '') +
+        '" role="option" aria-selected="' +
+        (selected ? 'true' : 'false') +
+        '" aria-label="' +
+        attrEsc(option.offset ? option.value + ' ' + option.offset : option.value) +
+        '" data-timezone-value="' +
+        attrEsc(option.value) +
+        '">' +
+        '<span class="bot-config-combobox-option-main">' +
+        esc(option.value) +
+        '</span>' +
+        (option.offset ? '<span class="bot-config-combobox-option-offset">' + esc(option.offset) + '</span>' : '') +
+        '</button>';
+    }
+    list.innerHTML = html;
+  }
+
+  function openTimezoneCombobox(input, showAll) {
+    var wrapper = input.closest('.bot-config-combobox');
+    var list = wrapper ? wrapper.querySelector('.bot-config-combobox-list') : null;
+    if (!wrapper || !list) return;
+    closeOtherTimezoneComboboxes(input);
+    renderTimezoneComboboxList(input, showAll);
+    var row = input.closest('.setting-row');
+    var group = input.closest('.bot-config-group');
+    list.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+    wrapper.classList.add('open');
+    if (row) row.classList.add('setting-combobox-open');
+    if (group) group.classList.add('bot-config-group-open-dropdown');
+  }
+
+  function selectTimezoneOption(input, value) {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    closeTimezoneCombobox(input);
+    input.focus();
+  }
+
+  function initializeTimezoneComboboxes(container) {
+    var inputs = container.querySelectorAll('.bot-config-input[data-validator="timezone"]');
+    inputs.forEach(function (input) {
+      if (input.dataset.timezoneComboboxWired === 'true') return;
+      input.dataset.timezoneComboboxWired = 'true';
+      var wrapper = input.closest('.bot-config-combobox');
+      var toggle = wrapper ? wrapper.querySelector('.bot-config-combobox-toggle') : null;
+      var list = wrapper ? wrapper.querySelector('.bot-config-combobox-list') : null;
+
+      input.addEventListener('focus', function () {
+        openTimezoneCombobox(input, true);
+      });
+      input.addEventListener('input', function () {
+        openTimezoneCombobox(input, false);
+      });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          closeTimezoneCombobox(input);
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          openTimezoneCombobox(input, true);
+          var first = list ? list.querySelector('.bot-config-combobox-option') : null;
+          if (first) first.focus();
+        }
+      });
+
+      if (toggle) {
+        toggle.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var isOpen = input.getAttribute('aria-expanded') === 'true';
+          if (isOpen) closeTimezoneCombobox(input);
+          else openTimezoneCombobox(input, true);
+        });
+      }
+
+      if (list) {
+        list.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+        });
+        list.addEventListener('click', function (e) {
+          var option = e.target && e.target.closest ? e.target.closest('[data-timezone-value]') : null;
+          if (!option) return;
+          selectTimezoneOption(input, option.dataset.timezoneValue || '');
+        });
+        list.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            closeTimezoneCombobox(input);
+            input.focus();
+            return;
+          }
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+          var options = Array.prototype.slice.call(list.querySelectorAll('.bot-config-combobox-option'));
+          var index = options.indexOf(document.activeElement);
+          if (e.key === 'Enter' && index >= 0) {
+            e.preventDefault();
+            selectTimezoneOption(input, options[index].dataset.timezoneValue || '');
+            return;
+          }
+          e.preventDefault();
+          var nextIndex = e.key === 'ArrowUp' ? Math.max(0, index - 1) : Math.min(options.length - 1, index + 1);
+          if (options[nextIndex]) options[nextIndex].focus();
+        });
+      }
     });
 
-    // Toggles
-    container.addEventListener('change', function (e) {
-      if (!e.target.classList.contains('bot-config-toggle')) return;
-      var key = e.target.dataset.key;
-      var orig = e.target.dataset.original;
-      var val = e.target.checked ? 'true' : 'false';
-      if (val !== orig) {
-        S.botConfigChanged[key] = val;
-      } else {
-        delete S.botConfigChanged[key];
-      }
-      updateBotConfigBadges();
-    });
+    if (!S.timezoneComboboxDocumentWired) {
+      document.addEventListener('click', function (e) {
+        if (e.target && e.target.closest && e.target.closest('.bot-config-combobox')) return;
+        $$('.bot-config-input[data-validator="timezone"]').forEach(function (input) {
+          closeTimezoneCombobox(input);
+        });
+      });
+      S.timezoneComboboxDocumentWired = true;
+    }
+  }
+
+  function markBotConfigControlChanged(control) {
+    var key = control.dataset.key;
+    var orig = control.dataset.original || '';
+    var val = getBotConfigControlValue(control);
+    var isSensitive = control.dataset.sensitive === 'true';
+    var row = control.closest('.setting-row');
+    var changed = isSensitive ? val.length > 0 : val !== orig;
+
+    if (changed) {
+      S.botConfigChanged[key] = val;
+      control.classList.add('changed');
+    } else {
+      delete S.botConfigChanged[key];
+      control.classList.remove('changed');
+    }
+    if (row) row.classList.toggle('setting-changed', changed);
+    validateBotConfigControl(control);
+    updateBotConfigBadges();
+    if (S.botConfigFilterRefresh) S.botConfigFilterRefresh();
   }
 
   function updateBotConfigBadges() {
     const changeCount = Object.keys(S.botConfigChanged).length;
     const hasChanges = changeCount > 0;
+    const invalidCount = $$('#settings-grid .setting-row.setting-invalid').length;
+    const canSave = hasChanges && invalidCount === 0;
     const btn = $('#settings-save-btn');
     if (btn) {
-      btn.disabled = !hasChanges;
-      btn.classList.toggle('opacity-50', !hasChanges);
-      btn.classList.toggle('cursor-not-allowed', !hasChanges);
+      btn.disabled = !canSave;
+      btn.classList.toggle('opacity-50', !canSave);
+      btn.classList.toggle('cursor-not-allowed', !canSave);
     }
     const countBadge = $('#settings-change-count');
     if (countBadge) {
-      countBadge.classList.toggle('hidden', !hasChanges);
-      countBadge.textContent = changeCount + ' change' + (changeCount !== 1 ? 's' : '');
+      countBadge.classList.toggle('hidden', !hasChanges && invalidCount === 0);
+      if (invalidCount > 0) {
+        countBadge.textContent = i18next.t('web:settings.validation.invalid_count', {
+          count: invalidCount,
+          defaultValue: invalidCount + ' invalid',
+        });
+      } else {
+        countBadge.textContent = changeCount + ' change' + (changeCount !== 1 ? 's' : '');
+      }
     }
     const resetBtn = $('#settings-reset-btn');
     if (resetBtn) resetBtn.classList.toggle('hidden', !hasChanges);
@@ -959,23 +1640,35 @@ Panel.tabs = Panel.tabs || {};
     const keys = Object.keys(S.botConfigChanged);
     for (let i = 0; i < keys.length; i++) {
       let key = keys[i];
-      let input = $('input.bot-config-input[data-key="' + key + '"]');
-      if (input) {
-        if (input.dataset.sensitive === 'true') input.value = '';
-        else input.value = input.dataset.original;
-        input.classList.remove('changed');
-      }
-      const toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
-      if (toggle) {
-        toggle.checked = toggle.dataset.original === 'true';
+      let control = findBotConfigControl(key);
+      if (control) {
+        if (control.dataset.sensitive === 'true') setBotConfigControlValue(control, '');
+        else setBotConfigControlValue(control, control.dataset.original || '');
+        control.classList.remove('changed', 'invalid');
+        const row = control.closest('.setting-row');
+        if (row) row.classList.remove('setting-changed', 'setting-invalid');
+        validateBotConfigControl(control);
       }
     }
     S.botConfigChanged = {};
     updateBotConfigBadges();
+    if (S.botConfigFilterRefresh) S.botConfigFilterRefresh();
   }
 
   async function commitBotConfig() {
     if (Object.keys(S.botConfigChanged).length === 0) return;
+    const invalidCount = $$('#settings-grid .setting-row.setting-invalid').length;
+    if (invalidCount > 0) {
+      showToast(
+        i18next.t('web:settings.validation.save_blocked_invalid', {
+          count: invalidCount,
+          defaultValue: 'Fix invalid settings before saving.',
+        }),
+        5000,
+      );
+      updateBotConfigBadges();
+      return;
+    }
     const btn = $('#settings-save-btn');
     if (btn) {
       btn.disabled = true;
@@ -993,28 +1686,26 @@ Panel.tabs = Panel.tabs || {};
         for (let ui = 0; ui < updated.length; ui++) {
           let key = updated[ui];
           const newVal = S.botConfigChanged[key];
-          if ($('input.bot-config-input[data-key="' + key + '"][data-sensitive="true"]')) {
-            const sens = $('input.bot-config-input[data-key="' + key + '"]');
-            if (sens) {
-              sens.value = '';
-              sens.classList.remove('changed');
-            }
+          const control = findBotConfigControl(key);
+          if (control && control.dataset.sensitive === 'true') {
+            setBotConfigControlValue(control, '');
+            control.classList.remove('changed', 'invalid');
+            const sensRow = control.closest('.setting-row');
+            if (sensRow) sensRow.classList.remove('setting-changed', 'setting-invalid');
           } else {
             S.botConfigOriginal[key] = newVal;
-            let input = $('input.bot-config-input[data-key="' + key + '"]');
-            if (input) {
-              input.dataset.original = newVal;
-              input.classList.remove('changed');
-            }
-            const toggle = $('input.bot-config-toggle[data-key="' + key + '"]');
-            if (toggle) {
-              toggle.dataset.original = newVal;
+            if (control) {
+              control.dataset.original = newVal;
+              control.classList.remove('changed', 'invalid');
+              const row = control.closest('.setting-row');
+              if (row) row.classList.remove('setting-changed', 'setting-invalid');
             }
           }
         }
         S.botConfigChanged = {};
         if (btn) btn.textContent = i18next.t('web:schedule_editor.saved') + ' ✓';
         updateBotConfigBadges();
+        if (S.botConfigFilterRefresh) S.botConfigFilterRefresh();
         setSettingsRestartBadge(Boolean(d.restartRequired));
         showToast(
           d.code ? i18next.t('api:errors.' + d.code) : d.message || i18next.t('web:toast.settings_saved'),
@@ -2016,5 +2707,17 @@ Panel.tabs = Panel.tabs || {};
     renderSchedule: renderSchedule,
     renderTomorrowSchedule: renderTomorrowSchedule,
     loadWelcomeEditor: loadWelcomeEditor,
+    _test: {
+      attrEsc: attrEsc,
+      buildTimezoneOption: buildTimezoneOption,
+      buildTimezoneOptions: buildTimezoneOptions,
+      formatUtcOffset: formatUtcOffset,
+      getTimezoneOffsetMinutes: getTimezoneOffsetMinutes,
+      timezoneOptionMatchesQuery: timezoneOptionMatchesQuery,
+      validateBotConfigControl: validateBotConfigControl,
+      isBotConfigTimezoneValueValid: isBotConfigTimezoneValueValid,
+      closeTimezoneCombobox: closeTimezoneCombobox,
+      openTimezoneCombobox: openTimezoneCombobox,
+    },
   };
 })();
