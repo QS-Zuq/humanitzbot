@@ -701,6 +701,20 @@ describe('config.hydrate', () => {
     assert.ok(Number.isNaN(config.pvpEndMinutes));
   });
 
+  it('normalizes out-of-range DB-backed PvP times to NaN so the scheduler guard can skip safely', () => {
+    const repo = mockRepo({
+      app: {
+        pvpStartMinutes: 1500,
+        pvpEndMinutes: -1,
+      },
+    });
+
+    config.hydrate(repo);
+
+    assert.ok(Number.isNaN(config.pvpStartMinutes));
+    assert.ok(Number.isNaN(config.pvpEndMinutes));
+  });
+
   it('drops DB-backed PvP override objects with invalid leaf values', () => {
     const repo = mockRepo({
       app: {

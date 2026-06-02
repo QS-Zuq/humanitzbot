@@ -971,7 +971,7 @@ config.getEffectiveSavePollInterval = function (this: Config, localPath?: string
 // is kept as a legacy no-op for callers that still invoke it.
 
 function _parseHydratedPvpTime(value: unknown): unknown {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 && value < 1440 ? value : NaN;
   if (typeof value !== 'string') return NaN;
   const trimmed = value.trim();
   if (!trimmed) return NaN;

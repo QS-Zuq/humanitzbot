@@ -188,6 +188,7 @@ function _parsePvpTimeMinutes(value: string): number | string {
   if (!match) return value;
   const hours = parseInt(match[1] ?? '0', 10);
   const minutes = parseInt(match[2] ?? '0', 10) || 0;
+  if (hours > 23 || minutes > 59) return value;
   return hours * 60 + minutes;
 }
 

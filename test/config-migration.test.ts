@@ -151,6 +151,20 @@ describe('config-migration', () => {
     assert.deepEqual(app.pvpSettingsOverrides, { OnDeath: '0', VitalDrain: '1' });
   });
 
+  it('migrateEnvToDb() preserves out-of-range PvP strings for safe hydration fallback', () => {
+    migrateEnvToDb(
+      {
+        PVP_START_TIME: '25:00',
+        PVP_END_TIME: '12:65',
+      },
+      repo,
+    );
+
+    const app = repo.get('app');
+    assert.equal(app.pvpStartMinutes, '25:00');
+    assert.equal(app.pvpEndMinutes, '12:65');
+  });
+
   // ── 4. NESTED serverDef preserved ───────────────────────────
 
   it('migrateServersJsonToDb() stores NESTED serverDef as-is', () => {
