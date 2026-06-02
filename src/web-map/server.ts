@@ -37,7 +37,7 @@ import type { PanelApi } from '../server/panel-api.js';
 import serverResources, { formatBytes, formatUptime } from '../server/server-resources.js';
 import { ENV_CATEGORIES, ENV_CATEGORY_GROUPS, GAME_SETTINGS_CATEGORIES } from '../modules/panel-constants.js';
 import { buildMigrationMap, SERVER_SCOPED_KEYS, BOOTSTRAP_KEYS, _coerce } from '../db/config-migration.js';
-import { validateField } from '../db/config-validation.js';
+import { ENV_KEY_VALIDATORS, validateField } from '../db/config-validation.js';
 import { readPrivateKey } from '../utils/security.js';
 import {
   getPlayerList as _getPlayerList,
@@ -3429,6 +3429,269 @@ class WebMapServer {
       };
     }
 
+    type BotConfigFieldMeta = {
+      env: string;
+      label?: string;
+      type?: string;
+      style?: string;
+      sensitive?: boolean;
+    };
+
+    const ENV_FIELD_BY_KEY = new Map<string, BotConfigFieldMeta>();
+    for (const cat of ENV_CATEGORIES as Array<{ fields: BotConfigFieldMeta[] }>) {
+      for (const field of cat.fields) {
+        ENV_FIELD_BY_KEY.set(field.env, field);
+      }
+    }
+
+    const ENUM_OPTION_LABELS: Record<string, Record<string, string>> = {
+      BOT_LOCALE: { en: 'English', 'zh-TW': '繁體中文', 'zh-CN': '简体中文' },
+      AGENT_MODE: {
+        auto: 'auto',
+        agent: 'agent',
+        direct: 'direct',
+        cache: 'cache (legacy)',
+      },
+      AGENT_TRIGGER: { auto: 'auto', rcon: 'rcon', panel: 'panel', ssh: 'ssh', none: 'none' },
+      SESSION_STORE: { memory: 'memory', sqlite: 'sqlite', redis: 'redis' },
+    };
+
+    const ENUM_OPTION_DESCRIPTIONS: Record<string, Record<string, string>> = {
+      AGENT_MODE: {
+        cache: 'Legacy/deprecated compatibility mode; keep existing cache values valid, prefer auto/agent/direct.',
+      },
+    };
+
+    function _buildTimezoneOptionSet(): string[] {
+      const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: 'timeZone') => string[] })
+        .supportedValuesOf;
+      const zones = new Set<string>(['UTC', 'Etc/UTC']);
+      if (supportedValuesOf) {
+        for (const zone of supportedValuesOf('timeZone')) {
+          zones.add(zone);
+        }
+      }
+      return [...zones].sort((a, b) => a.localeCompare(b));
+    }
+
+    const BOT_CONFIG_OPTION_SETS: Record<string, string[]> = {
+      timezones: _buildTimezoneOptionSet(),
+    };
+
+    function _enumControlOptions(envKey: string, options: string[]): Record<string, unknown>[] {
+      const labels = ENUM_OPTION_LABELS[envKey] ?? {};
+      const descriptions = ENUM_OPTION_DESCRIPTIONS[envKey] ?? {};
+      return options.map((value) => {
+        const option: Record<string, unknown> = {
+          value,
+          label: labels[value] ?? value,
+        };
+        if (descriptions[value]) option.description = descriptions[value];
+        if (envKey === 'AGENT_MODE' && value === 'cache') {
+          option.legacy = true;
+          option.deprecated = true;
+        }
+        return option;
+      });
+    }
+
+    function _botConfigControlMetadata(
+      envKey: string,
+      field: BotConfigFieldMeta | undefined,
+      flags: { sensitive?: boolean; readOnly?: boolean },
+    ): Record<string, unknown> {
+      if (flags.readOnly) return { control: 'readonly' };
+      if (flags.sensitive) return { control: 'password' };
+
+      const validator = ENV_KEY_VALIDATORS[envKey];
+      const fieldType = field?.type ?? (envKey === 'ENABLED' ? 'bool' : undefined);
+      if (fieldType === 'bool') return { control: 'toggle', valueType: 'boolean' };
+
+      if (validator) {
+        if (validator.type === 'enum') {
+          return {
+            control: 'select',
+            validator: validator.type,
+            valueType: 'string',
+            options: _enumControlOptions(envKey, validator.options),
+          };
+        }
+        if (validator.type === 'timezone') {
+          return {
+            control: 'combobox',
+            validator: validator.type,
+            valueType: 'string',
+            optionSet: 'timezones',
+            freeform: true,
+          };
+        }
+        if (validator.type === 'time') {
+          return {
+            control: 'time',
+            validator: validator.type,
+            valueType: 'string',
+            pattern: 'HH:MM',
+            required: BOT_CONFIG_REQUIRED_RUNTIME_KEYS.has(envKey),
+          };
+        }
+        if (validator.type === 'json') {
+          return {
+            control: 'textarea',
+            validator: validator.type,
+            valueType: 'json',
+            rows: 3,
+            singleLine: true,
+          };
+        }
+        if (validator.type === 'port') {
+          return {
+            control: 'number',
+            validator: validator.type,
+            valueType: 'integer',
+            inputMode: 'numeric',
+            min: 1,
+            max: 65535,
+          };
+        }
+        if (validator.type === 'interval') {
+          return {
+            control: 'number',
+            validator: validator.type,
+            valueType: 'integer',
+            inputMode: 'numeric',
+            min: validator.min,
+          };
+        }
+        if (validator.type === 'url') {
+          return { control: 'url', validator: validator.type, valueType: 'string' };
+        }
+        if (validator.type === 'snowflake') {
+          return {
+            control: 'text',
+            validator: validator.type,
+            valueType: 'string',
+            inputMode: 'numeric',
+            pattern: 'comma-separated Discord snowflake IDs',
+          };
+        }
+        return { control: 'text', validator: validator.type, valueType: 'string' };
+      }
+
+      if (field?.style === 'paragraph') {
+        return { control: 'textarea', valueType: 'string', rows: 3, singleLine: true };
+      }
+      if (fieldType === 'int') {
+        return { control: 'number', valueType: 'integer', inputMode: 'numeric' };
+      }
+      return { control: 'text', valueType: 'string' };
+    }
+
+    function _botConfigItemMetadata(
+      envKey: string,
+      field: BotConfigFieldMeta | undefined,
+      flags: { sensitive?: boolean; readOnly?: boolean },
+    ): Record<string, unknown> {
+      return {
+        ..._botConfigRuntimeMetadata(envKey),
+        ..._botConfigControlMetadata(envKey, field, flags),
+      };
+    }
+
+    function _formatMinutesAsTime(totalMinutes: number): string {
+      const normalized = ((Math.trunc(totalMinutes) % 1440) + 1440) % 1440;
+      const hours = Math.floor(normalized / 60);
+      const minutes = normalized % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    function _botConfigDisplayValue(envKey: string, rawValue: unknown): string {
+      if ((envKey !== 'PVP_START_TIME' && envKey !== 'PVP_END_TIME') || rawValue == null || rawValue === '') {
+        return safeUnknownString(rawValue);
+      }
+      if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+        return _formatMinutesAsTime(rawValue);
+      }
+      const value = safeUnknownString(rawValue).trim();
+      if (/^\d{2}:\d{2}$/.test(value)) return value;
+      if (/^\d+$/.test(value)) {
+        const n = parseInt(value, 10);
+        if (n >= 0 && n <= 23) return `${String(n).padStart(2, '0')}:00`;
+        if (n >= 0 && n < 1440) return _formatMinutesAsTime(n);
+      }
+      return value;
+    }
+
+    const BOT_CONFIG_TYPED_RUNTIME_KEYS = new Set(['PVP_START_TIME', 'PVP_END_TIME', 'PVP_SETTINGS_OVERRIDES']);
+    const BOT_CONFIG_REQUIRED_RUNTIME_KEYS = new Set(['PVP_START_TIME', 'PVP_END_TIME']);
+
+    function _serializeBotConfigInputValue(value: unknown): string | undefined {
+      switch (typeof value) {
+        case 'string':
+          return value;
+        case 'number':
+        case 'boolean':
+        case 'bigint':
+          return String(value);
+        case 'symbol':
+          return value.toString();
+        case 'object':
+          return JSON.stringify(value);
+        case 'function':
+        case 'undefined':
+          return undefined;
+      }
+    }
+
+    function _parseBotConfigTimeMinutes(value: unknown): number | undefined {
+      if (typeof value === 'number') {
+        if (Number.isFinite(value) && value >= 0 && value < 1440) return value;
+        throw new Error('Invalid time minutes value');
+      }
+      const raw = safeUnknownString(value).trim();
+      if (!raw) return undefined;
+      const match = raw.match(/^(\d{2}):(\d{2})$/);
+      if (!match) throw new Error('Time must be in HH:MM format');
+      const hours = parseInt(match[1] ?? '0', 10);
+      const minutes = parseInt(match[2] ?? '0', 10);
+      if (hours > 23 || minutes > 59) throw new Error('Time hours must be under 24 and minutes under 60');
+      return hours * 60 + minutes;
+    }
+
+    function _normalizeBotConfigJsonObject(value: Record<string, unknown>): Record<string, string> {
+      const normalized: Record<string, string> = {};
+      for (const [key, entryValue] of Object.entries(value)) {
+        if (typeof entryValue !== 'string' && typeof entryValue !== 'number' && typeof entryValue !== 'boolean') {
+          throw new Error('JSON object values must be strings, numbers, or booleans');
+        }
+        normalized[key] = String(entryValue);
+      }
+      return normalized;
+    }
+
+    function _parseBotConfigJsonObject(value: unknown): Record<string, string> | null {
+      if (value == null) return null;
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        return _normalizeBotConfigJsonObject(value as Record<string, unknown>);
+      }
+      const raw = typeof value === 'string' ? value.trim() : safeUnknownString(value).trim();
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('JSON value must be an object');
+      }
+      return _normalizeBotConfigJsonObject(parsed as Record<string, unknown>);
+    }
+
+    function _normalizeBotConfigTypedValue(envKey: string, value: unknown): unknown {
+      if (envKey === 'PVP_START_TIME' || envKey === 'PVP_END_TIME') {
+        return _parseBotConfigTimeMinutes(value);
+      }
+      if (envKey === 'PVP_SETTINGS_OVERRIDES') {
+        return _parseBotConfigJsonObject(value);
+      }
+      return value;
+    }
+
     // ── Per-server bot config (servers.json) helpers ──────────────
 
     /**
@@ -3438,7 +3701,7 @@ class WebMapServer {
      */
     const ENV_TO_SERVERDEF: Record<
       string,
-      { jsonPath: string; sensitive?: boolean; readOnly?: boolean; label?: string }
+      { jsonPath: string; legacyJsonPath?: string; sensitive?: boolean; readOnly?: boolean; label?: string }
     > = {
       // Identity
       SERVER_NAME: { jsonPath: 'name' },
@@ -3476,8 +3739,8 @@ class WebMapServer {
       RESTART_TIMES: { jsonPath: 'restartTimes' },
       RESTART_PROFILES: { jsonPath: 'restartProfiles' },
       // PvP
-      PVP_START_TIME: { jsonPath: 'pvpStartTime' },
-      PVP_END_TIME: { jsonPath: 'pvpEndTime' },
+      PVP_START_TIME: { jsonPath: 'pvpStartMinutes', legacyJsonPath: 'pvpStartTime' },
+      PVP_END_TIME: { jsonPath: 'pvpEndMinutes', legacyJsonPath: 'pvpEndTime' },
       PVP_SETTINGS_OVERRIDES: { jsonPath: 'pvpSettingsOverrides' },
       // Auto messages
       ENABLE_WELCOME_MSG: { jsonPath: 'autoMessages.enableWelcomeMsg' },
@@ -3521,6 +3784,20 @@ class WebMapServer {
       }
       const lastKey = parts[parts.length - 1];
       if (lastKey !== undefined) cur[lastKey] = value;
+    }
+
+    /** Delete a nested value on an object using dot-path. */
+    function _deleteNestedValue(obj: Record<string, unknown>, dotPath: string): void {
+      const parts = dotPath.split('.');
+      let cur: Record<string, unknown> = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const p = parts[i] as string;
+        const next = cur[p];
+        if (!next || typeof next !== 'object') return;
+        cur = next as Record<string, unknown>;
+      }
+      const lastKey = parts[parts.length - 1];
+      if (lastKey !== undefined) Reflect.deleteProperty(cur, lastKey);
     }
 
     /** Build categorized bot-config sections from a servers.json serverDef entry. */
@@ -3581,15 +3858,20 @@ class WebMapServer {
         for (const envKey of cat.keys) {
           const mapping = ENV_TO_SERVERDEF[envKey];
           if (!mapping) continue;
-          const raw = _getNestedValue(serverDef, mapping.jsonPath);
-          const value = safeUnknownString(raw);
+          let raw = _getNestedValue(serverDef, mapping.jsonPath);
+          if ((raw == null || raw === '') && mapping.legacyJsonPath) {
+            raw = _getNestedValue(serverDef, mapping.legacyJsonPath);
+          }
+          const value = _botConfigDisplayValue(envKey, raw);
           const isSensitive = Boolean(mapping.sensitive) || ENV_SENSITIVE_KEYS.has(envKey);
+          const isReadOnly = Boolean(mapping.readOnly) || ENV_READONLY_KEYS.has(envKey);
+          const field = ENV_FIELD_BY_KEY.get(envKey);
           keys.push({
             key: envKey,
             value: isSensitive ? '' : value,
             sensitive: isSensitive,
-            readOnly: false,
-            ..._botConfigRuntimeMetadata(envKey),
+            readOnly: isReadOnly,
+            ..._botConfigItemMetadata(envKey, field, { sensitive: isSensitive, readOnly: isReadOnly }),
             hasValue: isSensitive ? value.length > 0 : undefined,
             commented: !value && !isSensitive, // show as "not set" if empty
           });
@@ -3712,7 +3994,12 @@ class WebMapServer {
             return;
           }
           const sections = _buildServerDefSections(result.data as Record<string, unknown>);
-          return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: result.source });
+          return res.json({
+            sections,
+            groups: ENV_CATEGORY_GROUPS,
+            optionSets: BOT_CONFIG_OPTION_SETS,
+            source: result.source,
+          });
         }
 
         // ── Primary: read from config singleton + DB documents ──
@@ -3744,14 +4031,14 @@ class WebMapServer {
                 // Fields without cfg are stored under their env key in DB
                 rawValue = doc[field.env];
               }
-              const value = safeUnknownString(rawValue);
+              const value = _botConfigDisplayValue(field.env, rawValue);
 
               keys.push({
                 key: field.env,
                 value: isSensitive ? '' : value,
                 sensitive: isSensitive,
                 readOnly: isReadOnly,
-                ..._botConfigRuntimeMetadata(field.env),
+                ..._botConfigItemMetadata(field.env, field, { sensitive: isSensitive, readOnly: isReadOnly }),
                 hasValue: isSensitive ? value.length > 0 && !value.startsWith('your_') : undefined,
                 commented: !value && !isSensitive,
               });
@@ -3759,7 +4046,12 @@ class WebMapServer {
             if (keys.length) sections.push({ id: cat.id, label: cat.label, keys });
           }
 
-          return res.json({ sections, groups: ENV_CATEGORY_GROUPS, source: 'database' });
+          return res.json({
+            sections,
+            groups: ENV_CATEGORY_GROUPS,
+            optionSets: BOT_CONFIG_OPTION_SETS,
+            source: 'database',
+          });
         }
 
         // ── Legacy fallback: read from .env ──
@@ -3789,27 +4081,32 @@ class WebMapServer {
           if (entry.type === 'keyval') {
             const entryKey = (entry as EnvEntry).key as string;
             const entryValue = (entry as EnvEntry).value as string;
-            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey);
+            const field = ENV_FIELD_BY_KEY.get(entryKey);
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey) || Boolean(field?.sensitive);
             const isReadOnly = ENV_READONLY_KEYS.has(entryKey);
+            const value = _botConfigDisplayValue(entryKey, entryValue);
             currentSection.keys.push({
               key: entryKey,
-              value: isSensitive ? '' : entryValue,
+              value: isSensitive ? '' : value,
               sensitive: isSensitive,
               readOnly: isReadOnly,
-              ..._botConfigRuntimeMetadata(entryKey),
-              hasValue: isSensitive ? entryValue.length > 0 && !entryValue.startsWith('your_') : undefined,
+              ..._botConfigItemMetadata(entryKey, field, { sensitive: isSensitive, readOnly: isReadOnly }),
+              hasValue: isSensitive ? value.length > 0 && !value.startsWith('your_') : undefined,
               commented: false,
             });
           } else if (entry.type === 'commented') {
             const entryKey = (entry as EnvEntry).key as string;
             const entryValue = (entry as EnvEntry).value as string;
-            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey);
+            const field = ENV_FIELD_BY_KEY.get(entryKey);
+            const isSensitive = ENV_SENSITIVE_KEYS.has(entryKey) || Boolean(field?.sensitive);
+            const isReadOnly = ENV_READONLY_KEYS.has(entryKey);
+            const value = _botConfigDisplayValue(entryKey, entryValue);
             currentSection.keys.push({
               key: entryKey,
-              value: isSensitive ? '' : entryValue,
+              value: isSensitive ? '' : value,
               sensitive: isSensitive,
-              readOnly: false,
-              ..._botConfigRuntimeMetadata(entryKey),
+              readOnly: isReadOnly,
+              ..._botConfigItemMetadata(entryKey, field, { sensitive: isSensitive, readOnly: isReadOnly }),
               hasValue: false,
               commented: true,
             });
@@ -3817,7 +4114,7 @@ class WebMapServer {
         }
         if (currentSection.keys.length > 0) sections.push(currentSection);
 
-        res.json({ sections, groups: ENV_CATEGORY_GROUPS });
+        res.json({ sections, groups: ENV_CATEGORY_GROUPS, optionSets: BOT_CONFIG_OPTION_SETS });
       } catch (err: unknown) {
         sendError(res, API_ERRORS.FAILED_TO_READ_BOT_CONFIG, 500, safeError(err));
       }
@@ -3842,7 +4139,31 @@ class WebMapServer {
       const validationMigrationMap = buildMigrationMap();
       const normalizedChanges: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(changes)) {
-        const v = String(value);
+        let v: string;
+        try {
+          const serialized = _serializeBotConfigInputValue(value);
+          if (typeof serialized !== 'string') {
+            sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
+              key,
+              reason: 'Value must be serializable to a string',
+            });
+            return;
+          }
+          v = serialized;
+        } catch {
+          sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
+            key,
+            reason: 'Value must be JSON-serializable',
+          });
+          return;
+        }
+        if (BOT_CONFIG_REQUIRED_RUNTIME_KEYS.has(key) && (value == null || !v.trim())) {
+          sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, {
+            key,
+            reason: 'Value is required',
+          });
+          return;
+        }
         if (/[\r\n]/.test(v)) {
           sendError(res, API_ERRORS.INVALID_VALUE_CONTAINS_NEWLINE, 400, key);
           return;
@@ -3851,14 +4172,19 @@ class WebMapServer {
           sendError(res, API_ERRORS.VALUE_TOO_LONG, 400, key);
           return;
         }
-        if (BOT_CONFIG_RUNTIME_VALIDATION_KEYS.has(key)) {
+        if (ENV_KEY_VALIDATORS[key] || BOT_CONFIG_RUNTIME_VALIDATION_KEYS.has(key)) {
           const mapping = validationMigrationMap[key];
-          const validation = validateField(key, value as string | number | boolean | null | undefined, mapping);
+          const validation = validateField(key, value, mapping);
           if (!validation.valid) {
             sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, { key, reason: validation.error });
             return;
           }
-          normalizedChanges[key] = validation.value;
+          try {
+            normalizedChanges[key] = _normalizeBotConfigTypedValue(key, validation.value);
+          } catch (err: unknown) {
+            sendError(res, API_ERRORS.INVALID_BOT_CONFIG_VALUE, 400, { key, reason: errMsg(err) });
+            return;
+          }
         } else {
           normalizedChanges[key] = value;
         }
@@ -3873,48 +4199,48 @@ class WebMapServer {
             for (const [envKey, value] of Object.entries(normalizedChanges)) {
               const mapping = ENV_TO_SERVERDEF[envKey];
               if (!mapping) continue; // ignore keys not in the mapping
-              const val = String(value);
-              // Convert booleans for boolean-like fields
-              let coerced: string | boolean | number = val;
-              if (val === 'true') coerced = true;
-              else if (val === 'false') coerced = false;
-              else if (
-                /^\d+$/.test(val) &&
-                !envKey.includes('ID') &&
-                !envKey.includes('PATH') &&
-                !envKey.includes('NAME') &&
-                !envKey.includes('TEXT') &&
-                !envKey.includes('HOST') &&
-                !envKey.includes('USER') &&
-                !envKey.includes('PASSWORD') &&
-                !envKey.includes('KEY') &&
-                !envKey.includes('LINK') &&
-                !envKey.includes('URL') &&
-                !envKey.includes('CONTAINER') &&
-                !envKey.includes('TIMEZONE') &&
-                !envKey.includes('OVERRIDES') &&
-                !envKey.includes('PROFILES') &&
-                !envKey.includes('TIMES')
-              ) {
-                coerced = parseInt(val, 10);
+              const val =
+                value == null
+                  ? ''
+                  : typeof value === 'string'
+                    ? value
+                    : typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint'
+                      ? String(value)
+                      : safeUnknownString(value);
+              // Convert booleans for boolean-like fields while preserving typed runtime fields.
+              let coerced: unknown = value;
+              if (!BOT_CONFIG_TYPED_RUNTIME_KEYS.has(envKey)) {
+                coerced = val;
+                if (val === 'true') coerced = true;
+                else if (val === 'false') coerced = false;
+                else if (
+                  /^\d+$/.test(val) &&
+                  !envKey.includes('ID') &&
+                  !envKey.includes('PATH') &&
+                  !envKey.includes('NAME') &&
+                  !envKey.includes('TEXT') &&
+                  !envKey.includes('HOST') &&
+                  !envKey.includes('USER') &&
+                  !envKey.includes('PASSWORD') &&
+                  !envKey.includes('KEY') &&
+                  !envKey.includes('LINK') &&
+                  !envKey.includes('URL') &&
+                  !envKey.includes('CONTAINER') &&
+                  !envKey.includes('TIMEZONE') &&
+                  !envKey.includes('OVERRIDES') &&
+                  !envKey.includes('PROFILES') &&
+                  !envKey.includes('TIMES')
+                ) {
+                  coerced = parseInt(val, 10);
+                }
               }
-              // Empty string → remove the key (so it falls through to primary defaults via prototype)
+              // Empty/null/undefined → remove the key (so it falls through to primary defaults via prototype)
               if (val === '') {
-                // Delete the nested key
-                const parts = mapping.jsonPath.split('.');
-                let cur: Record<string, unknown> = serverDef;
-                for (let i = 0; i < parts.length - 1; i++) {
-                  if (cur[parts[i] as string] == null) break;
-                  cur = cur[parts[i] as string] as Record<string, unknown>;
-                }
-                if (typeof cur === 'object') {
-                  const lastPart = parts[parts.length - 1];
-                  if (lastPart !== undefined) {
-                    Reflect.deleteProperty(cur, lastPart);
-                  }
-                }
+                _deleteNestedValue(serverDef, mapping.jsonPath);
+                if (mapping.legacyJsonPath) _deleteNestedValue(serverDef, mapping.legacyJsonPath);
               } else {
                 _setNestedValue(serverDef, mapping.jsonPath, coerced);
+                if (mapping.legacyJsonPath) _deleteNestedValue(serverDef, mapping.legacyJsonPath);
               }
               updated.add(envKey);
             }
@@ -3951,10 +4277,9 @@ class WebMapServer {
             if (BOOTSTRAP_KEYS.has(envKey)) continue;
 
             const mapping = migrationMap[envKey];
-            const val = String(rawValue);
             const targetKey = mapping?.cfgKey || envKey;
             const type = mapping?.type || 'string';
-            const coerced = _coerce(val, type);
+            const coerced = BOT_CONFIG_TYPED_RUNTIME_KEYS.has(envKey) ? rawValue : _coerce(String(rawValue), type);
             const scope = mapping?.scope || (SERVER_SCOPED_KEYS.has(envKey) ? 'server:primary' : 'app');
 
             if (scope === 'server:primary') {

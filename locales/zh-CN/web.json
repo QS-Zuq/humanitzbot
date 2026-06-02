@@ -633,7 +633,12 @@
     },
     "secret_set": "已设置",
     "secret_not_set": "未设置",
+    "empty_option": "未设置",
     "read_only": "只读",
+    "timezone_placeholder": "搜索城市、地区或 UTC 时差…",
+    "timezone_show_options": "显示时区选项",
+    "timezone_hint": "实际储存 IANA 名称；可用城市、地区或 UTC 时差搜索。",
+    "timezone_no_results": "找不到符合的时区。",
     "reload_strategy": {
       "live": "即时应用",
       "module_reconfigure": "模块重新配置",
@@ -657,7 +662,30 @@
     "discovering": "检测中…",
     "discover_done": "检测完成",
     "discover_failed": "检测失败",
-    "discover_need_sftp": "请先填写 SFTP 主机和用户"
+    "discover_need_sftp": "请先填写 SFTP 主机和用户",
+    "filters": {
+      "label": "快速筛选",
+      "changed": "已变更",
+      "invalid": "格式错误",
+      "live": "即时生效",
+      "restart_required": "需重启",
+      "secrets": "密钥",
+      "advanced": "高级",
+      "result_count": "符合 {{count}} / {{total}} 项"
+    },
+    "validation": {
+      "single_line_json_hint": "仅支持单行 JSON；保存时会拒绝换行。",
+      "single_line_json": "此字段请使用单行 JSON；换行会被拒绝。",
+      "required": "此设置为必填。",
+      "invalid_option": "请选择列表中的选项。",
+      "invalid_timezone": "请选择列表中的 IANA 时区。",
+      "invalid_time": "请使用 HH:MM，例如 08:30。",
+      "invalid_json": "请输入有效 JSON。",
+      "invalid_json_object": "请使用 JSON 对象，且值只能是字符串、数字或布尔值。",
+      "invalid_number": "请输入整数。",
+      "invalid_count": "{{count}} 项格式错误",
+      "save_blocked_invalid": "请先修正格式错误的设置再保存。"
+    }
   },
   "controls": {
     "power": "电源",

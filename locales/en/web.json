@@ -633,7 +633,12 @@
     },
     "secret_set": "Configured",
     "secret_not_set": "Not configured",
+    "empty_option": "Not set",
     "read_only": "read-only",
+    "timezone_placeholder": "Search city, region, or UTC offset...",
+    "timezone_show_options": "Show timezone options",
+    "timezone_hint": "Stores IANA names; search by city, region, or UTC offset.",
+    "timezone_no_results": "No matching timezone.",
     "reload_strategy": {
       "live": "Live",
       "module_reconfigure": "Module reconfigure",
@@ -657,7 +662,30 @@
     "discovering": "Detecting...",
     "discover_done": "Detection complete",
     "discover_failed": "Detection failed",
-    "discover_need_sftp": "Please fill in SFTP host and user first"
+    "discover_need_sftp": "Please fill in SFTP host and user first",
+    "filters": {
+      "label": "Quick filters",
+      "changed": "Changed",
+      "invalid": "Invalid",
+      "live": "Live",
+      "restart_required": "Restart required",
+      "secrets": "Secrets",
+      "advanced": "Advanced",
+      "result_count": "{{count}} / {{total}} matching"
+    },
+    "validation": {
+      "single_line_json_hint": "Single-line JSON only; line breaks are rejected on save.",
+      "single_line_json": "Use single-line JSON here; line breaks are rejected.",
+      "required": "This setting is required.",
+      "invalid_option": "Choose a listed option.",
+      "invalid_timezone": "Choose a listed IANA timezone.",
+      "invalid_time": "Use HH:MM, for example 08:30.",
+      "invalid_json": "Enter valid JSON.",
+      "invalid_json_object": "Use a JSON object with string, number, or boolean values.",
+      "invalid_number": "Enter a whole number.",
+      "invalid_count": "{{count}} invalid",
+      "save_blocked_invalid": "Fix invalid settings before saving."
+    }
   },
   "controls": {
     "power": "Power",

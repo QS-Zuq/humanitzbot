@@ -261,7 +261,26 @@ describe('validateField', () => {
 
   it('applies enum validator for AGENT_MODE', () => {
     assert.strictEqual(validateField('AGENT_MODE', 'auto').valid, true);
+    assert.strictEqual(validateField('AGENT_MODE', 'cache').valid, true);
     assert.strictEqual(validateField('AGENT_MODE', 'invalid').valid, false);
+  });
+
+  it('applies enum validator for AGENT_TRIGGER', () => {
+    assert.strictEqual(validateField('AGENT_TRIGGER', 'panel').valid, true);
+    assert.strictEqual(validateField('AGENT_TRIGGER', 'invalid').valid, false);
+  });
+
+  it('applies enum validator for BOT_LOCALE', () => {
+    assert.strictEqual(validateField('BOT_LOCALE', 'en').valid, true);
+    assert.strictEqual(validateField('BOT_LOCALE', 'zh-TW').valid, true);
+    assert.strictEqual(validateField('BOT_LOCALE', 'de').valid, false);
+  });
+
+  it('applies enum validator for SESSION_STORE', () => {
+    assert.strictEqual(validateField('SESSION_STORE', 'memory').valid, true);
+    assert.strictEqual(validateField('SESSION_STORE', 'sqlite').valid, true);
+    assert.strictEqual(validateField('SESSION_STORE', 'redis').valid, true);
+    assert.strictEqual(validateField('SESSION_STORE', 'filesystem').valid, false);
   });
 
   it('applies snowflake validator for ADMIN_USER_IDS', () => {
@@ -276,7 +295,9 @@ describe('validateField', () => {
 
   it('applies json validator for PVP_SETTINGS_OVERRIDES', () => {
     assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', '{"OnDeath":"0"}').valid, true);
+    assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', { OnDeath: '0' }).valid, true);
     assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', '{bad}').valid, false);
+    assert.strictEqual(validateField('PVP_SETTINGS_OVERRIDES', ['OnDeath']).valid, false);
   });
 
   it('applies interval validator with clamping for CHAT_POLL_INTERVAL', () => {
@@ -347,6 +368,14 @@ describe('ENV_KEY_VALIDATORS', () => {
   it('has validators for timezone keys', () => {
     assert.strictEqual(ENV_KEY_VALIDATORS.BOT_TIMEZONE.type, 'timezone');
     assert.strictEqual(ENV_KEY_VALIDATORS.LOG_TIMEZONE.type, 'timezone');
+  });
+
+  it('has expected enum option validators for UI-controlled settings', () => {
+    assert.deepStrictEqual(ENV_KEY_VALIDATORS.BOT_LOCALE.options, ['en', 'zh-TW', 'zh-CN']);
+    assert.deepStrictEqual(ENV_KEY_VALIDATORS.AGENT_MODE.options, ['auto', 'agent', 'direct', 'cache']);
+    assert.deepStrictEqual(ENV_KEY_VALIDATORS.AGENT_TRIGGER.options, ['auto', 'rcon', 'panel', 'ssh', 'none']);
+    assert.deepStrictEqual(ENV_KEY_VALIDATORS.SESSION_STORE.options, ['memory', 'sqlite', 'redis']);
+    assert.strictEqual(ENV_KEY_VALIDATORS.SESSION_STORE.type, 'enum');
   });
 
   it('has interval validators with min values matching config.js', () => {

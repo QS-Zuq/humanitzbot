@@ -135,6 +135,22 @@ describe('config-migration', () => {
     assert.equal(app.botLocale, 'en');
   });
 
+  it('migrateEnvToDb() stores PvP settings in runtime-compatible types', () => {
+    migrateEnvToDb(
+      {
+        PVP_START_TIME: '18:00',
+        PVP_END_TIME: '23:30',
+        PVP_SETTINGS_OVERRIDES: '{"OnDeath":"0","VitalDrain":1}',
+      },
+      repo,
+    );
+
+    const app = repo.get('app');
+    assert.equal(app.pvpStartMinutes, 1080);
+    assert.equal(app.pvpEndMinutes, 1410);
+    assert.deepEqual(app.pvpSettingsOverrides, { OnDeath: '0', VitalDrain: '1' });
+  });
+
   // ── 4. NESTED serverDef preserved ───────────────────────────
 
   it('migrateServersJsonToDb() stores NESTED serverDef as-is', () => {

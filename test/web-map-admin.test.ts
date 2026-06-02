@@ -114,7 +114,11 @@ function mockConfigRepo(initial: Record<string, Record<string, unknown>> = {}) {
       docs[scope] = { ...data };
     },
     update(scope: string, patch: Record<string, unknown>) {
-      docs[scope] = { ...(docs[scope] || {}), ...patch };
+      docs[scope] = { ...(docs[scope] || {}) };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) Reflect.deleteProperty(docs[scope], key);
+        else docs[scope][key] = value;
+      }
     },
     delete(scope: string) {
       Reflect.deleteProperty(docs, scope);
@@ -992,7 +996,7 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.CANNOT_MODIFY_READ_ONLY_KEYS);
     });
 
-    it('returns reload strategy metadata for primary bot-config keys', () => {
+    it('returns reload strategy and control metadata for primary bot-config keys', () => {
       const repo = mockConfigRepo();
       const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
       const getBotConfigHandler = getHandlerFromServer(server, 'GET', '/api/panel/bot-config');
@@ -1001,26 +1005,80 @@ describe('Web Map Admin — POST endpoints', () => {
 
       getBotConfigHandler(req, res);
 
-      const sections = (
-        res._json as {
-          sections: Array<{
-            keys: Array<{
-              key: string;
-              reloadStrategy?: string;
-              reloadStrategyReasonKey?: string;
-              readOnly?: boolean;
-              sensitive?: boolean;
-              value?: string;
-            }>;
+      const payload = res._json as {
+        sections: Array<{
+          keys: Array<{
+            key: string;
+            reloadStrategy?: string;
+            reloadStrategyReasonKey?: string;
+            readOnly?: boolean;
+            sensitive?: boolean;
+            value?: string;
+            control?: string;
+            optionSet?: string;
+            freeform?: boolean;
+            options?: Array<Record<string, unknown>>;
+            singleLine?: boolean;
+            required?: boolean;
           }>;
-        }
-      ).sections;
+        }>;
+        optionSets?: { timezones?: string[] };
+      };
+      const sections = payload.sections;
       const keys = new Map(sections.flatMap((section) => section.keys).map((entry) => [entry.key, entry]));
+
+      assert.ok(payload.optionSets?.timezones?.includes('UTC'));
+      assert.equal([...new Set(payload.optionSets?.timezones)].length, payload.optionSets?.timezones?.length);
+      assert.deepEqual(
+        [...(payload.optionSets?.timezones ?? [])].sort((a, b) => a.localeCompare(b)),
+        payload.optionSets?.timezones,
+      );
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: 'Asia/Taipei' });
+        assert.ok(payload.optionSets?.timezones?.includes('Asia/Taipei'));
+      } catch {
+        // Runtime does not support Asia/Taipei, so it should not be offered as a listed timezone.
+      }
 
       assert.equal(keys.get('SHOW_VITALS')?.reloadStrategy, 'live');
       assert.equal(keys.get('ENABLE_STATUS_CHANNELS')?.reloadStrategy, 'module-restart');
       assert.equal(keys.get('SESSION_STORE')?.reloadStrategy, 'bot-restart');
       assert.equal(keys.get('SESSION_STORE')?.reloadStrategyReasonKey, 'settings.reload_strategy_desc.bot_restart');
+      assert.equal(keys.get('SESSION_STORE')?.control, 'select');
+      assert.deepEqual(
+        keys.get('SESSION_STORE')?.options?.map((option) => option.value),
+        ['memory', 'sqlite', 'redis'],
+      );
+
+      assert.equal(keys.get('BOT_LOCALE')?.control, 'select');
+      assert.deepEqual(
+        keys.get('BOT_LOCALE')?.options?.map((option) => option.value),
+        ['en', 'zh-TW', 'zh-CN'],
+      );
+      assert.equal(keys.get('BOT_TIMEZONE')?.control, 'combobox');
+      assert.equal(keys.get('BOT_TIMEZONE')?.optionSet, 'timezones');
+      assert.equal(keys.get('BOT_TIMEZONE')?.freeform, true);
+      assert.equal(keys.get('LOG_TIMEZONE')?.control, 'combobox');
+      assert.equal(keys.get('LOG_TIMEZONE')?.optionSet, 'timezones');
+      assert.equal(keys.get('PVP_START_TIME')?.control, 'time');
+      assert.equal(keys.get('PVP_START_TIME')?.required, true);
+      assert.equal(keys.get('PVP_END_TIME')?.control, 'time');
+      assert.equal(keys.get('PVP_END_TIME')?.required, true);
+      assert.equal(keys.get('PVP_SETTINGS_OVERRIDES')?.control, 'textarea');
+      assert.equal(keys.get('PVP_SETTINGS_OVERRIDES')?.singleLine, true);
+
+      const agentMode = keys.get('AGENT_MODE');
+      assert.ok(agentMode);
+      assert.equal(agentMode.control, 'select');
+      assert.deepEqual(
+        agentMode.options?.map((option) => option.value),
+        ['auto', 'agent', 'direct', 'cache'],
+      );
+      const cacheOption = agentMode.options.find((option) => option.value === 'cache');
+      assert.ok(cacheOption);
+      assert.equal(cacheOption.legacy, true);
+      assert.equal(cacheOption.deprecated, true);
+      assert.match(String(cacheOption.label), /legacy/i);
 
       const sessionSecret = keys.get('WEB_MAP_SESSION_SECRET');
       assert.ok(sessionSecret);
@@ -1029,7 +1087,85 @@ describe('Web Map Admin — POST endpoints', () => {
       assert.equal(sessionSecret.readOnly, true);
       assert.equal(sessionSecret.sensitive, true);
       assert.equal(sessionSecret.value, '');
+      assert.equal(sessionSecret.control, 'readonly');
       assert.equal(Object.prototype.hasOwnProperty.call(sessionSecret, 'reloadStrategyReason'), false);
+
+      const rconPassword = keys.get('RCON_PASSWORD');
+      assert.ok(rconPassword);
+      assert.equal(rconPassword.control, 'password');
+      assert.equal(rconPassword.value, '');
+    });
+
+    it('returns equivalent control metadata for non-primary server bot-config sections', () => {
+      const repo = mockConfigRepo({
+        'server:alpha': {
+          botTimezone: 'Asia/Taipei',
+          logTimezone: 'UTC',
+          pvpStartMinutes: 1080,
+          pvpEndMinutes: 1380,
+          pvpSettingsOverrides: { OnDeath: '0' },
+        },
+      });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const getBotConfigHandler = getHandlerFromServer(server, 'GET', '/api/panel/bot-config');
+      const req = mockReq({
+        srv: mockSrv({
+          isPrimary: false,
+          serverId: 'alpha',
+        }),
+      });
+      const res = mockRes();
+
+      getBotConfigHandler(req, res);
+
+      const payload = res._json as {
+        sections: Array<{ keys: Array<Record<string, unknown>> }>;
+        optionSets?: { timezones?: string[] };
+        source?: string;
+      };
+      const keys = new Map(payload.sections.flatMap((section) => section.keys).map((entry) => [entry.key, entry]));
+
+      assert.equal(payload.source, 'database');
+      assert.ok(payload.optionSets?.timezones?.includes('UTC'));
+      assert.equal(keys.get('BOT_TIMEZONE')?.control, 'combobox');
+      assert.equal(keys.get('BOT_TIMEZONE')?.optionSet, 'timezones');
+      assert.equal(keys.get('LOG_TIMEZONE')?.control, 'combobox');
+      assert.equal(keys.get('PVP_START_TIME')?.control, 'time');
+      assert.equal(keys.get('PVP_END_TIME')?.control, 'time');
+      assert.equal(keys.get('PVP_SETTINGS_OVERRIDES')?.control, 'textarea');
+      assert.equal(keys.get('PVP_SETTINGS_OVERRIDES')?.singleLine, true);
+    });
+
+    it('returns lightweight control metadata for legacy .env bot-config fallback', () => {
+      const server = new WebMapServer(client, { db: mockDb() });
+      const getBotConfigHandler = getHandlerFromServer(server, 'GET', '/api/panel/bot-config');
+      const req = mockReq();
+      const res = mockRes();
+
+      getBotConfigHandler(req, res);
+
+      const payload = res._json as {
+        sections?: Array<{ keys: Array<Record<string, unknown>> }>;
+        optionSets?: { timezones?: string[] };
+      };
+      assert.ok(payload.sections);
+      const keys = new Map(
+        (payload.sections ?? []).flatMap((section) => section.keys).map((entry) => [entry.key, entry]),
+      );
+
+      assert.ok(payload.optionSets?.timezones?.includes('UTC'));
+      if (keys.has('BOT_TIMEZONE')) {
+        assert.equal(keys.get('BOT_TIMEZONE')?.control, 'combobox');
+        assert.equal(keys.get('BOT_TIMEZONE')?.optionSet, 'timezones');
+      }
+      if (keys.has('BOT_LOCALE')) {
+        assert.equal(keys.get('BOT_LOCALE')?.control, 'select');
+      }
+      const sessionSecret = keys.get('WEB_MAP_SESSION_SECRET');
+      assert.ok(sessionSecret, 'legacy .env fixture should include WEB_MAP_SESSION_SECRET');
+      assert.equal(sessionSecret.sensitive, true);
+      assert.equal(sessionSecret.readOnly, true);
+      assert.equal(sessionSecret.value, '');
     });
 
     it('returns 400 when value contains newline', () => {
@@ -1046,6 +1182,143 @@ describe('Web Map Admin — POST endpoints', () => {
       handler(req, res);
       assert.equal(res._status, 400);
       assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.VALUE_TOO_LONG);
+    });
+
+    it('rejects invalid metadata-controlled bot-config values before save', async () => {
+      const cases: Array<[string, unknown]> = [
+        ['AGENT_MODE', 'invalid'],
+        ['AGENT_TRIGGER', 'invalid'],
+        ['SESSION_STORE', 'filesystem'],
+        ['PVP_START_TIME', ''],
+        ['PVP_START_TIME', null],
+        ['PVP_START_TIME', '24:00'],
+        ['PVP_END_TIME', null],
+        ['PVP_END_TIME', '7pm'],
+        ['PVP_SETTINGS_OVERRIDES', '{bad}'],
+        ['PVP_SETTINGS_OVERRIDES', '[]'],
+        ['PVP_SETTINGS_OVERRIDES', '{"OnDeath":{"nested":"0"}}'],
+        ['PVP_SETTINGS_OVERRIDES', { OnDeath: { nested: '0' } }],
+      ];
+
+      for (const [key, value] of cases) {
+        const repo = mockConfigRepo();
+        const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+        const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+        const req = mockReq({ body: { changes: { [key]: value } } });
+        const res = mockRes();
+
+        await postHandler(req, res);
+
+        assert.equal(res._status, 400, `${key} should be rejected`);
+        assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_BOT_CONFIG_VALUE);
+        assert.equal(repo.docs.app, undefined, `${key} should not be saved after validation failure`);
+      }
+    });
+
+    it('keeps JSON textarea single-line by rejecting multiline overrides before JSON parsing', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { PVP_SETTINGS_OVERRIDES: '{\n  "OnDeath": "0"\n}' } } });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 400);
+      assert.equal((res._json as Record<string, unknown>).code, API_ERRORS.INVALID_VALUE_CONTAINS_NEWLINE);
+      assert.equal(repo.docs.app, undefined);
+    });
+
+    it('accepts empty optional values for metadata-controlled fields', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({ body: { changes: { SESSION_STORE: '', PVP_SETTINGS_OVERRIDES: '' } } });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.deepEqual((res._json as Record<string, unknown>).updated, ['SESSION_STORE', 'PVP_SETTINGS_OVERRIDES']);
+      assert.ok(repo.docs.app);
+      assert.equal(repo.docs.app.sessionStore, '');
+      assert.equal(repo.docs.app.pvpSettingsOverrides, null);
+    });
+
+    it('stores already-parsed PvP override objects in runtime-compatible DB types', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            PVP_SETTINGS_OVERRIDES: { OnDeath: '0', VitalDrain: 1, EnableRaid: false },
+          },
+        },
+      });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.ok(repo.docs.app);
+      assert.deepEqual(repo.docs.app.pvpSettingsOverrides, {
+        OnDeath: '0',
+        VitalDrain: '1',
+        EnableRaid: 'false',
+      });
+    });
+
+    it('stores valid PvP bot-config values in runtime-compatible DB types', async () => {
+      const repo = mockConfigRepo();
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        body: {
+          changes: {
+            PVP_START_TIME: '18:00',
+            PVP_END_TIME: '23:30',
+            PVP_SETTINGS_OVERRIDES: '{"OnDeath":"0","VitalDrain":1}',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 200);
+      assert.ok(repo.docs.app);
+      assert.equal(repo.docs.app.pvpStartMinutes, 1080);
+      assert.equal(repo.docs.app.pvpEndMinutes, 1410);
+      assert.deepEqual(repo.docs.app.pvpSettingsOverrides, { OnDeath: '0', VitalDrain: '1' });
+    });
+
+    it('stores non-primary PvP bot-config values in serverDef runtime fields', async () => {
+      const repo = mockConfigRepo({ 'server:alpha': { name: 'Alpha', pvpStartTime: '18:00', pvpEndTime: '23:30' } });
+      const server = new WebMapServer(client, { db: mockDb(), configRepo: repo });
+      const postHandler = getHandlerFromServer(server, 'POST', '/api/panel/bot-config');
+      const req = mockReq({
+        srv: mockSrv({ isPrimary: false, serverId: 'alpha' }),
+        body: {
+          changes: {
+            PVP_START_TIME: '06:15',
+            PVP_END_TIME: '08:45',
+            PVP_SETTINGS_OVERRIDES: '{"VitalDrain":"1"}',
+          },
+        },
+      });
+      const res = mockRes();
+
+      await postHandler(req, res);
+
+      assert.equal(res._status, 200);
+      const alpha = repo.docs['server:alpha'];
+      assert.ok(alpha);
+      assert.equal(alpha.pvpStartMinutes, 375);
+      assert.equal(alpha.pvpEndMinutes, 525);
+      assert.deepEqual(alpha.pvpSettingsOverrides, { VitalDrain: '1' });
+      assert.equal(alpha.pvpStartTime, undefined);
+      assert.equal(alpha.pvpEndTime, undefined);
     });
 
     it('applies explicit live settings to config memory and DB without restartRequired', async () => {
