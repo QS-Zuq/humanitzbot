@@ -126,7 +126,7 @@ const ENV_CATEGORIES = [
     restart: true,
     reloadStrategy: 'connection-reconnect',
     fields: [
-      { env: 'AGENT_MODE', label: 'Mode (auto/agent/direct)', cfg: 'agentMode' },
+      { env: 'AGENT_MODE', label: 'Mode (auto/agent/direct; cache legacy)', cfg: 'agentMode' },
       { env: 'AGENT_TRIGGER', label: 'Trigger (auto/ssh/panel/none)', cfg: 'agentTrigger' },
       {
         env: 'AGENT_POLL_INTERVAL',
@@ -392,7 +392,6 @@ const ENV_CATEGORIES = [
         cfg: 'showCoordinatesAdminOnly',
         type: 'bool',
       },
-      { env: 'SHOW_LORE', label: 'Lore (true/false)', cfg: 'showLore', type: 'bool' },
       { env: 'SHOW_SKILLS', label: 'Skills (true/false)', cfg: 'showSkills', type: 'bool' },
     ],
   },

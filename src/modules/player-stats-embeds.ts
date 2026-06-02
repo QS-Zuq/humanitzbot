@@ -317,7 +317,7 @@ function _buildOverviewEmbed(this: PSCThis): EmbedBuilder {
   // ┌──────────────────────────────────────────────────────────────┐
   // │  1. DYNAMIC DIFFICULTY SCHEDULE — The #1 feature            │
   // └──────────────────────────────────────────────────────────────┘
-  const schedField = buildScheduleField(this._config);
+  const schedField = buildScheduleField(this._config, locale);
   if (schedField) {
     embed.addFields({ name: schedField.name, value: schedField.value });
   }

@@ -589,6 +589,9 @@ describe('config.hydrate', () => {
       rconPort: config.rconPort,
       rconPassword: config.rconPassword,
       showVitals: config.showVitals,
+      pvpStartMinutes: config.pvpStartMinutes,
+      pvpEndMinutes: config.pvpEndMinutes,
+      pvpSettingsOverrides: config.pvpSettingsOverrides,
       _configRepo: config._configRepo,
     };
     delete config._configRepo;
@@ -599,6 +602,9 @@ describe('config.hydrate', () => {
     config.rconPort = saved.rconPort;
     config.rconPassword = saved.rconPassword;
     config.showVitals = saved.showVitals;
+    config.pvpStartMinutes = saved.pvpStartMinutes as number;
+    config.pvpEndMinutes = saved.pvpEndMinutes as number;
+    config.pvpSettingsOverrides = saved.pvpSettingsOverrides as Record<string, string> | null;
     config._configRepo = saved._configRepo;
   });
 
@@ -663,6 +669,109 @@ describe('config.hydrate', () => {
     const repo = mockRepo({});
     config.hydrate(repo);
     assert.equal(config._configRepo, repo);
+  });
+
+  it('normalizes legacy DB-backed PvP strings to runtime-compatible values', () => {
+    const repo = mockRepo({
+      app: {
+        pvpStartMinutes: '18:00',
+        pvpEndMinutes: '23:30',
+        pvpSettingsOverrides: '{"OnDeath":"0","VitalDrain":1}',
+      },
+    });
+
+    config.hydrate(repo);
+
+    assert.equal(config.pvpStartMinutes, 1080);
+    assert.equal(config.pvpEndMinutes, 1410);
+    assert.deepEqual(config.pvpSettingsOverrides, { OnDeath: '0', VitalDrain: '1' });
+  });
+
+  it('normalizes invalid DB-backed PvP times to NaN so the scheduler guard can skip safely', () => {
+    const repo = mockRepo({
+      app: {
+        pvpStartMinutes: '',
+        pvpEndMinutes: 'bad',
+      },
+    });
+
+    config.hydrate(repo);
+
+    assert.ok(Number.isNaN(config.pvpStartMinutes));
+    assert.ok(Number.isNaN(config.pvpEndMinutes));
+  });
+
+  it('normalizes out-of-range DB-backed PvP times to NaN so the scheduler guard can skip safely', () => {
+    const repo = mockRepo({
+      app: {
+        pvpStartMinutes: 1500,
+        pvpEndMinutes: -1,
+      },
+    });
+
+    config.hydrate(repo);
+
+    assert.ok(Number.isNaN(config.pvpStartMinutes));
+    assert.ok(Number.isNaN(config.pvpEndMinutes));
+  });
+
+  it('drops DB-backed PvP override objects with invalid leaf values', () => {
+    const repo = mockRepo({
+      app: {
+        pvpSettingsOverrides: '{"OnDeath":null}',
+      },
+    });
+
+    config.hydrate(repo);
+
+    assert.equal(config.pvpSettingsOverrides, null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// config env normalization — startup config boundary
+// ══════════════════════════════════════════════════════════
+
+describe('config env normalization', () => {
+  const configPath = require.resolve('../src/config');
+  let savedModule: unknown;
+  let savedPvpSettingsOverrides: string | undefined;
+
+  beforeEach(() => {
+    savedModule = require.cache[configPath];
+    savedPvpSettingsOverrides = process.env.PVP_SETTINGS_OVERRIDES;
+  });
+
+  afterEach(() => {
+    if (savedPvpSettingsOverrides !== undefined) {
+      process.env.PVP_SETTINGS_OVERRIDES = savedPvpSettingsOverrides;
+    } else {
+      Reflect.deleteProperty(process.env, 'PVP_SETTINGS_OVERRIDES');
+    }
+    require.cache[configPath] = savedModule as any;
+  });
+
+  /** Delete config from require cache and re-require with current process.env */
+  function reloadConfig() {
+    Reflect.deleteProperty(require.cache, configPath);
+    const cjsRequire = createRequire(__filename);
+    return cjsRequire(configPath).default;
+  }
+
+  it('normalizes PVP_SETTINGS_OVERRIDES env primitive leaves to strings', () => {
+    process.env.PVP_SETTINGS_OVERRIDES = '{"OnDeath":"0","VitalDrain":1,"EnableRaid":false}';
+
+    const cfg = reloadConfig();
+
+    assert.deepEqual(cfg.pvpSettingsOverrides, { OnDeath: '0', VitalDrain: '1', EnableRaid: 'false' });
+  });
+
+  it('drops PVP_SETTINGS_OVERRIDES env objects with nested or null leaf values', () => {
+    process.env.PVP_SETTINGS_OVERRIDES = '{"OnDeath":{"nested":"0"},"VitalDrain":null}';
+
+    const cfg = reloadConfig();
+
+    assert.equal(cfg.pvpSettingsOverrides, null);
   });
 });
 

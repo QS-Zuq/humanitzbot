@@ -161,12 +161,14 @@ function _settingsBlock(
 ): Array<{ name: string; value: string; inline?: boolean }> {
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
   if (cfg.showServerSettings && Object.keys(settings).length > 0) {
-    const sf = _buildSettingsFields(settings, cfg);
+    const sf = _buildSettingsFields(settings, cfg, locale);
     if (sf.length > 0) fields.push(...sf);
   }
 
-  const lootLine = cfg.showLootScarcity && Object.keys(settings).length > 0 ? _buildLootScarcity(settings) : null;
-  const weatherLine = cfg.showWeatherOdds && Object.keys(settings).length > 0 ? _buildWeatherOdds(settings) : null;
+  const lootLine =
+    cfg.showLootScarcity && Object.keys(settings).length > 0 ? _buildLootScarcity(settings, locale) : null;
+  const weatherLine =
+    cfg.showWeatherOdds && Object.keys(settings).length > 0 ? _buildWeatherOdds(settings, locale) : null;
 
   if (lootLine && weatherLine) {
     fields.push(
@@ -270,7 +272,7 @@ function _buildEmbed(
     return embed;
   }
 
-  const schedField = _buildScheduleField(this._config);
+  const schedField = _buildScheduleField(this._config, locale);
   if (schedField) embed.addFields(schedField);
 
   const host = this._config.publicHost || this._config.rconHost || _ts(locale, 'unknown');
@@ -381,7 +383,7 @@ function _buildEmbed(
     embed.addFields({ name: _ts(locale, 'version'), value: _str(info.version), inline: true });
   }
   if (this._config.showHostResources && resources) {
-    embed.addFields(..._buildResourceField(resources));
+    embed.addFields(..._buildResourceField(resources, undefined, locale));
   }
 
   embed.addFields(..._settingsBlock(settings, this._config, locale));
@@ -442,13 +444,13 @@ async function _buildOfflineEmbed(this: StatusContext): Promise<EmbedBuilder> {
   if (this._lastInfo?.version)
     embed.addFields({ name: _ts(locale, 'version'), value: _str(this._lastInfo.version), inline: true });
 
-  const schedField = _buildScheduleField(this._config);
+  const schedField = _buildScheduleField(this._config, locale);
   if (schedField) embed.addFields(schedField);
 
   if (this._config.showHostResources && this._serverResources.backend) {
     try {
       const resources = await this._serverResources.getResources();
-      if (resources) embed.addFields(..._buildResourceField(resources));
+      if (resources) embed.addFields(..._buildResourceField(resources, undefined, locale));
     } catch {
       // ignore resource fetch errors
     }

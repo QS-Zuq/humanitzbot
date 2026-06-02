@@ -83,6 +83,71 @@ Password=`;
   });
 });
 
+describe('PlayerStatsChannel Discord feed i18n', () => {
+  it('localizes activity summary embed content from botLocale', async () => {
+    const channel = new PlayerStatsChannel({} as any, null, {
+      config: {
+        botLocale: 'zh-TW',
+        botTimezone: 'UTC',
+        enableKillFeed: true,
+        enableFishingFeed: false,
+        enableRecipeFeed: false,
+        enableSkillFeed: false,
+        enableProfessionFeed: false,
+        enableLoreFeed: false,
+        enableUniqueFeed: false,
+        enableCompanionFeed: false,
+        enableChallengeFeed: false,
+        getToday: () => '2026-05-31',
+      },
+      playtime: {},
+      playerStats: {},
+      db: null,
+    } as any);
+    const sent: any[] = [];
+    channel._sendFeedEmbed = async (embed: any) => {
+      sent.push(embed.toJSON());
+    };
+
+    await channel._postActivitySummary(
+      {
+        killDeltas: [{ name: 'Tester', delta: { zeeksKilled: 2, headshots: 1 } }],
+        survivalDeltas: [],
+        fishingDeltas: [],
+        recipeDeltas: [],
+        skillDeltas: [],
+        professionDeltas: [],
+        loreDeltas: [],
+        uniqueDeltas: [],
+        companionDeltas: [],
+        challengeDeltas: [],
+      },
+      '2026-05-31',
+    );
+
+    assert.equal(sent[0]?.author?.name, '📊 活動摘要');
+    assert.match(sent[0]?.description ?? '', /擊殺了/);
+  });
+
+  it('localizes world event embed author', async () => {
+    const channel = new PlayerStatsChannel({} as any, null, {
+      config: { locale: 'zh-TW', botTimezone: 'UTC', getToday: () => '2026-05-31' },
+      playtime: {},
+      playerStats: {},
+      db: null,
+    } as any);
+    const sent: any[] = [];
+    channel._sendFeedEmbed = async (embed: any) => {
+      sent.push(embed.toJSON());
+    };
+
+    await channel._detectWorldEvents({ currentSeason: 'Spring' }, { currentSeason: 'Summer' });
+
+    assert.equal(sent[0]?.author?.name, '🌍 世界事件');
+    assert.match(sent[0]?.description ?? '', /季節變更為/);
+  });
+});
+
 // ══════════════════════════════════════════════════════════
 // _cleanItemName
 // ══════════════════════════════════════════════════════════

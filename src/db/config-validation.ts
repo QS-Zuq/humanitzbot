@@ -16,15 +16,34 @@ type ValidResult = { valid: true; value: unknown; warning?: string };
 type InvalidResult = { valid: false; value: unknown; error: string };
 type ValidationResult = ValidResult | InvalidResult;
 
-type FieldValidator = (v: string, arg?: unknown) => ValidationResult;
+type FieldValidator = (v: unknown, arg?: unknown) => ValidationResult;
+
+function serializeValidationValue(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'string':
+      return value;
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+      return String(value);
+    case 'symbol':
+      return value.toString();
+    case 'object':
+      return JSON.stringify(value);
+    case 'function':
+    case 'undefined':
+      return undefined;
+  }
+}
 
 const FIELD_VALIDATORS: Record<string, FieldValidator> = {
   /**
    * Port number: integer 1–65535.
    */
   port(v) {
-    const n = parseInt(v, 10);
-    if (isNaN(n) || n < 1 || n > 65535 || String(n) !== v.trim()) {
+    const raw = String(v);
+    const n = parseInt(raw, 10);
+    if (isNaN(n) || n < 1 || n > 65535 || String(n) !== raw.trim()) {
       return { valid: false, value: v, error: 'Port must be an integer between 1 and 65535' };
     }
     return { valid: true, value: n };
@@ -101,11 +120,14 @@ const FIELD_VALIDATORS: Record<string, FieldValidator> = {
   },
 
   /**
-   * Valid JSON string.
+   * Valid JSON object string or already-parsed object.
    */
   json(v) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return { valid: true, value: v };
+    }
     if (typeof v !== 'string' || !v.trim()) {
-      return { valid: false, value: v, error: 'JSON value must be a non-empty string' };
+      return { valid: false, value: v, error: 'JSON value must be a non-empty object or string' };
     }
     try {
       JSON.parse(v);
@@ -119,7 +141,7 @@ const FIELD_VALIDATORS: Record<string, FieldValidator> = {
    * Interval — integer >= min. Returns clamped value + warning if below min.
    */
   interval(v, min) {
-    const n = parseInt(v, 10);
+    const n = parseInt(String(v), 10);
     if (isNaN(n)) {
       return { valid: false, value: v, error: 'Interval must be an integer (milliseconds)' };
     }
@@ -196,6 +218,7 @@ const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
   AGENT_MODE: { type: 'enum', options: ['auto', 'agent', 'direct', 'cache'] },
   AGENT_TRIGGER: { type: 'enum', options: ['auto', 'rcon', 'panel', 'ssh', 'none'] },
   BOT_LOCALE: { type: 'enum', options: ['en', 'zh-TW', 'zh-CN'] },
+  SESSION_STORE: { type: 'enum', options: ['memory', 'sqlite', 'redis'] },
 
   // Time (HH:MM)
   PVP_START_TIME: { type: 'time' },
@@ -265,17 +288,22 @@ const ENV_KEY_VALIDATORS: Record<string, KeyValidatorDef> = {
  * @param value - The value to validate
  * @param fieldDef - Optional field definition from ENV_CATEGORIES
  */
-function validateField(
-  envKey: string,
-  value: string | number | boolean | null | undefined,
-  fieldDef?: { type?: string },
-): ValidationResult {
+function validateField(envKey: string, value: unknown, fieldDef?: { type?: string }): ValidationResult {
   // Allow empty strings for optional fields (skip validation)
   if (value === '' || value === null || value === undefined) {
     return { valid: true, value: '' };
   }
 
-  const strValue = String(value);
+  let strValue: string;
+  try {
+    const serialized = serializeValidationValue(value);
+    if (typeof serialized !== 'string') {
+      return { valid: false, value, error: 'Value must be serializable to a string' };
+    }
+    strValue = serialized;
+  } catch {
+    return { valid: false, value, error: 'Value must be JSON-serializable' };
+  }
 
   // Generic string guards (match existing web-map/server.js behavior)
   if (strValue.includes('\n') || strValue.includes('\r')) {
@@ -292,7 +320,7 @@ function validateField(
     if (fn) {
       const arg =
         'options' in keyValidator ? keyValidator.options : 'min' in keyValidator ? keyValidator.min : undefined;
-      return fn(strValue, arg);
+      return fn(keyValidator.type === 'json' ? value : strValue, arg);
     }
   }
 

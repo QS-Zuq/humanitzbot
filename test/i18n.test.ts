@@ -37,6 +37,18 @@ describe('i18n module', () => {
     assert.equal(getLocale({ serverConfig: { locale: 'zh-CN' } }), 'zh-CN');
   });
 
+  it('uses server botLocale when locale alias is not provided', () => {
+    assert.equal(getLocale({ serverConfig: { botLocale: 'zh-TW' } }), 'zh-TW');
+  });
+
+  it('trims locale values before checking support', () => {
+    assert.equal(getLocale({ locale: ' zh-TW ' }), 'zh-TW');
+    assert.equal(getLocale({ serverConfig: { locale: ' zh-CN ' } }), 'zh-CN');
+    assert.equal(getLocale({ serverConfig: { botLocale: ' zh-TW ' } }), 'zh-TW');
+    config.botLocale = ' zh-CN ';
+    assert.equal(getLocale({}), 'zh-CN');
+  });
+
   it('returns en when no locale context is provided', () => {
     assert.equal(getLocale({}), 'en');
   });
@@ -78,6 +90,20 @@ describe('i18n module', () => {
     const result = fmtTime(new Date('2026-01-15T13:45:00Z'), 'en');
     assert.equal(typeof result, 'string');
     assert.ok(result.length > 0);
+  });
+
+  it('trims configured timezone before formatting dates and times', () => {
+    const date = new Date('2026-05-24T17:40:01Z');
+
+    assert.equal(fmtDate(date, 'en', ' Asia/Taipei '), fmtDate(date, 'en', 'Asia/Taipei'));
+    assert.equal(fmtTime(date, 'en', ' Asia/Taipei '), fmtTime(date, 'en', 'Asia/Taipei'));
+  });
+
+  it('falls back instead of throwing when timezone config is invalid', () => {
+    const date = new Date('2026-05-24T17:40:01Z');
+
+    assert.doesNotThrow(() => fmtDate(date, 'en', 'Fake/Zone'));
+    assert.doesNotThrow(() => fmtTime(date, 'en', 'Fake/Zone'));
   });
 
   // ── Translation completeness tests ──────────────────────────
