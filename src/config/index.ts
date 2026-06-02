@@ -42,6 +42,13 @@ if (!fs.existsSync(_envPath)) {
 
 dotenv.config();
 
+function envTrimmed(key: string, fallback: string): string {
+  const value = process.env[key];
+  if (value === undefined || value === '') return fallback;
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
 // ── Deprecation: ENABLE_AUTO_MESSAGES → individual sub-toggles ──
 // If the old master toggle is explicitly set to 'false', cascade to sub-toggles
 // unless they have been explicitly set by the user.
@@ -413,14 +420,14 @@ const config = {
   serverName: process.env.SERVER_NAME || '',
 
   // Timezone for daily threads / summaries (IANA format, e.g. 'America/New_York', 'US/Eastern')
-  botTimezone: process.env.BOT_TIMEZONE || 'UTC',
+  botTimezone: envTrimmed('BOT_TIMEZONE', 'UTC'),
 
   // Timezone the game server writes log timestamps in (IANA format, default UTC).
   // Most dedicated-server hosts (Bisect, Nitrado, etc.) run in UTC.
-  logTimezone: process.env.LOG_TIMEZONE || 'UTC',
+  logTimezone: envTrimmed('LOG_TIMEZONE', 'UTC'),
 
   // Bot display language (en, zh-TW, zh-CN)
-  botLocale: process.env.BOT_LOCALE || 'en',
+  botLocale: envTrimmed('BOT_LOCALE', 'en'),
 
   // Behavior
   chatPollInterval: Math.max(parseInt(process.env.CHAT_POLL_INTERVAL ?? '', 10) || 10000, 5000),
@@ -619,12 +626,12 @@ const config = {
   pvpSettingsOverrides: ((): Record<string, string> | null => {
     const raw = process.env.PVP_SETTINGS_OVERRIDES;
     if (!raw || !raw.trim()) return null;
-    try {
-      return JSON.parse(raw) as Record<string, string>;
-    } catch (e) {
-      console.error('[CONFIG] Invalid PVP_SETTINGS_OVERRIDES JSON:', (e as Error).message);
-      return null;
-    }
+    const normalized = _parsePvpSettingsOverridesValue(raw);
+    if (normalized) return normalized;
+    console.error(
+      '[CONFIG] Invalid PVP_SETTINGS_OVERRIDES JSON: expected an object with string, number, or boolean values',
+    );
+    return null;
   })(),
 
   // Per-day PvP hour overrides: PVP_HOURS_MON=18:00-22:00, etc.
@@ -963,6 +970,58 @@ config.getEffectiveSavePollInterval = function (this: Config, localPath?: string
 // config_documents onto the live config singleton. loadDisplayOverrides
 // is kept as a legacy no-op for callers that still invoke it.
 
+function _parseHydratedPvpTime(value: unknown): unknown {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  if (typeof value !== 'string') return NaN;
+  const trimmed = value.trim();
+  if (!trimmed) return NaN;
+  const match = trimmed.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!match) return NaN;
+  const hours = parseInt(match[1] ?? '0', 10);
+  const minutes = parseInt(match[2] ?? '0', 10) || 0;
+  if (hours > 23 || minutes > 59) return NaN;
+  return hours * 60 + minutes;
+}
+
+function _normalizePvpOverrideObject(value: Record<string, unknown>): Record<string, string> | null {
+  const normalized: Record<string, string> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (typeof entryValue !== 'string' && typeof entryValue !== 'number' && typeof entryValue !== 'boolean') {
+      return null;
+    }
+    normalized[key] = String(entryValue);
+  }
+  return normalized;
+}
+
+function _parsePvpSettingsOverridesValue(value: unknown): Record<string, string> | null {
+  if (value == null) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return _normalizePvpOverrideObject(value as Record<string, unknown>);
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? _normalizePvpOverrideObject(parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function _parseHydratedPvpOverrides(value: unknown): unknown {
+  return _parsePvpSettingsOverridesValue(value);
+}
+
+function _normalizeHydratedConfigValue(key: string, value: unknown): unknown {
+  if (key === 'pvpStartMinutes' || key === 'pvpEndMinutes') return _parseHydratedPvpTime(value);
+  if (key === 'pvpSettingsOverrides') return _parseHydratedPvpOverrides(value);
+  return value;
+}
+
 /**
  * Hydrate the config singleton from DB-backed config documents.
  * Called once from index.js after DB init + migration.
@@ -976,7 +1035,7 @@ config.hydrate = function (configRepo: {
     if (appConfig) {
       for (const [key, value] of Object.entries(appConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          setConfigValue(config, key, value);
+          setConfigValue(config, key, _normalizeHydratedConfigValue(key, value));
         }
       }
     }
@@ -984,7 +1043,7 @@ config.hydrate = function (configRepo: {
     if (serverConfig) {
       for (const [key, value] of Object.entries(serverConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          setConfigValue(config, key, value);
+          setConfigValue(config, key, _normalizeHydratedConfigValue(key, value));
         }
       }
     }

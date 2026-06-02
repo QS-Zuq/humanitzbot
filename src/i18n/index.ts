@@ -37,11 +37,11 @@ const I18N_OPTIONS = {
   defaultNS: 'common',
   resources,
   interpolation: { escapeValue: false },
-  initAsync: false,
+  initImmediate: false,
 } as const;
 
 /**
- * Initialize i18next. Safe to await at startup; initAsync:false also
+ * Initialize i18next. Safe to await at startup; initImmediate:false also
  * means the first call completes synchronously, so modules that import and
  * use t() before awaiting this function will still get translations.
  */
@@ -55,35 +55,88 @@ void initI18n();
 
 interface LocaleContext {
   locale?: string;
-  serverConfig?: { locale?: string };
+  serverConfig?: { locale?: string; botLocale?: string };
 }
 
 export function t(key: string, lng: string, vars: Record<string, unknown> = {}): string {
   return i18next.t(key, { lng, ...vars });
 }
 
+function normalizeSupportedLocale(locale?: string): SupportedLang | null {
+  const normalized = locale?.trim();
+  if (normalized && (SUPPORTED_LANGS as readonly string[]).includes(normalized)) {
+    return normalized as SupportedLang;
+  }
+  return null;
+}
+
 export function getLocale(context: LocaleContext = {}): string {
-  if (context.locale && (SUPPORTED_LANGS as readonly string[]).includes(context.locale)) return context.locale;
+  const explicitLocale = normalizeSupportedLocale(context.locale);
+  if (explicitLocale) return explicitLocale;
 
-  const serverLocale = context.serverConfig?.locale;
-  if (serverLocale && (SUPPORTED_LANGS as readonly string[]).includes(serverLocale)) return serverLocale;
+  const serverLocale = normalizeSupportedLocale(context.serverConfig?.locale);
+  if (serverLocale) return serverLocale;
 
-  const globalLocale = config.botLocale;
-  if (globalLocale && (SUPPORTED_LANGS as readonly string[]).includes(globalLocale)) return globalLocale;
+  const serverBotLocale = normalizeSupportedLocale(context.serverConfig?.botLocale);
+  if (serverBotLocale) return serverBotLocale;
+
+  const globalLocale = normalizeSupportedLocale(config.botLocale);
+  if (globalLocale) return globalLocale;
 
   return 'en';
 }
 
+const warnedTimeZones = new Set<string>();
+
+function normalizeTimeZone(timeZone?: string): string {
+  return timeZone == null ? '' : timeZone.trim();
+}
+
+function timeZoneFallbacks(timeZone: string): string[] {
+  // Some runtimes can reject canonical IANA names depending on ICU data. Taiwan
+  // has no DST, so this fixed-offset alias preserves intended display time.
+  if (timeZone === 'Asia/Taipei') return ['Etc/GMT-8'];
+  return [];
+}
+
+function warnRejectedTimeZone(timeZone: string, err: unknown): void {
+  if (warnedTimeZones.has(timeZone)) return;
+  warnedTimeZones.add(timeZone);
+  const reason = err instanceof Error ? err.message : String(err);
+  console.warn('[i18n] Runtime rejected timezone, falling back:', timeZone, reason);
+}
+
+function formatIntlDateTime(
+  date: Date | string | number,
+  lng: string,
+  baseOptions: Intl.DateTimeFormatOptions,
+  timeZone?: string,
+): string {
+  const value = date instanceof Date ? date : new Date(date);
+  const normalizedTimeZone = normalizeTimeZone(timeZone);
+  if (normalizedTimeZone) {
+    try {
+      return new Intl.DateTimeFormat(lng, { ...baseOptions, timeZone: normalizedTimeZone }).format(value);
+    } catch (err) {
+      warnRejectedTimeZone(normalizedTimeZone, err);
+    }
+    for (const fallbackTimeZone of timeZoneFallbacks(normalizedTimeZone)) {
+      try {
+        return new Intl.DateTimeFormat(lng, { ...baseOptions, timeZone: fallbackTimeZone }).format(value);
+      } catch {
+        // Try the next fallback, then runtime-local time below.
+      }
+    }
+  }
+  return new Intl.DateTimeFormat(lng, baseOptions).format(value);
+}
+
 export function fmtDate(date: Date | string | number, lng = 'en', timeZone?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { dateStyle: 'medium' };
-  if (timeZone) opts.timeZone = timeZone;
-  return new Intl.DateTimeFormat(lng, opts).format(date instanceof Date ? date : new Date(date));
+  return formatIntlDateTime(date, lng, { dateStyle: 'medium' }, timeZone);
 }
 
 export function fmtTime(date: Date | string | number, lng = 'en', timeZone?: string): string {
-  const opts: Intl.DateTimeFormatOptions = { timeStyle: 'short' };
-  if (timeZone) opts.timeZone = timeZone;
-  return new Intl.DateTimeFormat(lng, opts).format(date instanceof Date ? date : new Date(date));
+  return formatIntlDateTime(date, lng, { timeStyle: 'short' }, timeZone);
 }
 
 export function fmtNumber(num: number, lng = 'en'): string {

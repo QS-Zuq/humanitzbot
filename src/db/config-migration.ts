@@ -176,6 +176,64 @@ function _coerce(value: string, type: string): boolean | number | string {
   return value;
 }
 
+const TRIMMED_STRING_DEFAULTS: Record<string, string> = {
+  BOT_LOCALE: 'en',
+  BOT_TIMEZONE: 'UTC',
+  LOG_TIMEZONE: 'UTC',
+};
+
+function _parsePvpTimeMinutes(value: string): number | string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!match) return value;
+  const hours = parseInt(match[1] ?? '0', 10);
+  const minutes = parseInt(match[2] ?? '0', 10) || 0;
+  return hours * 60 + minutes;
+}
+
+function _normalizePvpSettingsOverrides(value: Record<string, unknown>): Record<string, string> | null {
+  const normalized: Record<string, string> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (typeof entryValue !== 'string' && typeof entryValue !== 'number' && typeof entryValue !== 'boolean') {
+      return null;
+    }
+    normalized[key] = String(entryValue);
+  }
+  return normalized;
+}
+
+function _parsePvpSettingsOverrides(value: string): Record<string, string> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? _normalizePvpSettingsOverrides(parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function _normalizeMigratedValue(
+  envKey: string,
+  value: boolean | number | string,
+): boolean | number | string | Record<string, unknown> | null {
+  if (typeof value !== 'string') return value;
+  if (envKey === 'PVP_START_TIME' || envKey === 'PVP_END_TIME') {
+    return _parsePvpTimeMinutes(value);
+  }
+  if (envKey === 'PVP_SETTINGS_OVERRIDES') {
+    return _parsePvpSettingsOverrides(value);
+  }
+  const fallback = TRIMMED_STRING_DEFAULTS[envKey];
+  if (fallback != null) {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+  return value;
+}
+
 // ── Migration functions ──────────────────────────────────────
 
 function migrateEnvToDb(
@@ -201,7 +259,7 @@ function migrateEnvToDb(
 
     const { cfgKey, scope, type } = mapping;
     const targetKey = cfgKey || envKey;
-    const coerced = _coerce(rawValue, type);
+    const coerced = _normalizeMigratedValue(envKey, _coerce(rawValue, type));
 
     if (scope === 'server:primary') {
       serverPatch[targetKey] = coerced;

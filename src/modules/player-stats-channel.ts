@@ -17,6 +17,7 @@ import * as playerStatsEmbeds from './player-stats-embeds.js';
 import os from 'os';
 import type { HumanitZDB } from '../db/database.js';
 import type { PanelDownloadApi } from '../server/panel-api.js';
+import { t, getLocale, fmtNumber } from '../i18n/index.js';
 
 interface DbPlayerRow {
   steam_id: string;
@@ -1008,6 +1009,11 @@ class PlayerStatsChannel {
    */
   async _postActivitySummary(deltas: ReturnType<KillTracker['accumulate']>['deltas'], targetDate: string) {
     const sections = [];
+    const locale = getLocale({ serverConfig: this._config });
+    const statsText = (key: string, vars: Record<string, unknown> = {}) =>
+      t(`discord:stats_channel.${key}`, locale, vars);
+    const countText = (count: number) => fmtNumber(count, locale);
+    const pluralSuffix = (count: number) => (count === 1 ? '' : 's');
 
     type Deltas = ReturnType<KillTracker['accumulate']>['deltas'];
     type KillDeltaItem = Deltas['killDeltas'][number];
@@ -1026,27 +1032,48 @@ class PlayerStatsChannel {
       const lines = deltas.killDeltas.map(({ name, delta }: KillDeltaItem) => {
         const total = delta.zeeksKilled || 0;
         const parts: string[] = [];
-        if (delta.headshots) parts.push(`${delta.headshots} headshot${delta.headshots > 1 ? 's' : ''}`);
-        if (delta.meleeKills) parts.push(`${delta.meleeKills} melee`);
-        if (delta.gunKills) parts.push(`${delta.gunKills} gun`);
-        if (delta.blastKills) parts.push(`${delta.blastKills} blast`);
-        if (delta.fistKills) parts.push(`${delta.fistKills} fist`);
-        if (delta.takedownKills) parts.push(`${delta.takedownKills} takedown`);
-        if (delta.vehicleKills) parts.push(`${delta.vehicleKills} vehicle`);
-        const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-        return `**${name}** killed **${total} zeek${total !== 1 ? 's' : ''}**${detail}`;
+        if (delta.headshots) {
+          parts.push(
+            statsText('kills_detail_headshots', {
+              count: countText(delta.headshots),
+              plural_suffix: pluralSuffix(delta.headshots),
+            }),
+          );
+        }
+        if (delta.meleeKills) parts.push(statsText('kills_detail_melee', { count: countText(delta.meleeKills) }));
+        if (delta.gunKills) parts.push(statsText('kills_detail_gun', { count: countText(delta.gunKills) }));
+        if (delta.blastKills) parts.push(statsText('kills_detail_blast', { count: countText(delta.blastKills) }));
+        if (delta.fistKills) parts.push(statsText('kills_detail_fist', { count: countText(delta.fistKills) }));
+        if (delta.takedownKills) {
+          parts.push(statsText('kills_detail_takedown', { count: countText(delta.takedownKills) }));
+        }
+        if (delta.vehicleKills) parts.push(statsText('kills_detail_vehicle', { count: countText(delta.vehicleKills) }));
+        const detail = parts.length > 0 ? statsText('kills_detail_suffix', { details: parts.join(', ') }) : '';
+        return statsText('kills_line', {
+          name,
+          total: countText(total),
+          plural_suffix: pluralSuffix(total),
+          detail,
+        });
       });
-      sections.push({ header: '🧟 Kills', lines });
+      sections.push({ header: statsText('header_kills'), lines });
     }
 
     // ── Survival ──
     if (deltas.survivalDeltas.length > 0 && this._config.enableKillFeed) {
       const lines = deltas.survivalDeltas.map(({ name, delta }: SurvDeltaItem) => {
         const parts: string[] = [];
-        if (delta.daysSurvived) parts.push(`+${delta.daysSurvived} day${delta.daysSurvived > 1 ? 's' : ''} survived`);
-        return `**${name}** — ${parts.join(', ')}`;
+        if (delta.daysSurvived) {
+          parts.push(
+            statsText('survival_days', {
+              days: countText(delta.daysSurvived),
+              plural_suffix: pluralSuffix(delta.daysSurvived),
+            }),
+          );
+        }
+        return statsText('survival_line', { name, details: parts.join(', ') });
       });
-      sections.push({ header: '🏕️ Survival', lines });
+      sections.push({ header: statsText('header_survival'), lines });
     }
 
     // ── Fishing ──
@@ -1057,13 +1084,15 @@ class PlayerStatsChannel {
         const bitten = delta.timesBitten || 0;
         const parts: string[] = [];
         if (total > 0) {
-          const pikeNote = pike > 0 ? ` (${pike} pike)` : '';
-          parts.push(`caught **${total} fish**${pikeNote}`);
+          const pikeNote = pike > 0 ? statsText('fishing_pike_note', { count: countText(pike) }) : '';
+          parts.push(statsText('fishing_caught', { count: countText(total), pike_note: pikeNote }));
         }
-        if (bitten > 0) parts.push(`was bitten **${bitten} time${bitten > 1 ? 's' : ''}**`);
-        return `**${name}** ${parts.join(', ')}`;
+        if (bitten > 0) {
+          parts.push(statsText('fishing_bitten', { count: countText(bitten), plural_suffix: pluralSuffix(bitten) }));
+        }
+        return statsText('fishing_line', { name, details: parts.join(', ') });
       });
-      sections.push({ header: '🎣 Fishing', lines });
+      sections.push({ header: statsText('header_fishing'), lines });
     }
 
     // ── Recipes ──
@@ -1071,32 +1100,44 @@ class PlayerStatsChannel {
       const lines = deltas.recipeDeltas.map(({ name, type, items }: RecipeDeltaItem) => {
         const names = items.map((r) => _cleanItemName(r)).filter(Boolean);
         const display =
-          names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
-        return `**${name}** learned ${type}: ${display}`;
+          names.length <= 5
+            ? names.join(', ')
+            : statsText('list_with_more', { items: names.slice(0, 5).join(', '), count: countText(names.length - 5) });
+        const typeLabel =
+          type === 'crafting'
+            ? statsText('recipe_type_crafting')
+            : type === 'building'
+              ? statsText('recipe_type_building')
+              : type;
+        return statsText('recipes_line', { name, type: typeLabel, display });
       });
-      sections.push({ header: '📖 Recipes', lines });
+      sections.push({ header: statsText('header_recipes'), lines });
     }
 
     // ── Skills ──
     if (deltas.skillDeltas.length > 0 && this._config.enableSkillFeed) {
       const lines = deltas.skillDeltas.map(({ name, items }: SkillDeltaItem) => {
         const names = items.map((s) => _cleanItemName(s).toUpperCase());
-        return `**${name}** unlocked skill${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+        return statsText('skills_line', { name, plural_suffix: pluralSuffix(names.length), names: names.join(', ') });
       });
-      sections.push({ header: '⚡ Skills', lines });
+      sections.push({ header: statsText('header_skills'), lines });
     }
 
     // ── Professions ──
     if (deltas.professionDeltas.length > 0 && this._config.enableProfessionFeed) {
       const lines = deltas.professionDeltas.map(({ name, items }: ProfDeltaItem) => {
         const names = items.map((p) => {
-          if (typeof p === 'number') return PERK_INDEX_MAP[p] || `Profession #${p}`;
+          if (typeof p === 'number') return PERK_INDEX_MAP[p] || statsText('profession_fallback', { id: p });
           if (typeof p === 'string') return PERK_MAP[p] || _cleanItemName(p);
           return '';
         });
-        return `**${name}** unlocked profession${names.length > 1 ? 's' : ''}: **${names.join(', ')}**`;
+        return statsText('professions_line', {
+          name,
+          plural_suffix: pluralSuffix(names.length),
+          names: names.join(', '),
+        });
       });
-      sections.push({ header: '🎓 Professions', lines });
+      sections.push({ header: statsText('header_professions'), lines });
     }
 
     // ── Lore ──
@@ -1112,10 +1153,11 @@ class PlayerStatsChannel {
             return _cleanItemName(l);
           })
           .filter(Boolean);
-        const display = names.length > 0 && names.length <= 3 ? `: ${names.join(', ')}` : '';
-        return `**${name}** discovered **${count} lore entr${count > 1 ? 'ies' : 'y'}**${display}`;
+        const display =
+          names.length > 0 && names.length <= 3 ? statsText('lore_display_suffix', { names: names.join(', ') }) : '';
+        return statsText('lore_line', { name, count: countText(count), plural_suffix: pluralSuffix(count), display });
       });
-      sections.push({ header: '📜 Lore', lines });
+      sections.push({ header: statsText('header_lore'), lines });
     }
 
     // ── Unique Items ──
@@ -1131,10 +1173,23 @@ class PlayerStatsChannel {
           })
           .filter(Boolean);
         const display =
-          names.length <= 5 ? names.join(', ') : `${names.slice(0, 5).join(', ')} +${names.length - 5} more`;
-        return `**${name}** ${type} unique item${items.length > 1 ? 's' : ''}: **${display}**`;
+          names.length <= 5
+            ? names.join(', ')
+            : statsText('list_with_more', { items: names.slice(0, 5).join(', '), count: countText(names.length - 5) });
+        const typeLabel =
+          type === 'found'
+            ? statsText('unique_type_found')
+            : type === 'crafted'
+              ? statsText('unique_type_crafted')
+              : type;
+        return statsText('unique_line', {
+          name,
+          type: typeLabel,
+          plural_suffix: pluralSuffix(items.length),
+          display,
+        });
       });
-      sections.push({ header: '✨ Unique Items', lines });
+      sections.push({ header: statsText('header_unique_items'), lines });
     }
 
     // ── Companions ──
@@ -1143,18 +1198,22 @@ class PlayerStatsChannel {
         const count = items.length;
         const emoji = type === 'horse' ? '🐴' : '🐕';
         const label =
-          type === 'horse' ? `${count} horse${count > 1 ? 's' : ''}` : `${count} companion${count > 1 ? 's' : ''}`;
-        return `${emoji} **${name}** tamed **${label}**`;
+          type === 'horse'
+            ? statsText('companion_horse_label', { count: countText(count), plural_suffix: pluralSuffix(count) })
+            : statsText('companion_companion_label', { count: countText(count), plural_suffix: pluralSuffix(count) });
+        return statsText('companion_line', { emoji, name, label });
       });
-      sections.push({ header: '🐾 Companions', lines });
+      sections.push({ header: statsText('header_companions'), lines });
     }
 
     // ── Challenges ──
     if (deltas.challengeDeltas.length > 0 && this._config.enableChallengeFeed) {
       const lines = deltas.challengeDeltas.flatMap(({ name, completed }: ChallDeltaItem) =>
-        (completed as { name: string; desc: string }[]).map((c) => `**${name}** completed **${c.name}** — *${c.desc}*`),
+        (completed as { name: string; desc: string }[]).map((c) =>
+          statsText('challenge_line', { name, challenge: c.name, description: c.desc }),
+        ),
       );
-      sections.push({ header: '🏆 Challenges', lines });
+      sections.push({ header: statsText('header_challenges'), lines });
     }
 
     if (sections.length === 0) return;
@@ -1183,7 +1242,7 @@ class PlayerStatsChannel {
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i] ?? '';
         const embed = new EmbedBuilder().setDescription(chunk).setColor(0x5865f2);
-        if (i === 0) embed.setAuthor({ name: '📊 Activity Summary' });
+        if (i === 0) embed.setAuthor({ name: statsText('activity_summary') });
         if (i === chunks.length - 1) embed.setTimestamp();
         await this._sendFeedEmbed(embed, targetDate);
       }
@@ -1194,6 +1253,9 @@ class PlayerStatsChannel {
 
   async _detectWorldEvents(prev: Record<string, unknown>, current: Record<string, unknown>) {
     const lines: string[] = [];
+    const locale = getLocale({ serverConfig: this._config });
+    const statsText = (key: string, vars: Record<string, unknown> = {}) =>
+      t(`discord:stats_channel.${key}`, locale, vars);
 
     // Season change
     const prevSeason = typeof prev['currentSeason'] === 'string' ? prev['currentSeason'] : null;
@@ -1201,7 +1263,7 @@ class PlayerStatsChannel {
     if (prevSeason && curSeason && prevSeason !== curSeason) {
       const seasonEmoji: Record<string, string> = { Spring: '🌱', Summer: '☀️', Autumn: '🍂', Winter: '❄️' };
       const emoji = seasonEmoji[curSeason] ?? '🔄';
-      lines.push(`${emoji} Season changed to **${curSeason}**`);
+      lines.push(statsText('world_season_changed', { emoji, season: curSeason }));
     }
 
     // Day milestone (every 10 days)
@@ -1213,20 +1275,20 @@ class PlayerStatsChannel {
       if (curDay > prevDay) {
         // Post milestone at every 10th day, or the first day change after bot start
         if (curDay % 10 === 0 || Math.floor(prevDay / 10) < Math.floor(curDay / 10)) {
-          lines.push(`📅 **Day ${curDay}** reached`);
+          lines.push(statsText('world_day_reached', { day: fmtNumber(curDay, locale) }));
         }
       }
     }
 
     // Airdrop detected
     if (!prev['airdropActive'] && current['airdropActive']) {
-      lines.push('📦 **Airdrop incoming!**');
+      lines.push(statsText('world_airdrop_incoming'));
     }
 
     if (lines.length === 0) return;
 
     const embed = new EmbedBuilder()
-      .setAuthor({ name: '🌍 World Event' })
+      .setAuthor({ name: statsText('world_event') })
       .setDescription(lines.join('\n'))
       .setColor(0x2c3e50)
       .setTimestamp();
