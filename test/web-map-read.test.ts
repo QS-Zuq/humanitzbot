@@ -103,6 +103,7 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     listAllPlayerNames: () => [],
     listAllPlayerDisplayNames: () => [],
     listNamedPlayers: () => [],
+    getPlayerDetail: () => null,
     resolveSteamIdToName: (steamId: string) => steamId,
     resolveNameToSteamId: () => null,
     ...((overrides.player || {}) as Record<string, unknown>),
@@ -335,6 +336,37 @@ describe('Web Map Read Endpoints', () => {
       assert.equal(p0.name, 'Live Alice');
       assert.equal(p0.isOnline, true);
     });
+
+    it('keeps list responses projection-oriented without raw snapshot blobs', async () => {
+      const steamId = '76561198000000006';
+      server._parseSaveData = () =>
+        new Map([
+          [
+            steamId,
+            {
+              x: 100,
+              y: 200,
+              z: 0,
+              male: true,
+              snapshot_json: '{"secret":true}',
+              snapshot: { secret: true },
+              customData: { secret: true },
+            },
+          ],
+        ]);
+
+      const handler = GET('/api/players');
+      const res = mockRes();
+      await handler({ srv: makeSrv({ playerNameMap: { [steamId]: 'Projection Alice' } }), query: {} }, res);
+
+      const players = (res.body as Record<string, unknown>).players as Record<string, unknown>[];
+      const p0 = players[0];
+      assert.ok(p0, 'should have first player');
+      assert.equal(p0.name, 'Projection Alice');
+      assert.equal('snapshot_json' in p0, false);
+      assert.equal('snapshot' in p0, false);
+      assert.equal('customData' in p0, false);
+    });
   });
 
   // ── GET /api/players/:steamId ────────────────────────────
@@ -389,6 +421,116 @@ describe('Web Map Read Endpoints', () => {
 
       assert.equal((res.body as Record<string, unknown>).steamId, steamId);
       assert.equal((res.body as Record<string, unknown>).name, 'Db Bob');
+    });
+
+    it('falls back to the DB full snapshot detail store', () => {
+      const steamId = '76561198000000007';
+      server._parseSaveData = () => new Map();
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Snapshot Bob' }],
+          getPlayerDetail: () => ({
+            steam_id: steamId,
+            has_save_snapshot: true,
+            last_save_snapshot_at: '2026-06-06T01:02:03Z',
+            snapshot: {
+              x: 500,
+              y: -1000,
+              z: 10,
+              male: false,
+              inventory: [{ item: 'Axe', amount: 1 }],
+              challenges: { challengeKill50: 10 },
+            },
+            updated_at: '2026-06-06T01:02:03Z',
+          }),
+        },
+      });
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler(
+        { srv: makeSrv({ db, playerNameMap: { [steamId]: 'Snapshot Bob' } }), params: { steamId }, query: {} },
+        res,
+      );
+
+      const body = res.body as Record<string, unknown>;
+      assert.equal(body.steamId, steamId);
+      assert.equal(body.name, 'Snapshot Bob');
+      assert.deepEqual(body.inventory, [{ item: 'Axe', amount: 1 }]);
+      assert.deepEqual(body.challenges, { challengeKill50: 10 });
+      assert.equal(body.hasSaveSnapshot, true);
+      assert.equal(body.lastSaveSnapshotAt, '2026-06-06T01:02:03Z');
+      assert.equal('snapshot_json' in body, false);
+    });
+
+    it('uses the DB save-backed marker instead of inferring from snapshot shape', () => {
+      const steamId = '76561198000000009';
+      server._parseSaveData = () => new Map();
+      const db = makeMockDb({
+        player: {
+          listAllPlayerNames: () => [{ steam_id: steamId, name: 'Marker Bob' }],
+          getPlayerDetail: () => ({
+            steam_id: steamId,
+            has_save_snapshot: false,
+            last_save_snapshot_at: null,
+            snapshot: {
+              x: 500,
+              y: -1000,
+              z: 10,
+              male: false,
+              health: 0,
+            },
+            updated_at: '2026-06-06T01:02:03Z',
+          }),
+        },
+      });
+
+      const handler = GET('/api/players/:steamId');
+      const res = mockRes();
+      handler(
+        { srv: makeSrv({ db, playerNameMap: { [steamId]: 'Marker Bob' } }), params: { steamId }, query: {} },
+        res,
+      );
+
+      const body = res.body as Record<string, unknown>;
+      assert.equal(body.hasSaveSnapshot, false);
+      assert.equal(body.lastSaveSnapshotAt, null);
+    });
+  });
+
+  describe('GET /api/panel/players/:steamId/snapshot', () => {
+    it('returns the admin full snapshot with metadata without exposing snapshot_json', () => {
+      const steamId = '76561198000000008';
+      const db = makeMockDb({
+        player: {
+          getPlayerDetail: () => ({
+            steam_id: steamId,
+            has_save_snapshot: true,
+            last_save_snapshot_at: '2026-06-06T01:02:03Z',
+            snapshot_json: '{"secret":true}',
+            snapshot: { inventory: [{ item: 'Rifle', amount: 1 }], customField: 'full' },
+            source_file: 'DedicatedSaveMP/76561198000000008.sav',
+            source_mtime_ms: 1234,
+            source_size: 5678,
+            cache_version: 3,
+            agent_version: 3,
+            parser_signature: 'agent:3',
+            updated_at: '2026-06-06T01:02:03Z',
+          }),
+        },
+      });
+
+      const handler = GET('/api/panel/players/:steamId/snapshot');
+      const res = mockRes();
+      handler({ srv: makeSrv({ db }), params: { steamId }, query: {} }, res);
+
+      const body = res.body as Record<string, unknown>;
+      assert.equal(body.steamId, steamId);
+      assert.equal(body.hasSaveSnapshot, true);
+      assert.equal(body.lastSaveSnapshotAt, '2026-06-06T01:02:03Z');
+      assert.deepEqual(body.snapshot, { inventory: [{ item: 'Rifle', amount: 1 }], customField: 'full' });
+      assert.equal((body.metadata as Record<string, unknown>).sourceFile, 'DedicatedSaveMP/76561198000000008.sav');
+      assert.equal('snapshot_json' in body, false);
     });
   });
 

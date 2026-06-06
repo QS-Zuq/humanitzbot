@@ -1087,7 +1087,26 @@ class SaveService extends EventEmitter {
     const idMapCount = this._cacheIdMapCount(cache);
     if (idMapCount > 0) this._agentCapable = true;
     const idMapInfo = idMapCount > 0 ? `, ${String(idMapCount)} names` : ', no idMap';
-    this._log.info(`Downloaded cache: ${sizeMB}MB (${String(playerCount)} players${idMapInfo})`);
+    const playerStats = cache['playerCacheStats'] as Record<string, unknown> | undefined;
+    const playerFilesDiscovered = Number(playerStats?.['discovered'] ?? 0);
+    const playerFilesParsed = Number(playerStats?.['parsed'] ?? 0);
+    const playerFilesReused = Number(playerStats?.['reused'] ?? 0);
+    const playerFileErrors = Number(playerStats?.['errors'] ?? 0);
+    const playerStatsInfo = playerStats
+      ? `, player files discovered ${String(playerFilesDiscovered)}, parsed ${String(playerFilesParsed)}, reused ${String(playerFilesReused)}, errors ${String(playerFileErrors)}`
+      : '';
+    this._log.info(`Downloaded cache: ${sizeMB}MB (${String(playerCount)} players${idMapInfo}${playerStatsInfo})`);
+    if (playerStats?.['mode'] === 'legacy-main-save') {
+      this._log.warn('Agent cache is using legacy main-save player mode; per-player save directory was not found');
+    }
+    if (playerFilesDiscovered > 0 && playerCount === 0) {
+      this._log.warn(
+        `Agent cache discovered ${String(playerFilesDiscovered)} per-player file(s) but contains 0 players`,
+      );
+    }
+    if (playerFileErrors > 0) {
+      this._log.warn(`Agent cache reported ${String(playerFileErrors)} per-player parse error(s)`);
+    }
     return cache;
   }
 

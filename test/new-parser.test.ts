@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
+import Database from 'better-sqlite3';
 
 // ─── New parser modules ─────────────────────────────────────────────────────
 
@@ -531,17 +532,54 @@ describe('HumanitZDB', () => {
       assert.ok(names.includes('vehicles'));
       assert.ok(names.includes('world_state'));
       assert.ok(names.includes('game_items'));
+      assert.ok(names.includes('player_details'));
       assert.ok(names.includes('meta'));
     });
 
     it('sets schema version', () => {
       const version = db._getMeta('schema_version');
-      assert.equal(version, '20');
+      assert.equal(version, '21');
     });
 
     it('creates player_aliases table', () => {
       const tables = db.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
       assert.ok(tables.map((t: any) => t.name).includes('player_aliases'));
+    });
+
+    it('repairs save snapshot schema when metadata says v21 but physical columns are missing', () => {
+      const tmpDir = fs.mkdtempSync(path.join(DATA_DIR, 'tmp-schema-repair-'));
+      const dbPath = path.join(tmpDir, 'humanitz.db');
+      let repairDb: any = null;
+      try {
+        const seedDb = new HumanitZDB({ dbPath, label: 'RepairSeed' });
+        seedDb.init();
+        seedDb.close();
+
+        const raw = new Database(dbPath);
+        raw.exec(`
+          DROP TABLE IF EXISTS player_details;
+          ALTER TABLE players DROP COLUMN has_save_snapshot;
+          ALTER TABLE players DROP COLUMN last_save_snapshot_at;
+          UPDATE meta SET value = '21' WHERE key = 'schema_version';
+        `);
+        raw.close();
+
+        repairDb = new HumanitZDB({ dbPath, label: 'Repair' });
+        repairDb.init();
+
+        const columns = repairDb.db
+          .prepare('PRAGMA table_info(players)')
+          .all()
+          .map((row: any) => row.name);
+        assert.ok(columns.includes('has_save_snapshot'));
+        assert.ok(columns.includes('last_save_snapshot_at'));
+        assert.ok(
+          repairDb.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='player_details'").get(),
+        );
+      } finally {
+        if (repairDb) repairDb.close();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -564,6 +602,17 @@ describe('HumanitZDB', () => {
       assert.equal(p.zeeks_killed, 42);
       assert.ok(Array.isArray(p.inventory));
       assert.equal(p.inventory[0].item, 'Axe');
+      assert.equal(p.has_save_snapshot, true);
+      assert.ok(p.last_save_snapshot_at);
+
+      const detail = db.player.getPlayerDetail('76561198000000001');
+      assert.ok(detail);
+      assert.equal(detail.has_save_snapshot, true);
+      assert.ok(detail.last_save_snapshot_at);
+      assert.equal(detail.source_file, null);
+      assert.ok(detail.snapshot && typeof detail.snapshot === 'object');
+      assert.equal((detail.snapshot as Record<string, unknown>).name, 'TestPlayer');
+      assert.equal((detail.snapshot as Record<string, unknown>).health, 85.5);
     });
 
     it('updates existing player', () => {
@@ -575,6 +624,146 @@ describe('HumanitZDB', () => {
       const p = db.player.getPlayer('76561198000000001');
       assert.equal(p.zeeks_killed, 100);
       assert.ok(Math.abs(p.health - 50) < 0.1);
+    });
+
+    it('stores full save snapshot metadata in player_details', () => {
+      db.player.upsertPlayer('76561198000000005', {
+        name: 'DetailedPlayer',
+        health: 77,
+        inventory: [{ item: 'Rifle', amount: 1 }],
+        unmappedFullField: { nested: true },
+        __saveSource: {
+          sourceFile: '76561198000000005@abc.sav',
+          sourceMtimeMs: 12345.5,
+          sourceSize: 67890,
+          cacheVersion: 3,
+          agentVersion: 3,
+          parserSignature: 'agent-v3',
+        },
+      });
+
+      const p = db.player.getPlayer('76561198000000005');
+      assert.equal(p.has_save_snapshot, true);
+      assert.ok(p.last_save_snapshot_at);
+
+      const detail = db.player.getPlayerDetail('76561198000000005');
+      assert.ok(detail);
+      assert.equal(detail.has_save_snapshot, true);
+      assert.ok(detail.last_save_snapshot_at);
+      assert.equal(detail.source_file, '76561198000000005@abc.sav');
+      assert.equal(detail.source_mtime_ms, 12345.5);
+      assert.equal(detail.source_size, 67890);
+      assert.equal(detail.cache_version, 3);
+      assert.equal(detail.agent_version, 3);
+      assert.equal(detail.parser_signature, 'agent-v3');
+      const snapshot = detail.snapshot as Record<string, unknown>;
+      assert.equal(snapshot.name, 'DetailedPlayer');
+      assert.deepEqual(snapshot.unmappedFullField, { nested: true });
+      assert.equal(Object.prototype.hasOwnProperty.call(snapshot, '__saveSource'), false);
+    });
+
+    it('updates player_details as latest-state rows, not history rows', () => {
+      const steamId = '76561198000000007';
+      db.player.upsertPlayer(steamId, {
+        name: 'LatestState',
+        health: 70,
+        __saveSource: {
+          sourceFile: 'first.sav',
+          sourceMtimeMs: 100,
+          sourceSize: 10,
+          cacheVersion: 3,
+          agentVersion: 3,
+          parserSignature: 'agent-v3',
+        },
+      });
+      db.player.upsertPlayer(steamId, {
+        name: 'LatestState',
+        health: 88,
+        extraLatestField: true,
+        __saveSource: {
+          sourceFile: 'second.sav',
+          sourceMtimeMs: 200,
+          sourceSize: 20,
+          cacheVersion: 3,
+          agentVersion: 3,
+          parserSignature: 'agent-v3',
+        },
+      });
+
+      const rows = db.rawQuery('SELECT * FROM player_details WHERE steam_id = ?', [steamId], { ctx: 'test' });
+      assert.equal(rows.length, 1);
+      const detail = db.player.getPlayerDetail(steamId);
+      assert.ok(detail);
+      assert.equal(detail.has_save_snapshot, true);
+      assert.equal(detail.source_file, 'second.sav');
+      assert.equal((detail.snapshot as Record<string, unknown>).health, 88);
+      assert.equal((detail.snapshot as Record<string, unknown>).extraLatestField, true);
+    });
+
+    it('stores missing snapshot source numeric metadata as null, not zero', () => {
+      db.player.upsertPlayer('76561198000000008', {
+        name: 'NullableMeta',
+        __saveSource: {
+          sourceFile: 'nullable.sav',
+          sourceMtimeMs: null,
+          sourceSize: '',
+          cacheVersion: null,
+          agentVersion: '',
+          parserSignature: 'agent-v3',
+        },
+      });
+
+      const detail = db.player.getPlayerDetail('76561198000000008');
+      assert.ok(detail);
+      assert.equal(detail.source_mtime_ms, null);
+      assert.equal(detail.source_size, null);
+      assert.equal(detail.cache_version, null);
+      assert.equal(detail.agent_version, null);
+      assert.equal(detail.parser_signature, 'agent-v3');
+    });
+
+    it('log-only rows do not become save-backed', () => {
+      db.player.upsertFullLogStats('76561198000000009', {
+        name: 'LogOnly',
+        deaths: 1,
+        pvpKills: 0,
+      });
+
+      const p = db.player.getPlayer('76561198000000009');
+      assert.ok(p);
+      assert.equal(p.has_save_snapshot, false);
+      assert.equal(p.last_save_snapshot_at, null);
+      assert.equal(db.player.getPlayerDetail('76561198000000009'), null);
+    });
+
+    it('playtime-only rows do not become save-backed', () => {
+      db.player.upsertFullPlaytime('76561198000000006', {
+        name: 'PlaytimeOnly',
+        totalMs: 120000,
+        sessions: 1,
+      });
+
+      const p = db.player.getPlayer('76561198000000006');
+      assert.ok(p);
+      assert.equal(p.has_save_snapshot, false);
+      assert.equal(p.last_save_snapshot_at, null);
+      assert.equal(db.player.getPlayerDetail('76561198000000006'), null);
+    });
+
+    it('playtime updates do not clear an existing save-backed marker', () => {
+      const steamId = '76561198000000008';
+      db.player.upsertPlayer(steamId, { name: 'SaveBacked', health: 91 });
+      db.player.upsertFullPlaytime(steamId, {
+        name: 'SaveBacked',
+        totalMs: 240000,
+        sessions: 2,
+      });
+
+      const p = db.player.getPlayer(steamId);
+      assert.ok(p);
+      assert.equal(p.has_save_snapshot, true);
+      assert.ok(p.last_save_snapshot_at);
+      assert.equal(db.player.getPlayerDetail(steamId) !== null, true);
     });
   });
 

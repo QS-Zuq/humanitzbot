@@ -5,9 +5,10 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const cjsRequire = createRequire(__filename);
-
 import * as _player_stats_channel from '../src/modules/player-stats-channel.js';
+import { buildFullPlayerEmbed } from '../src/modules/player-stats-embeds.js';
+
+const cjsRequire = createRequire(__filename);
 const { PlayerStatsChannel, _parseIni, _cleanItemName, _resolveUdsWeather, _dbRowToSave } =
   _player_stats_channel as any;
 
@@ -509,6 +510,16 @@ describe('_dbRowToSave', () => {
     assert.equal(save.rotationYaw, 45);
   });
 
+  it('carries the save-backed presentation marker', () => {
+    const saved = _dbRowToSave({ has_save_snapshot: 1, last_save_snapshot_at: '2026-06-06T01:02:03Z' });
+    assert.equal(saved.hasSaveSnapshot, true);
+    assert.equal(saved.lastSaveSnapshotAt, '2026-06-06T01:02:03Z');
+
+    const presenceOnly = _dbRowToSave({ has_save_snapshot: 0 });
+    assert.equal(presenceOnly.hasSaveSnapshot, false);
+    assert.equal(presenceOnly.lastSaveSnapshotAt, null);
+  });
+
   it('converts JSON array columns with null fallback', () => {
     const row = {
       crafting_recipes: ['Recipe1', 'Recipe2'],
@@ -571,5 +582,106 @@ describe('_dbRowToSave', () => {
     assert.equal(save.startingPerk, 'Carpenter');
     assert.equal(save.affliction, 2);
     assert.equal(save.male, true);
+  });
+});
+
+describe('buildFullPlayerEmbed save-backed vitals gate', () => {
+  const steamId = '76561198000000001';
+
+  function makeEmbedContext(save: Record<string, unknown>) {
+    const playtime = { totalMs: 120000, totalFormatted: '2m', sessions: 1, firstSeen: '2026-06-06T00:00:00Z' };
+    return {
+      _config: {
+        locale: 'en',
+        botTimezone: 'UTC',
+        serverName: 'Test',
+        showHealth: true,
+        showHunger: true,
+        showThirst: true,
+        showStamina: true,
+        showImmunity: false,
+        showBattery: false,
+        canShow: (key: string) => key === 'showVitals' || key === 'showStatusEffects',
+      },
+      _playtime: {
+        getActiveSessions: () => ({}),
+        getLeaderboard: () => [],
+        getPlaytime: () => playtime,
+      },
+      _playerStats: {
+        getAllPlayers: () => [],
+        getStats: () => ({ deaths: 0 }),
+        getNameForId: () => 'TestPlayer',
+      },
+      _saveData: new Map([[steamId, save]]),
+      _clanData: [],
+      _lastSaveUpdate: null,
+      _weeklyStats: null,
+      _serverId: 'primary',
+      _resolvePlayer: () => ({
+        name: 'TestPlayer',
+        firstSeen: '2026-06-06T00:00:00Z',
+        lastActive: null,
+        playtime,
+        log: { deaths: 0 },
+        save,
+      }),
+      getAllTimeKills: () => null,
+      getCurrentLifeKills: () => null,
+      getAllTimeSurvival: () => null,
+      _buildRoster: () => new Map(),
+    };
+  }
+
+  it('renders real vitals for save-backed rows', () => {
+    const embed = buildFullPlayerEmbed.call(
+      makeEmbedContext({
+        hasSaveSnapshot: true,
+        male: true,
+        health: 85,
+        maxHealth: 100,
+        hunger: 62,
+        maxHunger: 100,
+        thirst: 60,
+        maxThirst: 100,
+        stamina: 25,
+        maxStamina: 100,
+      }),
+      steamId,
+    );
+
+    const fields = embed.toJSON().fields ?? [];
+    const vitals = fields.find((field) => field.name.includes('Vitals'));
+    assert.ok(vitals, 'save-backed detail should include vitals');
+    assert.match(vitals.value, /85%/);
+    assert.match(vitals.value, /62%/);
+    assert.match(vitals.value, /60%/);
+    assert.match(vitals.value, /25%/);
+  });
+
+  it('does not render fake 0% vitals for presence-only rows', () => {
+    const embed = buildFullPlayerEmbed.call(
+      makeEmbedContext({
+        hasSaveSnapshot: false,
+        male: true,
+        health: 0,
+        maxHealth: 100,
+        hunger: 0,
+        maxHunger: 100,
+        thirst: 0,
+        maxThirst: 100,
+        stamina: 0,
+        maxStamina: 100,
+      }),
+      steamId,
+    );
+
+    const json = embed.toJSON();
+    const fields = json.fields ?? [];
+    assert.equal(
+      fields.some((field) => field.name.includes('Vitals')),
+      false,
+    );
+    assert.doesNotMatch(JSON.stringify(json), /0%/);
   });
 });

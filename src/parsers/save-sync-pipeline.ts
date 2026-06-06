@@ -35,6 +35,20 @@ export interface SaveCacheData extends Record<string, unknown> {
   idMapPath?: string;
   idMapMtime?: number | null;
   players?: Record<string, Record<string, unknown>>;
+  playerManifest?: {
+    parserSignature?: string;
+    files?: Record<
+      string,
+      {
+        fileName?: string;
+        relPath?: string;
+        mtimeMs?: number;
+        size?: number;
+        status?: string;
+      }
+    >;
+  };
+  playerCacheStats?: Record<string, unknown>;
   worldState?: Record<string, unknown>;
   structures?: unknown[];
   vehicles?: unknown[];
@@ -48,6 +62,7 @@ export interface SaveCacheData extends Record<string, unknown> {
 
 export interface SaveParsedDataInput extends Record<string, unknown> {
   players: Map<string, Record<string, unknown>>;
+  playerSources?: Map<string, Record<string, unknown>>;
   worldState?: Record<string, unknown>;
   structures?: unknown[];
   vehicles?: unknown[];
@@ -107,11 +122,31 @@ export class SaveSyncPipeline {
 
   async syncFromCache(cache: SaveCacheData): Promise<void> {
     const players = new Map<string, Record<string, unknown>>();
+    const playerSources = new Map<string, Record<string, unknown>>();
+    const manifestFiles = cache.playerManifest?.files ?? {};
     for (const [steamId, data] of Object.entries(cache.players ?? {})) {
       players.set(steamId, data);
+      const manifest = manifestFiles[steamId];
+      if (manifest) {
+        playerSources.set(steamId, {
+          sourceFile: manifest.relPath || manifest.fileName || '',
+          sourceMtimeMs: manifest.mtimeMs,
+          sourceSize: manifest.size,
+          cacheVersion: cache.v,
+          agentVersion: cache.v,
+          parserSignature: cache.playerManifest?.parserSignature,
+        });
+      } else if (cache.v != null) {
+        playerSources.set(steamId, {
+          cacheVersion: cache.v,
+          agentVersion: cache.v,
+          parserSignature: cache.playerManifest?.parserSignature,
+        });
+      }
     }
     const parsed: SaveParsedDataInput = {
       players,
+      playerSources,
       worldState: cache.worldState ?? {},
       structures: cache.structures ?? [],
       vehicles: cache.vehicles ?? [],
@@ -153,6 +188,7 @@ export class SaveSyncPipeline {
     phaseMark = performance.now();
     this._deps.db.syncAllFromSave({
       players,
+      playerSources: parsed.playerSources,
       worldState: parsed.worldState,
       structures: parsed.structures,
       vehicles: parsed.vehicles,

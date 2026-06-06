@@ -124,6 +124,8 @@ interface DbPlayerRow {
   challenge_lockpick_suv: number;
   challenge_repair_radio: number;
   custom_data: unknown;
+  has_save_snapshot?: number | boolean;
+  last_save_snapshot_at?: string | null;
 }
 
 interface ClanMemberObj {
@@ -168,6 +170,8 @@ function _dbRowToSave(row: DbPlayerRow | null): Record<string, unknown> | null {
   if (!row) return null;
   return {
     name: row.name,
+    hasSaveSnapshot: row.has_save_snapshot === true || row.has_save_snapshot === 1,
+    lastSaveSnapshotAt: row.last_save_snapshot_at ?? null,
     male: row.male,
     startingPerk: row.starting_perk,
     affliction: row.affliction,
@@ -348,7 +352,9 @@ class PlayerStatsChannel {
   _resolvePlayer(steamId: string) {
     const pt = this._playtime.getPlaytime(steamId);
     const log = this._playerStats.getStats(steamId);
-    const save = this._saveData.get(steamId);
+    const rawSave = this._saveData.get(steamId);
+    const marker = rawSave?.['hasSaveSnapshot'];
+    const save = marker === false || marker === 0 ? undefined : rawSave;
 
     // ── Name resolution: most-recent-event wins ──
     let name: string;

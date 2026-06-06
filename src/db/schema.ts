@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 
@@ -198,9 +198,28 @@ CREATE TABLE IF NOT EXISTS players (
   playtime_last_login TEXT,                    -- ISO timestamp
   playtime_last_seen  TEXT,                    -- ISO timestamp
 
+  -- Save snapshot source marker
+  has_save_snapshot   INTEGER DEFAULT 0,       -- 1 = row has been backed by parsed save data
+  last_save_snapshot_at TEXT,                  -- ISO timestamp of latest save-backed upsert
+
   -- Metadata
   updated_at      TEXT DEFAULT (datetime('now'))
 );
+`;
+
+const PLAYER_DETAILS = `
+CREATE TABLE IF NOT EXISTS player_details (
+  steam_id          TEXT PRIMARY KEY REFERENCES players(steam_id) ON DELETE CASCADE,
+  snapshot_json     TEXT NOT NULL DEFAULT '{}',
+  source_file       TEXT,
+  source_mtime_ms   REAL,
+  source_size       INTEGER,
+  cache_version     INTEGER,
+  agent_version     INTEGER,
+  parser_signature  TEXT,
+  updated_at        TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_player_details_updated ON player_details(updated_at);
 `;
 
 // ─── Clans ──────────────────────────────────────────────────────────────────
@@ -1501,6 +1520,7 @@ const ALL_TABLES = [
   META,
   BOT_STATE,
   PLAYERS,
+  PLAYER_DETAILS,
   PLAYER_ALIASES,
   CLANS,
   CLAN_MEMBERS,

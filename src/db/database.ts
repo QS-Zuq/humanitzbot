@@ -1323,6 +1323,17 @@ class HumanitZDB {
         this._log.info('Migration v18→v20: item tracker paginated panel composite indexes');
       }
 
+      // v20 → v21: save-backed player marker + latest full player snapshot details
+      if (fromVersion < 21) {
+        // Conservative backfill policy: legacy rows may contain old default vitals,
+        // but only a current cache.players sync proves a row is save-backed.
+        // Keep has_save_snapshot=0 until the next successful save snapshot upsert.
+        this._ensureSaveSnapshotSchema();
+        this._log.info(
+          'Migration v20→v21: added player_details and save snapshot markers; legacy rows remain unmarked until next cache.players sync',
+        );
+      }
+
       this._ensureItemMovementsInstanceIdNullable();
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._handle.exec('COMMIT');
@@ -1330,6 +1341,50 @@ class HumanitZDB {
     } else {
       this._ensureItemMovementsInstanceIdNullable();
     }
+
+    const repairedSaveSnapshotSchema = this._ensureSaveSnapshotSchema();
+    if (repairedSaveSnapshotSchema) {
+      this._log.info('Schema repair: ensured player_details and save snapshot marker columns');
+    }
+  }
+
+  _ensureSaveSnapshotSchema(): boolean {
+    let changed = false;
+    const playerColumns = new Set(
+      (this._handle.prepare('PRAGMA table_info(players)').all() as Array<{ name: string }>).map((row) => row.name),
+    );
+
+    if (!playerColumns.has('has_save_snapshot')) {
+      this._handle.exec('ALTER TABLE players ADD COLUMN has_save_snapshot INTEGER DEFAULT 0');
+      changed = true;
+    }
+    if (!playerColumns.has('last_save_snapshot_at')) {
+      this._handle.exec('ALTER TABLE players ADD COLUMN last_save_snapshot_at TEXT');
+      changed = true;
+    }
+
+    const detailTable = this._handle
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='player_details'")
+      .get();
+    if (!detailTable) {
+      changed = true;
+    }
+    this._handle.exec(`
+      CREATE TABLE IF NOT EXISTS player_details (
+        steam_id          TEXT PRIMARY KEY REFERENCES players(steam_id) ON DELETE CASCADE,
+        snapshot_json     TEXT NOT NULL DEFAULT '{}',
+        source_file       TEXT,
+        source_mtime_ms   REAL,
+        source_size       INTEGER,
+        cache_version     INTEGER,
+        agent_version     INTEGER,
+        parser_signature  TEXT,
+        updated_at        TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_player_details_updated ON player_details(updated_at);
+    `);
+
+    return changed;
   }
 
   _ensureItemMovementsInstanceIdNullable() {
@@ -1501,8 +1556,13 @@ class HumanitZDB {
     // Players
     if (parsed.players) {
       const players = parsed.players as Map<string, Record<string, unknown>>;
+      const playerSources =
+        parsed.playerSources instanceof Map
+          ? (parsed.playerSources as Map<string, Record<string, unknown>>)
+          : new Map<string, Record<string, unknown>>();
       for (const [steamId, data] of players) {
-        this.player.upsertPlayer(steamId, data);
+        const source = playerSources.get(steamId);
+        this.player.upsertPlayer(steamId, source ? { ...data, __saveSource: source } : data);
       }
     }
 
