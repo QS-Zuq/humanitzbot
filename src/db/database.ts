@@ -1325,33 +1325,10 @@ class HumanitZDB {
 
       // v20 → v21: save-backed player marker + latest full player snapshot details
       if (fromVersion < 21) {
-        try {
-          this._handle.exec('ALTER TABLE players ADD COLUMN has_save_snapshot INTEGER DEFAULT 0');
-        } catch {
-          /* already exists */
-        }
-        try {
-          this._handle.exec('ALTER TABLE players ADD COLUMN last_save_snapshot_at TEXT');
-        } catch {
-          /* already exists */
-        }
         // Conservative backfill policy: legacy rows may contain old default vitals,
         // but only a current cache.players sync proves a row is save-backed.
         // Keep has_save_snapshot=0 until the next successful save snapshot upsert.
-        this._handle.exec(`
-          CREATE TABLE IF NOT EXISTS player_details (
-            steam_id          TEXT PRIMARY KEY REFERENCES players(steam_id) ON DELETE CASCADE,
-            snapshot_json     TEXT NOT NULL DEFAULT '{}',
-            source_file       TEXT,
-            source_mtime_ms   REAL,
-            source_size       INTEGER,
-            cache_version     INTEGER,
-            agent_version     INTEGER,
-            parser_signature  TEXT,
-            updated_at        TEXT DEFAULT (datetime('now'))
-          );
-          CREATE INDEX IF NOT EXISTS idx_player_details_updated ON player_details(updated_at);
-        `);
+        this._ensureSaveSnapshotSchema();
         this._log.info(
           'Migration v20→v21: added player_details and save snapshot markers; legacy rows remain unmarked until next cache.players sync',
         );

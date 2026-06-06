@@ -123,6 +123,7 @@ function _stripInternalSnapshotData(data: Record<string, unknown>): Record<strin
 }
 
 function _nullableNumber(value: unknown): number | null {
+  if (value == null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }

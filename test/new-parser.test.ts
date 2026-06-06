@@ -700,6 +700,28 @@ describe('HumanitZDB', () => {
       assert.equal((detail.snapshot as Record<string, unknown>).extraLatestField, true);
     });
 
+    it('stores missing snapshot source numeric metadata as null, not zero', () => {
+      db.player.upsertPlayer('76561198000000008', {
+        name: 'NullableMeta',
+        __saveSource: {
+          sourceFile: 'nullable.sav',
+          sourceMtimeMs: null,
+          sourceSize: '',
+          cacheVersion: null,
+          agentVersion: '',
+          parserSignature: 'agent-v3',
+        },
+      });
+
+      const detail = db.player.getPlayerDetail('76561198000000008');
+      assert.ok(detail);
+      assert.equal(detail.source_mtime_ms, null);
+      assert.equal(detail.source_size, null);
+      assert.equal(detail.cache_version, null);
+      assert.equal(detail.agent_version, null);
+      assert.equal(detail.parser_signature, 'agent-v3');
+    });
+
     it('log-only rows do not become save-backed', () => {
       db.player.upsertFullLogStats('76561198000000009', {
         name: 'LogOnly',
