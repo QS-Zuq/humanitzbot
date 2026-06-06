@@ -254,6 +254,44 @@ describe('SaveService _parseCache', () => {
     assert.equal(result.idMap['76561198000000001'], 'Mapped Alice');
     assert.equal(svc.stats.agentCapable, true);
   });
+
+  it('logs per-player cache stats and warning states', () => {
+    const svc = makeService();
+    const logs: string[] = [];
+    svc._log = {
+      info(...args: unknown[]) {
+        logs.push(args.map(String).join(' '));
+      },
+      warn(...args: unknown[]) {
+        logs.push(args.map(String).join(' '));
+      },
+      error() {},
+    };
+
+    const result = svc._parseCache(
+      JSON.stringify(
+        makeCache({
+          v: 3,
+          players: {},
+          playerCacheStats: {
+            mode: 'legacy-main-save',
+            discovered: 2,
+            parsed: 0,
+            reused: 0,
+            removed: 0,
+            errors: 1,
+          },
+        }),
+      ),
+      456,
+    );
+
+    assert.ok(result);
+    assert.ok(logs.some((line) => line.includes('player files discovered 2')));
+    assert.ok(logs.some((line) => line.includes('legacy main-save player mode')));
+    assert.ok(logs.some((line) => line.includes('discovered 2 per-player file(s) but contains 0 players')));
+    assert.ok(logs.some((line) => line.includes('1 per-player parse error(s)')));
+  });
 });
 
 describe('SaveService agent availability', () => {

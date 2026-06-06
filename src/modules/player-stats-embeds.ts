@@ -171,6 +171,12 @@ function _tp(locale: string, key: string, vars: Record<string, unknown> = {}): s
   return t(`discord:player_stats.${key}`, locale, vars);
 }
 
+function _hasSaveBackedSnapshot(save: Record<string, unknown> | undefined): save is Record<string, unknown> {
+  if (!save) return false;
+  const marker = save['hasSaveSnapshot'];
+  return marker !== false && marker !== 0;
+}
+
 // ─── Category enum → name ────────────────────────────────────────
 const _SKILL_CAT: Record<string, string> = {
   NewEnumerator0: 'Survival',
@@ -993,7 +999,7 @@ function buildFullPlayerEmbed(this: PSCThis, steamId: string, { isAdmin = false 
   // │  3. VITALS — Health bars + status effects                   │
   // └──────────────────────────────────────────────────────────────┘
 
-  if (this._config.canShow('showVitals', isAdmin) && save) {
+  if (this._config.canShow('showVitals', isAdmin) && _hasSaveBackedSnapshot(save)) {
     const vitals = [];
     const health = typeof save['health'] === 'number' ? save['health'] : 0;
     const maxHealth = typeof save['maxHealth'] === 'number' ? save['maxHealth'] : 100;

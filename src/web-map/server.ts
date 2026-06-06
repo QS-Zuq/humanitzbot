@@ -1512,12 +1512,27 @@ class WebMapServer {
       const srv = req.srv;
       const steamId = req.params.steamId as string;
       const players = srv.isPrimary ? this._parseSaveData() : this._parseSaveDataForServer(srv.dataDir);
-      const rawPlayerData = players.get(steamId);
+      const storedDetail = srv.db?.player.getPlayerDetail(steamId);
+      const storedSnapshot =
+        storedDetail && typeof storedDetail['snapshot'] === 'object' && storedDetail['snapshot'] !== null
+          ? (storedDetail['snapshot'] as Record<string, unknown>)
+          : null;
+      const rawPlayerData = players.get(steamId) ?? storedSnapshot;
       if (!rawPlayerData) {
         sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
         return;
       }
       const data = rawPlayerData as Record<string, unknown>;
+      const storedHasSaveSnapshot: boolean | null = storedDetail
+        ? storedDetail['has_save_snapshot'] === true || storedDetail['has_save_snapshot'] === 1
+        : null;
+      const hasSaveSnapshot =
+        storedHasSaveSnapshot ?? (data['hasSaveSnapshot'] !== false && data['hasSaveSnapshot'] !== 0);
+      const lastSaveSnapshotAt = storedDetail
+        ? hasSaveSnapshot
+          ? (storedDetail['last_save_snapshot_at'] ?? storedDetail['updated_at'] ?? null)
+          : null
+        : (data['lastSaveSnapshotAt'] ?? null);
 
       const dbNameMap = srv.playerNameMap;
       const name = this._resolvePlayerDisplayName(steamId, data, srv.db, dbNameMap);
@@ -1565,8 +1580,39 @@ class WebMapServer {
         // Playtime
         totalPlaytime: ptData ? Math.floor(ptData.totalMs / 60000) : 0,
         lastSeen: ptData?.lastSeen || null,
+        // Save-backed marker is a presentation gate for vitals/detail availability.
+        // Prefer the DB marker when reading from player_details; cache-only rows fall back to cache metadata.
+        hasSaveSnapshot,
+        lastSaveSnapshotAt,
         // Toggles for conditional display
         toggles: this._getToggles(),
+      });
+    });
+
+    // ── Panel: Get latest full player save snapshot (admin) ──
+    app.get('/api/panel/players/:steamId/snapshot', requireTier('admin'), rateLimit(10000, 15), (req, res) => {
+      const steamId = req.params.steamId as string;
+      const detail = req.srv.db?.player.getPlayerDetail(steamId);
+      if (!detail) {
+        sendError(res, API_ERRORS.PLAYER_NOT_FOUND, 404);
+        return;
+      }
+      const hasSaveSnapshot = detail['has_save_snapshot'] === true || detail['has_save_snapshot'] === 1;
+
+      res.json({
+        steamId,
+        hasSaveSnapshot,
+        lastSaveSnapshotAt: detail['last_save_snapshot_at'] ?? null,
+        snapshot: detail['snapshot'] ?? {},
+        metadata: {
+          sourceFile: detail['source_file'] ?? null,
+          sourceMtimeMs: detail['source_mtime_ms'] ?? null,
+          sourceSize: detail['source_size'] ?? null,
+          cacheVersion: detail['cache_version'] ?? null,
+          agentVersion: detail['agent_version'] ?? null,
+          parserSignature: detail['parser_signature'] ?? null,
+          updatedAt: detail['updated_at'] ?? null,
+        },
       });
     });
 

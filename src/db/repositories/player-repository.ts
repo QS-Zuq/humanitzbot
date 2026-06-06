@@ -51,6 +51,7 @@ function _parsePlayerRow(row: unknown): DbRow | null {
   parsed.male = !!parsed.male;
   parsed.online = !!parsed.online;
   parsed.has_extended_stats = !!parsed.has_extended_stats;
+  parsed.has_save_snapshot = !!parsed.has_save_snapshot;
   return parsed;
 }
 
@@ -112,10 +113,31 @@ function _normalizeCheatFlags(value: unknown): unknown[] {
   });
 }
 
+function _stripInternalSnapshotData(data: Record<string, unknown>): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key.startsWith('__')) continue;
+    snapshot[key] = value;
+  }
+  return snapshot;
+}
+
+function _nullableNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _nullableInteger(value: unknown): number | null {
+  const n = _nullableNumber(value);
+  return n == null ? null : Math.trunc(n);
+}
+
 export class PlayerRepository extends BaseRepository {
   declare private _stmts: {
     upsertPlayer: Database.Statement;
+    upsertPlayerDetail: Database.Statement;
     getPlayer: Database.Statement;
+    getPlayerDetail: Database.Statement;
     getAllPlayers: Database.Statement;
     getOnlinePlayers: Database.Statement;
     getOnlinePlayersForDiff: Database.Statement;
@@ -175,7 +197,7 @@ export class PlayerRepository extends BaseRepository {
         challenge_craft_melee_weapon, challenge_craft_rain_collector, challenge_craft_tablesaw,
         challenge_craft_treatment, challenge_craft_weapons_bench, challenge_craft_workbench,
         challenge_find_dog, challenge_find_heli, challenge_lockpick_suv, challenge_repair_radio,
-        custom_data, first_seen, last_seen, updated_at
+        custom_data, has_save_snapshot, last_save_snapshot_at, first_seen, last_seen, updated_at
       ) VALUES (
         @steam_id, @name, @male, @starting_perk, @affliction, @char_profile,
         @zeeks_killed, @headshots, @melee_kills, @gun_kills, @blast_kills,
@@ -205,7 +227,7 @@ export class PlayerRepository extends BaseRepository {
         @challenge_craft_melee_weapon, @challenge_craft_rain_collector, @challenge_craft_tablesaw,
         @challenge_craft_treatment, @challenge_craft_weapons_bench, @challenge_craft_workbench,
         @challenge_find_dog, @challenge_find_heli, @challenge_lockpick_suv, @challenge_repair_radio,
-        @custom_data, datetime('now'), datetime('now'), datetime('now')
+        @custom_data, 1, datetime('now'), datetime('now'), datetime('now'), datetime('now')
       )
       ON CONFLICT(steam_id) DO UPDATE SET
         name = CASE WHEN excluded.name != '' THEN excluded.name ELSE players.name END,
@@ -311,12 +333,42 @@ export class PlayerRepository extends BaseRepository {
         challenge_lockpick_suv = excluded.challenge_lockpick_suv,
         challenge_repair_radio = excluded.challenge_repair_radio,
         custom_data = excluded.custom_data,
+        has_save_snapshot = 1,
+        last_save_snapshot_at = datetime('now'),
         last_seen = datetime('now'),
         updated_at = datetime('now')
     `),
 
+      upsertPlayerDetail: this._handle.prepare(`
+        INSERT INTO player_details (
+          steam_id, snapshot_json, source_file, source_mtime_ms, source_size,
+          cache_version, agent_version, parser_signature, updated_at
+        ) VALUES (
+          @steam_id, @snapshot_json, @source_file, @source_mtime_ms, @source_size,
+          @cache_version, @agent_version, @parser_signature, datetime('now')
+        )
+        ON CONFLICT(steam_id) DO UPDATE SET
+          snapshot_json = excluded.snapshot_json,
+          source_file = excluded.source_file,
+          source_mtime_ms = excluded.source_mtime_ms,
+          source_size = excluded.source_size,
+          cache_version = excluded.cache_version,
+          agent_version = excluded.agent_version,
+          parser_signature = excluded.parser_signature,
+          updated_at = datetime('now')
+      `),
+
       // Fast lookups
       getPlayer: this._handle.prepare('SELECT * FROM players WHERE steam_id = ?'),
+      getPlayerDetail: this._handle.prepare(`
+        SELECT
+          pd.*,
+          p.has_save_snapshot AS has_save_snapshot,
+          p.last_save_snapshot_at AS last_save_snapshot_at
+        FROM player_details pd
+        LEFT JOIN players p ON p.steam_id = pd.steam_id
+        WHERE pd.steam_id = ?
+      `),
       getAllPlayers: this._handle.prepare('SELECT * FROM players ORDER BY lifetime_kills DESC'),
       getOnlinePlayers: this._handle.prepare('SELECT * FROM players WHERE online = 1'),
       getOnlinePlayersForDiff: this._handle.prepare(
@@ -503,6 +555,8 @@ export class PlayerRepository extends BaseRepository {
    * @param {object} data - Flat object matching column names (from save parser)
    */
   upsertPlayer(steamId: string, data: Record<string, unknown>) {
+    const source =
+      data.__saveSource && typeof data.__saveSource === 'object' ? (data.__saveSource as Record<string, unknown>) : {};
     const params = {
       steam_id: steamId,
       name: data.name || '',
@@ -611,6 +665,16 @@ export class PlayerRepository extends BaseRepository {
     };
 
     this._stmts.upsertPlayer.run(params);
+    this._stmts.upsertPlayerDetail.run({
+      steam_id: steamId,
+      snapshot_json: JSON.stringify(_stripInternalSnapshotData(data)),
+      source_file: typeof source.sourceFile === 'string' ? source.sourceFile : null,
+      source_mtime_ms: _nullableNumber(source.sourceMtimeMs),
+      source_size: _nullableInteger(source.sourceSize),
+      cache_version: _nullableInteger(source.cacheVersion),
+      agent_version: _nullableInteger(source.agentVersion),
+      parser_signature: typeof source.parserSignature === 'string' ? source.parserSignature : null,
+    });
 
     // Auto-register alias when a name is available
     if (data.name && /^\d{17}$/.test(steamId)) {
@@ -621,6 +685,22 @@ export class PlayerRepository extends BaseRepository {
   getPlayer(steamId: string) {
     const row = this._stmts.getPlayer.get(steamId);
     return row ? _parsePlayerRow(row) : null;
+  }
+
+  getPlayerDetail(steamId: string): DbRow | null {
+    const row = this._stmts.getPlayerDetail.get(steamId) as DbRow | undefined;
+    if (!row) return null;
+    const parsed: DbRow = { ...row };
+    parsed.has_save_snapshot = parsed.has_save_snapshot === true || parsed.has_save_snapshot === 1;
+    parsed.last_save_snapshot_at = parsed.last_save_snapshot_at ?? null;
+    if (typeof parsed.snapshot_json === 'string') {
+      try {
+        parsed.snapshot = JSON.parse(parsed.snapshot_json) as unknown;
+      } catch {
+        parsed.snapshot = null;
+      }
+    }
+    return parsed;
   }
 
   getAllPlayers(): DbRow[] {

@@ -4,8 +4,9 @@
  * The agent is a single .js file with zero npm dependencies that:
  *   1. Reads the save file locally (no network transfer)
  *   2. Parses it with the full GVAS parser
- *   3. Writes a compact JSON cache (~200-500KB vs 60MB .sav)
- *   4. Optionally watches for changes and re-parses automatically
+ *   3. Reads per-player save files locally when present
+ *   4. Writes a JSON cache for the bot to download
+ *   5. Optionally watches for changes and re-parses automatically
  *
  * The agent is dynamically generated from the actual parser source files
  * (gvas-reader.ts + save-parser.ts) so it always stays in sync — no
@@ -28,7 +29,7 @@ const __dirname = getDirname(import.meta.url);
 const GVAS_READER_PATH = path.join(__dirname, 'gvas-reader.ts');
 const SAVE_PARSER_PATH = path.join(__dirname, 'save-parser.ts');
 
-const AGENT_VERSION = 2;
+const AGENT_VERSION = 3;
 
 // ─── Agent CLI template (prepended) ────────────────────────────────────────
 
@@ -38,12 +39,13 @@ const AGENT_HEADER = `#!/usr/bin/env node
  * Auto-generated — do not edit manually.
  * Regenerate via: node -e "require('./src/parsers/agent-builder').writeAgent()"
  *
- * Parses Save_DedicatedSaveMP.sav on the game server and writes
- * a compact humanitz-cache.json for the bot to download.
+ * Parses Save_DedicatedSaveMP.sav and per-player save files on the
+ * game server, then writes humanitz-cache.json for the bot to download.
  *
  * Usage:
  *   node humanitz-agent.js                       # auto-discover save, parse once
  *   node humanitz-agent.js --save /path/to/save  # explicit path
+ *   node humanitz-agent.js --player-dir /path     # explicit per-player save dir
  *   node humanitz-agent.js --watch                # watch mode (re-parse on change)
  *   node humanitz-agent.js --watch --interval 30  # custom poll interval (seconds)
  *   node humanitz-agent.js --help                 # show usage
@@ -69,12 +71,24 @@ const CACHE_FILENAME = 'humanitz-cache.json';
 const SAVE_FILENAME = 'Save_DedicatedSaveMP.sav';
 const CLAN_FILENAME = 'Save_ClanData.sav';
 const ID_MAP_FILENAME = 'PlayerIDMapped.txt';
+const AGENT_VERSION_VALUE = ${String(AGENT_VERSION)};
+const PARSER_SIGNATURE = 'agent-v' + AGENT_VERSION_VALUE;
 
 // ── Argument parsing ──
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { save: '', output: '', idMap: '', watch: false, interval: 30, help: false, discover: false, pretty: false };
+  const opts = {
+    save: '',
+    output: '',
+    idMap: '',
+    playerDir: '',
+    watch: false,
+    interval: 30,
+    help: false,
+    discover: false,
+    pretty: false,
+  };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -85,6 +99,7 @@ function parseArgs() {
     else if ((arg === '--save' || arg === '-s') && args[i + 1]) opts.save = args[++i];
     else if ((arg === '--output' || arg === '-o') && args[i + 1]) opts.output = args[++i];
     else if (arg === '--id-map' && args[i + 1]) opts.idMap = args[++i];
+    else if (arg === '--player-dir' && args[i + 1]) opts.playerDir = args[++i];
     else if ((arg === '--interval' || arg === '-i') && args[i + 1]) opts.interval = parseInt(args[++i], 10) || 30;
     else if (!arg.startsWith('-')) opts.save = arg;  // positional = save path
   }
@@ -102,6 +117,7 @@ Options:
   --save, -s <path>      Path to Save_DedicatedSaveMP.sav
   --output, -o <path>    Output path for cache JSON
   --id-map <path>        Path to PlayerIDMapped.txt
+  --player-dir <path>    Path to per-player save directory
   --watch, -w            Watch mode: re-parse when save changes
   --interval, -i <sec>   Poll interval in seconds (default: 30)
   --pretty, -p           Pretty-print JSON output (human-readable)
@@ -224,9 +240,328 @@ function _deepSearch(dir, target, depth, maxDepth) {
   return null;
 }
 
+// ── Per-player save discovery / manifest ──
+
+function _fileStatInfo(filePath) {
+  try {
+    const stat = _fs.statSync(filePath);
+    return { exists: true, mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return { exists: false, mtimeMs: 0, size: 0 };
+  }
+}
+
+function _stableHash(text) {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function _playerDirNameFromSave(savePath) {
+  const base = _path.basename(savePath).replace(/\\.sav$/i, '');
+  const withoutPrefix = base.replace(/^Save_/i, '');
+  return withoutPrefix || 'DedicatedSaveMP';
+}
+
+function discoverPlayerSaveDir(savePath, explicitDir) {
+  if (explicitDir) {
+    try {
+      if (_fs.existsSync(explicitDir) && _fs.statSync(explicitDir).isDirectory()) return explicitDir;
+    } catch { /* skip */ }
+    return '';
+  }
+
+  const saveDir = _path.dirname(savePath);
+  const derived = _playerDirNameFromSave(savePath);
+  const candidates = [
+    _path.join(saveDir, derived),
+    _path.join(saveDir, 'DedicatedSaveMP'),
+  ];
+  const seen = new Set();
+  for (const dir of candidates) {
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
+    try {
+      if (_fs.existsSync(dir) && _fs.statSync(dir).isDirectory()) return dir;
+    } catch { /* skip */ }
+  }
+  return '';
+}
+
+function scanPlayerSaveFiles(playerDir) {
+  const scan = {
+    files: [],
+    complete: true,
+    candidates: 0,
+    errors: 0,
+  };
+  if (!playerDir) return scan;
+  let entries = [];
+  try {
+    entries = _fs.readdirSync(playerDir, { withFileTypes: true });
+  } catch (err) {
+    scan.complete = false;
+    scan.errors++;
+    console.error('[Agent] Player directory read warning:', err && err.message ? err.message : String(err));
+    return scan;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const fileName = entry.name;
+    if (fileName.startsWith('.') || fileName.endsWith('.tmp')) continue;
+    const match = fileName.match(/^(\\d{17})(?:@.*)?\\.sav$/i);
+    if (!match) continue;
+    scan.candidates++;
+    const filePath = _path.join(playerDir, fileName);
+    try {
+      const stat = _fs.statSync(filePath);
+      scan.files.push({
+        steamId: match[1],
+        fileName,
+        path: filePath,
+        relPath: fileName,
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+      });
+    } catch (err) {
+      scan.complete = false;
+      scan.errors++;
+      console.error(
+        '[Agent] Player file stat warning (' + fileName + '):',
+        err && err.message ? err.message : String(err),
+      );
+    }
+  }
+  scan.files.sort((a, b) => a.fileName.localeCompare(b.fileName));
+  return scan;
+}
+
+function listPlayerSaveFiles(playerDir) {
+  return scanPlayerSaveFiles(playerDir).files;
+}
+
+function _playerFingerprint(file) {
+  return [
+    file.relPath,
+    String(file.mtimeMs),
+    String(file.size),
+    String(AGENT_VERSION_VALUE),
+    PARSER_SIGNATURE,
+  ].join('|');
+}
+
+function _readPreviousCache(outputPath) {
+  try {
+    if (!_fs.existsSync(outputPath)) return null;
+    return JSON.parse(_fs.readFileSync(outputPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function _parsePlayerSaveFile(file) {
+  const buf = _fs.readFileSync(file.path);
+  const result = parseSave(buf);
+  if (result.players && result.players.has(file.steamId)) {
+    return result.players.get(file.steamId);
+  }
+  if (result.players && result.players.size === 1) {
+    return Array.from(result.players.values())[0];
+  }
+  throw new Error('No player snapshot found in ' + file.fileName);
+}
+
+function _buildPlayerDirSignature(playerDir, files, scan) {
+  if (!playerDir) {
+    return { path: '', count: 0, newestMtimeMs: 0, totalSize: 0, listHash: '', complete: true, errors: 0 };
+  }
+  let newestMtimeMs = 0;
+  let totalSize = 0;
+  const parts = [];
+  for (const file of files) {
+    newestMtimeMs = Math.max(newestMtimeMs, file.mtimeMs);
+    totalSize += file.size;
+    parts.push(file.relPath + ':' + file.mtimeMs + ':' + file.size);
+  }
+  return {
+    path: playerDir,
+    count: files.length,
+    newestMtimeMs,
+    totalSize,
+    listHash: _stableHash(parts.join('|')),
+    complete: !scan || scan.complete !== false,
+    errors: scan && scan.errors ? scan.errors : 0,
+  };
+}
+
+function _buildWatchSignature(savePath, playerDir, explicitIdMapPath) {
+  const saveStat = _fileStatInfo(savePath);
+  const scan = scanPlayerSaveFiles(playerDir);
+  const idMapPath = findIdMapPath(savePath, explicitIdMapPath);
+  const idMapStat = idMapPath ? _fileStatInfo(idMapPath) : { exists: false, mtimeMs: 0, size: 0 };
+  return JSON.stringify({
+    mainSave: { mtimeMs: saveStat.mtimeMs, size: saveStat.size },
+    playerDir: _buildPlayerDirSignature(playerDir, scan.files, scan),
+    idMap: { path: idMapPath || '', mtimeMs: idMapStat.mtimeMs, size: idMapStat.size },
+    agentVersion: AGENT_VERSION_VALUE,
+    parserSignature: PARSER_SIGNATURE,
+  });
+}
+
+function buildPlayersFromPlayerFiles(savePath, outputPath, explicitPlayerDir, mainPlayers) {
+  const startedAt = Date.now();
+  const playerDir = discoverPlayerSaveDir(savePath, explicitPlayerDir);
+  const previousCache = _readPreviousCache(outputPath);
+  const previousManifest = previousCache && previousCache.playerManifest && previousCache.playerManifest.files
+    ? previousCache.playerManifest.files
+    : {};
+  const previousPlayers = previousCache && previousCache.players ? previousCache.players : {};
+  const players = Object.assign({}, mainPlayers);
+  const manifestFiles = {};
+  const removed = [];
+  const stats = {
+    mode: playerDir ? 'per-player' : 'legacy-main-save',
+    dir: playerDir,
+    discovered: 0,
+    parsed: 0,
+    reused: 0,
+    removed: 0,
+    errors: 0,
+    elapsedMs: 0,
+  };
+
+  if (!playerDir) {
+    console.error('[Agent] Per-player save directory not found; using legacy main-save players only');
+    stats.elapsedMs = Date.now() - startedAt;
+    return {
+      players,
+      playerManifest: {
+        v: 1,
+        dir: '',
+        parserSignature: PARSER_SIGNATURE,
+        files: manifestFiles,
+        removed,
+      },
+      playerCacheStats: stats,
+    };
+  }
+
+  const scan = scanPlayerSaveFiles(playerDir);
+  const files = scan.files;
+  stats.discovered = files.length;
+  stats.scanCandidates = scan.candidates;
+  stats.scanErrors = scan.errors;
+  stats.scanComplete = scan.complete;
+  if (!scan.complete) {
+    console.error(
+      '[Agent] Warning: per-player scan incomplete (' +
+        scan.errors +
+        ' error(s)); preserving previous cached entries until a clean scan',
+    );
+  }
+  const seenSteamIds = new Set();
+
+  for (const file of files) {
+    const fingerprint = _playerFingerprint(file);
+    const previousEntry = previousManifest[file.steamId];
+    const canReuse = previousEntry
+      && previousEntry.fingerprint === fingerprint
+      && previousEntry.status !== 'error'
+      && previousPlayers[file.steamId];
+
+    seenSteamIds.add(file.steamId);
+    if (canReuse) {
+      players[file.steamId] = previousPlayers[file.steamId];
+      manifestFiles[file.steamId] = Object.assign({}, previousEntry, {
+        status: 'reused',
+      });
+      stats.reused++;
+      continue;
+    }
+
+    try {
+      players[file.steamId] = _parsePlayerSaveFile(file);
+      manifestFiles[file.steamId] = {
+        steamId: file.steamId,
+        fileName: file.fileName,
+        relPath: file.relPath,
+        mtimeMs: file.mtimeMs,
+        size: file.size,
+        fingerprint,
+        status: 'parsed',
+        parsedAt: new Date().toISOString(),
+      };
+      stats.parsed++;
+    } catch (err) {
+      delete players[file.steamId];
+      manifestFiles[file.steamId] = {
+        steamId: file.steamId,
+        fileName: file.fileName,
+        relPath: file.relPath,
+        mtimeMs: file.mtimeMs,
+        size: file.size,
+        fingerprint,
+        status: 'error',
+        error: err && err.message ? err.message : String(err),
+      };
+      stats.errors++;
+      console.error('[Agent] Player parse warning (' + file.fileName + '):', manifestFiles[file.steamId].error);
+    }
+  }
+
+  for (const steamId of Object.keys(previousManifest)) {
+    if (seenSteamIds.has(steamId)) continue;
+    const oldEntry = previousManifest[steamId] || {};
+    if (!scan.complete) {
+      if (oldEntry.status === 'removed') {
+        manifestFiles[steamId] = oldEntry;
+        continue;
+      }
+      if (previousPlayers[steamId]) {
+        players[steamId] = previousPlayers[steamId];
+        stats.reused++;
+      }
+      manifestFiles[steamId] = Object.assign({}, oldEntry, {
+        steamId,
+        status: 'scan_skipped',
+        scanWarning: 'scan incomplete; preserved from previous cache',
+      });
+      continue;
+    }
+    removed.push(steamId);
+    manifestFiles[steamId] = Object.assign({}, oldEntry, {
+      steamId,
+      status: 'removed',
+    });
+    delete players[steamId];
+    stats.removed++;
+  }
+
+  if (files.length > 0 && Object.keys(players).length === 0) {
+    console.error('[Agent] Warning: per-player directory has ' + files.length + ' files but cache has 0 players');
+  }
+
+  stats.elapsedMs = Date.now() - startedAt;
+  return {
+    players,
+    playerManifest: {
+      v: 1,
+      dir: playerDir,
+      parserSignature: PARSER_SIGNATURE,
+      aggregate: _buildPlayerDirSignature(playerDir, files, scan),
+      files: manifestFiles,
+      removed,
+    },
+    playerCacheStats: stats,
+  };
+}
+
 // ── Parse and write cache ──
 
-function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
+function parseAndWrite(savePath, outputPath, pretty, idMapPath, playerDirPath) {
   const startTime = Date.now();
 
   const buf = _fs.readFileSync(savePath);
@@ -238,6 +573,8 @@ function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
   for (const [steamId, data] of result.players) {
     playersObj[steamId] = data;
   }
+  const playerCache = buildPlayersFromPlayerFiles(savePath, outputPath, playerDirPath, playersObj);
+  const mergedPlayers = playerCache.players;
 
   // Parse clan data if Save_ClanData.sav exists alongside the main save
   let clans = [];
@@ -259,7 +596,9 @@ function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
     idMapCount: idMapInfo.count,
     idMapPath: idMapInfo.path,
     idMapMtime: idMapInfo.mtime,
-    players: playersObj,
+    players: mergedPlayers,
+    playerManifest: playerCache.playerManifest,
+    playerCacheStats: playerCache.playerCacheStats,
     worldState: result.worldState,
     structures: result.structures,
     vehicles: result.vehicles,
@@ -282,13 +621,21 @@ function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
 
   const elapsed = Date.now() - startTime;
   const sizeMB = (json.length / 1024 / 1024).toFixed(2);
-  const playerCount = Object.keys(playersObj).length;
+  const playerCount = Object.keys(mergedPlayers).length;
   const clanInfo = clans.length ? ', ' + clans.length + ' clans' : '';
   const idMapInfoText = idMapInfo.count ? ', ' + idMapInfo.count + ' names' : '';
+  const playerCacheInfo = playerCache.playerCacheStats
+    ? ', discovered ' + playerCache.playerCacheStats.discovered
+      + ' player files, parsed ' + playerCache.playerCacheStats.parsed
+      + ', reused ' + playerCache.playerCacheStats.reused
+      + ', removed ' + playerCache.playerCacheStats.removed
+      + ', errors ' + playerCache.playerCacheStats.errors
+    : '';
   console.log('[Agent] Parsed ' + playerCount + ' players, '
     + result.structures.length + ' structures, '
     + result.vehicles.length + ' vehicles'
     + idMapInfoText
+    + playerCacheInfo
     + clanInfo + ' → '
     + sizeMB + 'MB cache (' + elapsed + 'ms)');
 
@@ -297,15 +644,26 @@ function parseAndWrite(savePath, outputPath, pretty, idMapPath) {
 
 // ── Watch mode ──
 
-function watchMode(savePath, outputPath, intervalSec, pretty, idMapPath) {
-  let lastMtime = 0;
+function watchMode(savePath, outputPath, intervalSec, pretty, idMapPath, playerDirPath) {
+  const explicitPlayerDir = playerDirPath || '';
+  let lastSignature = '';
+  let lastPlayerDir = null;
+
+  function resolveCurrentPlayerDir() {
+    return discoverPlayerSaveDir(savePath, explicitPlayerDir);
+  }
 
   function check() {
     try {
-      const stat = _fs.statSync(savePath);
-      if (stat.mtimeMs !== lastMtime) {
-        lastMtime = stat.mtimeMs;
-        parseAndWrite(savePath, outputPath, pretty, idMapPath);
+      const currentPlayerDir = resolveCurrentPlayerDir();
+      if (currentPlayerDir && currentPlayerDir !== lastPlayerDir) {
+        console.log('[Agent] Watching player dir: ' + currentPlayerDir);
+      }
+      lastPlayerDir = currentPlayerDir;
+      const signature = _buildWatchSignature(savePath, currentPlayerDir, idMapPath);
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        parseAndWrite(savePath, outputPath, pretty, idMapPath, currentPlayerDir);
       }
     } catch (err) {
       console.error('[Agent] Error:', err.message);
@@ -348,9 +706,9 @@ function main() {
   const outputPath = opts.output || _path.join(_path.dirname(savePath), CACHE_FILENAME);
 
   if (opts.watch) {
-    watchMode(savePath, outputPath, opts.interval, opts.pretty, opts.idMap);
+    watchMode(savePath, outputPath, opts.interval, opts.pretty, opts.idMap, opts.playerDir);
   } else {
-    parseAndWrite(savePath, outputPath, opts.pretty, opts.idMap);
+    parseAndWrite(savePath, outputPath, opts.pretty, opts.idMap, opts.playerDir);
   }
 }
 

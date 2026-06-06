@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'child_process';
 
 // ─── Modules under test ─────────────────────────────────────────────────────
@@ -30,6 +31,65 @@ const SAV_EXISTS = fs.existsSync(SAV_FILE);
 const TEMP_AGENT = path.join(DATA_DIR, '_test-agent.js');
 const TEMP_CACHE = path.join(DATA_DIR, '_test-cache.json');
 const TEMP_ID_MAP = path.join(DATA_DIR, '_test-PlayerIDMapped.txt');
+const TEMP_PLAYER_ROOT = path.join(DATA_DIR, '_test-agent-player-root');
+const require = createRequire(import.meta.url);
+
+function loadAgentInternals(script: string, parseSaveOverride: (buf: Buffer) => unknown, errorLog: string[] = []) {
+  const instrumented = script.replace(
+    /\nmain\(\);\s*$/,
+    `
+parseSave = globalThis.__parseSaveOverride || parseSave;
+globalThis.__agentInternals = {
+  discoverPlayerSaveDir,
+  listPlayerSaveFiles,
+  buildPlayersFromPlayerFiles,
+  _buildWatchSignature,
+};
+`,
+  );
+  const context: Record<string, unknown> = {
+    require,
+    Buffer,
+    console: {
+      log() {},
+      error(...args: unknown[]) {
+        errorLog.push(args.map(String).join(' '));
+      },
+    },
+    process: { argv: ['node', 'humanitz-agent.js'], cwd: () => TEMP_PLAYER_ROOT },
+    globalThis: null,
+    __parseSaveOverride: parseSaveOverride,
+  };
+  context.globalThis = context;
+  new vm.Script(instrumented.replace(/^#!.*\n/, ''), { filename: 'humanitz-agent-internals.js' }).runInNewContext(
+    context,
+  );
+  return context.__agentInternals as {
+    discoverPlayerSaveDir(savePath: string, explicitDir?: string): string;
+    listPlayerSaveFiles(playerDir: string): Array<{ steamId: string; fileName: string }>;
+    buildPlayersFromPlayerFiles(
+      savePath: string,
+      outputPath: string,
+      explicitPlayerDir: string,
+      mainPlayers: Record<string, unknown>,
+    ): {
+      players: Record<string, Record<string, unknown>>;
+      playerManifest: { files: Record<string, { status: string; fingerprint: string }> };
+      playerCacheStats: {
+        mode?: string;
+        discovered: number;
+        parsed: number;
+        reused: number;
+        removed: number;
+        errors: number;
+        scanCandidates?: number;
+        scanErrors?: number;
+        scanComplete?: boolean;
+      };
+    };
+    _buildWatchSignature(savePath: string, playerDir: string, explicitIdMapPath?: string): string;
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Agent Builder
@@ -49,6 +109,9 @@ describe('agent-builder', () => {
     } catch {}
     try {
       fs.unlinkSync(TEMP_CACHE);
+    } catch {}
+    try {
+      fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
     } catch {}
   });
 
@@ -89,9 +152,16 @@ describe('agent-builder', () => {
     assert.ok(script.includes('function parseIdMapText('), 'Missing parseIdMapText');
     assert.ok(script.includes('function main('), 'Missing main');
     assert.ok(script.includes('function discoverSave('), 'Missing discoverSave');
+    assert.ok(script.includes('function discoverPlayerSaveDir('), 'Missing discoverPlayerSaveDir');
+    assert.ok(script.includes('function listPlayerSaveFiles('), 'Missing listPlayerSaveFiles');
+    assert.ok(script.includes('function buildPlayersFromPlayerFiles('), 'Missing buildPlayersFromPlayerFiles');
+    assert.ok(script.includes('function _buildWatchSignature('), 'Missing _buildWatchSignature');
     assert.ok(script.includes('function watchMode('), 'Missing watchMode');
     assert.ok(script.includes('humanitz-cache.json'), 'Missing cache filename');
     assert.ok(script.includes('PlayerIDMapped.txt'), 'Missing id map filename');
+    assert.ok(script.includes('playerManifest'), 'Missing player manifest cache field');
+    assert.ok(script.includes('playerCacheStats'), 'Missing player cache stats field');
+    assert.ok(script.includes('--player-dir'), 'Missing player dir CLI option');
   });
 
   it('has valid JavaScript syntax', () => {
@@ -113,6 +183,399 @@ describe('agent-builder', () => {
     const version: number = AGENT_VERSION;
     assert.ok(Number.isInteger(version));
     assert.ok(version >= 1);
+  });
+
+  it('discovers per-player saves and filters unrelated files', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(path.join(playerDir, '76561198000000001@abc.sav'), '76561198000000001');
+    fs.writeFileSync(path.join(playerDir, 'not-a-player.sav'), 'ignored');
+    fs.writeFileSync(path.join(playerDir, '76561198000000002@tmp.sav.tmp'), 'ignored');
+
+    const internals = loadAgentInternals(script, (buf) => ({
+      players: new Map([[buf.toString('utf8'), { health: 85 }]]),
+    }));
+
+    assert.equal(internals.discoverPlayerSaveDir(savePath), playerDir);
+    assert.deepEqual(Array.from(internals.listPlayerSaveFiles(playerDir).map((file) => file.steamId)), [
+      '76561198000000001',
+    ]);
+  });
+
+  it('skips transient player-file stat failures without clearing valid cached players', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const stableSteamId = '76561198000000001';
+    const vanishedSteamId = '76561198000000002';
+    const vanishedFile = `${vanishedSteamId}@abc.sav`;
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(path.join(playerDir, `${stableSteamId}@abc.sav`), stableSteamId);
+    fs.writeFileSync(path.join(playerDir, vanishedFile), vanishedSteamId);
+
+    const internals = loadAgentInternals(script, (buf) => {
+      const steamId = buf.toString('utf8');
+      return { players: new Map([[steamId, { health: steamId === stableSteamId ? 85 : 55 }]]) };
+    });
+    const first = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: first.players, playerManifest: first.playerManifest }),
+      'utf8',
+    );
+
+    const mutableFs = require('fs') as Omit<typeof fs, 'statSync'> & { statSync: typeof fs.statSync };
+    const originalStatSync = mutableFs.statSync;
+    const errorLog: string[] = [];
+    try {
+      mutableFs.statSync = ((target: fs.PathLike, options?: fs.StatSyncOptions) => {
+        if (String(target).endsWith(vanishedFile)) {
+          throw new Error('vanished during scan');
+        }
+        return originalStatSync.call(fs, target, options);
+      }) as typeof fs.statSync;
+      const failingInternals = loadAgentInternals(
+        script,
+        (buf) => {
+          const steamId = buf.toString('utf8');
+          return { players: new Map([[steamId, { health: 99 }]]) };
+        },
+        errorLog,
+      );
+      const second = failingInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+
+      assert.ok(second.players[stableSteamId]);
+      assert.equal(second.players[stableSteamId].health, 85);
+      assert.ok(second.players[vanishedSteamId]);
+      assert.equal(second.players[vanishedSteamId].health, 55);
+      assert.equal(second.playerCacheStats.reused, 2);
+      assert.equal(second.playerCacheStats.removed, 0);
+      assert.equal(second.playerCacheStats.scanComplete, false);
+      const skippedEntry = second.playerManifest.files[vanishedSteamId];
+      assert.ok(skippedEntry);
+      assert.equal(skippedEntry.status, 'scan_skipped');
+      assert.match(errorLog.join('\n'), /Player file stat warning .*vanished during scan/);
+      assert.match(errorLog.join('\n'), /per-player scan incomplete/);
+    } finally {
+      mutableFs.statSync = originalStatSync;
+    }
+  });
+
+  it('preserves all previous cached players when a scan stat race hides every file', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const firstSteamId = '76561198000000001';
+    const secondSteamId = '76561198000000002';
+    const steamIds = [firstSteamId, secondSteamId];
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    for (const steamId of steamIds) {
+      fs.writeFileSync(path.join(playerDir, `${steamId}@abc.sav`), steamId);
+    }
+
+    const internals = loadAgentInternals(script, (buf) => {
+      const steamId = buf.toString('utf8');
+      return { players: new Map([[steamId, { health: steamId.endsWith('1') ? 81 : 82 }]]) };
+    });
+    const first = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: first.players, playerManifest: first.playerManifest }),
+      'utf8',
+    );
+
+    const mutableFs = require('fs') as Omit<typeof fs, 'statSync'> & { statSync: typeof fs.statSync };
+    const originalStatSync = mutableFs.statSync;
+    const errorLog: string[] = [];
+    try {
+      mutableFs.statSync = ((target: fs.PathLike, options?: fs.StatSyncOptions) => {
+        if (String(target).startsWith(playerDir) && String(target).endsWith('.sav')) {
+          throw new Error('all vanished during scan');
+        }
+        return originalStatSync.call(fs, target, options);
+      }) as typeof fs.statSync;
+      const failingInternals = loadAgentInternals(
+        script,
+        () => {
+          throw new Error('parse should not run for stat-hidden files');
+        },
+        errorLog,
+      );
+      const second = failingInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+
+      for (const steamId of steamIds) {
+        assert.ok(second.players[steamId]);
+        const skippedEntry = second.playerManifest.files[steamId];
+        assert.ok(skippedEntry);
+        assert.equal(skippedEntry.status, 'scan_skipped');
+      }
+      const firstPreserved = second.players[firstSteamId];
+      const secondPreserved = second.players[secondSteamId];
+      assert.ok(firstPreserved);
+      assert.ok(secondPreserved);
+      assert.equal(firstPreserved.health, 81);
+      assert.equal(secondPreserved.health, 82);
+      assert.equal(second.playerCacheStats.reused, 2);
+      assert.equal(second.playerCacheStats.removed, 0);
+      assert.equal(second.playerCacheStats.scanErrors, 2);
+      assert.equal(second.playerCacheStats.scanComplete, false);
+      assert.match(errorLog.join('\n'), /per-player scan incomplete/);
+    } finally {
+      mutableFs.statSync = originalStatSync;
+    }
+  });
+
+  it('builds per-player cache stats and reuses unchanged manifest entries', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(path.join(playerDir, '76561198000000001@abc.sav'), '76561198000000001');
+
+    let parseCount = 0;
+    const internals = loadAgentInternals(script, (buf) => {
+      parseCount++;
+      const steamId = buf.toString('utf8');
+      return { players: new Map([[steamId, { health: 85, lifetimeKills: 466 }]]) };
+    });
+
+    const first = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(parseCount, 1);
+    assert.equal(first.playerCacheStats.discovered, 1);
+    assert.equal(first.playerCacheStats.parsed, 1);
+    const firstPlayer = first.players['76561198000000001'];
+    const firstManifest = first.playerManifest.files['76561198000000001'];
+    assert.ok(firstPlayer);
+    assert.ok(firstManifest);
+    assert.equal(firstPlayer.health, 85);
+    assert.equal(firstManifest.status, 'parsed');
+
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: first.players, playerManifest: first.playerManifest }),
+      'utf8',
+    );
+    parseCount = 0;
+    const second = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(parseCount, 0);
+    assert.equal(second.playerCacheStats.parsed, 0);
+    assert.equal(second.playerCacheStats.reused, 1);
+    const secondPlayer = second.players['76561198000000001'];
+    const secondManifest = second.playerManifest.files['76561198000000001'];
+    assert.ok(secondPlayer);
+    assert.ok(secondManifest);
+    assert.equal(secondPlayer.lifetimeKills, 466);
+    assert.equal(secondManifest.status, 'reused');
+  });
+
+  it('reparses changed files and invalidates old-version manifest entries', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const playerPath = path.join(playerDir, '76561198000000001@abc.sav');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(playerPath, '76561198000000001');
+
+    let parseCount = 0;
+    const internals = loadAgentInternals(script, (buf) => {
+      parseCount++;
+      return { players: new Map([['76561198000000001', { health: buf.length }]]) };
+    });
+
+    const first = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(parseCount, 1);
+
+    const oldVersionManifest = JSON.parse(JSON.stringify(first.playerManifest)) as {
+      files: Record<string, { fingerprint: string }>;
+    };
+    const oldVersionEntry = oldVersionManifest.files['76561198000000001'];
+    assert.ok(oldVersionEntry);
+    oldVersionEntry.fingerprint = 'old-version-fingerprint';
+    fs.writeFileSync(cachePath, JSON.stringify({ players: first.players, playerManifest: oldVersionManifest }), 'utf8');
+
+    parseCount = 0;
+    const afterVersionChange = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(parseCount, 1);
+    assert.equal(afterVersionChange.playerCacheStats.parsed, 1);
+    assert.equal(afterVersionChange.playerCacheStats.reused, 0);
+
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: afterVersionChange.players, playerManifest: afterVersionChange.playerManifest }),
+      'utf8',
+    );
+    fs.writeFileSync(playerPath, '76561198000000001-changed-content');
+
+    parseCount = 0;
+    const afterFileChange = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(parseCount, 1);
+    assert.equal(afterFileChange.playerCacheStats.parsed, 1);
+    assert.equal(afterFileChange.playerCacheStats.reused, 0);
+    const changedPlayer = afterFileChange.players['76561198000000001'];
+    assert.ok(changedPlayer);
+    assert.equal(changedPlayer.health, '76561198000000001-changed-content'.length);
+  });
+
+  it('removes deleted player files from the current cache manifest', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const playerPath = path.join(playerDir, '76561198000000001@abc.sav');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(playerPath, '76561198000000001');
+
+    const internals = loadAgentInternals(script, () => ({
+      players: new Map([['76561198000000001', { health: 85 }]]),
+    }));
+    const first = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: first.players, playerManifest: first.playerManifest }),
+      'utf8',
+    );
+    fs.unlinkSync(playerPath);
+
+    const second = internals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(second.players['76561198000000001'], undefined);
+    assert.equal(second.playerCacheStats.removed, 1);
+    const removedEntry = second.playerManifest.files['76561198000000001'];
+    assert.ok(removedEntry);
+    assert.equal(removedEntry.status, 'removed');
+  });
+
+  it('isolates parse errors without reusing stale changed-player cache entries', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const playerPath = path.join(playerDir, '76561198000000001@abc.sav');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(playerPath, '76561198000000001');
+
+    const firstInternals = loadAgentInternals(script, () => ({
+      players: new Map([['76561198000000001', { health: 85 }]]),
+    }));
+    const first = firstInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ players: first.players, playerManifest: first.playerManifest }),
+      'utf8',
+    );
+    fs.writeFileSync(playerPath, '76561198000000001-corrupt');
+
+    const errorLog: string[] = [];
+    const failingInternals = loadAgentInternals(
+      script,
+      () => {
+        throw new Error('bad player save');
+      },
+      errorLog,
+    );
+    const second = failingInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+
+    assert.equal(second.players['76561198000000001'], undefined);
+    assert.equal(second.playerCacheStats.errors, 1);
+    const errorEntry = second.playerManifest.files['76561198000000001'];
+    assert.ok(errorEntry);
+    assert.equal(errorEntry.status, 'error');
+    assert.match(errorLog.join('\n'), /bad player save/);
+  });
+
+  it('records legacy and suspicious empty-player warning states', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const cachePath = path.join(TEMP_PLAYER_ROOT, 'humanitz-cache.json');
+    fs.mkdirSync(TEMP_PLAYER_ROOT, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+
+    const missingDirLog: string[] = [];
+    const legacyInternals = loadAgentInternals(script, () => ({ players: new Map() }), missingDirLog);
+    const legacy = legacyInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {
+      '76561198000000001': { health: 85 },
+    });
+    assert.equal(legacy.playerCacheStats.mode, 'legacy-main-save');
+    const legacyPlayer = legacy.players['76561198000000001'];
+    assert.ok(legacyPlayer);
+    assert.equal(legacyPlayer.health, 85);
+    assert.match(missingDirLog.join('\n'), /Per-player save directory not found/);
+
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(path.join(playerDir, '76561198000000002@abc.sav'), '76561198000000002');
+    const suspiciousLog: string[] = [];
+    const suspiciousInternals = loadAgentInternals(script, () => ({ players: new Map() }), suspiciousLog);
+    const suspicious = suspiciousInternals.buildPlayersFromPlayerFiles(savePath, cachePath, '', {});
+    assert.equal(suspicious.playerCacheStats.mode, 'per-player');
+    assert.equal(suspicious.playerCacheStats.discovered, 1);
+    assert.match(suspiciousLog.join('\n'), /per-player directory has 1 files but cache has 0 players/);
+  });
+
+  it('watch signature changes when player files or id map change', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const idMapPath = path.join(TEMP_PLAYER_ROOT, 'PlayerIDMapped.txt');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    const playerPath = path.join(playerDir, '76561198000000001@abc.sav');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(idMapPath, '76561198000000001_+_|abc@Alice\n');
+    fs.writeFileSync(playerPath, '76561198000000001');
+
+    const internals = loadAgentInternals(script, (buf) => ({
+      players: new Map([[buf.toString('utf8'), { health: 85 }]]),
+    }));
+
+    const before = internals._buildWatchSignature(savePath, playerDir, idMapPath);
+    fs.writeFileSync(savePath, 'main-save-changed');
+    const afterMainSaveChange = internals._buildWatchSignature(savePath, playerDir, idMapPath);
+    assert.notEqual(afterMainSaveChange, before);
+
+    fs.writeFileSync(playerPath, '76561198000000001-changed');
+    const afterPlayerChange = internals._buildWatchSignature(savePath, playerDir, idMapPath);
+    assert.notEqual(afterPlayerChange, afterMainSaveChange);
+
+    fs.writeFileSync(idMapPath, '76561198000000001_+_|abc@Alice 2\n');
+    const afterIdMapChange = internals._buildWatchSignature(savePath, playerDir, idMapPath);
+    assert.notEqual(afterIdMapChange, afterPlayerChange);
+  });
+
+  it('watch signature can discover a player directory that appears after startup', () => {
+    fs.rmSync(TEMP_PLAYER_ROOT, { recursive: true, force: true });
+    const savePath = path.join(TEMP_PLAYER_ROOT, 'Save_DedicatedSaveMP.sav');
+    const idMapPath = path.join(TEMP_PLAYER_ROOT, 'PlayerIDMapped.txt');
+    const playerDir = path.join(TEMP_PLAYER_ROOT, 'DedicatedSaveMP');
+    fs.mkdirSync(TEMP_PLAYER_ROOT, { recursive: true });
+    fs.writeFileSync(savePath, 'main-save');
+    fs.writeFileSync(idMapPath, '76561198000000001_+_|abc@Alice\n');
+
+    const internals = loadAgentInternals(script, (buf) => ({
+      players: new Map([[buf.toString('utf8'), { health: 85 }]]),
+    }));
+
+    assert.equal(internals.discoverPlayerSaveDir(savePath), '');
+    const before = internals._buildWatchSignature(savePath, '', idMapPath);
+
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(path.join(playerDir, '76561198000000001@abc.sav'), '76561198000000001');
+
+    const rediscovered = internals.discoverPlayerSaveDir(savePath);
+    assert.equal(rediscovered, playerDir);
+    const after = internals._buildWatchSignature(savePath, rediscovered, idMapPath);
+    assert.notEqual(after, before);
   });
 });
 
@@ -217,6 +680,7 @@ describe('agent execution', () => {
     assert.ok(stdout.includes('Usage:'));
     assert.ok(stdout.includes('--save'));
     assert.ok(stdout.includes('--id-map'));
+    assert.ok(stdout.includes('--player-dir'));
     assert.ok(stdout.includes('--watch'));
   });
 });
@@ -386,6 +850,61 @@ describe('SaveService agent mode', () => {
     // Verify data made it to the DB
     const players = db.player.getAllPlayers();
     assert.ok(players.length > 0, 'Should have players in DB after cache sync');
+  });
+
+  it('_syncFromCache stores player detail metadata from cache manifest', async () => {
+    const steamId = '76561198000000991';
+    const svc = new SaveService(db);
+
+    await svc._syncFromCache({
+      v: 3,
+      ts: new Date().toISOString(),
+      idMap: {},
+      idMapCount: 0,
+      players: {
+        [steamId]: {
+          name: 'Cache Detail Player',
+          health: 83,
+          lifetimeKills: 12,
+          inventory: [{ item: 'Axe', amount: 1 }],
+          unmappedFullField: { fromCache: true },
+        },
+      },
+      playerManifest: {
+        parserSignature: 'agent-v3',
+        files: {
+          [steamId]: {
+            fileName: `${steamId}@abc.sav`,
+            relPath: `${steamId}@abc.sav`,
+            mtimeMs: 1234,
+            size: 5678,
+            status: 'parsed',
+          },
+        },
+      },
+      playerCacheStats: { discovered: 1, parsed: 1, reused: 0, removed: 0, errors: 0 },
+      worldState: {},
+      structures: [],
+      vehicles: [],
+      companions: [],
+      containers: [],
+      horses: [],
+    });
+
+    const player = db.player.getPlayer(steamId);
+    assert.ok(player);
+    assert.equal(player.has_save_snapshot, true);
+    assert.equal(player.health, 83);
+
+    const detail = db.player.getPlayerDetail(steamId);
+    assert.ok(detail);
+    assert.equal(detail.source_file, `${steamId}@abc.sav`);
+    assert.equal(detail.source_mtime_ms, 1234);
+    assert.equal(detail.source_size, 5678);
+    assert.equal(detail.cache_version, 3);
+    assert.equal(detail.agent_version, 3);
+    assert.equal(detail.parser_signature, 'agent-v3');
+    assert.deepEqual((detail.snapshot as Record<string, unknown>).unmappedFullField, { fromCache: true });
   });
 
   it('direct mode skips agent logic', async () => {
