@@ -1561,13 +1561,17 @@ class HumanitZDB {
    * a cross-table mix of old and new data (acceptable for dashboard reads).
    * Called by SaveSyncPipeline instead of individual replace* methods.
    *
-   * Payload semantics: a present array (including an empty one) is
-   * authoritative and replaces the table — an empty world really does clear
-   * it, matching how item reconciliation already treats the snapshot. null is
-   * treated as an explicit empty array. undefined means the caller did not
-   * provide the field (e.g. an older agent cache), so the table is left
-   * untouched. Parse failures abort the whole sync upstream and never reach
-   * this method with partial data.
+   * Payload semantics for the replace-style tables (structures, vehicles,
+   * companions, deadBodies, containers, lootActors, quests, horses,
+   * worldDrops): a present array (including an empty one) is authoritative
+   * and replaces the table — an empty world really does clear it, matching
+   * how item reconciliation already treats the snapshot. null is treated as
+   * an explicit empty array. undefined means the caller did not provide the
+   * field (e.g. an older agent cache), so the table is left untouched.
+   * The upsert-style payloads (players, worldState, clans, serverSettings)
+   * never clear anything — they are simply skipped when absent. Parse
+   * failures abort the whole sync upstream and never reach this method with
+   * partial data.
    *
    * @param {object} data - { players, worldState, structures, vehicles, companions, clans,
    *                          deadBodies, containers, lootActors, quests, horses, worldDrops }
@@ -1617,21 +1621,21 @@ class HumanitZDB {
       });
     }
 
-    if (data.structures) {
+    if (Array.isArray(data.structures) || data.structures === null) {
       phases.push(() => {
-        this.worldObject.innerReplaceStructures(data.structures as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceStructures((data.structures ?? []) as Array<Record<string, unknown>>);
       });
     }
 
-    if (data.vehicles) {
+    if (Array.isArray(data.vehicles) || data.vehicles === null) {
       phases.push(() => {
-        this.worldObject.innerReplaceVehicles(data.vehicles as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceVehicles((data.vehicles ?? []) as Array<Record<string, unknown>>);
       });
     }
 
-    if (data.companions) {
+    if (Array.isArray(data.companions) || data.companions === null) {
       phases.push(() => {
-        this.worldObject.innerReplaceCompanions(data.companions as Array<Record<string, unknown>>);
+        this.worldObject.innerReplaceCompanions((data.companions ?? []) as Array<Record<string, unknown>>);
       });
     }
 
@@ -1703,7 +1707,10 @@ class HumanitZDB {
   /**
    * Single-transaction save sync for standalone callers (currently tests
    * only); the polling path uses the phased syncAllFromSave() instead. Same
-   * writes and payload semantics — both run _buildSaveSyncPhases().
+   * writes and payload semantics — both run _buildSaveSyncPhases(). Note for
+   * future callers: unlike the pre-refactor _syncFromSaveInner(), this path
+   * now also replaces the aux world-object tables when those arrays are
+   * passed, atomically within this single transaction.
    */
   syncFromSave(parsed: Record<string, unknown>) {
     this.transaction(() => {

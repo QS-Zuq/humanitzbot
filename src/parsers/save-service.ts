@@ -1198,17 +1198,21 @@ class SaveService extends EventEmitter {
   _writeSaveCache(parsed: Record<string, unknown>): void {
     try {
       const players = parsed['players'] as Map<string, unknown>;
+      // Omitted fields stay undefined and JSON.stringify drops the key, so
+      // the written cache preserves "field not provided" instead of
+      // materializing an authoritative-empty snapshot for cache readers
+      // (all of which ??-guard the absent key).
       const cacheData: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
         playerCount: players.size,
         idMap: this._idMap,
-        worldState: parsed['worldState'] ?? {},
+        worldState: parsed['worldState'],
         players: {},
-        structures: Array.isArray(parsed['structures']) ? parsed['structures'] : [],
-        vehicles: Array.isArray(parsed['vehicles']) ? parsed['vehicles'] : [],
-        horses: Array.isArray(parsed['horses']) ? parsed['horses'] : [],
-        containers: Array.isArray(parsed['containers']) ? parsed['containers'] : [],
-        companions: Array.isArray(parsed['companions']) ? parsed['companions'] : [],
+        structures: Array.isArray(parsed['structures']) ? parsed['structures'] : undefined,
+        vehicles: Array.isArray(parsed['vehicles']) ? parsed['vehicles'] : undefined,
+        horses: Array.isArray(parsed['horses']) ? parsed['horses'] : undefined,
+        containers: Array.isArray(parsed['containers']) ? parsed['containers'] : undefined,
+        companions: Array.isArray(parsed['companions']) ? parsed['companions'] : undefined,
       };
       if (players instanceof Map) {
         for (const [steamId, pData] of players) {

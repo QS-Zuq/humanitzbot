@@ -358,6 +358,53 @@ describe('SaveSyncPipeline syncFromCache', () => {
     assert.equal(emitted[0]?.playerCount, 1);
   });
 
+  it('keeps worldState and the derived worldDrops undefined when the cache omits worldState', async () => {
+    const db = makeDb();
+    const { pipeline } = makePipeline(db);
+
+    await pipeline.syncFromCache({ v: 1, players: {} });
+
+    const parsed = db.syncPayloads[0] as AnyRecord;
+    assert.equal(parsed.worldState, undefined);
+    assert.equal(parsed.worldDrops, undefined);
+  });
+
+  it('returns undefined worldDrops when the world-drop build throws partway', async () => {
+    const db = makeDb();
+    const { pipeline } = makePipeline(db);
+
+    // lodPickups is not iterable → _buildWorldDrops throws and must yield
+    // undefined (preserve the table) instead of a partial array.
+    await pipeline.syncParsedData(makeParsedSave({ worldState: { lodPickups: 42 } }), []);
+
+    assert.equal((db.syncPayloads[0] as AnyRecord).worldDrops, undefined);
+  });
+
+  it('emits no destroyed events for categories omitted from the cache', async () => {
+    const oldState = {
+      containers: [{ actorName: 'c1', items: [{ item: 'AK47', amount: 1 }], x: 1, y: 2, z: 3 }],
+    };
+
+    // containers omitted → diff category skipped, no spurious events
+    const omittedDb = makeDb();
+    const omitted = makePipeline(omittedDb, {
+      getSyncCount: () => 5,
+      readOldStateForDiff: () => oldState,
+    });
+    await omitted.pipeline.syncFromCache({ v: 1, players: {} });
+    assert.equal(omittedDb.insertedActivities.flat().length, 0);
+
+    // present-but-empty containers stays authoritative → container_destroyed
+    const clearedDb = makeDb();
+    const cleared = makePipeline(clearedDb, {
+      getSyncCount: () => 5,
+      readOldStateForDiff: () => oldState,
+    });
+    await cleared.pipeline.syncFromCache({ v: 1, players: {}, containers: [] });
+    const events = clearedDb.insertedActivities.flat() as AnyRecord[];
+    assert.ok(events.some((e) => e.type === 'container_destroyed'));
+  });
+
   it('passes empty worldDrops through as an array instead of null', async () => {
     const db = makeDb();
     const { pipeline } = makePipeline(db);

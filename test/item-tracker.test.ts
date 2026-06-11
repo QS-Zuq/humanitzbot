@@ -599,6 +599,125 @@ describe('Item Tracker', () => {
     });
   });
 
+  describe('omitted snapshot fields (older agent cache compatibility)', () => {
+    const containerItems = (items: Array<Record<string, unknown>>) => ({
+      players: new Map(),
+      containers: [{ actorName: 'crate_omit', items, x: 1, y: 2, z: 3 }],
+      vehicles: [],
+      horses: [],
+      structures: [],
+      worldState: {},
+    });
+
+    it('does not mark instances lost when their location field is omitted', async () => {
+      const seeded = await reconcileItems(
+        db,
+        containerItems([{ item: 'AK47', amount: 1, durability: 0.85, ammo: 15 }]),
+      );
+      assert.equal(seeded.created, 1);
+
+      // containers omitted entirely (undefined) → instance preserved
+      const omitted = await reconcileItems(db, {
+        players: new Map(),
+        vehicles: [],
+        horses: [],
+        structures: [],
+        worldState: {},
+      });
+      assert.equal(omitted.lost, 0);
+      assert.equal(countRows('item_instances', 'lost = 0'), 1);
+
+      // present-but-empty containers stays authoritative → marked lost
+      const cleared = await reconcileItems(db, containerItems([]));
+      assert.equal(cleared.lost, 1);
+      assert.equal(countRows('item_instances', 'lost = 1'), 1);
+    });
+
+    it('does not mark fungible groups lost when their location field is omitted', async () => {
+      const stacks = [
+        { item: 'Nails', amount: 50, durability: 1.0 },
+        { item: 'Nails', amount: 30, durability: 1.0 },
+      ];
+      const seeded = await reconcileItems(db, containerItems(stacks));
+      assert.equal(seeded.groups.created, 1);
+
+      const omitted = await reconcileItems(db, {
+        players: new Map(),
+        vehicles: [],
+        horses: [],
+        structures: [],
+        worldState: {},
+      });
+      assert.equal(omitted.groups.lost, 0);
+      assert.equal(countRows('item_groups', 'lost = 0'), 1);
+
+      const cleared = await reconcileItems(db, containerItems([]));
+      assert.equal(cleared.groups.lost, 1);
+      assert.equal(countRows('item_groups', 'lost = 1'), 1);
+    });
+
+    it('does not move items out of omitted locations on a fingerprint match', async () => {
+      const weapon = { item: 'AK47', amount: 1, durability: 0.85, ammo: 15 };
+      const seeded = await reconcileItems(db, containerItems([weapon]));
+      assert.equal(seeded.created, 1);
+
+      // containers omitted + an identical-fingerprint item appears on a
+      // player → must create a fresh instance, not "move" the container one
+      const stats = await reconcileItems(db, {
+        players: new Map([
+          ['76561100000000009', { inventory: [weapon], equipment: [], quickSlots: [], backpackItems: [] }],
+        ]),
+        vehicles: [],
+        horses: [],
+        structures: [],
+        worldState: {},
+      });
+      assert.equal(stats.moved, 0);
+      assert.equal(stats.created, 1);
+      assert.equal(stats.lost, 0);
+      assert.equal(countRows('item_instances', "location_type = 'container' AND lost = 0"), 1);
+      assert.equal(countRows('item_instances', "location_type = 'player' AND lost = 0"), 1);
+    });
+
+    it('gates the worldState-derived location types as one group', async () => {
+      const seeded = await reconcileItems(db, {
+        players: new Map(),
+        containers: [],
+        vehicles: [],
+        horses: [],
+        structures: [],
+        worldState: {
+          lodPickups: [{ item: 'Rope', amount: 1, durability: 1.0, x: 10, y: 20, z: 5 }],
+        },
+      });
+      assert.equal(seeded.created, 1);
+      assert.equal(countRows('item_instances', "location_type = 'world_drop' AND lost = 0"), 1);
+
+      // worldState omitted → world_drop instance preserved
+      const omitted = await reconcileItems(db, {
+        players: new Map(),
+        containers: [],
+        vehicles: [],
+        horses: [],
+        structures: [],
+      });
+      assert.equal(omitted.lost, 0);
+      assert.equal(countRows('item_instances', "location_type = 'world_drop' AND lost = 0"), 1);
+
+      // present-but-empty worldState stays authoritative → marked lost
+      const cleared = await reconcileItems(db, {
+        players: new Map(),
+        containers: [],
+        vehicles: [],
+        horses: [],
+        structures: [],
+        worldState: {},
+      });
+      assert.equal(cleared.lost, 1);
+      assert.equal(countRows('item_instances', "location_type = 'world_drop' AND lost = 1"), 1);
+    });
+  });
+
   describe('world drops DB methods', () => {
     it('replaceWorldDrops stores and retrieves drops', () => {
       db.worldObject.replaceWorldDrops([

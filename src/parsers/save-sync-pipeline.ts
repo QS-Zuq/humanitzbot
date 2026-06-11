@@ -149,14 +149,15 @@ export class SaveSyncPipeline {
         });
       }
     }
-    // Pass list fields through as-is: a present array (even empty) is
+    // Pass fields through as-is: a present value (even an empty array) is
     // authoritative and clears/replaces the table downstream, while a field
     // missing from the cache (older agent version) stays undefined so the
-    // table is left untouched. See syncAllFromSave() payload semantics.
+    // table is left untouched. worldState also gates the derived worldDrops —
+    // see _buildWorldDrops() and syncAllFromSave() payload semantics.
     const parsed: SaveParsedDataInput = {
       players,
       playerSources,
-      worldState: cache.worldState ?? {},
+      worldState: cache.worldState,
       structures: _presentArray(cache.structures),
       vehicles: _presentArray(cache.vehicles),
       companions: _presentArray(cache.companions),
@@ -260,13 +261,17 @@ export class SaveSyncPipeline {
       const candidateSteamIds = [...players.keys()].filter((steamId) => /^\d{17}$/.test(steamId));
       const oldState = this._deps.readOldStateForDiff(candidateSteamIds);
       if (oldState) {
+        // Omitted fields stay undefined — diffSaveState() guards every
+        // category with `oldState.X && newState.X`, so an absent field skips
+        // that category instead of emitting spurious "destroyed" events
+        // against an empty snapshot.
         const newState = {
-          containers: parsed.containers ?? [],
-          horses: parsed.horses ?? [],
+          containers: parsed.containers,
+          horses: parsed.horses,
           players,
-          worldState: parsed.worldState ?? {},
-          vehicles: parsed.vehicles ?? [],
-          structures: parsed.structures ?? [],
+          worldState: parsed.worldState,
+          vehicles: parsed.vehicles,
+          structures: parsed.structures,
         };
         const nameResolver = (steamId: string): string => {
           const p = players.get(steamId);
@@ -280,10 +285,17 @@ export class SaveSyncPipeline {
     return diffEvents;
   }
 
-  private _buildWorldDrops(parsed: SaveParsedDataInput): unknown[] {
+  /**
+   * Derive world drops from the world-state snapshot. Returns undefined —
+   * "not authoritative, leave the world_drops table untouched" — when the
+   * snapshot has no worldState at all (older agent cache) or when the build
+   * fails partway: a partial array must not authoritatively wipe the table.
+   */
+  private _buildWorldDrops(parsed: SaveParsedDataInput): unknown[] | undefined {
+    if (!parsed.worldState) return undefined;
     const worldDrops: unknown[] = [];
     try {
-      const ws = parsed.worldState ?? {};
+      const ws = parsed.worldState;
       if (ws['lodPickups']) {
         for (const p of ws['lodPickups'] as Array<Record<string, unknown>>) {
           worldDrops.push({
@@ -338,6 +350,7 @@ export class SaveSyncPipeline {
       }
     } catch (err: unknown) {
       this._deps.log.warn('World drops build error (non-fatal):', errMsg(err));
+      return undefined;
     }
     return worldDrops;
   }
@@ -358,13 +371,16 @@ export class SaveSyncPipeline {
       itemStats = await reconcileItems(
         // SAFETY: HumanitZDBLike requires index signature not present on class
         this._deps.db as unknown as Parameters<typeof reconcileItems>[0],
+        // Omitted fields stay undefined — reconcileItems() skips marking
+        // instances/groups lost at locations whose source field was not in
+        // the snapshot, mirroring the untouched DB tables.
         {
           players,
-          containers: (parsed.containers as Record<string, unknown>[] | undefined) ?? [],
-          vehicles: (parsed.vehicles as Record<string, unknown>[] | undefined) ?? [],
-          horses: (parsed.horses as Record<string, unknown>[] | undefined) ?? [],
-          structures: (parsed.structures as Record<string, unknown>[] | undefined) ?? [],
-          worldState: parsed.worldState ?? {},
+          containers: parsed.containers as Record<string, unknown>[] | undefined,
+          vehicles: parsed.vehicles as Record<string, unknown>[] | undefined,
+          horses: parsed.horses as Record<string, unknown>[] | undefined,
+          structures: parsed.structures as Record<string, unknown>[] | undefined,
+          worldState: parsed.worldState,
         },
         nameResolver,
       );
