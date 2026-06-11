@@ -385,36 +385,36 @@ describe('SaveSyncPipeline syncFromCache', () => {
     assert.deepEqual(db.syncPayloads[0].clans, []);
   });
 
-  it('runs activity cleanup only on maintenance sync intervals', () => {
+  it('runs activity cleanup only on maintenance sync intervals', async () => {
     const db = makeDb();
     const pipelineHarness = makePipeline(db);
     const activityPurgeCount = () => db.calls.filter((call: string) => call === 'purgeOldActivity:-30 days').length;
 
     pipelineHarness.setSyncCount(1);
-    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(activityPurgeCount(), 0);
 
     pipelineHarness.setSyncCount(100);
-    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(activityPurgeCount(), 1);
 
     pipelineHarness.setSyncCount(0);
-    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(activityPurgeCount(), 2);
   });
 
-  it('uses the consolidated FK-safe item tracker purge only on maintenance sync intervals', () => {
+  it('uses the consolidated FK-safe item tracker purge only on maintenance sync intervals', async () => {
     const db = makeDb();
     const pipelineHarness = makePipeline(db);
     const itemPurgeCount = () =>
       db.calls.filter((call: string) => call === 'purgeOldItemTrackerData:-7 days:-7 days:-30 days').length;
 
     pipelineHarness.setSyncCount(1);
-    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(itemPurgeCount(), 0);
 
     pipelineHarness.setSyncCount(100);
-    pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
     assert.equal(itemPurgeCount(), 1);
     assert.equal(
       db.calls.some((call: string) => call.startsWith('purgeOldLostItems:')),
@@ -430,7 +430,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
     );
   });
 
-  it('logs sync phase timings', () => {
+  it('logs sync phase timings', async () => {
     const db = makeDb();
     const logs: string[] = [];
     const { pipeline } = makePipeline(db, {
@@ -444,7 +444,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
       },
     });
 
-    pipeline.syncParsedData(makeParsedSave(), []);
+    await pipeline.syncParsedData(makeParsedSave(), []);
 
     const phaseLog = logs.find((line) => line.includes('Sync phases:'));
     assert.ok(phaseLog);
@@ -453,7 +453,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
     }
   });
 
-  it('does not purge item tracker data when item reconciliation fails', () => {
+  it('does not purge item tracker data when item reconciliation fails', async () => {
     const baseDb = makeDb();
     const db = makeDb({
       item: {
@@ -479,7 +479,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
     });
 
     pipelineHarness.setSyncCount(100);
-    const result = pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
+    const result = await pipelineHarness.pipeline.syncParsedData(makeParsedSave(), []);
 
     assert.equal(result.itemTracking, null);
     assert.equal(
@@ -492,7 +492,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
     );
   });
 
-  it('keeps item stats when maintenance purge fails', () => {
+  it('keeps item stats when maintenance purge fails', async () => {
     const baseDb = makeDb();
     const db = makeDb({
       item: {
@@ -515,7 +515,7 @@ describe('SaveSyncPipeline syncFromCache', () => {
     });
     pipelineHarness.setSyncCount(100);
 
-    const result = pipelineHarness.pipeline.syncParsedData(
+    const result = await pipelineHarness.pipeline.syncParsedData(
       makeParsedSave({
         players: new Map([['steam1', { inventory: [{ item: 'Rifle', amount: 1 }], equipment: [] }]]),
       }),
@@ -574,30 +574,30 @@ describe('SaveService _syncFromCache', () => {
 });
 
 describe('SaveService _syncParsedData', () => {
-  it('applies idMap names before syncing and emitting the result', () => {
+  it('applies idMap names before syncing and emitting the result', async () => {
     const steamId = '76561198000000001';
     const db = makeDb();
     const svc = makeService(db, { idMap: { [steamId]: 'Mapped Alice' } });
     const getSync = captureSync(svc);
     const players = new Map([[steamId, { name: 'Old Alice', inventory: [] }]]);
 
-    const result = svc._syncParsedData(makeParsedSave({ players }), [{ name: 'Clan' }]);
+    const result = await svc._syncParsedData(makeParsedSave({ players }), [{ name: 'Clan' }]);
 
     assert.equal(db.syncPayloads[0].players.get(steamId).name, 'Mapped Alice');
     assert.equal(result.parsed.players.get(steamId).name, 'Mapped Alice');
     assert.equal(getSync()?.clanCount, 1);
   });
 
-  it('passes null worldDrops when no world drop state exists', () => {
+  it('passes null worldDrops when no world drop state exists', async () => {
     const db = makeDb();
     const svc = makeService(db);
 
-    svc._syncParsedData(makeParsedSave(), []);
+    await svc._syncParsedData(makeParsedSave(), []);
 
     assert.equal(db.syncPayloads[0].worldDrops, null);
   });
 
-  it('builds worldDrops from pickups, backpacks, and global containers', () => {
+  it('builds worldDrops from pickups, backpacks, and global containers', async () => {
     const db = makeDb();
     const svc = makeService(db);
     const worldState = {
@@ -606,7 +606,7 @@ describe('SaveService _syncParsedData', () => {
       globalContainers: [{ actorName: 'global_box', items: [], locked: true, x: 7, y: 8, z: 9 }],
     };
 
-    svc._syncParsedData(makeParsedSave({ worldState }), []);
+    await svc._syncParsedData(makeParsedSave({ worldState }), []);
 
     assert.deepEqual(db.syncPayloads[0].worldDrops, [
       {
@@ -650,7 +650,7 @@ describe('SaveService _syncParsedData', () => {
     ]);
   });
 
-  it('writes meta and emits the expected sync result shape', () => {
+  it('writes meta and emits the expected sync result shape', async () => {
     const db = makeDb();
     const svc = makeService(db, { agentMode: 'agent' });
     const getSync = captureSync(svc);
@@ -667,7 +667,7 @@ describe('SaveService _syncParsedData', () => {
       worldState: { day: 42 },
     });
 
-    const result = svc._syncParsedData(parsed, [{ name: 'Clan' }]);
+    const result = await svc._syncParsedData(parsed, [{ name: 'Clan' }]);
 
     assert.equal(result.playerCount, 2);
     assert.equal(result.structureCount, 1);
@@ -708,7 +708,7 @@ describe('SaveService _syncParsedData', () => {
     assert.equal(getSync(), result);
   });
 
-  it('continues when guarded diff reading fails', () => {
+  it('continues when guarded diff reading fails', async () => {
     const db = makeDb();
     const svc = makeService(db);
     const getSync = captureSync(svc);
@@ -717,14 +717,14 @@ describe('SaveService _syncParsedData', () => {
       throw new Error('diff read failed');
     };
 
-    const result = svc._syncParsedData(makeParsedSave({ players: new Map([['steam1', { inventory: [] }]]) }), []);
+    const result = await svc._syncParsedData(makeParsedSave({ players: new Map([['steam1', { inventory: [] }]]) }), []);
 
     assert.equal(db.syncPayloads.length, 1);
     assert.equal(result.activityEvents, 0);
     assert.equal(getSync(), result);
   });
 
-  it('continues when guarded item tracking fails', () => {
+  it('continues when guarded item tracking fails', async () => {
     const db = makeDb({
       item: {
         ...makeDb().item,
@@ -735,14 +735,14 @@ describe('SaveService _syncParsedData', () => {
     });
     const svc = makeService(db);
 
-    const result = svc._syncParsedData(makeParsedSave(), []);
+    const result = await svc._syncParsedData(makeParsedSave(), []);
 
     assert.equal(db.syncPayloads.length, 1);
     assert.equal(result.itemTracking, null);
     assert.equal(db.metaWrites.find((entry: AnyRecord) => entry.key === 'last_save_players')?.value, '0');
   });
 
-  it('does not build diff events on the first sync', () => {
+  it('does not build diff events on the first sync', async () => {
     const db = makeDb();
     const svc = makeService(db);
     svc._syncCount = 0;
@@ -758,14 +758,14 @@ describe('SaveService _syncParsedData', () => {
       containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 1 }] }],
     });
 
-    const result = svc._syncParsedData(parsed, []);
+    const result = await svc._syncParsedData(parsed, []);
 
     assert.equal(result.activityEvents, 0);
     assert.deepEqual(result.diffEvents, []);
     assert.deepEqual(db.insertedActivities, []);
   });
 
-  it('builds diff events after the first sync when old and new state differ', () => {
+  it('builds diff events after the first sync when old and new state differ', async () => {
     const db = makeDb();
     const svc = makeService(db);
     svc._syncCount = 1;
@@ -781,14 +781,14 @@ describe('SaveService _syncParsedData', () => {
       containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 1 }] }],
     });
 
-    const result = svc._syncParsedData(parsed, []);
+    const result = await svc._syncParsedData(parsed, []);
 
     assert.ok(result.activityEvents > 0);
     assert.ok(result.diffEvents.length > 0);
     assert.equal(db.insertedActivities.length, 1);
   });
 
-  it('falls back to current parsed Steam IDs for old player diff when no online rows exist', () => {
+  it('falls back to current parsed Steam IDs for old player diff when no online rows exist', async () => {
     const candidateCalls: string[][] = [];
     const db = makeDb({
       worldObject: {
@@ -845,7 +845,7 @@ describe('SaveService _syncParsedData', () => {
       containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 3 }] }],
     });
 
-    const result = svc._syncParsedData(parsed, []);
+    const result = await svc._syncParsedData(parsed, []);
 
     assert.deepEqual(candidateCalls, [['76561198000000021']]);
     const containerEvent = result.diffEvents.find((event: AnyRecord) => event.type === 'container_item_added');
@@ -853,7 +853,7 @@ describe('SaveService _syncParsedData', () => {
     assert.equal(containerEvent.attributedSteamId, '76561198000000021');
   });
 
-  it('continues when guarded activity log insert and purge fail', () => {
+  it('continues when guarded activity log insert and purge fail', async () => {
     const baseDb = makeDb();
     const db = makeDb({
       activityLog: {
@@ -880,7 +880,7 @@ describe('SaveService _syncParsedData', () => {
       containers: [{ actorName: 'crate', items: [{ item: 'Nails', amount: 1 }] }],
     });
 
-    const result = svc._syncParsedData(parsed, []);
+    const result = await svc._syncParsedData(parsed, []);
 
     assert.equal(db.syncPayloads.length, 1);
     assert.ok(result.activityEvents > 0);

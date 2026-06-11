@@ -50,7 +50,7 @@ describe('Item Tracker', () => {
   });
 
   describe('reconcileItems', () => {
-    it('creates new instances for items seen for the first time', () => {
+    it('creates new instances for items seen for the first time', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -76,7 +76,7 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.created, 2);
       assert.equal(stats.matched, 0);
       assert.equal(stats.moved, 0);
@@ -93,7 +93,7 @@ describe('Item Tracker', () => {
       assert.equal(ak.lost, 0);
     });
 
-    it('matches existing instances on second sync (no change)', () => {
+    it('matches existing instances on second sync (no change)', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -116,17 +116,17 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      const stats1 = reconcileItems(db, snapshot);
+      const stats1 = await reconcileItems(db, snapshot);
       assert.equal(stats1.created, 1);
 
-      const stats2 = reconcileItems(db, snapshot);
+      const stats2 = await reconcileItems(db, snapshot);
       assert.equal(stats2.matched, 1);
       assert.equal(stats2.created, 0);
       assert.equal(stats2.moved, 0);
       assert.equal(stats2.lost, 0);
     });
 
-    it('detects item movement from player to container', () => {
+    it('detects item movement from player to container', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -148,7 +148,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snap1);
+      await reconcileItems(db, snap1);
 
       const snap2 = {
         players: new Map([
@@ -180,7 +180,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snap2);
+      const stats = await reconcileItems(db, snap2);
       assert.equal(stats.moved, 1);
       assert.equal(stats.lost, 0);
 
@@ -197,7 +197,7 @@ describe('Item Tracker', () => {
       assert.equal(movements[0].to_id, 'StorageChest_1');
     });
 
-    it('marks items as lost when they disappear', () => {
+    it('marks items as lost when they disappear', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -219,7 +219,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snap1);
+      await reconcileItems(db, snap1);
 
       const snap2 = {
         players: new Map([
@@ -242,14 +242,14 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snap2);
+      const stats = await reconcileItems(db, snap2);
       assert.equal(stats.lost, 1);
 
       const active = db.item.getActiveItemInstances();
       assert.equal(active.length, 0);
     });
 
-    it('tracks items in vehicles', () => {
+    it('tracks items in vehicles', async () => {
       const snapshot = {
         players: new Map(),
         containers: [],
@@ -267,7 +267,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
       const instances = db.item.getActiveItemInstances();
@@ -275,7 +275,7 @@ describe('Item Tracker', () => {
       assert.equal(instances[0].location_slot, 'trunk');
     });
 
-    it('tracks items in horse saddlebags', () => {
+    it('tracks items in horse saddlebags', async () => {
       const snapshot = {
         players: new Map(),
         containers: [],
@@ -294,7 +294,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
       const instances = db.item.getActiveItemInstances();
@@ -302,7 +302,7 @@ describe('Item Tracker', () => {
       assert.equal(instances[0].location_slot, 'saddle');
     });
 
-    it('tracks LOD pickups (world drops)', () => {
+    it('tracks LOD pickups (world drops)', async () => {
       const snapshot = {
         players: new Map(),
         containers: [],
@@ -315,7 +315,7 @@ describe('Item Tracker', () => {
           ],
         },
       };
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.created, 1);
 
       const instances = db.item.getActiveItemInstances();
@@ -323,7 +323,7 @@ describe('Item Tracker', () => {
       assert.equal(instances[0].item, 'Axe');
     });
 
-    it('handles multiple items with same fingerprint across locations', () => {
+    it('handles multiple items with same fingerprint across locations', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -355,7 +355,7 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      const stats = reconcileItems(db, snap1);
+      const stats = await reconcileItems(db, snap1);
       assert.equal(stats.created, 2);
 
       const instances = db.item.getActiveItemInstances();
@@ -366,7 +366,7 @@ describe('Item Tracker', () => {
       assert.equal(playerNails.fingerprint, chestNails.fingerprint);
     });
 
-    it('searchItemInstances finds items by name', () => {
+    it('searchItemInstances finds items by name', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -392,7 +392,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
 
       const akItems = db.item.searchItemInstances('AK47');
       assert.equal(akItems.length, 2);
@@ -401,7 +401,7 @@ describe('Item Tracker', () => {
       assert.equal(shotgunItems.length, 1);
     });
 
-    it('searchItemInstances finds items by fingerprint', () => {
+    it('searchItemInstances finds items by fingerprint', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -426,7 +426,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
 
       const allAk = db.item.searchItemInstances('AK47');
       assert.ok(allAk.length >= 1);
@@ -438,7 +438,7 @@ describe('Item Tracker', () => {
       assert.equal(byFp[0].item, 'AK47');
     });
 
-    it('searchItemGroups finds groups by fingerprint', () => {
+    it('searchItemGroups finds groups by fingerprint', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -463,7 +463,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
 
       const allNails = db.item.searchItemGroups('Nails');
       assert.ok(allNails.length >= 1);
@@ -475,7 +475,7 @@ describe('Item Tracker', () => {
       assert.equal(byFp[0].item, 'Nails');
     });
 
-    it('getItemInstanceCount returns correct count', () => {
+    it('getItemInstanceCount returns correct count', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -500,11 +500,11 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
       assert.equal(db.item.getItemInstanceCount(), 2);
     });
 
-    it('getItemInstancesByLocation returns items at a specific location', () => {
+    it('getItemInstancesByLocation returns items at a specific location', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -526,14 +526,14 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
 
       const playerItems = db.item.getItemInstancesByLocation('player', '76561100000000001');
       assert.equal(playerItems.length, 2);
     });
 
-    it('attributes movement to the player involved', () => {
-      reconcileItems(db, {
+    it('attributes movement to the player involved', async () => {
+      await reconcileItems(db, {
         players: new Map([
           [
             '76561100000000001',
@@ -555,7 +555,7 @@ describe('Item Tracker', () => {
         worldState: {},
       });
 
-      reconcileItems(
+      await reconcileItems(
         db,
         {
           players: new Map([
@@ -704,7 +704,7 @@ describe('Item Tracker', () => {
   });
 
   describe('fungible group tracking', () => {
-    it('creates groups for multiple identical items at the same location', () => {
+    it('creates groups for multiple identical items at the same location', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -731,7 +731,7 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.groups.created, 1);
       assert.equal(stats.created, 0);
 
@@ -743,7 +743,7 @@ describe('Item Tracker', () => {
       assert.equal(groups[0].location_id, '76561100000000001');
     });
 
-    it('matches existing groups on re-sync (stable quantity)', () => {
+    it('matches existing groups on re-sync (stable quantity)', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -769,13 +769,13 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      reconcileItems(db, snapshot);
-      const stats2 = reconcileItems(db, snapshot);
+      await reconcileItems(db, snapshot);
+      const stats2 = await reconcileItems(db, snapshot);
       assert.equal(stats2.groups.matched, 1);
       assert.equal(stats2.groups.created, 0);
     });
 
-    it('detects group quantity decrease (split)', () => {
+    it('detects group quantity decrease (split)', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -801,7 +801,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snap1);
+      await reconcileItems(db, snap1);
 
       const snap2 = {
         players: new Map([
@@ -827,14 +827,14 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snap2);
+      const stats = await reconcileItems(db, snap2);
       assert.equal(stats.groups.adjusted, 1);
 
       const groups = db.item.getActiveItemGroups();
       assert.equal(groups[0].quantity, 2);
     });
 
-    it('detects group transfer (decrease at A, increase at B)', () => {
+    it('detects group transfer (decrease at A, increase at B)', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -860,7 +860,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snap1);
+      await reconcileItems(db, snap1);
 
       const snap2 = {
         players: new Map([
@@ -894,7 +894,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snap2);
+      const stats = await reconcileItems(db, snap2);
       assert.ok(stats.groups.transferred > 0 || stats.groups.created > 0);
 
       const movements = db.item.getRecentItemMovements(10);
@@ -905,7 +905,7 @@ describe('Item Tracker', () => {
       }
     });
 
-    it('separates unique items from fungible groups', () => {
+    it('separates unique items from fungible groups', async () => {
       const snapshot = {
         players: new Map([
           [
@@ -932,7 +932,7 @@ describe('Item Tracker', () => {
         worldState: {},
       };
 
-      const stats = reconcileItems(db, snapshot);
+      const stats = await reconcileItems(db, snapshot);
       assert.equal(stats.groups.created, 1);
       assert.equal(stats.created, 1);
 
@@ -946,7 +946,7 @@ describe('Item Tracker', () => {
       assert.equal(nonGroupInstances[0].item, 'AK47');
     });
 
-    it('handles group disappearing entirely (all lost)', () => {
+    it('handles group disappearing entirely (all lost)', async () => {
       const snap1 = {
         players: new Map([
           [
@@ -971,7 +971,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      reconcileItems(db, snap1);
+      await reconcileItems(db, snap1);
 
       const snap2 = {
         players: new Map([
@@ -994,7 +994,7 @@ describe('Item Tracker', () => {
         structures: [],
         worldState: {},
       };
-      const stats = reconcileItems(db, snap2);
+      const stats = await reconcileItems(db, snap2);
       assert.equal(stats.groups.lost, 1);
 
       const activeGroups = db.item.getActiveItemGroups();
@@ -1271,7 +1271,7 @@ describe('Item Tracker', () => {
       assert.ok(indexNames('item_groups').includes('idx_item_grp_active_location_sort'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_instance'));
       assert.ok(indexNames('item_movements').includes('idx_item_mov_group'));
-      assert.equal(db._getMeta('schema_version'), '21');
+      assert.equal(db._getMeta('schema_version'), '22');
     });
 
     it('repairs legacy item_movements instance_id NOT NULL during migration', () => {

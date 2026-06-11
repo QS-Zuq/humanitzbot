@@ -2,6 +2,9 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import _webMapServer from '../src/web-map/server.js';
 const WebMapServer = _webMapServer as any;
@@ -123,6 +126,7 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     searchActivityByItem: merged.searchActivityByItem,
     searchActivityByContainer: merged.searchActivityByContainer,
     getActivitySince: merged.getActivitySince,
+    countActivitySince: (since: string) => merged.getActivitySince(since).length,
     countByTextSearch: merged.countByTextSearch,
     topPlayers: merged.topPlayers,
     topContainers: merged.topContainers,
@@ -132,6 +136,7 @@ function makeMockDb(overrides: Record<string, unknown> = {}) {
     getRecentChat: merged.getRecentChat,
     searchChat: merged.searchChat,
     getChatSince: merged.getChatSince,
+    countChatSince: (since: string) => merged.getChatSince(since).length,
     ...chatOvr,
   };
   merged.timeline = {
@@ -222,6 +227,7 @@ describe('Web Map Read Endpoints', () => {
     server._responseCache.clear();
     server._playerCache = new Map();
     server._lastParse = 0;
+    server._saveJsonCache.clear();
     // Restore any instance-level overrides back to prototype
     delete server._parseSaveData;
     delete server._buildLandingData;
@@ -1580,6 +1586,125 @@ describe('Web Map Read Endpoints', () => {
       handler({ srv: makeSrv(), query: {} }, res);
 
       assert.deepEqual(res.body, { active: false });
+    });
+  });
+
+  // ── _parseSaveDataForServer caching ──────────────────────
+
+  describe('_parseSaveDataForServer caching', () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hmz-savecache-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('reuses the parsed map while save-cache.json mtime is unchanged', () => {
+      const cachePath = path.join(dir, 'save-cache.json');
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { '76561198000000001': { x: 1 } } }));
+
+      const first = server._parseSaveDataForServer(dir);
+      assert.equal(first.size, 1);
+
+      const second = server._parseSaveDataForServer(dir);
+      assert.equal(second, first); // same instance — no re-read/re-parse
+    });
+
+    it('re-reads save-cache.json when its mtime changes', () => {
+      const cachePath = path.join(dir, 'save-cache.json');
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { a: {} } }));
+      const past = new Date(Date.now() - 5000);
+      fs.utimesSync(cachePath, past, past);
+
+      const first = server._parseSaveDataForServer(dir);
+      assert.equal(first.size, 1);
+
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { a: {}, b: {} } }));
+
+      const second = server._parseSaveDataForServer(dir);
+      assert.notEqual(second, first);
+      assert.equal(second.size, 2);
+    });
+
+    it('falls back to humanitz-cache.json when save-cache.json is stale and caches that source', () => {
+      const cachePath = path.join(dir, 'save-cache.json');
+      const agentPath = path.join(dir, 'humanitz-cache.json');
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { a: {} } }));
+      const stale = new Date(Date.now() - 700000); // older than the 10-minute freshness window
+      fs.utimesSync(cachePath, stale, stale);
+      fs.writeFileSync(agentPath, JSON.stringify({ players: { b: {}, c: {} } }));
+
+      const first = server._parseSaveDataForServer(dir);
+      assert.equal(first.size, 2);
+      assert.ok(first.has('b'));
+
+      const second = server._parseSaveDataForServer(dir);
+      assert.equal(second, first);
+    });
+
+    it('switches back to save-cache.json when it becomes fresh again', () => {
+      const cachePath = path.join(dir, 'save-cache.json');
+      const agentPath = path.join(dir, 'humanitz-cache.json');
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { a: {} } }));
+      const stale = new Date(Date.now() - 700000);
+      fs.utimesSync(cachePath, stale, stale);
+      fs.writeFileSync(agentPath, JSON.stringify({ players: { b: {}, c: {} } }));
+
+      const fromAgent = server._parseSaveDataForServer(dir);
+      assert.ok(fromAgent.has('b'));
+
+      fs.writeFileSync(cachePath, JSON.stringify({ players: { a: {} } })); // fresh mtime again
+
+      const fromCache = server._parseSaveDataForServer(dir);
+      assert.notEqual(fromCache, fromAgent);
+      assert.equal(fromCache.size, 1);
+      assert.ok(fromCache.has('a'));
+    });
+  });
+
+  // ── _buildStatsCache ─────────────────────────────────────
+
+  describe('_buildStatsCache', () => {
+    it('uses count queries instead of fetching full rows for eventsToday/chatsToday', async () => {
+      let activityCountCalls = 0;
+      let chatCountCalls = 0;
+      let fetchedFullRows = false;
+      const db = makeMockDb({
+        activityLog: {
+          countActivitySince: () => {
+            activityCountCalls++;
+            return 7;
+          },
+          getActivitySince: () => {
+            fetchedFullRows = true;
+            return [];
+          },
+        },
+        chatLog: {
+          countChatSince: () => {
+            chatCountCalls++;
+            return 3;
+          },
+          getChatSince: () => {
+            fetchedFullRows = true;
+            return [];
+          },
+        },
+      });
+      const srv = makeSrv({ serverId: 'secondary', isPrimary: false, db });
+
+      await server._buildStatsCache(srv, (p: Promise<unknown>) => p);
+
+      const cached = server._getCached('stats', 'secondary', 30000) as Record<string, unknown>;
+      assert.ok(cached);
+      assert.equal(cached.eventsToday, 7);
+      assert.equal(cached.chatsToday, 3);
+      assert.equal(activityCountCalls, 1);
+      assert.equal(chatCountCalls, 1);
+      assert.equal(fetchedFullRows, false);
     });
   });
 });

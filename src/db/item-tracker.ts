@@ -19,6 +19,7 @@
  */
 
 import { normalizeInventory } from './item-fingerprint.js';
+import { yieldToEventLoop } from '../utils/async.js';
 // HumanitZDB is the canonical type; HumanitZDBLike below provides a typed
 // adapter so reconcileItems() can use db.item.xxx() with correct return types.
 // Once ItemRepository has typed return values, replace HumanitZDBLike with HumanitZDB.
@@ -126,6 +127,9 @@ interface SnapshotData {
 }
 
 interface HumanitZDBLike {
+  // Optional so lightweight test doubles can omit it; without it writes fall
+  // back to per-statement autocommit (the pre-batching behaviour).
+  transaction?<T>(fn: () => T): T;
   item: {
     getActiveItemInstances(): ItemInstance[];
     touchItemInstance(id: number): void;
@@ -146,11 +150,15 @@ interface HumanitZDBLike {
 //  Main entry
 // ═══════════════════════════════════════════════════════════════════════════
 
-function reconcileItems(
+function _runInWriteTransaction<T>(db: HumanitZDBLike, fn: () => T): T {
+  return db.transaction ? db.transaction(fn) : fn();
+}
+
+async function reconcileItems(
   db: HumanitZDBLike,
   snapshot: SnapshotData,
   nameResolver?: (steamId: string) => string,
-): ReconcileStats {
+): Promise<ReconcileStats> {
   const stats: ReconcileStats = {
     matched: 0,
     created: 0,
@@ -320,8 +328,19 @@ function reconcileItems(
     }
   }
 
-  _reconcileUniqueItems(db, uniqueItems, snapshot, nameResolver, stats);
-  _reconcileFungibleGroups(db, fungibleGroups, snapshot, nameResolver, stats);
+  // Matching is global across locations (a "moved" item is detected by its
+  // fingerprint reappearing anywhere), so reconciliation cannot be chunked
+  // per container. Instead, each reconcile pass commits in its own
+  // transaction with an event-loop yield in between, so the synchronous
+  // better-sqlite3 writes never block the process for the whole reconcile.
+  await yieldToEventLoop();
+  _runInWriteTransaction(db, () => {
+    _reconcileUniqueItems(db, uniqueItems, snapshot, nameResolver, stats);
+  });
+  await yieldToEventLoop();
+  _runInWriteTransaction(db, () => {
+    _reconcileFungibleGroups(db, fungibleGroups, snapshot, nameResolver, stats);
+  });
 
   return stats;
 }

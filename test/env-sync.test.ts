@@ -329,9 +329,9 @@ describe('syncEnv', () => {
     assert.doesNotMatch(content, /^#FOO=old$/m);
   });
 
-  // ── PR #35 upgrade path (v7 → v9) ─────────────────────────────
+  // ── PR #35 upgrade path (v7 → current) ────────────────────────
 
-  it('v7 → v9 upgrade: preserves OAuth secrets, adds WEB_PANEL_TEST_AUTH_TOKEN, bumps schema version', () => {
+  it('v7 → current upgrade: preserves OAuth secrets, adds WEB_PANEL_TEST_AUTH_TOKEN, bumps schema version', () => {
     const { envPath, examplePath } = setupTmp();
     // Simulate a user who already has the web panel configured under schema v7.
     // After PR #35 merges they pull, env-sync sees version mismatch and runs.
@@ -357,13 +357,15 @@ describe('syncEnv', () => {
     envSync.syncEnv();
     const content = fs.readFileSync(envPath, 'utf8');
 
-    assert.match(content, /^ENV_SCHEMA_VERSION=9$/m);
+    assert.match(content, /^ENV_SCHEMA_VERSION=10$/m);
     assert.match(content, /^DISCORD_TOKEN=bot-token-abc$/m);
     assert.match(content, /^DISCORD_OAUTH_SECRET=real-oauth-secret-xyz$/m);
     assert.match(content, /^WEB_MAP_CALLBACK_URL=https:\/\/hz-1\.example\.com\/auth\/callback$/m);
     assert.match(content, /^#WEB_MAP_TRUST_PROXY=loopback$/m);
     assert.match(content, /^#WEB_PANEL_TEST_AUTH_TOKEN=$/m);
     assert.match(content, /^#NODE_ENV=development$/m);
+    // v10: timeline snapshot throttle arrives as a commented optional key
+    assert.match(content, /^#TIMELINE_SNAPSHOT_MIN_INTERVAL=300$/m);
     // Sync should be idempotent — no further resync after the upgrade
     assert.equal(envSync.needsSync(), false);
   });

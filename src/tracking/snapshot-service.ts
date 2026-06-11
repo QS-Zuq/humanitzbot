@@ -13,7 +13,9 @@
 
 import { cleanName } from '../parsers/ue4-names.js';
 import { createLogger, type Logger } from '../utils/log.js';
+import { createStructuredLogger } from '../logger/logger.js';
 import { errMsg } from '../utils/error.js';
+import config from '../config/index.js';
 import type { HumanitZDB } from '../db/database.js';
 
 // ── AI type → display name mapping ──────────────────────────
@@ -189,6 +191,12 @@ interface SaveData {
 
 interface RecordSnapshotOptions {
   onlinePlayers?: Set<string>;
+  /**
+   * Bypass the min-interval throttle. No production caller passes this yet —
+   * it is reserved for a future manual "snapshot now" action, which must set
+   * it or be silently throttled.
+   */
+  force?: boolean;
 }
 
 export interface SnapshotServiceOptions {
@@ -197,16 +205,20 @@ export interface SnapshotServiceOptions {
   trackStructures?: boolean;
   trackHouses?: boolean;
   trackBackpacks?: boolean;
+  minIntervalSeconds?: number;
 }
 
 export class SnapshotService {
   private _db: HumanitZDB;
   private _log: Logger;
+  private _debugLog: ReturnType<typeof createStructuredLogger>;
   private _retentionDays: number;
   private _trackStructures: boolean;
   private _trackHouses: boolean;
   private _trackBackpacks: boolean;
+  private _minIntervalMs: number;
   private _lastSnapshotId: number | null = null;
+  private _lastSnapshotAt: number | null = null;
   private _snapshotCount: number = 0;
   private _pruneCounter: number = 0;
 
@@ -218,14 +230,20 @@ export class SnapshotService {
    * @param options.trackStructures - Track structures in timeline (can be large, default: true)
    * @param options.trackHouses - Track house state in timeline (default: true)
    * @param options.trackBackpacks - Track dropped backpacks (default: true)
+   * @param options.minIntervalSeconds - Minimum seconds between recorded snapshots;
+   *   0 records on every save sync (default: config.timelineSnapshotMinInterval)
    */
   constructor(db: HumanitZDB, options: SnapshotServiceOptions = {}) {
     this._db = db;
     this._log = createLogger(options.label, 'TIMELINE');
+    // The Logger wrapper has no debug level — throttle skips go straight to the
+    // structured logger so they stay hidden at the default 'info' min level.
+    this._debugLog = createStructuredLogger(this._log.label);
     this._retentionDays = options.retentionDays ?? 14;
     this._trackStructures = options.trackStructures !== false;
     this._trackHouses = options.trackHouses !== false;
     this._trackBackpacks = options.trackBackpacks !== false;
+    this._minIntervalMs = Math.max(options.minIntervalSeconds ?? config.timelineSnapshotMinInterval, 0) * 1000;
   }
 
   /**
@@ -235,10 +253,21 @@ export class SnapshotService {
    * @param saveData - The full parsed save object (from save-cache.json or parseSave())
    * @param options
    * @param options.onlinePlayers - Set of currently online player names (lowercase)
-   * @returns The snapshot ID, or null if failed
+   * @param options.force - Bypass the min-interval throttle (manual/forced snapshots)
+   * @returns The snapshot ID, or null if throttled or failed
    */
   recordSnapshot(saveData: SaveData, options: RecordSnapshotOptions = {}): number | null {
     if (!(saveData as SaveData | null | undefined)) return null;
+
+    if (!options.force && this._minIntervalMs > 0 && this._lastSnapshotAt !== null) {
+      const elapsedMs = Date.now() - this._lastSnapshotAt;
+      if (elapsedMs < this._minIntervalMs) {
+        this._debugLog.debug(
+          `Snapshot throttled (${String(Math.round(elapsedMs / 1000))}s since last, min interval ${String(this._minIntervalMs / 1000)}s)`,
+        );
+        return null;
+      }
+    }
 
     try {
       const ws: Record<string, unknown> = saveData.worldState ?? {};
@@ -452,6 +481,7 @@ export class SnapshotService {
       });
 
       this._lastSnapshotId = snapId;
+      this._lastSnapshotAt = Date.now();
       this._snapshotCount++;
 
       // Periodic pruning (every 12 snapshots ≈ 1 hour at 5-min intervals)

@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 
@@ -1512,6 +1512,11 @@ CREATE INDEX IF NOT EXISTS idx_players_lifetime_kills ON players(lifetime_kills 
 CREATE INDEX IF NOT EXISTS idx_players_playtime ON players(playtime_seconds DESC);
 CREATE INDEX IF NOT EXISTS idx_structures_owner ON structures(owner_steam_id);
 CREATE INDEX IF NOT EXISTS idx_clan_members_steam ON clan_members(steam_id);
+CREATE INDEX IF NOT EXISTS idx_structures_pos ON structures(pos_x) WHERE pos_x IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_vehicles_pos ON vehicles(pos_x) WHERE pos_x IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_companions_pos ON companions(pos_x) WHERE pos_x IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dead_bodies_pos ON dead_bodies(pos_x) WHERE pos_x IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_containers_pos ON containers(pos_x) WHERE pos_x IS NOT NULL AND pos_x != 0;
 `;
 
 // ─── All tables in creation order ───────────────────────────────────────────

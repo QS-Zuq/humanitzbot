@@ -214,6 +214,7 @@ export class ActivityLogRepository extends BaseRepository {
     getActivityByActorPaged: Database.Statement;
     getActivitySince: Database.Statement;
     getActivitySinceBySource: Database.Statement;
+    countActivitySince: Database.Statement;
     hasRecentActivity: Database.Statement;
     purgeOldActivity: Database.Statement;
     countActivity: Database.Statement;
@@ -264,6 +265,7 @@ export class ActivityLogRepository extends BaseRepository {
       getActivitySinceBySource: this._handle.prepare(
         'SELECT * FROM activity_log WHERE created_at >= ? AND source = ? ORDER BY created_at ASC, id ASC',
       ),
+      countActivitySince: this._handle.prepare('SELECT COUNT(*) as count FROM activity_log WHERE created_at >= ?'),
       hasRecentActivity: this._handle.prepare(`
         SELECT 1 FROM activity_log
         WHERE type = ?
@@ -648,7 +650,15 @@ export class ActivityLogRepository extends BaseRepository {
 
   /** Get all activity since a given ISO timestamp. */
   getActivitySince(isoTimestamp: string) {
-    return this._stmts.getActivitySince.all(isoTimestamp).map(_parseActivityRow);
+    const cutoff = normalizeDbTimestampUtc(isoTimestamp) ?? isoTimestamp;
+    return this._stmts.getActivitySince.all(cutoff).map(_parseActivityRow);
+  }
+
+  /** Count activity entries since a given ISO timestamp. */
+  countActivitySince(isoTimestamp: string) {
+    const cutoff = normalizeDbTimestampUtc(isoTimestamp) ?? isoTimestamp;
+    const row = this._stmts.countActivitySince.get(cutoff) as DbRow | undefined;
+    return row?.count || 0;
   }
 
   hasRecentActivity(type: string, steamId: string, source: string, windowMs: number, now: Date = new Date()): boolean {
@@ -863,6 +873,7 @@ export class ActivityLogRepository extends BaseRepository {
 
   /** Get all activity since a given ISO timestamp, filtered by source. */
   getActivitySinceBySource(isoTimestamp: string, source: string) {
-    return this._stmts.getActivitySinceBySource.all(isoTimestamp, source).map(_parseActivityRow);
+    const cutoff = normalizeDbTimestampUtc(isoTimestamp) ?? isoTimestamp;
+    return this._stmts.getActivitySinceBySource.all(cutoff, source).map(_parseActivityRow);
   }
 }

@@ -704,7 +704,7 @@ class SaveService extends EventEmitter {
       }
     }
 
-    this._syncParsedData(parsed, clans);
+    await this._syncParsedData(parsed, clans);
     this._syncCount++;
     this._lastError = null;
   }
@@ -1160,7 +1160,7 @@ class SaveService extends EventEmitter {
     await this._syncPipeline.syncFromCache(cache);
   }
 
-  _syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): SaveSyncResult {
+  async _syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): Promise<SaveSyncResult> {
     return this._syncPipeline.syncParsedData(parsed, clans);
   }
 

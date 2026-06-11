@@ -17,6 +17,7 @@ export class ChatLogRepository extends BaseRepository {
     getRecentChat: Database.Statement;
     searchChat: Database.Statement;
     getChatSince: Database.Statement;
+    countChatSince: Database.Statement;
     clearChatLog: Database.Statement;
     purgeOldChat: Database.Statement;
     countChat: Database.Statement;
@@ -39,6 +40,7 @@ export class ChatLogRepository extends BaseRepository {
       getChatSince: this._handle.prepare(
         'SELECT * FROM chat_log WHERE created_at >= ? ORDER BY created_at ASC, id ASC',
       ),
+      countChatSince: this._handle.prepare('SELECT COUNT(*) as count FROM chat_log WHERE created_at >= ?'),
       clearChatLog: this._handle.prepare('DELETE FROM chat_log'),
       purgeOldChat: this._handle.prepare("DELETE FROM chat_log WHERE created_at < datetime('now', ?)"),
       countChat: this._handle.prepare('SELECT COUNT(*) as count FROM chat_log'),
@@ -92,6 +94,12 @@ export class ChatLogRepository extends BaseRepository {
   /** Get all chat since a given timestamp. */
   getChatSince(timestamp: string) {
     return this._stmts.getChatSince.all(normalizeDbTimestampUtc(timestamp) ?? timestamp);
+  }
+
+  /** Count chat entries since a given timestamp. */
+  countChatSince(timestamp: string) {
+    const row = this._stmts.countChatSince.get(normalizeDbTimestampUtc(timestamp) ?? timestamp) as DbRow | undefined;
+    return row?.count || 0;
   }
 
   /** Delete all chat log entries. */

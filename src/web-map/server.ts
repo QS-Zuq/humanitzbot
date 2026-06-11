@@ -598,6 +598,7 @@ class WebMapServer {
   _responseCache: Map<string, { data: unknown; ts: number }>;
   _playerCache: Map<string, unknown>;
   _lastParse: number;
+  _saveJsonCache: Map<string, { map: Map<string, unknown>; sourcePath: string; mtimeMs: number }>;
   _botControl: BotControlService | null = null;
   _moduleStatus: Record<string, string> | null = null;
   _pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -666,6 +667,9 @@ class WebMapServer {
     // Cache: last parsed save data
     this._playerCache = new Map();
     this._lastParse = 0;
+
+    // Cache: parsed JSON save caches keyed by data dir, invalidated when the source file's mtime changes
+    this._saveJsonCache = new Map();
 
     // Security headers
     this._app.use((_req, res, next) => {
@@ -1034,8 +1038,30 @@ class WebMapServer {
   }
 
   /**
+   * Read and parse a JSON save cache file, reusing the previous parse for the
+   * same data dir while the source file and its mtime are unchanged.
+   *
+   * The returned Map is the shared cache entry — callers must treat it as
+   * read-only; mutating it would corrupt the cache for every other consumer.
+   */
+  _readSaveJsonCached(dataDir: string, sourcePath: string, mtimeMs: number): Map<string, unknown> {
+    const cached = this._saveJsonCache.get(dataDir);
+    if (cached && cached.sourcePath === sourcePath && cached.mtimeMs === mtimeMs) {
+      return cached.map;
+    }
+    const data = JSON.parse(fs.readFileSync(sourcePath, 'utf8')) as { players?: Record<string, unknown> };
+    const map = new Map<string, unknown>();
+    for (const [steamId, pData] of Object.entries(data.players ?? {})) {
+      map.set(steamId, pData);
+    }
+    this._saveJsonCache.set(dataDir, { map, sourcePath, mtimeMs });
+    return map;
+  }
+
+  /**
    * Parse save data for a specific server.
    * Tries (in order): save-cache.json, humanitz-cache.json, raw .sav files.
+   * JSON sources are cached per data dir and only re-read when their mtime changes.
    */
   _parseSaveDataForServer(dataDir: string): Map<string, unknown> {
     // 1. Try save-cache.json (written by PlayerStatsChannel)
@@ -1045,12 +1071,7 @@ class WebMapServer {
         const stat = fs.statSync(cachePath);
         // Use cache if less than 10 minutes old
         if (Date.now() - stat.mtimeMs < 600000) {
-          const data = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { players?: Record<string, unknown> };
-          const map = new Map<string, unknown>();
-          for (const [steamId, pData] of Object.entries(data.players ?? {})) {
-            map.set(steamId, pData);
-          }
-          return map;
+          return this._readSaveJsonCached(dataDir, cachePath, stat.mtimeMs);
         }
       }
     } catch {
@@ -1061,12 +1082,8 @@ class WebMapServer {
     try {
       const agentPath = path.join(dataDir, 'humanitz-cache.json');
       if (fs.existsSync(agentPath)) {
-        const data = JSON.parse(fs.readFileSync(agentPath, 'utf8')) as { players?: Record<string, unknown> };
-        const map = new Map<string, unknown>();
-        for (const [steamId, pData] of Object.entries(data.players ?? {})) {
-          map.set(steamId, pData);
-        }
-        return map;
+        const stat = fs.statSync(agentPath);
+        return this._readSaveJsonCached(dataDir, agentPath, stat.mtimeMs);
       }
     } catch {
       /* fall through */
@@ -6270,10 +6287,8 @@ class WebMapServer {
         const localDate = new Date(todayMidnight.toLocaleString('en-US', { timeZone: tz }));
         const offsetMs = tzDate.getTime() - localDate.getTime();
         const todayIso = new Date(todayMidnight.getTime() + offsetMs).toISOString();
-        const activities = srv.db.activityLog.getActivitySince(todayIso);
-        result.eventsToday = activities.length;
-        const chats = srv.db.chatLog.getChatSince(todayIso);
-        result.chatsToday = chats.length;
+        result.eventsToday = srv.db.activityLog.countActivitySince(todayIso);
+        result.chatsToday = srv.db.chatLog.countChatSince(todayIso);
       } catch {
         /* db unavailable */
       }

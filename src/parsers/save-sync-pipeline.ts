@@ -4,11 +4,12 @@ import { reconcileItems } from '../db/item-tracker.js';
 import type { HumanitZDB } from '../db/database.js';
 import type { Logger } from '../utils/log.js';
 import { errMsg } from '../utils/error.js';
+import { yieldToEventLoop } from '../utils/async.js';
 
 const MAINTENANCE_PURGE_INTERVAL_SYNCS = 100;
 
 export type SaveActivityEvent = ReturnType<typeof diffSaveState>[number];
-export type SaveItemStats = ReturnType<typeof reconcileItems>;
+export type SaveItemStats = Awaited<ReturnType<typeof reconcileItems>>;
 export type SaveSyncPipelineDb = Pick<HumanitZDB, 'syncAllFromSave' | 'activityLog' | 'meta' | 'item'>;
 
 interface SyncPhaseTimings {
@@ -158,10 +159,16 @@ export class SaveSyncPipeline {
       horses: cache.horses ?? [],
     };
     const clans = this._deps.shouldFetchClanData() ? await this._deps.fetchClanData() : [];
-    this.syncParsedData(parsed, clans);
+    await this.syncParsedData(parsed, clans);
   }
 
-  syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): SaveSyncResult {
+  /**
+   * Runs the sync as a sequence of phase transactions (world data, item
+   * tracking, activity log, meta) with event-loop yields in between, so the
+   * synchronous better-sqlite3 writes never block the process for the whole
+   * sync. _poll()'s _syncing guard prevents a second sync from interleaving.
+   */
+  async syncParsedData(parsed: SaveParsedDataInput, clans: unknown[]): Promise<SaveSyncResult> {
     const startTime = Date.now();
     const phaseStart = performance.now();
     let phaseMark = phaseStart;
@@ -186,7 +193,7 @@ export class SaveSyncPipeline {
     };
 
     phaseMark = performance.now();
-    this._deps.db.syncAllFromSave({
+    await this._deps.db.syncAllFromSave({
       players,
       playerSources: parsed.playerSources,
       worldState: parsed.worldState,
@@ -203,10 +210,12 @@ export class SaveSyncPipeline {
     });
     timings.db = this._elapsedSince(phaseMark);
 
-    const itemTracking = this._reconcileItems(parsed, players, idMap);
+    await yieldToEventLoop();
+    const itemTracking = await this._reconcileItems(parsed, players, idMap);
     timings.items = itemTracking.reconcileMs;
     timings.itemPurge = itemTracking.purgeMs;
 
+    await yieldToEventLoop();
     phaseMark = performance.now();
     this._writeActivityEvents(diffEvents);
     if (this._isMaintenancePurgeDue()) {
@@ -325,11 +334,11 @@ export class SaveSyncPipeline {
     return worldDrops;
   }
 
-  private _reconcileItems(
+  private async _reconcileItems(
     parsed: SaveParsedDataInput,
     players: Map<string, Record<string, unknown>>,
     idMap: Record<string, string>,
-  ): ItemTrackingRunResult {
+  ): Promise<ItemTrackingRunResult> {
     let itemStats: SaveItemStats;
     let purgeMs = 0;
     const reconcileStart = performance.now();
@@ -338,7 +347,7 @@ export class SaveSyncPipeline {
         const p = players.get(steamId);
         return (p?.['name'] as string) || idMap[steamId] || steamId;
       };
-      itemStats = reconcileItems(
+      itemStats = await reconcileItems(
         // SAFETY: HumanitZDBLike requires index signature not present on class
         this._deps.db as unknown as Parameters<typeof reconcileItems>[0],
         {

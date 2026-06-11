@@ -5,6 +5,7 @@ import { createLogger } from '../utils/log.js';
 import { getDirname } from '../utils/paths.js';
 import { envBool, envTime, tzOffsetMs } from './helpers.js';
 import { resolveSaveServicePollInterval } from './save-service-runtime.js';
+import { normalizeDisplayRuntimeValue } from './display-runtime.js';
 import {
   canShow as _canShow,
   isAdminView as _isAdminView,
@@ -147,6 +148,7 @@ interface Config {
   stdinConsoleWritable: boolean;
   resourceCacheTtl: number;
   savePollInterval: number;
+  timelineSnapshotMinInterval: number;
 
   // Agent
   agentMode: string;
@@ -502,6 +504,15 @@ const config = {
 
   // Save-file parser
   savePollInterval: Math.max(parseInt(process.env.SAVE_POLL_INTERVAL ?? '', 10) || 300000, 60000), // min 1 min
+
+  // Timeline snapshot throttle — minimum seconds between recorded snapshots.
+  // Save sync runs ~every 60s; writing a full snapshot on every sync grows
+  // timeline_* tables to millions of rows on busy servers. 0 = record on
+  // every save sync (pre-throttle behavior).
+  timelineSnapshotMinInterval: ((): number => {
+    const v = parseInt(process.env.TIMELINE_SNAPSHOT_MIN_INTERVAL ?? '', 10);
+    return Number.isNaN(v) || v < 0 ? 300 : v;
+  })(),
 
   // Agent mode — offloads save parsing to the game server for faster updates.
   // 'auto' = agent/cache path only; fail loudly if the cache/idMap is unavailable
@@ -1022,6 +1033,33 @@ function _normalizeHydratedConfigValue(key: string, value: unknown): unknown {
   return value;
 }
 
+const _HYDRATE_DISPLAY_ENV_KEYS: Record<string, 'BOT_LOCALE' | 'BOT_TIMEZONE' | 'LOG_TIMEZONE'> = {
+  botLocale: 'BOT_LOCALE',
+  botTimezone: 'BOT_TIMEZONE',
+  logTimezone: 'LOG_TIMEZONE',
+};
+
+/**
+ * Normalize a single hydrated value, or signal that the DB value must be
+ * skipped (keeping the .env-derived default). Display keys go through the
+ * same trim + Intl validation as runtime reconfiguration — DB documents may
+ * hold untrimmed or invalid values written before validation existed, and a
+ * raw invalid timezone would make every toLocaleString(timeZone) consumer
+ * throw at runtime.
+ */
+function _hydrateConfigValue(key: string, value: unknown): { ok: boolean; value?: unknown } {
+  const envKey = _HYDRATE_DISPLAY_ENV_KEYS[key];
+  if (envKey) {
+    try {
+      return { ok: true, value: normalizeDisplayRuntimeValue(envKey, value) };
+    } catch (err: unknown) {
+      console.warn(`[CONFIG] Ignoring invalid ${key} from DB config (${String(value)}): ${errMsg(err)}`);
+      return { ok: false };
+    }
+  }
+  return { ok: true, value: _normalizeHydratedConfigValue(key, value) };
+}
+
 /**
  * Hydrate the config singleton from DB-backed config documents.
  * Called once from index.js after DB init + migration.
@@ -1035,7 +1073,8 @@ config.hydrate = function (configRepo: {
     if (appConfig) {
       for (const [key, value] of Object.entries(appConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          setConfigValue(config, key, _normalizeHydratedConfigValue(key, value));
+          const normalized = _hydrateConfigValue(key, value);
+          if (normalized.ok) setConfigValue(config, key, normalized.value);
         }
       }
     }
@@ -1043,7 +1082,8 @@ config.hydrate = function (configRepo: {
     if (serverConfig) {
       for (const [key, value] of Object.entries(serverConfig)) {
         if (Object.prototype.hasOwnProperty.call(config, key)) {
-          setConfigValue(config, key, _normalizeHydratedConfigValue(key, value));
+          const normalized = _hydrateConfigValue(key, value);
+          if (normalized.ok) setConfigValue(config, key, normalized.value);
         }
       }
     }

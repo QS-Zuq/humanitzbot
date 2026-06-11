@@ -26,8 +26,8 @@ after(() => {
 });
 
 describe('Schema v11 — Timeline tables', () => {
-  it('schema version is 21', () => {
-    assert.equal(SCHEMA_VERSION, 21);
+  it('schema version is 22', () => {
+    assert.equal(SCHEMA_VERSION, 22);
   });
 
   it('ALL_TABLES includes timeline table definitions', () => {
@@ -445,7 +445,8 @@ describe('SnapshotService', () => {
   before(() => {
     serviceDb = new HumanitZDB({ memory: true, label: 'SnapTest' });
     serviceDb.init();
-    service = new SnapshotService(serviceDb, { retentionDays: 7 });
+    // minIntervalSeconds: 0 — this suite records multiple snapshots back-to-back
+    service = new SnapshotService(serviceDb, { retentionDays: 7, minIntervalSeconds: 0 });
   });
 
   after(() => {
@@ -642,5 +643,87 @@ describe('SnapshotService', () => {
     assert.equal(service._resolveSeason({ totalDaysElapsed: 60 }), 'Autumn'); // 60-89
     assert.equal(service._resolveSeason({ totalDaysElapsed: 90 }), 'Winter'); // 90-119
     assert.equal(service._resolveSeason({ totalDaysElapsed: 120 }), 'Spring'); // cycles
+  });
+});
+
+describe('SnapshotService throttling', () => {
+  let throttleDb: typeof HumanitZDB;
+
+  const makeSaveData = () => ({
+    players: new Map([['76561198000000001', { name: 'TestPlayer', steamId: '76561198000000001' }]]),
+    worldState: { totalDaysElapsed: 1, timeOfDay: { day: 1, time: 8 } },
+  });
+
+  const snapshotCount = () =>
+    (throttleDb.db.prepare('SELECT COUNT(*) AS count FROM timeline_snapshots').get() as { count: number }).count;
+
+  before(() => {
+    throttleDb = new HumanitZDB({ memory: true, label: 'ThrottleTest' });
+    throttleDb.init();
+  });
+
+  after(() => {
+    if (throttleDb) throttleDb.close();
+  });
+
+  it('skips snapshots recorded within the minimum interval', () => {
+    const svc = new SnapshotService(throttleDb, { minIntervalSeconds: 300 });
+    const before = snapshotCount();
+
+    const first = svc.recordSnapshot(makeSaveData());
+    assert.ok(typeof first === 'number' && first > 0);
+
+    const second = svc.recordSnapshot(makeSaveData());
+    assert.equal(second, null);
+    assert.equal(svc.snapshotCount, 1);
+    assert.equal(snapshotCount(), before + 1);
+  });
+
+  it('records again once the interval has elapsed', () => {
+    const svc = new SnapshotService(throttleDb, { minIntervalSeconds: 300 });
+    const first = svc.recordSnapshot(makeSaveData());
+    assert.ok(typeof first === 'number' && first > 0);
+
+    // Backdate the last-snapshot timestamp past the interval
+    svc._lastSnapshotAt = Date.now() - 301_000;
+
+    const second = svc.recordSnapshot(makeSaveData());
+    assert.ok(typeof second === 'number' && second > 0);
+    assert.equal(svc.snapshotCount, 2);
+  });
+
+  it('minIntervalSeconds: 0 disables throttling', () => {
+    const svc = new SnapshotService(throttleDb, { minIntervalSeconds: 0 });
+    const first = svc.recordSnapshot(makeSaveData());
+    const second = svc.recordSnapshot(makeSaveData());
+    assert.ok(typeof first === 'number' && first > 0);
+    assert.ok(typeof second === 'number' && second > 0);
+    assert.equal(svc.snapshotCount, 2);
+  });
+
+  it('force bypasses the throttle', () => {
+    const svc = new SnapshotService(throttleDb, { minIntervalSeconds: 300 });
+    const first = svc.recordSnapshot(makeSaveData());
+    assert.ok(typeof first === 'number' && first > 0);
+
+    const forced = svc.recordSnapshot(makeSaveData(), { force: true });
+    assert.ok(typeof forced === 'number' && forced > 0);
+    assert.equal(svc.snapshotCount, 2);
+  });
+
+  it('defaults to config.timelineSnapshotMinInterval (300s)', () => {
+    // TIMELINE_SNAPSHOT_MIN_INTERVAL is unset in .env.test → config default 300
+    const svc = new SnapshotService(throttleDb);
+    assert.equal(svc._minIntervalMs, 300_000);
+  });
+
+  it('throttled call does not update the last-snapshot timestamp', () => {
+    const svc = new SnapshotService(throttleDb, { minIntervalSeconds: 300 });
+    svc.recordSnapshot(makeSaveData());
+    const lastAt = svc._lastSnapshotAt;
+    assert.ok(typeof lastAt === 'number');
+
+    svc.recordSnapshot(makeSaveData());
+    assert.equal(svc._lastSnapshotAt, lastAt);
   });
 });

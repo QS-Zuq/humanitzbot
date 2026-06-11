@@ -658,6 +658,38 @@ describe('config.hydrate', () => {
     assert.equal(config, ref);
   });
 
+  it('trims whitespace-padded display values from DB (botTimezone)', () => {
+    const savedTz = config.botTimezone;
+    try {
+      const repo = mockRepo({ app: { botTimezone: ' Asia/Taipei' } });
+      config.hydrate(repo);
+      assert.equal(config.botTimezone, 'Asia/Taipei');
+    } finally {
+      config.botTimezone = savedTz;
+    }
+  });
+
+  it('skips invalid display values from DB and keeps the current value', () => {
+    const savedTz = config.botTimezone;
+    const savedLocale = config.botLocale;
+    try {
+      config.botTimezone = 'UTC';
+      config.botLocale = 'en';
+      const repo = mockRepo({
+        app: { botTimezone: 'Not/AZone', botLocale: 'xx-YY', showVitals: false },
+      });
+      config.showVitals = true;
+      config.hydrate(repo);
+      assert.equal(config.botTimezone, 'UTC');
+      assert.equal(config.botLocale, 'en');
+      // an invalid display key must not abort hydration of other keys
+      assert.equal(config.showVitals, false);
+    } finally {
+      config.botTimezone = savedTz;
+      config.botLocale = savedLocale;
+    }
+  });
+
   it('handles null/empty documents gracefully (no-op)', () => {
     const repo = mockRepo({});
     config.rconHost = 'original';
