@@ -59,7 +59,7 @@ describe('Schema v22 — partial pos_x indexes', () => {
       for (const name of POS_INDEXES) {
         assert.ok(migrated.has(name), `${name} should be recreated by the v21→v22 migration`);
       }
-      assert.equal(db._getMeta('schema_version'), '22');
+      assert.equal(db._getMeta('schema_version'), '23');
     } finally {
       db.close();
     }

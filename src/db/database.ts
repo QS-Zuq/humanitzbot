@@ -1355,6 +1355,30 @@ class HumanitZDB {
         this._log.info('Migration v21→v22: partial pos_x indexes for positioned world object queries');
       }
 
+      // v22 → v23: normalize legacy ISO playtime timestamps on players.
+      // upsertFullPlaytime() has normalized these at write time for a while,
+      // but rows written before that kept the ISO 'T' format — and the
+      // lexicographic MAX in upsertPlayerPlaytime's CASE makes them sticky:
+      // a same-day canonical value never beats a 'T' row ('T' > ' '), so they
+      // can only be fixed by a one-time rewrite.
+      if (fromVersion < 23) {
+        let normalized = 0;
+        for (const column of ['playtime_first_seen', 'playtime_last_login', 'playtime_last_seen']) {
+          // SQLite parses the 'T...Z' form as UTC and strftime formats in UTC,
+          // so the rewrite preserves the instant; COALESCE keeps the original
+          // value when strftime cannot parse it.
+          const result = this._handle
+            .prepare(
+              `UPDATE players
+               SET ${column} = COALESCE(strftime('%Y-%m-%d %H:%M:%S', ${column}), ${column})
+               WHERE ${column} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*'`,
+            )
+            .run();
+          normalized += result.changes;
+        }
+        this._log.info(`Migration v22→v23: normalized ${String(normalized)} legacy ISO playtime timestamps`);
+      }
+
       this._ensureItemMovementsInstanceIdNullable();
       this._setMeta('schema_version', String(SCHEMA_VERSION));
       this._handle.exec('COMMIT');

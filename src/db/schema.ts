@@ -9,7 +9,7 @@
  * Schema is applied via database.js on first run and auto-migrated on updates.
  */
 
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 
 // ─── Player data ────────────────────────────────────────────────────────────
 

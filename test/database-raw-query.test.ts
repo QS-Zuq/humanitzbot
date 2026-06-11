@@ -613,7 +613,7 @@ describe('PR3 repository migration helpers', () => {
       ctx: 'test:activity-recent-index-migration',
     }) as Array<{ name: string }>;
     assert.ok(indexes.some((row) => row.name === 'idx_activity_recent_dedupe'));
-    assert.equal(db._getMeta('schema_version'), '22');
+    assert.equal(db._getMeta('schema_version'), '23');
   });
 
   it('reads canonical activity categories across legacy category aliases without backfilling old rows', () => {
