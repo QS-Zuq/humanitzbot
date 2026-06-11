@@ -8,6 +8,10 @@ import { yieldToEventLoop } from '../utils/async.js';
 
 const MAINTENANCE_PURGE_INTERVAL_SYNCS = 100;
 
+function _presentArray(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
 export type SaveActivityEvent = ReturnType<typeof diffSaveState>[number];
 export type SaveItemStats = Awaited<ReturnType<typeof reconcileItems>>;
 export type SaveSyncPipelineDb = Pick<HumanitZDB, 'syncAllFromSave' | 'activityLog' | 'meta' | 'item'>;
@@ -145,18 +149,22 @@ export class SaveSyncPipeline {
         });
       }
     }
+    // Pass list fields through as-is: a present array (even empty) is
+    // authoritative and clears/replaces the table downstream, while a field
+    // missing from the cache (older agent version) stays undefined so the
+    // table is left untouched. See syncAllFromSave() payload semantics.
     const parsed: SaveParsedDataInput = {
       players,
       playerSources,
       worldState: cache.worldState ?? {},
-      structures: cache.structures ?? [],
-      vehicles: cache.vehicles ?? [],
-      companions: cache.companions ?? [],
-      deadBodies: cache.deadBodies ?? [],
-      containers: cache.containers ?? [],
-      lootActors: cache.lootActors ?? [],
-      quests: cache.quests ?? [],
-      horses: cache.horses ?? [],
+      structures: _presentArray(cache.structures),
+      vehicles: _presentArray(cache.vehicles),
+      companions: _presentArray(cache.companions),
+      deadBodies: _presentArray(cache.deadBodies),
+      containers: _presentArray(cache.containers),
+      lootActors: _presentArray(cache.lootActors),
+      quests: _presentArray(cache.quests),
+      horses: _presentArray(cache.horses),
     };
     const clans = this._deps.shouldFetchClanData() ? await this._deps.fetchClanData() : [];
     await this.syncParsedData(parsed, clans);
@@ -206,7 +214,7 @@ export class SaveSyncPipeline {
       lootActors: parsed.lootActors,
       quests: parsed.quests,
       horses: parsed.horses,
-      worldDrops: worldDrops.length > 0 ? worldDrops : null,
+      worldDrops,
     });
     timings.db = this._elapsedSince(phaseMark);
 

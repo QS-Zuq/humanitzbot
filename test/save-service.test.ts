@@ -327,28 +327,44 @@ describe('SaveService agent availability', () => {
 });
 
 describe('SaveSyncPipeline syncFromCache', () => {
-  it('normalizes cache players into a Map and supplies default arrays', async () => {
+  it('normalizes cache players into a Map and passes list fields through as-is', async () => {
     const db = makeDb();
     const { pipeline, emitted, cacheWrites } = makePipeline(db);
 
-    await pipeline.syncFromCache({ v: 1, players: { steam1: { name: 'Alice' } }, worldState: { day: 7 } });
+    // containers present (empty) is authoritative; the other list fields are
+    // absent from the cache and must stay undefined so the DB sync skips them.
+    await pipeline.syncFromCache({
+      v: 1,
+      players: { steam1: { name: 'Alice' } },
+      worldState: { day: 7 },
+      containers: [],
+    });
 
     const parsed = db.syncPayloads[0] as AnyRecord;
     assert.ok(parsed.players instanceof Map);
     assert.deepEqual(parsed.players.get('steam1'), { name: 'Alice' });
     assert.deepEqual(parsed.worldState, { day: 7 });
-    assert.deepEqual(parsed.structures, []);
-    assert.deepEqual(parsed.vehicles, []);
-    assert.deepEqual(parsed.companions, []);
-    assert.deepEqual(parsed.deadBodies, []);
     assert.deepEqual(parsed.containers, []);
-    assert.deepEqual(parsed.lootActors, []);
-    assert.deepEqual(parsed.quests, []);
-    assert.deepEqual(parsed.horses, []);
+    assert.equal(parsed.structures, undefined);
+    assert.equal(parsed.vehicles, undefined);
+    assert.equal(parsed.companions, undefined);
+    assert.equal(parsed.deadBodies, undefined);
+    assert.equal(parsed.lootActors, undefined);
+    assert.equal(parsed.quests, undefined);
+    assert.equal(parsed.horses, undefined);
     assert.deepEqual(parsed.clans, []);
     assert.equal(cacheWrites.length, 1);
     assert.equal(emitted.length, 1);
     assert.equal(emitted[0]?.playerCount, 1);
+  });
+
+  it('passes empty worldDrops through as an array instead of null', async () => {
+    const db = makeDb();
+    const { pipeline } = makePipeline(db);
+
+    await pipeline.syncParsedData(makeParsedSave(), []);
+
+    assert.deepEqual((db.syncPayloads[0] as AnyRecord).worldDrops, []);
   });
 
   it('fetches clan data only when a clan save path is configured', async () => {
@@ -588,13 +604,15 @@ describe('SaveService _syncParsedData', () => {
     assert.equal(getSync()?.clanCount, 1);
   });
 
-  it('passes null worldDrops when no world drop state exists', async () => {
+  it('passes an empty worldDrops array when no world drop state exists', async () => {
     const db = makeDb();
     const svc = makeService(db);
 
     await svc._syncParsedData(makeParsedSave(), []);
 
-    assert.equal(db.syncPayloads[0].worldDrops, null);
+    // An empty array is authoritative ("the world has no drops") and clears
+    // the table downstream; null was the legacy encoding for the same case.
+    assert.deepEqual(db.syncPayloads[0].worldDrops, []);
   });
 
   it('builds worldDrops from pickups, backpacks, and global containers', async () => {

@@ -1537,10 +1537,34 @@ class HumanitZDB {
    * a cross-table mix of old and new data (acceptable for dashboard reads).
    * Called by SaveSyncPipeline instead of individual replace* methods.
    *
+   * Payload semantics: a present array (including an empty one) is
+   * authoritative and replaces the table — an empty world really does clear
+   * it, matching how item reconciliation already treats the snapshot. null is
+   * treated as an explicit empty array. undefined means the caller did not
+   * provide the field (e.g. an older agent cache), so the table is left
+   * untouched. Parse failures abort the whole sync upstream and never reach
+   * this method with partial data.
+   *
    * @param {object} data - { players, worldState, structures, vehicles, companions, clans,
    *                          deadBodies, containers, lootActors, quests, horses, worldDrops }
    */
   async syncAllFromSave(data: Record<string, unknown>): Promise<void> {
+    const phases = this._buildSaveSyncPhases(data);
+    for (let i = 0; i < phases.length; i++) {
+      if (i > 0) await yieldToEventLoop();
+      const phase = phases[i];
+      if (phase) this.transaction(phase);
+    }
+  }
+
+  /**
+   * Build the save-sync write operations as an ordered list of thunks.
+   * Shared by syncAllFromSave() (one transaction per phase, with yields) and
+   * syncFromSave() (all phases inside a single transaction), so both paths
+   * stay write-for-write identical. See syncAllFromSave() for the payload
+   * semantics.
+   */
+  _buildSaveSyncPhases(data: Record<string, unknown>): Array<() => void> {
     const phases: Array<() => void> = [];
 
     if (data.players) {
@@ -1603,108 +1627,66 @@ class HumanitZDB {
       });
     }
 
-    if (Array.isArray(data.deadBodies) && data.deadBodies.length > 0) {
-      phases.push(() => {
-        this.worldObject.innerReplaceDeadBodies(data.deadBodies as Array<Record<string, unknown>>);
-      });
-    }
-    if (Array.isArray(data.containers) && data.containers.length > 0) {
-      phases.push(() => {
-        this.worldObject.innerReplaceContainers(data.containers as Array<Record<string, unknown>>);
-      });
-    }
-    if (Array.isArray(data.lootActors) && data.lootActors.length > 0) {
-      phases.push(() => {
-        this.worldObject.innerReplaceLootActors(data.lootActors as Array<Record<string, unknown>>);
-      });
-    }
-    if (Array.isArray(data.quests) && data.quests.length > 0) {
-      phases.push(() => {
-        this.quest.innerReplaceQuests(data.quests as Array<Record<string, unknown>>);
-      });
-    }
-    if (Array.isArray(data.horses) && data.horses.length > 0) {
-      phases.push(() => {
-        this.worldObject.innerReplaceWorldHorses(data.horses as Array<Record<string, unknown>>);
-      });
-    }
-    if (Array.isArray(data.worldDrops) && data.worldDrops.length > 0) {
-      phases.push(() => {
-        this.worldObject.innerReplaceWorldDrops(data.worldDrops as Array<Record<string, unknown>>);
-      });
+    const auxReplacements: Array<[unknown, (rows: Array<Record<string, unknown>>) => void]> = [
+      [
+        data.deadBodies,
+        (rows) => {
+          this.worldObject.innerReplaceDeadBodies(rows);
+        },
+      ],
+      [
+        data.containers,
+        (rows) => {
+          this.worldObject.innerReplaceContainers(rows);
+        },
+      ],
+      [
+        data.lootActors,
+        (rows) => {
+          this.worldObject.innerReplaceLootActors(rows);
+        },
+      ],
+      [
+        data.quests,
+        (rows) => {
+          this.quest.innerReplaceQuests(rows);
+        },
+      ],
+      [
+        data.horses,
+        (rows) => {
+          this.worldObject.innerReplaceWorldHorses(rows);
+        },
+      ],
+      [
+        data.worldDrops,
+        (rows) => {
+          this.worldObject.innerReplaceWorldDrops(rows);
+        },
+      ],
+    ];
+    for (const [payload, replace] of auxReplacements) {
+      if (Array.isArray(payload) || payload === null) {
+        phases.push(() => {
+          replace((payload ?? []) as Array<Record<string, unknown>>);
+        });
+      }
     }
 
-    for (let i = 0; i < phases.length; i++) {
-      if (i > 0) await yieldToEventLoop();
-      const phase = phases[i];
-      if (phase) this.transaction(phase);
-    }
+    return phases;
   }
 
   /**
-   * Legacy core-entity sync: players, world state, structures, vehicles,
-   * companions, clans, and server settings — auxiliary world objects
-   * (dead bodies, containers, loot actors, quests, horses, world drops) are
-   * only synced by syncAllFromSave(). Single-transaction variant kept for
-   * standalone callers (currently tests only); the polling path uses the
-   * phased syncAllFromSave() instead.
+   * Single-transaction save sync for standalone callers (currently tests
+   * only); the polling path uses the phased syncAllFromSave() instead. Same
+   * writes and payload semantics — both run _buildSaveSyncPhases().
    */
   syncFromSave(parsed: Record<string, unknown>) {
     this.transaction(() => {
-      this._syncFromSaveInner(parsed);
+      for (const phase of this._buildSaveSyncPhases(parsed)) {
+        phase();
+      }
     });
-  }
-
-  /** Inner sync logic — no transaction wrapper, safe to call inside an outer transaction. */
-  _syncFromSaveInner(parsed: Record<string, unknown>): void {
-    // Players
-    if (parsed.players) {
-      const players = parsed.players as Map<string, Record<string, unknown>>;
-      const playerSources =
-        parsed.playerSources instanceof Map
-          ? (parsed.playerSources as Map<string, Record<string, unknown>>)
-          : new Map<string, Record<string, unknown>>();
-      for (const [steamId, data] of players) {
-        const source = playerSources.get(steamId);
-        this.player.upsertPlayer(steamId, source ? { ...data, __saveSource: source } : data);
-      }
-    }
-
-    // World state
-    if (parsed.worldState) {
-      for (const [key, value] of Object.entries(parsed.worldState as Record<string, unknown>)) {
-        this.worldState.innerSetWorldState(key, value);
-      }
-    }
-
-    // Structures
-    if (parsed.structures) {
-      this.worldObject.innerReplaceStructures(parsed.structures as Array<Record<string, unknown>>);
-    }
-
-    // Vehicles
-    if (parsed.vehicles) {
-      this.worldObject.innerReplaceVehicles(parsed.vehicles as Array<Record<string, unknown>>);
-    }
-
-    // Companions
-    if (parsed.companions) {
-      this.worldObject.innerReplaceCompanions(parsed.companions as Array<Record<string, unknown>>);
-    }
-
-    // Clans
-    if (parsed.clans) {
-      for (const clan of parsed.clans as Array<Record<string, unknown>>) {
-        this.clan.upsertClan(clan.name as string, clan.members as Array<Record<string, unknown>>);
-      }
-    }
-
-    // Server settings
-    if (parsed.serverSettings) {
-      for (const [key, value] of Object.entries(parsed.serverSettings as Record<string, unknown>)) {
-        this.worldState.innerUpsertSetting(key, String(value));
-      }
-    }
   }
 }
 
